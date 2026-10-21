@@ -8,6 +8,7 @@
 //   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
 //   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
+//   · 自主记忆：self-talk / mood-ai 新生成成功时，把模型输出**只追加**写入 $DSH_HOME/agent-memory/；
 //   · 所有新增路由接入宿主信任栅栏（lib/trust.mjs，委托 connection.requestRejection）。
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
@@ -18,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { createAssetHandler } from './lib/assets.mjs'
 import { createDataStore } from './lib/data-store.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
+import { createMemoryJournal, resolveMemoryDir } from './lib/memory-journal.mjs'
 import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
 import { createRouteTable } from './lib/routes.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
@@ -47,6 +49,9 @@ export async function apply(ctx) {
   const env = process.env
   const home = env.HOME || os.homedir()
   const settingsPath = resolveSettingsPath(env, home)
+  // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
+  const memoryDir = resolveMemoryDir(env, home)
+  const journal = createMemoryJournal({ dir: memoryDir, logger })
 
   // —— 当日心情统计：尽早注册 session/event 监听（webServer 就绪前也累计）——
   // moodTracker 防抖写 $DSH_HOME/.dsh-poetry/mood.json；插件卸载时落盘并清定时器。
@@ -146,6 +151,7 @@ export async function apply(ctx) {
         moodTracker,
         selfTalkService,
         moodAiService,
+        journal,
         env,
         home,
       })
@@ -178,6 +184,7 @@ export async function apply(ctx) {
         `[dsh-poetry-widget] 已挂载 ${routes.length + 1} 条路由（/api/dsh-poetry/*，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
+      logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)
     } catch (error) {
       // 路由注册失败只影响本插件，不能让宿主 apply 抛未捕获异常。
       logger?.error?.(

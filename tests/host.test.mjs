@@ -41,6 +41,12 @@ import {
   zeroMoodResponse,
 } from '../lib/mood.mjs'
 import {
+  MEMORY_JOURNAL_HEADER,
+  createMemoryJournal,
+  formatJournalTime,
+  resolveMemoryDir,
+} from '../lib/memory-journal.mjs'
+import {
   MOOD_AI_CACHE_TTL_MS,
   MOOD_AI_SYSTEM_PROMPT,
   buildMoodPrompt,
@@ -207,6 +213,14 @@ function createHarness(overrides = {}) {
       cacheTtlMs: 0,
       minIntervalMs: 0,
     })
+  const journalDir = overrides.journalDir ?? path.join(makeTmpDir('dshp-memory'), 'agent-memory')
+  const journal =
+    overrides.journal ??
+    createMemoryJournal({
+      dir: journalDir,
+      logger: { warn() {} },
+      now: () => FIXED_NOW.getTime(),
+    })
   const handlers = new Map(
     createRouteTable({
       dataStore,
@@ -218,6 +232,7 @@ function createHarness(overrides = {}) {
       moodTracker,
       selfTalkService,
       moodAiService,
+      journal,
       env,
       home,
       now,
@@ -233,7 +248,22 @@ function createHarness(overrides = {}) {
     return response
   }
 
-  return { dataDir, settingsFile, home, env, dataStore, settingsStore, weatherService, moodTracker, selfTalkService, moodAiService, handlers, call }
+  return {
+    dataDir,
+    settingsFile,
+    home,
+    env,
+    dataStore,
+    settingsStore,
+    weatherService,
+    moodTracker,
+    selfTalkService,
+    moodAiService,
+    journal,
+    journalDir,
+    handlers,
+    call,
+  }
 }
 
 /** 构造一个假的 Open-Meteo fetch：calls 记录请求 URL；failFrom 指定第几次请求起抛错。 */
@@ -2485,6 +2515,306 @@ test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一
   const fallback = (await noService.call('mood-ai.json', mockRequest({ url }))).json()
   assert.equal(fallback.ok, false)
   assert.equal(fallback.error.code, 'MOOD_AI_UNAVAILABLE')
+})
+
+// ---------------------------------------------------------------------------
+// 自主记忆日志（契约 v1.10 §2.13，只追加、不改写）
+// ---------------------------------------------------------------------------
+
+function readJournalJsonl(dir) {
+  const file = path.join(dir, 'journal.jsonl')
+  if (!fs.existsSync(file)) return []
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line))
+}
+
+test('memory-journal：resolveMemoryDir 优先级（DSH_AGENT_MEMORY_DIR → DSH_HOME → ~/.dsh）', () => {
+  assert.equal(resolveMemoryDir({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'), '/tmp/dsh-home/agent-memory')
+  assert.equal(
+    resolveMemoryDir({ DSH_HOME: '/tmp/dsh-home', DSH_AGENT_MEMORY_DIR: '/tmp/custom-memory' }, '/Users/alice'),
+    '/tmp/custom-memory',
+    'DSH_AGENT_MEMORY_DIR 优先',
+  )
+  assert.equal(resolveMemoryDir({}, '/Users/alice'), '/Users/alice/.dsh/agent-memory')
+  assert.equal(resolveMemoryDir({ HOME: '/Users/bob' }, null), '/Users/bob/.dsh/agent-memory')
+  assert.equal(
+    resolveMemoryDir({ DSH_AGENT_MEMORY_DIR: '   ' }, '/Users/alice'),
+    '/Users/alice/.dsh/agent-memory',
+    '空白自定义目录忽略',
+  )
+})
+
+test('memory-journal：append 创建目录/补 header/只追加，jsonl 格式正确', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  const ts = new Date(2026, 9, 21, 10, 30, 0).getTime()
+  const journal = createMemoryJournal({ dir, now: () => ts, logger: { warn() {} } })
+  const model = { provider: 'deepseek-account', model: 'deepseek-flash' }
+
+  const first = await journal.append({ kind: 'murmur', text: '今天有点困，想趴一会儿', model })
+  assert.equal(first.ok, true)
+  assert.equal(fs.existsSync(dir), true, '自动创建目录')
+  const mdFile = path.join(dir, 'journal.md')
+  const md = fs.readFileSync(mdFile, 'utf8')
+  assert.ok(md.startsWith(MEMORY_JOURNAL_HEADER), '首次写入补 md 头部')
+  assert.match(md, /## 2026-10-21 10:30 · 碎碎念/)
+  assert.match(md, /今天有点困，想趴一会儿/)
+
+  let entries = readJournalJsonl(dir)
+  assert.equal(entries.length, 1)
+  assert.deepEqual(entries[0], {
+    ts,
+    kind: 'murmur',
+    text: '今天有点困，想趴一会儿',
+    model: { provider: 'deepseek-account', model: 'deepseek-flash' },
+  })
+
+  const second = await journal.append({ kind: 'murmur', text: '第二句碎碎念', model })
+  assert.equal(second.ok, true)
+  entries = readJournalJsonl(dir)
+  assert.equal(entries.length, 2)
+  assert.equal(entries[1].text, '第二句碎碎念')
+  const mdAfter = fs.readFileSync(mdFile, 'utf8')
+  assert.ok(mdAfter.startsWith(md), '已有内容保持不变（只追加）')
+  assert.equal(mdAfter.split(MEMORY_JOURNAL_HEADER).length - 1, 1, 'header 不重复写')
+})
+
+test('memory-journal：已有文件内容保留（不覆盖/不补 header）', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  fs.mkdirSync(dir, { recursive: true })
+  const existingMd = '# 我的碎碎念与想法\n\n> 只追加。过去的条目不改写。\n\n## 2026-10-21 傍晚 · 旧条目\n旧内容\n'
+  const existingJsonl = '{"ts":1,"kind":"murmur","text":"旧句子"}\n'
+  fs.writeFileSync(path.join(dir, 'journal.md'), existingMd, 'utf8')
+  fs.writeFileSync(path.join(dir, 'journal.jsonl'), existingJsonl, 'utf8')
+
+  const journal = createMemoryJournal({ dir, now: () => new Date(2026, 9, 21, 11, 0, 0).getTime(), logger: { warn() {} } })
+  await journal.append({ kind: 'murmur', text: '新追加的句子' })
+
+  const md = fs.readFileSync(path.join(dir, 'journal.md'), 'utf8')
+  assert.ok(md.startsWith(existingMd), '旧 md 内容逐字保留')
+  assert.ok(md.endsWith('新追加的句子\n'))
+  assert.equal(md.split(MEMORY_JOURNAL_HEADER).length - 1, 1, '已有 header 不重复写')
+  const jsonlLines = fs.readFileSync(path.join(dir, 'journal.jsonl'), 'utf8').split('\n').filter(Boolean)
+  assert.equal(jsonlLines[0], existingJsonl.trim(), '旧 jsonl 行逐字保留')
+  assert.equal(jsonlLines.length, 2)
+  assert.equal(JSON.parse(jsonlLines[1]).text, '新追加的句子')
+})
+
+test('memory-journal：mood 条目格式（label/reason/image/model）', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  const journal = createMemoryJournal({ dir, now: () => new Date(2026, 9, 21, 12, 5, 0).getTime(), logger: { warn() {} } })
+  const result = await journal.append({
+    kind: 'mood',
+    label: '开心',
+    reason: '聊得很开心',
+    image: 'dsh-whale-state-celebrate.webp',
+    model: { provider: 'deepseek-account', model: 'deepseek-flash' },
+  })
+  assert.equal(result.ok, true)
+  const md = fs.readFileSync(path.join(dir, 'journal.md'), 'utf8')
+  assert.match(md, /## 2026-10-21 12:05 · 心情/)
+  assert.match(md, /心情：开心 — 聊得很开心（dsh-whale-state-celebrate\.webp）/)
+  const entries = readJournalJsonl(dir)
+  assert.equal(entries.length, 1)
+  assert.deepEqual(entries[0], {
+    ts: new Date(2026, 9, 21, 12, 5, 0).getTime(),
+    kind: 'mood',
+    label: '开心',
+    reason: '聊得很开心',
+    image: 'dsh-whale-state-celebrate.webp',
+    model: { provider: 'deepseek-account', model: 'deepseek-flash' },
+  })
+  assert.equal('text' in entries[0], false)
+})
+
+test('memory-journal：超长内容按 maxEntryChars 截断', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  const journal = createMemoryJournal({
+    dir,
+    now: () => new Date(2026, 9, 21, 9, 0, 0).getTime(),
+    logger: { warn() {} },
+    maxEntryChars: 20,
+  })
+  await journal.append({ kind: 'murmur', text: '好'.repeat(100) })
+  const entries = readJournalJsonl(dir)
+  assert.equal(Array.from(entries[0].text).length, 20)
+  const md = fs.readFileSync(path.join(dir, 'journal.md'), 'utf8')
+  assert.equal(md.includes('好'.repeat(21)), false, 'md 内容同样被截断')
+  assert.equal(md.includes('好'.repeat(20)), true)
+})
+
+test('memory-journal：写失败只 warn 不抛；非法条目忽略', async () => {
+  const warned = []
+  const blocker = path.join(makeTmpDir('dshp-mem'), 'not-a-directory')
+  fs.writeFileSync(blocker, 'occupied', 'utf8')
+  const journal = createMemoryJournal({
+    dir: path.join(blocker, 'agent-memory'),
+    logger: { warn: (message) => warned.push(String(message)) },
+  })
+  const failed = await journal.append({ kind: 'murmur', text: '写不进去的句子' })
+  assert.equal(failed.ok, false)
+  assert.ok(warned.some((message) => message.includes('记忆日志写入失败')), '失败会 logger.warn')
+  const invalid = await journal.append({ kind: 'unknown', text: 'x' })
+  assert.equal(invalid.ok, false)
+})
+
+test('memory-journal 路由：self-talk 新生成每句写一条 murmur，cached 不重复，敏感 query 不入库', async () => {
+  const { service } = makeSelfTalkHarness({ minIntervalMs: 3000 })
+  const harness = createHarness({ selfTalkService: service })
+  const sensitive = '这句是客户端传来的敏感原文不要写进记忆'
+  const url = `/api/dsh-poetry/self-talk.json?recent=${encodeURIComponent(sensitive)}&weather=rain`
+  const first = await harness.call('self-talk.json', mockRequest({ url }))
+  assert.equal(first.json().ok, true)
+
+  let entries = readJournalJsonl(harness.journalDir)
+  assert.equal(entries.length, SELF_TALK_LINES_A.length, '批次 2 句 → 2 条 murmur')
+  for (const entry of entries) {
+    assert.equal(entry.kind, 'murmur')
+    assert.deepEqual(entry.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  }
+  assert.deepEqual(entries.map((entry) => entry.text), SELF_TALK_LINES_A)
+  const md = fs.readFileSync(path.join(harness.journalDir, 'journal.md'), 'utf8')
+  assert.match(md, /· 碎碎念/)
+  assert.equal(`${md}${JSON.stringify(entries)}`.includes(sensitive), false, 'query 里的 recent 不得写入记忆')
+  assert.equal(`${md}${JSON.stringify(entries)}`.includes('rain'), false, 'query 里的 weather 不得写入记忆')
+
+  // 3s 内再次请求 → cached:true，不重复写
+  const second = await harness.call('self-talk.json', mockRequest({ url }))
+  assert.equal(second.json().cached, true)
+  entries = readJournalJsonl(harness.journalDir)
+  assert.equal(entries.length, SELF_TALK_LINES_A.length, 'cached 不重复写')
+})
+
+test('memory-journal 路由：mood-ai 新生成写 mood，cached 不写，force 再写，失败不写', async () => {
+  const { service } = makeMoodAiHarness()
+  const harness = createHarness({ moodAiService: service })
+  const url = '/api/dsh-poetry/mood-ai.json?mood=busy&weather=rain'
+  const first = await harness.call('mood-ai.json', mockRequest({ url }))
+  assert.equal(first.json().ok, true)
+
+  let entries = readJournalJsonl(harness.journalDir)
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].kind, 'mood')
+  assert.equal(entries[0].label, '开心')
+  assert.equal(entries[0].reason, '今天聊得很开心')
+  assert.equal(entries[0].image, 'dsh-whale-state-happy.webp')
+  assert.deepEqual(entries[0].model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  const md = fs.readFileSync(path.join(harness.journalDir, 'journal.md'), 'utf8')
+  assert.match(md, /· 心情/)
+  assert.match(md, /心情：开心 — 今天聊得很开心（dsh-whale-state-happy\.webp）/)
+  assert.equal(md.includes('busy'), false, 'query 的 mood key 不写入记忆')
+  assert.equal(md.includes('rain'), false, 'query 的 weather 不写入记忆')
+
+  // 10min 缓存命中 → cached:true，不重复写
+  const cached = await harness.call('mood-ai.json', mockRequest({ url }))
+  assert.equal(cached.json().cached, true)
+  assert.equal(readJournalJsonl(harness.journalDir).length, 1)
+
+  // force 新生成 → 再写一条
+  const forced = await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))
+  assert.equal(forced.json().cached, false)
+  assert.equal(readJournalJsonl(harness.journalDir).length, 2)
+
+  // 失败 → 不写
+  const failingHarness = createHarness({
+    moodAiService: { generate: async () => ({ ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: 'x' } }) },
+  })
+  const failed = await failingHarness.call('mood-ai.json', mockRequest({ url }))
+  assert.equal(failed.json().ok, false)
+  assert.deepEqual(readJournalJsonl(failingHarness.journalDir), [])
+})
+
+test('memory-journal 路由：失败结果不写记忆', async () => {
+  const harness = createHarness() // 默认 self-talk / mood-ai 服务均不可用
+  const selfTalk = await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
+  assert.equal(selfTalk.json().ok, false)
+  const moodAi = await harness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json' }))
+  assert.equal(moodAi.json().ok, false)
+  assert.equal(fs.existsSync(path.join(harness.journalDir, 'journal.jsonl')), false, '失败不创建记忆文件')
+})
+
+test('index.js：注入记忆日志（临时 DSH_HOME），self-talk/mood-ai 新生成写入 $DSH_HOME/agent-memory', async () => {
+  const dshHome = makeTmpDir('dshp-dshhome')
+  const previousDshHome = process.env.DSH_HOME
+  process.env.DSH_HOME = dshHome
+  try {
+    const routes = []
+    const cleanups = []
+    const llm = makeMockLlm((options) => {
+      if (options.system === MOOD_AI_SYSTEM_PROMPT) {
+        return JSON.stringify({ label: '开心', image: 'dsh-whale-state-celebrate.webp', reason: '一切都很顺利', energy: 80 })
+      }
+      return SELF_TALK_LINES_A.join('\n')
+    })
+    const fakeCtx = {
+      logger: { info() {}, warn() {}, error() {} },
+      on() {
+        return () => {}
+      },
+      effect(execute) {
+        const disposer = execute()
+        cleanups.push(disposer)
+        return disposer
+      },
+      inject(_keys, callback) {
+        callback({
+          get(name) {
+            if (name === 'webServer') {
+              return {
+                register(route) {
+                  routes.push(route)
+                  return () => {}
+                },
+              }
+            }
+            if (name === 'connection') return { requestRejection: () => undefined }
+            if (name === 'llm') return llm
+            if (name === 'agentDefaultModel') {
+              return { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
+            }
+            return undefined
+          },
+          effect(execute) {
+            const disposer = execute()
+            cleanups.push(disposer)
+            return disposer
+          },
+        })
+      },
+    }
+
+    await pluginApply(fakeCtx)
+    const sensitive = '这段是会话原文不该进记忆'
+    const selfTalkRoute = routes.find((route) => route.path === '/api/dsh-poetry/self-talk.json')
+    const selfTalkRes = new MockResponse()
+    await selfTalkRoute.handler(mockRequest({ url: `/api/dsh-poetry/self-talk.json?recent=${encodeURIComponent(sensitive)}` }), selfTalkRes)
+    await selfTalkRes.finished()
+    assert.equal(selfTalkRes.json().ok, true)
+
+    const moodRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood-ai.json')
+    const moodRes = new MockResponse()
+    await moodRoute.handler(mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }), moodRes)
+    await moodRes.finished()
+    assert.equal(moodRes.json().ok, true)
+
+    const memoryDir = path.join(dshHome, 'agent-memory')
+    const entries = readJournalJsonl(memoryDir)
+    assert.deepEqual(entries.map((entry) => entry.kind), ['murmur', 'murmur', 'mood'])
+    assert.equal(JSON.stringify(entries).includes(sensitive), false)
+    const md = fs.readFileSync(path.join(memoryDir, 'journal.md'), 'utf8')
+    assert.match(md, /## \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 碎碎念/)
+    assert.match(md, /· 心情/)
+    assert.equal(md.includes(sensitive), false)
+
+    for (const cleanup of cleanups.reverse()) {
+      if (typeof cleanup === 'function') cleanup()
+    }
+  } finally {
+    if (previousDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousDshHome
+  }
 })
 
 // ---------------------------------------------------------------------------

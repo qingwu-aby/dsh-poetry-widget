@@ -280,6 +280,15 @@
 - 其余 → unknown；`isDay=0` 时客户端优先「月/夜」诗池。
 缓存：地理编码按城市 24h、天气 20min；刷新按钮/城市变更可主动失效。请求超时 6s，失败保留上次结果并标 `stale:true`。
 
+### 2.13 自主记忆日志（M14，非路由副作用）
+
+插件把**模型自己生成**的自言自语与心情决定，追加写入 `$DSH_HOME/agent-memory/`（只追加，不改写/删除；`DSH_AGENT_MEMORY_DIR` 可覆盖路径供测试）：
+
+- `journal.jsonl`：一行一条 JSON `{ts, kind:'murmur'|'mood', text?, label?, reason?, image?, model?}`
+- `journal.md`：人类可读的追加条目（日期时间 + 类型 + 内容）
+
+边界：只写**模型生成的文本**（self-talk 的 murmur、mood-ai 的 label/reason/image）与时间/模型名；**绝不写入任何会话消息、用户原文、查询参数或插件运行数据**；写失败只记日志，不影响路由响应。
+
 ### 2.12 模型心情 `MOOD-AI`（M13，`/api/dsh-poetry/mood-ai.json`）
 
 心情不再由伪随机/固定规则换图：模型读取**本地心情图鉴**（`assets/data/mood-catalog.json`，92 张，含中文标签/tags/节日 when）与当天真实情境，自主决定此刻心情与配图。
@@ -407,6 +416,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.10（2026-10-21，M14）**：新增自主记忆日志副作用（`$DSH_HOME/agent-memory/journal.{md,jsonl}`，只追加，仅模型生成的 self-talk/mood 内容，不含会话原文）。
 - **v1.9（2026-10-21，M13）**：新增模型心情路由 `GET /api/dsh-poetry/mood-ai.json` 与本地心情图鉴 `assets/data/mood-catalog.json`（92 张全部纳入：89 心情 + 3 探头）；Client 由模型决定心情标签/理由/配图（失败回退现有启发式），面板打开时使用 3 张 peek 图。
 - **v1.8b（2026-10-21，M12c）**：self-talk 收敛为**纯随想**（不念诗/不引诗、不发送今日诗上下文；客户端不再有 poem/hybrid 自言自语类型，兜底改用随想池）。
 - **v1.8（2026-10-21，M12）**：自言自语 murmur/intro 改为**当前默认模型实时生成**（新 Host 路由 `GET /api/dsh-poetry/self-talk.json`）；诗句卡片仍用本地诗词；失败回退本地静态池。不新增 settings 字段、不改 data/。
