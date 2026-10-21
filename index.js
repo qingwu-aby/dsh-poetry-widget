@@ -9,15 +9,18 @@
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
 //   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
 //   · 自主记忆：self-talk / mood-ai 新生成成功时，把模型输出**只追加**写入 $DSH_HOME/agent-memory/；
+//   · 飞花令全量校验：GET feihua-full.json 按令字懒加载项目同级 _ref/feihua-full/<字>.json（LRU≤4、gzip、缺失降级）；
 //   · 所有新增路由接入宿主信任栅栏（lib/trust.mjs，委托 connection.requestRejection）。
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
 // data/ 缺失或损坏时优雅降级（200 + DATA_UNAVAILABLE），不会让插件加载失败。
+import { existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAssetHandler } from './lib/assets.mjs'
 import { createDataStore } from './lib/data-store.mjs'
+import { createFeihuaFullService, resolveFeihuaFullDir } from './lib/feihua-full.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
 import { createMemoryJournal, resolveMemoryDir } from './lib/memory-journal.mjs'
 import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
@@ -141,6 +144,17 @@ export async function apply(ctx) {
         catalog: moodCatalog.ok === true ? moodCatalog.catalog : null,
         logger,
       })
+      // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
+      // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
+      const feihuaFullDir = resolveFeihuaFullDir(env, PACKAGE_ROOT)
+      const feihuaFullService = createFeihuaFullService({ dir: feihuaFullDir, logger })
+      if (existsSync(feihuaFullDir)) {
+        logger?.info?.(`[dsh-poetry-widget] 飞花令全量校验目录：${feihuaFullDir}`)
+      } else {
+        logger?.warn?.(
+          `[dsh-poetry-widget] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
+        )
+      }
       const routes = createRouteTable({
         dataStore,
         settingsStore,
@@ -152,6 +166,7 @@ export async function apply(ctx) {
         selfTalkService,
         moodAiService,
         journal,
+        feihuaFullService,
         env,
         home,
       })

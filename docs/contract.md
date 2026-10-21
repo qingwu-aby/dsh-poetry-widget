@@ -41,6 +41,7 @@
 | `/api/dsh-poetry/knowledge.json` | GET | 12 张格律卡 + 15 张词牌卡（见 §2.5） |
 | `/api/dsh-poetry/settings.json` | GET | `{ok:true, settings:{...完整 §2.6...}}` |
 | `/api/dsh-poetry/settings.json` | PUT | 部分设置合并写入；仅回环来源；`{ok:true, settings:{...合并后完整...}}` |
+| `/api/dsh-poetry/feihua-full.json` | GET | 飞花令**全量校验句库**按令字分片：`?char=花` → `{ok:true,char,count,entries:[[句子,出处],…]}`（来自全量 chinese-poetry 语料构建的 `_ref/feihua-full/<char>.json`，不随包）；缺失/旧宿主 → `FEIHUA_FULL_UNAVAILABLE`（200+JSON）。用于把飞花令的「有没有出处」判定扩到全量诗词 |
 | `/api/dsh-poetry/mood-ai.json` | GET | 让模型根据当天情境（活跃统计/天气/时段/自述/最近用过图）从 92 张本地立绘图鉴里**自主决定心情与配图**（非随机）；返回心情标签/理由/图片文件名；失败 `MOOD_AI_UNAVAILABLE`（200+JSON，永不 5xx） |
 | `/api/dsh-poetry/self-talk.json` | GET | 让挂件用当前默认模型实时生成一句「自言自语」（诗句/随想/引出句）；宿主侧 `ctx.llm.stream` + `agentDefaultModel.currentSelection()`，2 句/批、20s 超时、失败返回 `SELF_TALK_UNAVAILABLE`（200+JSON，永不 5xx）；只使用聚合统计/天气/时间/今日诗元数据，不读会话内容 |
 | `/api/dsh-poetry/mood.json` | GET | 当日会话活跃统计（用户/助手消息数、工具调用、回合、活跃时长、最后活动时间），用于挂件心情系统；`$DSH_HOME/.dsh-poetry/mood.json` 持久化、按本地日滚动，失败返回零值，永不 5xx |
@@ -280,6 +281,19 @@
 - 其余 → unknown；`isDay=0` 时客户端优先「月/夜」诗池。
 缓存：地理编码按城市 24h、天气 20min；刷新按钮/城市变更可主动失效。请求超时 6s，失败保留上次结果并标 `stale:true`。
 
+### 2.14 飞花令全量校验句库 `FEIHUA-FULL`（M17，`/api/dsh-poetry/feihua-full.json`）
+
+飞花令「是否算接上」的出处查找不再局限于当前已加载句库：客户端按**当前令字**懒加载全量校验分片，与本地句库合并后做 plain/小句/整句匹配。
+
+- 数据：由 `scripts/build-feihua-full.mjs` 从全量 chinese-poetry 语料（全唐诗/全宋诗/全宋词/蒙学）构建，输出 `_ref/feihua-full/<令字>.json`（项目同级，**不随插件包**）：
+  - 每个文件：`{ok:true,v:1,char:"花",entries:[["句子","作者《篇名》"],…]}`
+  - `manifest.json`：语料规模/各令字句数/字节数
+- 路由：`GET /api/dsh-poetry/feihua-full.json?char=<单字>`（信任栅栏、200+JSON 永不 5xx）：
+  - 成功 `{ok:true,char,count,entries,cached}`；宿主进程内按 char 缓存（LRU ≤4）避免重复读盘；
+  - 目录缺失/该字分片缺失/JSON 损坏/旧宿主 → `{ok:false,error:{code:'FEIHUA_FULL_UNAVAILABLE',message}}`；
+  - 环境变量 `DSH_POETRY_FULL_INDEX` 可覆盖目录（测试/自定义语料）。
+- 客户端：进入飞花/切换令字时拉取（8–20s 超时，可失败），成功则把 entries 并入句库索引（byChar/plain/clauseMap），显示「全量校验已启用（N 句）」；失败静默回退本地句库并提示「未启用全量校验」；同一令字/数据版本缓存。
+
 ### 2.13 自主记忆日志（M14，非路由副作用）
 
 插件把**模型自己生成**的自言自语与心情决定，追加写入 `$DSH_HOME/agent-memory/`（只追加，不改写/删除；`DSH_AGENT_MEMORY_DIR` 可覆盖路径供测试）：
@@ -416,6 +430,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.11（2026-10-21，M17）**：飞花令判定出处扩到**全量诗词**（新增 `GET /api/dsh-poetry/feihua-full.json` 按令字分片路由 + `scripts/build-feihua-full.mjs`；数据位于 `_ref/` 不随包，缺失时回退本地句库）。
 - **v1.10（2026-10-21，M14）**：新增自主记忆日志副作用（`$DSH_HOME/agent-memory/journal.{md,jsonl}`，只追加，仅模型生成的 self-talk/mood 内容，不含会话原文）。
 - **v1.9（2026-10-21，M13）**：新增模型心情路由 `GET /api/dsh-poetry/mood-ai.json` 与本地心情图鉴 `assets/data/mood-catalog.json`（92 张全部纳入：89 心情 + 3 探头）；Client 由模型决定心情标签/理由/配图（失败回退现有启发式），面板打开时使用 3 张 peek 图。
 - **v1.8b（2026-10-21，M12c）**：self-talk 收敛为**纯随想**（不念诗/不引诗、不发送今日诗上下文；客户端不再有 poem/hybrid 自言自语类型，兜底改用随想池）。

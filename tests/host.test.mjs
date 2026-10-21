@@ -4,6 +4,7 @@
 //       data 缺失/损坏降级、about 脱敏、信任栅栏 403/401、路由 200/400/403/405、静态资源越界防护。
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -40,6 +41,11 @@ import {
   toMoodResponse,
   zeroMoodResponse,
 } from '../lib/mood.mjs'
+import {
+  createFeihuaFullService,
+  isValidFeihuaChar,
+  resolveFeihuaFullDir,
+} from '../lib/feihua-full.mjs'
 import {
   MEMORY_JOURNAL_HEADER,
   createMemoryJournal,
@@ -213,6 +219,11 @@ function createHarness(overrides = {}) {
       cacheTtlMs: 0,
       minIntervalMs: 0,
     })
+  const feihuaFullDir = overrides.feihuaFullDir ?? makeTmpDir('dshp-feihua-full')
+  const feihuaFullService =
+    overrides.feihuaFullService !== undefined
+      ? overrides.feihuaFullService
+      : createFeihuaFullService({ dir: feihuaFullDir, logger: { warn() {} } })
   const journalDir = overrides.journalDir ?? path.join(makeTmpDir('dshp-memory'), 'agent-memory')
   const journal =
     overrides.journal ??
@@ -233,6 +244,7 @@ function createHarness(overrides = {}) {
       selfTalkService,
       moodAiService,
       journal,
+      feihuaFullService,
       env,
       home,
       now,
@@ -261,6 +273,8 @@ function createHarness(overrides = {}) {
     moodAiService,
     journal,
     journalDir,
+    feihuaFullDir,
+    feihuaFullService,
     handlers,
     call,
   }
@@ -1633,7 +1647,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 13, 'assets + 12 条 JSON 路由')
+    assert.equal(routes.length, 14, 'assets + 13 条 JSON 路由')
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
       '注册了 self-talk.json 路由',
@@ -1641,6 +1655,10 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/mood-ai.json'),
       '注册了 mood-ai.json 路由',
+    )
+    assert.ok(
+      routes.some((route) => route.path === '/api/dsh-poetry/feihua-full.json'),
+      '注册了 feihua-full.json 路由',
     )
 
     // 假 ctx 里没有 llm/agentDefaultModel → mood-ai 路由必须安全降级（200 + ok:false）
@@ -1651,6 +1669,15 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(moodAiResponse.statusCode, 200)
     assert.equal(moodAiResponse.json().ok, false)
     assert.equal(moodAiResponse.json().error.code, 'MOOD_AI_UNAVAILABLE')
+
+    // 全量校验句库：目录不存在/未配置时必须安全降级（200 + ok:false）
+    const feihuaRoute = routes.find((route) => route.path === '/api/dsh-poetry/feihua-full.json')
+    const feihuaResponse = new MockResponse()
+    await feihuaRoute.handler(mockRequest({ url: '/api/dsh-poetry/feihua-full.json?char=' }), feihuaResponse)
+    await feihuaResponse.finished()
+    assert.equal(feihuaResponse.statusCode, 200)
+    assert.equal(feihuaResponse.json().ok, false)
+    assert.equal(feihuaResponse.json().error.code, 'FEIHUA_FULL_UNAVAILABLE')
 
     // 假 ctx 里没有 llm/agentDefaultModel → self-talk 路由必须安全降级（200 + ok:false）
     const selfTalkRoute = routes.find((route) => route.path === '/api/dsh-poetry/self-talk.json')
@@ -2815,6 +2842,297 @@ test('index.js：注入记忆日志（临时 DSH_HOME），self-talk/mood-ai 新
     if (previousDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousDshHome
   }
+})
+
+// ---------------------------------------------------------------------------
+// 飞花令全量校验句库（契约 v1.11 §2.14）
+// ---------------------------------------------------------------------------
+
+function writeFeihuaShard(dir, char, entries) {
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, `${char}.json`), JSON.stringify({ ok: true, v: 1, char, entries }), 'utf8')
+}
+
+test('feihua-full：resolveFeihuaFullDir（env 覆盖/默认项目同级 _ref）', () => {
+  assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '/tmp/full-index' }, '/pkg/app'), '/tmp/full-index')
+  assert.equal(resolveFeihuaFullDir({}, '/a/b/dsh-poetry-widget'), '/a/b/_ref/feihua-full')
+  assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '   ' }, '/a/b/pkg'), '/a/b/_ref/feihua-full')
+  assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '  /tmp/x  ' }, '/pkg'), '/tmp/x')
+})
+
+test('feihua-full：isValidFeihuaChar 单字校验（多字/标点/字母/emoji 拒绝）', () => {
+  for (const char of ['花', '月', '龍', '不']) assert.equal(isValidFeihuaChar(char), true, char)
+  for (const char of ['花朵', 'a', '1', '', ' ', '，', '🌙', '花月', null, undefined, 123]) {
+    assert.equal(isValidFeihuaChar(char), false, String(char))
+  }
+})
+
+test('feihua-full：读取合法分片并透传 entries/count，第二次命中缓存', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  const entries = [
+    ['春风得意马蹄疾，一日看尽长安花。', '孟郊《登科后》'],
+    ['花间一壶酒，独酌无相亲。', '李白《月下独酌》'],
+  ]
+  writeFeihuaShard(dir, '花', entries)
+  const service = createFeihuaFullService({ dir, logger: { warn() {} } })
+
+  const first = await service.load('花')
+  assert.equal(first.ok, true)
+  assert.equal(first.char, '花')
+  assert.equal(first.count, 2)
+  assert.deepEqual(first.entries, entries)
+  assert.equal(first.cached, false)
+
+  const second = await service.load('花')
+  assert.equal(second.ok, true)
+  assert.equal(second.cached, true)
+  assert.deepEqual(second.entries, entries)
+  assert.equal(service.cacheSize(), 1)
+})
+
+test('feihua-full：缓存命中不重复读盘；文件改动后仍返回缓存（clearCache 后可重读）', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  writeFeihuaShard(dir, '月', [['月落乌啼霜满天，江枫渔火对愁眠。', '张继《枫桥夜泊》']])
+  let reads = 0
+  const service = createFeihuaFullService({
+    dir,
+    logger: { warn() {} },
+    readFile: async (file) => {
+      reads += 1
+      return fs.readFileSync(file, 'utf8')
+    },
+  })
+  await service.load('月')
+  assert.equal(reads, 1)
+  // 磁盘改动后仍命中缓存
+  writeFeihuaShard(dir, '月', [['改动后的句子，不应该被立刻读到。', '某出处']])
+  const cached = await service.load('月')
+  assert.equal(reads, 1, '缓存命中不重复读盘')
+  assert.equal(cached.entries[0][0], '月落乌啼霜满天，江枫渔火对愁眠。')
+  service.clearCache()
+  const fresh = await service.load('月')
+  assert.equal(reads, 2)
+  assert.equal(fresh.entries[0][0], '改动后的句子，不应该被立刻读到。')
+})
+
+test('feihua-full：LRU 最多 4 个令字，淘汰最旧', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  for (const char of ['花', '月', '风', '春', '山']) {
+    writeFeihuaShard(dir, char, [[`${char}字开头的测试句子，够长了吧。`, '测试《出处》']])
+  }
+  let reads = 0
+  const service = createFeihuaFullService({
+    dir,
+    logger: { warn() {} },
+    maxChars: 4,
+    readFile: async (file) => {
+      reads += 1
+      return fs.readFileSync(file, 'utf8')
+    },
+  })
+  for (const char of ['花', '月', '风', '春']) await service.load(char)
+  assert.deepEqual(service.cacheKeys(), ['花', '月', '风', '春'])
+  await service.load('山') // 触发淘汰
+  assert.equal(service.cacheSize(), 4)
+  assert.deepEqual(service.cacheKeys(), ['月', '风', '春', '山'], '淘汰最旧的花')
+  const before = reads
+  await service.load('花') // 已被淘汰 → 重新读盘
+  assert.equal(reads, before + 1)
+  assert.deepEqual(service.cacheKeys(), ['风', '春', '山', '花'])
+})
+
+test('feihua-full：缺目录/缺文件/坏 JSON/形状不符/空 entries → UNAVAILABLE（不抛）', async () => {
+  const missingDirService = createFeihuaFullService({ dir: path.join(makeTmpDir('dshp-feihua'), 'nope'), logger: { warn() {} } })
+  const missingDir = await missingDirService.load('花')
+  assert.equal(missingDir.ok, false)
+  assert.equal(missingDir.error.code, 'FEIHUA_FULL_UNAVAILABLE')
+
+  const dir = makeTmpDir('dshp-feihua')
+  const service = createFeihuaFullService({ dir, logger: { warn() {} } })
+  const missingFile = await service.load('花')
+  assert.equal(missingFile.ok, false)
+  assert.match(missingFile.error.message, /不存在/)
+
+  fs.writeFileSync(path.join(dir, '风.json'), 'not json at all', 'utf8')
+  const badJson = await service.load('风')
+  assert.equal(badJson.ok, false)
+  assert.match(badJson.error.message, /损坏/)
+
+  fs.writeFileSync(path.join(dir, '春.json'), JSON.stringify({ ok: true, v: 2, char: '春', entries: [] }), 'utf8')
+  assert.equal((await service.load('春')).ok, false, 'v 必须为 1')
+
+  fs.writeFileSync(path.join(dir, '山.json'), JSON.stringify({ ok: true, v: 1, char: '山', entries: 'nope' }), 'utf8')
+  assert.equal((await service.load('山')).ok, false, 'entries 必须是数组')
+
+  writeFeihuaShard(dir, '水', [])
+  const empty = await service.load('水')
+  assert.equal(empty.ok, false)
+  assert.match(empty.error.message, /没有可用句子/)
+
+  // 非法条目逐条过滤（必须是 [text,source] 二元组且句子非空）；只剩合法句子时仍可用
+  writeFeihuaShard(dir, '云', [
+    ['', '出处'],
+    ['云想衣裳花想容，春风拂槛露华浓。', '李白《清平调》'],
+    { foo: 1 },
+    ['只有句子没出处'],
+    ['第二条合法句子，也够长了。', '测试《出处》'],
+  ])
+  const filtered = await service.load('云')
+  assert.equal(filtered.ok, true)
+  assert.equal(filtered.count, 2)
+  assert.deepEqual(filtered.entries, [
+    ['云想衣裳花想容，春风拂槛露华浓。', '李白《清平调》'],
+    ['第二条合法句子，也够长了。', '测试《出处》'],
+  ])
+})
+
+test('feihua-full：非法令字直接拒绝，不读盘/不越界', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  writeFeihuaShard(dir, '花', [['花间一壶酒，独酌无相亲。', '李白《月下独酌》']])
+  let reads = 0
+  const service = createFeihuaFullService({
+    dir,
+    logger: { warn() {} },
+    readFile: async (file) => {
+      reads += 1
+      return fs.readFileSync(file, 'utf8')
+    },
+  })
+  for (const bad of ['花朵', 'abc', '', '  ', '，', '🌙', '花/../花', '../花']) {
+    const result = await service.load(bad)
+    assert.equal(result.ok, false, bad)
+    assert.equal(result.error.code, 'FEIHUA_FULL_UNAVAILABLE')
+  }
+  assert.equal(reads, 0, '非法令字不应触发任何读盘')
+  // 前后空白 trim 后合法
+  const trimmed = await service.load('  花  ')
+  assert.equal(trimmed.ok, true)
+  assert.equal(trimmed.char, '花')
+})
+
+test('feihua-full：并发同一令字只读一次盘（in-flight 去重）', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  writeFeihuaShard(dir, '花', [['花间一壶酒，独酌无相亲。', '李白《月下独酌》']])
+  let reads = 0
+  const service = createFeihuaFullService({
+    dir,
+    logger: { warn() {} },
+    readFile: async (file) => {
+      reads += 1
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return fs.readFileSync(file, 'utf8')
+    },
+  })
+  const [a, b] = await Promise.all([service.load('花'), service.load('花')])
+  assert.equal(reads, 1, '并发只读一次盘')
+  assert.equal(a.ok, true)
+  assert.equal(b.ok, true)
+  assert.deepEqual([a.cached, b.cached].sort(), [false, true])
+})
+
+test('feihua-full 路由：成功/query 解码/cached/非法令字/栅栏', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  const entries = Array.from({ length: 3 }, (_, index) => [`花字第${index}句测试，春风吹又生。`, '测试《出处》'])
+  writeFeihuaShard(dir, '花', entries)
+  const service = createFeihuaFullService({ dir, logger: { warn() {} } })
+  const harness = createHarness({ feihuaFullService: service })
+
+  const url = `/api/dsh-poetry/feihua-full.json?char=${encodeURIComponent('花')}`
+  const first = await harness.call('feihua-full.json', mockRequest({ url }))
+  assert.equal(first.statusCode, 200)
+  const body = first.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.char, '花')
+  assert.equal(body.count, entries.length)
+  assert.deepEqual(body.entries, entries)
+  assert.equal(body.cached, false)
+
+  const second = await harness.call('feihua-full.json', mockRequest({ url }))
+  assert.equal(second.json().ok, true)
+  assert.equal(second.json().cached, true)
+
+  // 已解码的裸中文 query 也可以
+  const rawCharUrl = '/api/dsh-poetry/feihua-full.json?char=花'
+  assert.equal((await harness.call('feihua-full.json', mockRequest({ url: rawCharUrl }))).json().char, '花')
+
+  for (const bad of ['abc', '花朵', '']) {
+    const response = await harness.call(
+      'feihua-full.json',
+      mockRequest({ url: `/api/dsh-poetry/feihua-full.json?char=${encodeURIComponent(bad)}` }),
+    )
+    assert.equal(response.statusCode, 200, bad)
+    const result = response.json()
+    assert.equal(result.ok, false, bad)
+    assert.equal(result.error.code, 'FEIHUA_FULL_UNAVAILABLE', bad)
+  }
+  const noChar = await harness.call('feihua-full.json', mockRequest({ url: '/api/dsh-poetry/feihua-full.json' }))
+  assert.equal(noChar.statusCode, 200)
+  assert.equal(noChar.json().ok, false)
+
+  // 信任栅栏
+  const crossed = await harness.call(
+    'feihua-full.json',
+    mockRequest({ url, headers: { host: '127.0.0.1:57623', 'sec-fetch-site': 'cross-site' } }),
+  )
+  assert.equal(crossed.statusCode, 403)
+  assert.equal(crossed.json().error.code, 'FORBIDDEN')
+  const evilHost = await harness.call('feihua-full.json', mockRequest({ url, headers: { host: 'evil.example' } }))
+  assert.equal(evilHost.statusCode, 403)
+})
+
+test('feihua-full 路由：Accept-Encoding: gzip 时压缩大响应，无 gzip 时明文 JSON', async () => {
+  const dir = makeTmpDir('dshp-feihua')
+  const entries = Array.from({ length: 60 }, (_, index) => [
+    `花字第${index}句测试句子，春风吹又生，野火烧不尽，为了触发 gzip 压缩阈值而写得长一点。`,
+    '测试《出处》',
+  ])
+  writeFeihuaShard(dir, '花', entries)
+  const service = createFeihuaFullService({ dir, logger: { warn() {} } })
+  const harness = createHarness({ feihuaFullService: service })
+  const url = `/api/dsh-poetry/feihua-full.json?char=${encodeURIComponent('花')}`
+
+  const gzipped = await harness.call(
+    'feihua-full.json',
+    mockRequest({ url, headers: { host: '127.0.0.1:57623', 'accept-encoding': 'gzip, deflate' } }),
+  )
+  assert.equal(gzipped.statusCode, 200)
+  assert.equal(gzipped.headers['Content-Encoding'], 'gzip')
+  assert.equal(gzipped.headers['Vary'], 'Accept-Encoding')
+  const decompressed = JSON.parse(gunzipSync(Buffer.concat(gzipped.chunks)).toString('utf8'))
+  assert.equal(decompressed.ok, true)
+  assert.equal(decompressed.char, '花')
+  assert.equal(decompressed.count, entries.length)
+  assert.deepEqual(decompressed.entries, entries)
+
+  const plain = await harness.call('feihua-full.json', mockRequest({ url }))
+  assert.equal(plain.headers['Content-Encoding'], undefined, '未声明 gzip 时保持明文')
+  assert.equal(plain.json().ok, true)
+})
+
+test('feihua-full 路由：服务缺失/异常 → 200 + FEIHUA_FULL_UNAVAILABLE（不抛）', async () => {
+  const noService = createHarness({ feihuaFullService: null })
+  const noServiceResponse = await noService.call(
+    'feihua-full.json',
+    mockRequest({ url: '/api/dsh-poetry/feihua-full.json?char=花' }),
+  )
+  assert.equal(noServiceResponse.statusCode, 200)
+  assert.equal(noServiceResponse.json().ok, false)
+  assert.equal(noServiceResponse.json().error.code, 'FEIHUA_FULL_UNAVAILABLE')
+
+  const throwing = createHarness({
+    feihuaFullService: {
+      load: async () => {
+        throw new Error('boom')
+      },
+    },
+  })
+  const throwingResponse = await throwing.call(
+    'feihua-full.json',
+    mockRequest({ url: '/api/dsh-poetry/feihua-full.json?char=花' }),
+  )
+  assert.equal(throwingResponse.statusCode, 200)
+  assert.equal(throwingResponse.json().ok, false)
+  assert.equal(throwingResponse.json().error.code, 'FEIHUA_FULL_UNAVAILABLE')
 })
 
 // ---------------------------------------------------------------------------

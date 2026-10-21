@@ -4319,3 +4319,222 @@ test('自言自语随时触发/一卡制/关闭后 3s 再检查（假定时器�
     react._cleanup()
   }
 })
+
+/* ------------------------------------------------------------------ */
+/* 15. M17：飞花令全量校验句库懒加载 + 合并                              */
+/* ------------------------------------------------------------------ */
+
+function feihuaFullEntriesFixture() {
+  return [
+    ['花开满院春色好。', '全量诗人《全量集》'],
+    ['花 开 满 院 春 色 好。', '重复标点《不应重复》'],
+    ['花字第1句。', '本地已有《重复》'],
+    ['月落乌啼霜满天。', '另一个令字《不应入花》'],
+  ]
+}
+
+test('全量校验合并：只注册当前令字、补齐 lookup、去重、其他字不变', () => {
+  const { debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+  const beforeHua = index.byChar['花'].length
+  const beforeYue = index.byChar['月'].length
+  const beforeCounts = Object.assign({}, index.counts)
+  const added = debug.mergeFeihuaFullEntries(index, '花', feihuaFullEntriesFixture())
+  assert.equal(added, 1, '本地已有/重复标点/别字句应被去重或过滤，只新增 1 句')
+  assert.equal(index.byChar['花'].length, beforeHua + 1)
+  assert.equal(index.byChar['月'].length, beforeYue, '不应把别的令字句注册到月')
+  assert.equal(index.counts['月'], beforeCounts['月'])
+  const fullEntry = index.byChar['花'].find((entry) => entry.text === '花开满院春色好。')
+  assert.ok(fullEntry)
+  assert.equal(fullEntry.source, '全量诗人《全量集》')
+  const hit = debug.feihuaLookup(index, '花开满院春色好')
+  assert.ok(hit)
+  assert.equal(hit.entry.text, '花开满院春色好。')
+  // 再次合并同 char 幂等
+  assert.equal(debug.mergeFeihuaFullEntries(index, '花', feihuaFullEntriesFixture()), 0, '同字已合并应幂等')
+  // 系统出句池可含全量句
+  const texts = index.byChar['花'].map((entry) => entry.text)
+  assert.ok(texts.includes('花开满院春色好。'))
+})
+
+test('feihua-full 请求：URL 编码、成功缓存、失败 60s 短缓存、abort、20s 超时、版本清理', async () => {
+  const first = loadClient()
+  const calls = []
+  first.context.fetch = async (url) => {
+    calls.push(String(url))
+    return { ok: true, json: async () => ({ ok: true, char: '花', count: 2, entries: [['花落知多少。', '甲《一》'], ['花间一壶酒。', '乙《二》']] }) }
+  }
+  const result = await first.debug.requestFeihuaFull('花')
+  assert.equal(result.ok, true)
+  assert.equal(result.count, 2)
+  assert.equal(calls.length, 1)
+  assert.ok(calls[0].includes('feihua-full.json?char='))
+  assert.ok(calls[0].includes(encodeURIComponent('花')), 'char 必须 URI 编码：' + calls[0])
+  const cached = await first.debug.requestFeihuaFull('花')
+  assert.equal(cached.cached, true)
+  assert.equal(calls.length, 1, '同字应命中缓存')
+  first.debug.setAssetDataVersion('test.full.2')
+  assert.equal(first.debug.readFeihuaFullCache('花'), null, 'dataVersion 变化应清空缓存')
+
+  const failing = loadClient()
+  let failCalls = 0
+  failing.context.fetch = async () => {
+    failCalls += 1
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const bad = await failing.debug.requestFeihuaFull('花')
+  assert.equal(bad.ok, false)
+  assert.equal(failCalls, 1)
+  const badAgain = await failing.debug.requestFeihuaFull('花')
+  assert.equal(badAgain.ok, false)
+  assert.equal(badAgain.cached, true)
+  assert.equal(failCalls, 1, '失败应短缓存 60s，避免频繁重试')
+  failing.debug.clearFeihuaFullCache()
+  assert.equal(failing.debug.readFeihuaFullCache('花'), null)
+
+  // abort：切字时中止旧请求，且不写失败缓存
+  const abortClient = loadClient()
+  abortClient.context.fetch = () => new Promise(() => {})
+  const pending = abortClient.debug.requestFeihuaFull('花')
+  abortClient.debug.abortFeihuaFull('花')
+  const aborted = await pending
+  assert.equal(aborted.ok, false)
+  assert.equal(aborted.reason, 'aborted')
+  assert.equal(abortClient.debug.readFeihuaFullCache('花'), null, '主动中止不应写失败缓存')
+
+  // 20s 超时：假定时器触发
+  const timeoutClient = loadClient()
+  timeoutClient.context.fetch = () => new Promise(() => {})
+  const timers = []
+  timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
+  timeoutClient.context.clearTimeout = () => {}
+  const timeoutPending = timeoutClient.debug.requestFeihuaFull('月')
+  const timeoutTimer = timers.find((entry) => entry.ms === 20000)
+  assert.ok(timeoutTimer, '应注册 20s 超时')
+  timeoutTimer.fn()
+  const timedOut = await timeoutPending
+  assert.equal(timedOut.ok, false)
+  assert.equal(timedOut.reason, 'timeout')
+})
+
+test('飞花 UI 全量校验：loading→启用、全量句可校验、切字加载新 char、同字缓存', async () => {
+  const fixture = makeFeihuaFixture()
+  const fullEntries = {
+    '花': [['花 开 满 院 春 色 好。', '全量诗人《全量集》'], ['花字第1句。', '本地已有《重复》']],
+    '月': [['月落乌啼霜满天。', '全量诗人《月集》']],
+  }
+  const calls = []
+  let resolveHua = null
+  let mode = 'normal'
+  const fetchImpl = (url) => {
+    const raw = String(url)
+    calls.push(raw)
+    const params = new URLSearchParams(raw.slice(raw.indexOf('?') + 1))
+    const char = params.get('char')
+    if (mode === 'deferred-hua' && char === '花') return new Promise((resolve) => { resolveHua = () => resolve({ ok: true, json: async () => ({ ok: true, char, count: 2, entries: fullEntries['花'] }) }) })
+    return Promise.resolve({ ok: true, json: async () => ({ ok: true, char, count: (fullEntries[char] || []).length, entries: fullEntries[char] || [] }) })
+  }
+  const { react, debug } = loadClient({ fetch: fetchImpl })
+  const api = {
+    poemsRes: { status: 'ready', data: fixture.poems },
+    ciRes: { status: 'ready', data: fixture.ci },
+    poem: { lines: ['花'] },
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    feihuaLaunch: 0,
+  }
+  try {
+    // 初始 activeChar=花，先延迟旧请求以验证 loading/切字
+    mode = 'deferred-hua'
+    let tree = renderFresh(react, debug.FeihuaTab, { api })
+    react._runEffects()
+    await sleep(20)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /正在加载全量校验句库/)
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].includes(encodeURIComponent('花')))
+
+    // 切到「月」：应加载月，旧花请求被取消/忽略
+    mode = 'normal'
+    const yueChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).indexOf('月') === 0)
+    assert.ok(yueChip)
+    yueChip.props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    react._runEffects()
+    await sleep(20)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /全量校验已启用（1 句）/, '应显示月字全量状态')
+    assert.ok(calls.some((url) => url.includes(encodeURIComponent('月'))))
+    const huaCallsBefore = calls.filter((url) => url.includes(encodeURIComponent('花'))).length
+    if (resolveHua) resolveHua()
+    await sleep(20)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /「月」/, '旧花请求不应把当前字改回花')
+    assert.ok(!textOf(tree).includes('全量校验已启用（2 句）') || textOf(tree).includes('「月」'))
+
+    // 切回花：全新请求（之前被 abort，无缓存）
+    const huaChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).indexOf('花') === 0)
+    huaChip.props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    react._runEffects()
+    await sleep(20)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /全量校验已启用（2 句）/)
+    const huaCalls = calls.filter((url) => url.includes(encodeURIComponent('花'))).length
+    assert.ok(huaCalls >= 1)
+
+    // 再切回月：同字缓存，不应重复请求
+    const yueChip2 = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).indexOf('月') === 0)
+    yueChip2.props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    react._runEffects()
+    await sleep(20)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /全量校验已启用（1 句）/)
+    assert.equal(calls.filter((url) => url.includes(encodeURIComponent('月'))).length, 1, '同字缓存不应重复请求')
+
+    // 用全量句校验：本地没有的「月落乌啼霜满天」应能接上
+    const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
+    assert.ok(startButton)
+    startButton.props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    const input = findAll(tree, (node) => node.type === 'input' && node.props['aria-label'] === '输入飞花令对句')[0]
+    input.props.onChange({ target: { value: '月落乌啼霜满天' } })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /接上了/) 
+    assert.match(textOf(tree), /全量诗人《月集》/)
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('飞花 UI 全量校验失败：静默回退本地句库，状态「未启用」且本地仍可玩', async () => {
+  const fixture = makeFeihuaFixture()
+  const { react, debug } = loadClient({ fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }) })
+  const api = {
+    poemsRes: { status: 'ready', data: fixture.poems },
+    ciRes: { status: 'ready', data: fixture.ci },
+    poem: { lines: ['花'] },
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    feihuaLaunch: 0,
+  }
+  try {
+    let tree = renderFresh(react, debug.FeihuaTab, { api })
+    react._runEffects()
+    await sleep(30)
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /全量校验未启用（使用本地句库）/)
+    const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
+    assert.ok(startButton)
+    startButton.props.onClick({ stopPropagation() {} })
+    tree = rerender(react, debug.FeihuaTab, { api })
+    assert.match(textOf(tree), /对方：/)
+    assert.ok(!textOf(tree).includes('失败'), '失败不应弹错误文案')
+  } finally {
+    react._cleanup()
+  }
+})

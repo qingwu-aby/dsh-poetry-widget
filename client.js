@@ -54,6 +54,9 @@ window.__ModuleLoader__.load({
   const FEIHUA_CANDIDATE_LIMIT = 12
   const FEIHUA_ATLAS_LIMIT = 200
   const FEIHUA_ATLAS_PAGE = 60
+  const FEIHUA_FULL_PATH = 'feihua-full.json'
+  const FEIHUA_FULL_TIMEOUT_MS = 20000
+  const FEIHUA_FULL_RETRY_MS = 60000
   const MASCOT_DIR = 'generated/'
   const MASCOT_FILES = Object.freeze({
   celebrate: 'dsh-whale-state-celebrate.webp',
@@ -767,6 +770,153 @@ window.__ModuleLoader__.load({
   for (const entry of entries) registerFeihuaLookup(index, entry)
   if (ciBankData) mergeFeihuaItems(index, ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : (Array.isArray(ciBankData) ? ciBankData : []))
   return finishFeihuaIndex(index)
+  }
+
+  /** 把全量校验分片 [句子,出处] 并入当前索引：只注册当前令字，去重、补 plain/clause。 */
+  function mergeFeihuaFullEntries(index, char, entries) {
+  if (!index || !index.entries || !Array.isArray(entries)) return 0
+  const key = String(char == null ? '' : char)
+  if (!key) return 0
+  if (!index.__seen) index.__seen = new Set(index.entries.map((entry) => entry.text))
+  if (!index.__plainSeen) {
+   index.__plainSeen = new Set()
+   for (const entry of index.entries) {
+    const plain = entry.plain || feihuaPlainOf(entry.text)
+    if (plain) index.__plainSeen.add(plain)
+   }
+  }
+  if (!index.__fullMerged) index.__fullMerged = {}
+  if (index.__fullMerged[key]) return 0
+  if (!Array.isArray(index.byChar[key])) index.byChar[key] = []
+  index.counts[key] = index.counts[key] || 0
+  let added = 0
+  for (const item of entries) {
+   let text = ''
+   let source = ''
+   if (Array.isArray(item)) {
+    text = String(item[0] == null ? '' : item[0]).trim()
+    source = String(item[1] == null ? '' : item[1]).trim()
+   } else if (item && typeof item === 'object' && typeof item.text === 'string') {
+    text = item.text.trim()
+    source = String(item.source || '').trim()
+   } else {
+    continue
+   }
+   if (!text || !/[。！？]$/.test(text) || text.indexOf(key) < 0) continue
+   const plain = feihuaPlainOf(text)
+   if (!plain || index.__seen.has(text) || index.__plainSeen.has(plain)) continue
+   index.__seen.add(text)
+   index.__plainSeen.add(plain)
+   const entry = { text, source, plain }
+   index.entries.push(entry)
+   registerFeihuaLookup(index, entry)
+   index.byChar[key].push(entry)
+   index.counts[key] += 1
+   added += 1
+  }
+  index.__fullMerged[key] = true
+  finishFeihuaIndex(index)
+  return added
+  }
+
+  let feihuaFullCache = {}
+  let feihuaFullInflight = {}
+
+  function clearFeihuaFullCache() {
+  feihuaFullCache = {}
+  for (const key of Object.keys(feihuaFullInflight)) {
+   try {
+    if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === 'function') feihuaFullInflight[key].abort()
+   } catch (error) {
+   }
+  }
+  feihuaFullInflight = {}
+  }
+
+  function readFeihuaFullCache(char) {
+  const key = String(char == null ? '' : char)
+  return key ? feihuaFullCache[key] || null : null
+  }
+
+  function abortFeihuaFull(char) {
+  const key = String(char == null ? '' : char)
+  const item = feihuaFullInflight[key]
+  if (item && typeof item.abort === 'function') item.abort()
+  delete feihuaFullInflight[key]
+  }
+
+  function requestFeihuaFull(char) {
+  const key = String(char == null ? '' : char)
+  if (!key) return Promise.resolve({ ok: false, reason: 'invalid' })
+  const cached = feihuaFullCache[key]
+  if (cached && cached.status === 'ready') {
+   return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true })
+  }
+  if (cached && cached.status === 'error' && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+   return Promise.resolve({ ok: false, char: key, cached: true, reason: 'retry-wait' })
+  }
+  if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise
+  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let aborted = false
+  let settled = false
+  let timer = null
+  let abortResolve = null
+  const abortPromise = new Promise((resolve) => {
+   abortResolve = () => resolve({ ok: false, reason: 'aborted' })
+  })
+  const item = { promise: null, abort: () => {
+   aborted = true
+   try {
+    if (controller) controller.abort()
+   } catch (error) {
+   }
+   if (abortResolve) abortResolve()
+  } }
+  const finish = (result) => {
+   if (settled) return result
+   settled = true
+   if (timer) clearTimeout(timer)
+   delete feihuaFullInflight[key]
+   if (!result.ok && !aborted) feihuaFullCache[key] = { status: 'error', at: Date.now() }
+   return result
+  }
+  const url = ROUTE + FEIHUA_FULL_PATH + '?char=' + encodeURIComponent(key)
+  const task = Promise.resolve()
+   .then(() => fetch(url, controller ? { signal: controller.signal } : undefined))
+   .then((response) => {
+    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
+     return { ok: false, reason: 'http', status: response ? response.status : 0 }
+    }
+    return Promise.resolve(response.json()).then((data) => {
+     if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: 'invalid' }
+     const entries = []
+     for (const entry of data.entries) {
+      if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === 'string' && entry[0].trim()) {
+       entries.push([entry[0].trim(), String(entry[1] == null ? '' : entry[1])])
+      } else if (entry && typeof entry === 'object' && typeof entry.text === 'string' && entry.text.trim()) {
+       entries.push([entry.text.trim(), String(entry.source || '')])
+      }
+     }
+     if (!entries.length) return { ok: false, reason: 'empty' }
+     const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length
+     feihuaFullCache[key] = { status: 'ready', entries, count, at: Date.now() }
+     return { ok: true, char: key, entries, count }
+    }).catch(() => ({ ok: false, reason: 'json' }))
+   })
+   .catch(() => ({ ok: false, reason: aborted ? 'aborted' : 'network' }))
+  const timeout = new Promise((resolve) => {
+   timer = setTimeout(() => {
+    try {
+     if (controller) controller.abort()
+    } catch (error) {
+    }
+    resolve({ ok: false, reason: 'timeout' })
+   }, FEIHUA_FULL_TIMEOUT_MS)
+  })
+  item.promise = Promise.race([task, timeout, abortPromise]).then(finish)
+  feihuaFullInflight[key] = item
+  return item.promise
   }
 
   /** 词句来源文本：作者《标题》/ 词牌。 */
@@ -2223,6 +2373,7 @@ window.__ModuleLoader__.load({
   const next = version == null ? '' : String(version)
   if (next === assetDataVersion) return
   assetDataVersion = next
+  clearFeihuaFullCache()
   for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']) {
    resourceCache[kind] = null
    resourceInflight[kind] = null
@@ -2281,6 +2432,7 @@ window.__ModuleLoader__.load({
 
   function clearResourceCache(kind) {
   clearFeihuaIndexCache()
+  clearFeihuaFullCache()
   if (kind) {
    resourceCache[kind] = null
    resourceInflight[kind] = null
@@ -2683,7 +2835,7 @@ window.__ModuleLoader__.load({
   clearFeihuaIndexCache,
   pickDefaultFeihuaChar,
   feihuaStart,
-  feihuaSubmit, feihuaLookup, feihuaPlainOf,
+  feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
   normalizeFeihuaBest,
   feihuaBestUpdate,
   readFeihuaBest,
@@ -5549,6 +5701,39 @@ window.__ModuleLoader__.load({
    }
   }, [launch, index, activeChar])
 
+  const [fullInfo, setFullInfo] = React.useState({ char: '', status: 'idle', count: 0 })
+  const fullTokenRef = React.useRef(0)
+  React.useEffect(() => {
+   if (!index || !activeChar) return undefined
+   const target = activeChar
+   const cached = readFeihuaFullCache(target)
+   if (cached && cached.status === 'ready') {
+    mergeFeihuaFullEntries(index, target, cached.entries)
+    setFullInfo({ char: target, status: 'ready', count: cached.count })
+    return undefined
+   }
+   if (cached && cached.status === 'error' && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+    setFullInfo({ char: target, status: 'error', count: 0 })
+    return undefined
+   }
+   const token = fullTokenRef.current + 1
+   fullTokenRef.current = token
+   setFullInfo({ char: target, status: 'loading', count: 0 })
+   requestFeihuaFull(target).then((result) => {
+    if (token !== fullTokenRef.current) return
+    if (result && result.ok && Array.isArray(result.entries)) {
+     mergeFeihuaFullEntries(index, target, result.entries)
+     setFullInfo({ char: target, status: 'ready', count: result.count || result.entries.length })
+    } else {
+     setFullInfo({ char: target, status: 'error', count: 0 })
+    }
+   })
+   return () => {
+    fullTokenRef.current += 1
+    abortFeihuaFull(target)
+   }
+  }, [activeChar, index])
+
   if (poemsRes.status === 'error') {
    return h(EmptyState, {
     title: '飞花令句库暂时不可用',
@@ -5582,6 +5767,19 @@ window.__ModuleLoader__.load({
    setGame(feihuaStart(index, use))
    setMode('chain')
    setAtlasLimit(FEIHUA_ATLAS_PAGE)
+   // 来一局时若当前令字还没有全量数据，也兜底发起一次懒加载
+   const cachedFull = readFeihuaFullCache(use)
+   if (!cachedFull || cachedFull.status !== 'ready') {
+    const token = fullTokenRef.current + 1
+    fullTokenRef.current = token
+    requestFeihuaFull(use).then((result) => {
+     if (token !== fullTokenRef.current) return
+     if (result && result.ok && Array.isArray(result.entries)) {
+      mergeFeihuaFullEntries(index, use, result.entries)
+      setFullInfo({ char: use, status: 'ready', count: result.count || result.entries.length })
+     }
+    }).catch(() => {})
+   }
    if (typeof api.pulseMascot === 'function') api.pulseMascot('gameThink')
   }
 
@@ -5795,6 +5993,15 @@ window.__ModuleLoader__.load({
      randomChar()
     },
     }, '随机'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-fh-meta' },
+    h('span', null, fullInfo.char === activeChar
+     ? (fullInfo.status === 'ready'
+      ? '全量校验已启用（' + fullInfo.count + ' 句）'
+      : fullInfo.status === 'loading' || fullInfo.status === 'idle' ? '正在加载全量校验句库…' : '全量校验未启用（使用本地句库）')
+     : '正在加载全量校验句库…'),
    ),
    feihuaBuilding ? h('div', { className: 'dshp-card-summary' }, '正在并入宋词全库…') : null,
    ciBankFailed ? h('div', { className: 'dshp-card-summary' }, '宋词全库加载失败，已回退原句库') : null,
