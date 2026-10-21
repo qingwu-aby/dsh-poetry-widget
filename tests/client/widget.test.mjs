@@ -1754,7 +1754,8 @@ test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 c
       [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings: bootstrap.settings, todayPoem: null }),
     },
     fetch: async (url) => {
-      const key = String(url).replace('/api/dsh-poetry/', '')
+      let key = String(url).replace('/api/dsh-poetry/', '')
+      if (key.indexOf('self-talk.json') === 0) key = 'self-talk.json'
       const data = responses[key]
       if (!data) return { ok: false, status: 404, json: async () => ({}) }
       return { ok: true, json: async () => data }
@@ -2064,52 +2065,6 @@ test('自言自语间隔 nextSpontDelay：基础 8–15min / idle 7–12min / �
   assert.equal(debug.isSpontIdle(now, now - 29 * 60 * 1000), false)
   assert.equal(debug.isSpontIdle(now, now - 31 * 60 * 1000), true)
 })
-test('彩蛋选诗 pickSpontaneousPoem：心情作者+tag、先诗后词、排除已见、行/来源', () => {
-  const { debug } = loadClient()
-  const poemsData = {
-    items: [
-      { id: 'p1', author: '李白', title: '将进酒', lines: ['君不见黄河之水天上来，', '莫使金樽空对月。'] },
-      { id: 'p2', author: '苏轼', title: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] },
-      { id: 'p3', author: '王维', title: '鹿柴', lines: ['空山不见人，'] },
-    ],
-  }
-  const ciData = {
-    items: [
-      { id: 'c1', author: '李清照', rhythmic: '如梦令', title: '如梦令·常记溪亭日暮', lines: ['常记溪亭日暮，'] },
-      { id: 'c2', author: '苏轼', rhythmic: '念奴娇', title: '念奴娇·赤壁怀古', lines: ['大江东去，浪淘尽，千古风流人物。'] },
-      { id: 'c3', author: '李清照', rhythmic: '武陵春', title: '武陵春·春晚', lines: ['风住尘香花已尽，日晚倦梳头。', '只恐双溪舴艋舟，载不动许多愁。'] },
-    ],
-  }
-  const picked = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData, ciData, seenIds: [], random: () => 0 })
-  assert.equal(picked.kind, 'poem', '诗池优先')
-  assert.ok(['p1', 'p2'].includes(picked.id))
-  const pickedSource = poemsData.items.find((poem) => poem.id === picked.id)
-  assert.match(picked.line, /[。！？]$/, '彩蛋必须是一个以句末标点结尾的完整句')
-  assert.ok(!/[，,]$/.test(picked.line), '展示句不能以逗号结尾')
-  const sentences = debug.splitCompleteSentences(pickedSource.lines.join(''))
-  assert.ok(sentences.includes(picked.line), '展示句必须来自拼接文本的切句集合')
-  assert.ok(picked.line.length <= 40, '单句不应超长')
-  assert.ok(picked.label.includes('《'))
-  assert.ok(!picked.label.includes('王维'), '无 tag/作者命中的诗不应入选')
-
-  const excluded = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData, ciData, seenIds: ['p1'], random: () => 0 })
-  assert.equal(excluded.id, 'p2', '已见句子排除（7 天去重）')
-
-  // 诗都不命中时退到词
-  const lonelyPoems = { items: [{ id: 'p9', author: '王维', title: '鹿柴', lines: ['空山不见人，'] }] }
-  const fromCi = debug.pickSpontaneousPoem({ moodKey: 'lonely', poemsData: lonelyPoems, ciData, random: () => 0 })
-  assert.equal(fromCi.kind, 'ci')
-  assert.equal(fromCi.id, 'c3')
-  const ciSentences = debug.splitCompleteSentences(ciData.items.find((item) => item.id === 'c3').lines.join(''))
-  assert.ok(ciSentences.includes(fromCi.line), '词彩蛋同样取完整句')
-  assert.match(fromCi.line, /[。！？]$/)
-  assertDeep(debug.splitCompleteSentences('空山不见人，但闻人语响。返景入深林，复照青苔上。'),
-    ['空山不见人，但闻人语响。', '返景入深林，复照青苔上。'])
-  assert.equal(debug.pickSentenceFromLines(['无标点第一行', '无标点第二行'], [], () => 0), '无标点第二行', '无句末标点时回退最后一个完整 line')
-  assert.equal(debug.pickSentenceFromLines(['只有半句话，'], [], () => 0), '只有半句话。', '回退也不以逗号结尾')
-  assert.equal(debug.pickSpontaneousPoem({ moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] } }), null)
-})
-
 test('settings mood/spontaneousPoem：归一化与 PUT 序列化', () => {
   const { debug } = loadClient()
   assert.equal(debug.normalizeSettings({}).mood, true)
@@ -2172,7 +2127,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   }
   const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
   const text = textOf(tree)
-  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '每隔几分钟可能说一句']) {
+  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '由当前配置的模型实时生成']) {
     assert.ok(text.includes(label), '设置缺少：' + label)
   }
   assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
@@ -2226,6 +2181,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
     'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 100 }, updatedAt: shanghaiTs(2026, 10, 21, 10, 0) },
     'settings.json': { ok: true, settings },
+    'self-talk.json': { ok: true, lines: [{ text: '今天也辛苦啦，我陪着你。' }, { text: '夜深了，记得早点休息。' }], model: { provider: 'test', model: 'test' } },
   }
   const fetchUrls = []
   const { react, debug, storage } = loadClient({
@@ -2285,72 +2241,42 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
-    mainApi.previewSpontaneousPoem('poem')
+    mainApi.previewSpontaneousPoem()
+    await sleep(30)
     tree = renderMain()
     const spontCards = findAll(tree, (node) => node.type === 'div'
       && typeof node.props.className === 'string'
       && node.props.className === 'dshp-spont')
-    assert.equal(spontCards.length, 1, '预览应立即显示彩蛋卡片（面板开着也可）')
+    assert.equal(spontCards.length, 1, '预览应立即显示自言自语卡片（面板开着也可）')
     const spontText = textOf(spontCards[0])
-    assert.match(spontText, /它想读一句：/)
-    assert.match(spontText, /王维/)
-    const previewPoem = poems.find((poem) => spontText.includes(poem.title)) || poems[0]
+    assert.match(spontText, /它小声嘀咕：/, '自言自语标题固定嘀咕类')
+    assert.ok(!spontText.includes('它想读一句'), '自言自语不念诗')
+    const sourceNodes = findAll(spontCards[0], (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-source')
+    assert.equal(sourceNodes.length, 0, '自言自语不显示诗句出处')
     const sentenceNodes = findAll(spontCards[0], (node) => node.type === 'div'
       && typeof node.props.className === 'string'
       && node.props.className === 'dshp-spont-sentence')
-    assert.equal(sentenceNodes.length, 1, '卡片正文只渲染一个完整句')
+    assert.equal(sentenceNodes.length, 1, '卡片正文只渲染一段随想')
     const shownSentence = textOf(sentenceNodes[0])
-    assert.match(shownSentence, /[。！？]$/)
-    assert.ok(debug.splitCompleteSentences(previewPoem.lines.join('')).includes(shownSentence), '展示句来自完整切句')
-    assert.ok(!previewPoem.lines.includes(shownSentence) || /[。！？]$/.test(shownSentence), '不能显示逗号结尾残句')
-    assert.equal(findAll(spontCards[0], (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont-line').length, 0, '不应再渲染整首各行')
+    assert.match(shownSentence, /[。！？]$/, '随想也是完整的一句话')
     assert.equal(storage.getItem(debug.SPONT_KEY), null, '预览不写 localStorage（不计次数/不写 lastShownAt）')
 
-    // 自言自语三种卡片：murmur 标题/无出处；hybrid 前缀+诗句
-    mainApi.previewSpontaneousPoem('murmur')
-    tree = renderMain()
-    let typedCard = findAll(tree, (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont')[0]
-    assert.ok(typedCard, 'murmur 预览应显示卡片')
-    const murmurText = textOf(typedCard)
-    assert.ok(debug.MURMUR_TITLES.some((title) => murmurText.includes(title)), 'murmur 应有小声嘀咕类标题')
-    assert.equal(findAll(typedCard, (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont-source').length, 0, 'murmur 不显示出处')
-    assert.ok(murmurText.includes('再说一句'), '按钮文案改为再说一句')
-    mainApi.previewSpontaneousPoem('hybrid')
-    tree = renderMain()
-    typedCard = findAll(tree, (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont')[0]
-    assert.ok(typedCard, 'hybrid 预览应显示卡片')
-    assert.equal(findAll(typedCard, (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont-prefix').length, 1, 'hybrid 应有天气/心情前缀')
-    assert.equal(findAll(typedCard, (node) => node.type === 'div'
-      && typeof node.props.className === 'string'
-      && node.props.className === 'dshp-spont-source').length, 1, 'hybrid 保留诗句出处')
-    // 恢复 poem 卡片后继续验证点击跳转
+    // 旧 forceType（poem/hybrid）也被忽略：仍然只显示随想
     mainApi.previewSpontaneousPoem('poem')
+    await sleep(30)
     tree = renderMain()
-    const restoredCard = findAll(tree, (node) => node.type === 'div'
+    const typedCard = findAll(tree, (node) => node.type === 'div'
       && typeof node.props.className === 'string'
       && node.props.className === 'dshp-spont')[0]
-    assert.ok(restoredCard)
-
-    // 点击诗句 → 打开面板「今日」并选中该诗
-    const linesNode = findAll(restoredCard, (node) => node.type === 'div'
+    assert.ok(typedCard)
+    assert.match(textOf(typedCard), /它小声嘀咕：/)
+    assert.ok(!textOf(typedCard).includes('它想读一句'))
+    const murmurSentence = findAll(typedCard, (node) => node.type === 'div'
       && typeof node.props.className === 'string'
       && node.props.className === 'dshp-spont-sentence')[0]
-    assert.ok(linesNode)
-    linesNode.props.onClick({ stopPropagation() {} })
-    tree = renderMain()
-    const afterClickText = textOf(tree)
-    assert.ok(afterClickText.includes(previewPoem.title), '点击彩蛋应切到今日 tab 并显示该诗')
-    assert.ok(!findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab').length, '应离开设置 tab')
+    assert.equal(typeof murmurSentence.props.onClick, 'undefined', '随想不可点开诗句')
 
     // 补充要求 2 + C：刷新心情 / 关闭心情后回默认立绘
     // 假 React 每轮都会重跑 bootstrap effect；同步 mock 设置，模拟真实宿主已保存 mood=false
@@ -2694,13 +2620,6 @@ test('天气诗 / 彩蛋选诗池优先级：精选 320 → anthology → bank',
   const weatherPool2 = debug.buildWeatherPoemPool(poemsData, null, tags, 5, { anthology: extraAnthology, bank: extraBank })
   assertDeep(weatherPool2.map((entry) => entry.kind), ['poem', 'poem', 'anthology', 'anthology', 'bank'])
 
-  const happyPoems = { items: [{ id: 'p9', title: '春日', author: '李白', lines: ['春风得意马蹄疾，'] }] }
-  const pickedPoem = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData: happyPoems, ciData: { items: [] }, anthologyData: anthology, bankData: bank, seenIds: [], random: () => 0 })
-  assert.equal(pickedPoem.kind, 'poem')
-  const pickedAnthology = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: anthology, bankData: bank, seenIds: [], random: () => 0 })
-  assert.equal(pickedAnthology.kind, 'anthology', '诗/词都不命中时用 anthology')
-  const pickedBank = debug.pickSpontaneousPoem({ moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: { items: [] }, bankData: bank, seenIds: [], random: () => 0, })
-  assert.equal(pickedBank.kind, 'bank')
 })
 
 test('剩余立绘彩蛋：随机表情映射、每日 greet、idle ≤1 次/45min', async () => {
@@ -2809,18 +2728,6 @@ test('真实 M9 数据冒烟：诗库/平水韵/格律检测/句库扩容/选诗
   assert.equal(pool.length, 20)
   assert.ok(pool.every((entry) => entry.kind === 'poem'), '精选 320 足够时优先用诗')
 
-  const picked = debug.pickSpontaneousPoem({
-    moodKey: 'calm',
-    poemsData: { items: [] },
-    ciData: { items: [] },
-    anthologyData: anthology,
-    bankData: bank,
-    seenIds: [],
-    random: () => 0.42,
-  })
-  assert.ok(picked)
-  assert.match(picked.line, /[。！？]$/)
-  assert.ok(picked.label.includes('《'))
 
   // 真实数据渲染诗库：分类/列表/详情/检测
   const api = {
@@ -3093,12 +3000,6 @@ test('天气/彩蛋池：ci-bank 仅最后优先级且只在已加载时参与',
   const noCiBank = debug.buildWeatherPoemPool({ items: [] }, null, tags, 5, {})
   assert.equal(noCiBank.length, 0, '未加载 ci-bank 时不主动参与')
 
-  const picked = debug.pickSpontaneousPoem({
-    moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: { items: [] }, bankData: { items: [] }, ciBankData: ciBank, seenIds: [], random: () => 0,
-  })
-  assert.ok(picked)
-  assert.equal(picked.kind, 'ci-bank')
-  assert.match(picked.line, /[。！？]$/)
 })
 
 test('ci-bank 资产懒加载：URL 带 dataVersion 且版本失效', async () => {
@@ -3170,11 +3071,6 @@ test('真实宋词全库冒烟：2 万首 / 891 词牌 / 句库约 19 万 / 诗�
   assert.equal(index.candidates.length, 12)
   assert.ok(buildMs < 5000, '全量索引构建应在 5s 内（性能保护），实际 ' + buildMs + 'ms')
 
-  const picked = debug.pickSpontaneousPoem({
-    moodKey: 'calm', poemsData: poems, ciData: ci, anthologyData: anthology, bankData: bank, ciBankData: ciBank, seenIds: [], random: () => 0.88,
-  })
-  assert.ok(picked)
-  assert.match(picked.line, /[。！？]$/)
 })
 
 test('诗库搜索范围：默认只搜宋词精选，切「全部宋词」才纳入全库并提示', async () => {
@@ -3470,57 +3366,307 @@ test('自言自语 murmur 选择：tag 匹配、3 天去重、避免连续同 ta
   assert.ok(avoid.tags.indexOf(first.tags[0]) < 0 || avoid.id !== first.id, '避免连续同 tag')
 })
 
-test('自言自语类型：约 40/40/20、心情调整、avoidType、卡片字段完整', () => {
+test('自言自语只有 murmur：不再调度 poem/hybrid，请求 kind 固定 murmur', () => {
   const { debug } = loadClient()
-  const now = shanghaiTs(2026, 10, 21, 21, 0)
-  const gen = (seed) => {
-    let value = seed || 0.1234567
-    return () => {
-      value = (value * 9301 + 49297) % 233280
-      return value / 233280
-    }
+  assert.equal(debug.selfTalkKindFor('poem'), 'murmur')
+  assert.equal(debug.selfTalkKindFor('hybrid'), 'murmur')
+  assert.equal(debug.selfTalkKindFor(), 'murmur')
+  const query = debug.selfTalkQuery({ kind: 'intro', moodKey: 'tired', recent: ['一'] })
+  const params = new URLSearchParams(query.slice(query.indexOf('?') + 1))
+  assert.equal(params.get('kind'), 'murmur', 'self-talk 只允许 kind=murmur')
+  assert.ok(!query.includes('intro'))
+  // 本地兜底池仍是随想：每条都是完整一句话，且不是带出处的诗句
+  for (const entry of debug.MURMUR_POOL) {
+    assert.match(entry.text, /[。！？]$/)
+    assert.ok(!entry.text.includes('《') && !entry.text.includes('——'))
   }
-  const count = (moodKey) => {
-    const random = gen(0.42)
-    const tally = { poem: 0, murmur: 0, hybrid: 0 }
-    for (let i = 0; i < 3000; i += 1) tally[debug.chooseSpontType({ moodKey, random })] += 1
-    return tally
-  }
-  const calm = count('calm')
-  assert.ok(Math.abs(calm.poem / 3000 - 0.4) < 0.06, '诗约 40%，实际 ' + JSON.stringify(calm))
-  assert.ok(Math.abs(calm.murmur / 3000 - 0.4) < 0.06, '随想约 40%，实际 ' + JSON.stringify(calm))
-  assert.ok(Math.abs(calm.hybrid / 3000 - 0.2) < 0.06, '混合约 20%，实际 ' + JSON.stringify(calm))
-  const tired = count('tired')
-  const happy = count('happy')
-  assert.ok(tired.murmur > tired.poem, 'tired 偏 murmur')
-  assert.ok(happy.poem > happy.murmur, 'happy 偏 poem')
-  const avoidRandom = gen(0.5)
-  for (let i = 0; i < 200; i += 1) {
-    assert.notEqual(debug.chooseSpontType({ moodKey: 'calm', avoidType: 'poem', random: avoidRandom }), 'poem')
-  }
+})
+test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤5，不含会话内容', () => {
+  const { debug } = loadClient()
+  const query = debug.selfTalkQuery({
+    kind: 'intro',
+    moodKey: 'tired',
+    weather: 'rain',
+    idleMinutes: 42,
+    recent: ['一', '二', '三', '四', '五', '六'],
+  })
+  assert.ok(query.indexOf('self-talk.json?') === 0)
+  const params = new URLSearchParams(query.slice(query.indexOf('?') + 1))
+  assert.equal(params.get('kind'), 'murmur', 'kind 固定 murmur')
+  assert.equal(params.get('mood'), 'tired')
+  assert.equal(params.get('weather'), 'rain')
+  assert.equal(params.get('idleMinutes'), '42')
+  const recent = params.get('recent').split('|')
+  assert.equal(recent.length, 5, 'recent 最多 5 条')
+  assertDeep(recent, ['二', '三', '四', '五', '六'])
 
-  const poemsData = {
-    items: [
-      { id: 'p1', author: '李白', title: '将进酒', lines: ['君不见黄河之水天上来，', '莫使金樽空对月。'] },
-      { id: 'p2', author: '苏轼', title: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] },
-    ],
+  const encoded = debug.selfTalkQuery({ kind: 'murmur', recent: ['你好 & 再见，今天好吗？'] })
+  assert.ok(encoded.includes('recent=' + encodeURIComponent('你好 & 再见，今天好吗？')))
+  assert.ok(!encoded.includes('你好 & 再见，今天好吗？'), 'raw 文本必须 URI 编码')
+
+  const keys = Array.from(params.keys())
+  assertDeep(keys.sort(), ['idleMinutes', 'kind', 'mood', 'recent', 'weather'], '只允许聚合上下文参数')
+
+  assertDeep(debug.parseSelfTalkResponse({ ok: true, lines: [{ text: '今天也辛苦啦。' }, { text: '早点休息。' }] }), { ok: true, line: '今天也辛苦啦。', next: '早点休息。' })
+  assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: ['一句。'] }).line, '一句。')
+  assert.equal(debug.parseSelfTalkResponse({ ok: false }).ok, false)
+  assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: [] }).ok, false)
+  assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: [{ text: '   ' }] }).ok, false)
+  assert.equal(debug.parseSelfTalkResponse(null).ok, false)
+  assert.equal(debug.SELF_TALK_TIMEOUT_MS, 8000)
+})
+
+test('self-talk 请求：成功/404/401/ok:false/网络失败/超时全部静默降级', async () => {
+  const success = loadClient({
+    fetch: async () => ({ ok: true, json: async () => ({ ok: true, lines: [{ text: '模型说。' }, { text: '第二句。' }] }) }),
+  })
+  const okResult = await success.debug.requestSelfTalk({ kind: 'murmur', moodKey: 'calm' })
+  assert.equal(okResult.ok, true)
+  assert.equal(okResult.line, '模型说。')
+  assert.equal(okResult.next, '第二句。')
+  assert.ok(success.debug.requestSelfTalk.length >= 0)
+
+  for (const status of [404, 401, 500]) {
+    const client = loadClient({ fetch: async () => ({ ok: false, status, json: async () => ({}) }) })
+    const result = await client.debug.requestSelfTalk({ kind: 'intro' })
+    assert.equal(result.ok, false, 'HTTP ' + status + ' 应静默失败')
   }
-  const ciData = { items: [{ id: 'c1', author: '李清照', rhythmic: '如梦令', lines: ['常记溪亭日暮，', '沉醉不知归路。'] }] }
-  const base = { moodKey: 'happy', now, weather: { category: 'rain', label: '小雨', isDay: true }, stats: {}, poemsData, ciData, random: () => 0 }
-  const poemCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'poem' }))
-  assert.equal(poemCard.type, 'poem')
-  assert.equal(poemCard.title, '它想读一句：')
-  assert.match(poemCard.line, /[。！？]$/)
-  assert.ok(poemCard.label.includes('《'))
-  const murmurCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'murmur' }))
-  assert.equal(murmurCard.type, 'murmur')
-  assert.match(murmurCard.text, /[。！？]$/)
-  assert.ok(debug.MURMUR_TITLES.includes(murmurCard.title))
-  const hybridCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'hybrid' }))
-  assert.equal(hybridCard.type, 'hybrid')
-  assert.match(hybridCard.prefix, /，$/)
-  assert.match(hybridCard.line, /[。！？]$/)
-  assert.ok(hybridCard.label.includes('《'))
-  const fallback = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'poem', poemsData: { items: [] }, ciData: { items: [] } }))
-  assert.ok(fallback && fallback.type === 'murmur', '诗句池为空时回退到 murmur')
+  const okFalse = loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: false, error: { code: 'SELF_TALK_UNAVAILABLE' } }) }) })
+  assert.equal((await okFalse.debug.requestSelfTalk({})).ok, false)
+  const network = loadClient({ fetch: async () => { throw new Error('network') } })
+  assert.equal((await network.debug.requestSelfTalk({})).ok, false)
+
+  // 8s 超时：替换沙箱 setTimeout，只触发 8s 定时器
+  const timeoutClient = loadClient({ fetch: () => new Promise(() => {}) })
+  const timers = []
+  timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
+  timeoutClient.context.clearTimeout = () => {}
+  const pending = timeoutClient.debug.requestSelfTalk({ kind: 'murmur' })
+  const timeoutTimer = timers.find((entry) => entry.ms === 8000)
+  assert.ok(timeoutTimer, '应注册 8s 超时（实际 ' + JSON.stringify(timers.map((entry) => entry.ms)) + '）')
+  timeoutTimer.fn()
+  const timedOut = await pending
+  assert.equal(timedOut.ok, false)
+  assert.equal(timedOut.reason, 'timeout')
+})
+
+test('自言自语模型集成：占位→模型 murmur、缓存、再说一句、force 忽略、失败回退无诗句', async () => {
+  const dataVersion = 'test.selftalk.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: true, weatherCity: '北京' }
+  const poems = [{ id: 'st-1', title: '鹿柴', author: '王维', lines: ['空山不见人，', '但闻人语响。'], tones: ['平平仄仄平，', '仄平平仄仄。'] }]
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: 'st-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  let selfTalkCalls = []
+  let selfTalkMode = 'deferred'
+  let resolveDeferred = null
+  const modelResponse = (lines) => ({ ok: true, json: async () => ({ ok: true, lines: lines.map((text) => ({ text })), model: { provider: 'test', model: 'test' } }) })
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self-talk.json') >= 0) {
+      selfTalkCalls.push(raw)
+      if (selfTalkMode === '404') return { ok: false, status: 404, json: async () => ({}) }
+      if (selfTalkMode === 'ok') return modelResponse(['外面下雨了，我先发会呆。', '第二句随想，慢慢来。'])
+      return new Promise((resolve) => {
+        resolveDeferred = () => resolve(modelResponse(['模型第一句，今天也辛苦啦。', '模型第二句，早点休息。']))
+      })
+    }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 4; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    const settingsTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    assert.ok(settingsTab)
+    settingsTab.props.onClick()
+    tree = renderMain()
+    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsElement)
+    const mainApi = settingsElement.props.api
+    const findSpontCard = (currentTree) => findAll(currentTree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+
+    // 1) 预览：先占位「它正在想…」，只请求 kind=murmur
+    mainApi.previewSpontaneousPoem()
+    await sleep(10)
+    tree = renderMain()
+    let card = findSpontCard(tree)
+    assert.ok(card, '应显示生成中占位卡')
+    assert.match(textOf(card), /它正在想/)
+    assert.equal(selfTalkCalls.length, 1)
+    const firstUrl = selfTalkCalls[0]
+    const query = new URLSearchParams(firstUrl.slice(firstUrl.indexOf('?') + 1))
+    assert.equal(query.get('kind'), 'murmur')
+    assert.ok(query.get('mood'))
+    assert.equal(query.get('weather'), 'rain')
+    assert.ok(Number(query.get('idleMinutes')) >= 0)
+    const allowedKeys = ['kind', 'mood', 'weather', 'idleMinutes', 'recent']
+    for (const key of Array.from(query.keys())) assert.ok(allowedKeys.includes(key), '请求不得包含额外/会话参数：' + key)
+
+    resolveDeferred()
+    await sleep(40)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(card)
+    let cardText = textOf(card)
+    assert.ok(cardText.includes('模型第一句，今天也辛苦啦。'), '占位应被模型 murmur 替换')
+    assert.ok(!cardText.includes('它正在想'))
+    assert.match(cardText, /它小声嘀咕：/, '标题固定嘀咕类')
+    assert.ok(!cardText.includes('它想读一句'), '自言自语不念诗')
+    assert.equal(findAll(card, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && (node.props.className === 'dshp-spont-source' || node.props.className === 'dshp-spont-prefix')).length, 0)
+
+    // 2) 缓存第二句：再次预览复用，不重复请求
+    mainApi.previewSpontaneousPoem()
+    await sleep(10)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(textOf(card).includes('模型第二句，早点休息。'), '缓存第二句应立即复用')
+    assert.equal(selfTalkCalls.length, 1, '缓存复用不应再请求模型')
+
+    // 3) 再说一句：走新逻辑（必要时请求模型），仍是 murmur
+    selfTalkMode = 'ok'
+    const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
+    assert.ok(closePanelButton)
+    closePanelButton.props.onClick()
+    tree = renderMain()
+    const collapseDot = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-dot-collapse'))[0]
+    if (collapseDot) {
+      collapseDot.props.onClick({ stopPropagation() {} })
+      tree = renderMain()
+    }
+    card = findSpontCard(tree)
+    assert.ok(card)
+    const another = findAll(card, (node) => node.type === 'button' && textOf(node) === '再说一句')[0]
+    assert.ok(another)
+    another.props.onClick({ stopPropagation() {} })
+    await sleep(40)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(card)
+    cardText = textOf(card)
+    assert.match(cardText, /它小声嘀咕：/)
+    assert.ok(!cardText.includes('它想读一句'))
+
+    // 4) 旧 forceType 被忽略：预览 poem/hybrid 仍只产生 murmur 且仍请求 kind=murmur
+    mainApi.previewSpontaneousPoem('poem')
+    await sleep(40)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(card)
+    cardText = textOf(card)
+    assert.match(cardText, /它小声嘀咕：/)
+    assert.ok(!cardText.includes('它想读一句'))
+    mainApi.previewSpontaneousPoem('hybrid')
+    await sleep(40)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(card)
+    assert.match(textOf(card), /它小声嘀咕：/)
+    for (const url of selfTalkCalls) {
+      const params = new URLSearchParams(url.slice(url.indexOf('?') + 1))
+      assert.equal(params.get('kind'), 'murmur', '所有 self-talk 请求都必须是 murmur')
+    }
+
+    // 5) 模型失败 → 静默回退本地随想池，不出现诗句/报错
+    selfTalkMode = '404'
+    mainApi.previewSpontaneousPoem('murmur')
+    await sleep(40)
+    tree = renderMain()
+    card = findSpontCard(tree)
+    assert.ok(card, '失败后仍应显示本地随想卡片')
+    cardText = textOf(card)
+    assert.ok(!cardText.includes('它正在想'))
+    assert.ok(!cardText.includes('它想读一句'), '回退不得出现诗句卡片')
+    assert.match(cardText, /它小声嘀咕：/)
+    assert.ok(!textOf(tree).match(/失败|错误|不可用/), '失败不得弹错误提示')
+    const fallbackTexts = debug.MURMUR_POOL.map((entry) => entry.text)
+    assert.ok(fallbackTexts.some((text) => cardText.includes(text)), '应回退本地静态 murmur 池')
+  } finally {
+    react._cleanup()
+  }
+})
+test('设置页显示「当前使用本地句子池」回退状态', () => {
+  const { react, debug } = loadClient()
+  const api = {
+    settings: debug.normalizeSettings({ spontaneousPoem: true }),
+    updateSettings() {},
+    hideWidget() {},
+    resetSettings() {},
+    selfTalkFallback: true,
+    moodStats: debug.normalizeMoodStats({}),
+    moodView: null,
+    weatherRes: { status: 'idle' },
+    weatherData: null,
+    moodRes: { status: 'idle' },
+    refreshWeather() {},
+    refreshMoodNow() {},
+    previewSpontaneousPoem() {},
+    boot: { data: { version: '0.1.0' } },
+  }
+  const tree = renderFresh(react, debug.SettingsTab, { api })
+  assert.match(textOf(tree), /由当前配置的模型实时生成/)
+  assert.match(textOf(tree), /当前使用本地句子池/)
+})
+
+test('自言自语不再念诗：本地诗句/hybrid 能力已移除，只保留随想池', () => {
+  const { debug } = loadClient()
+  assert.equal(typeof debug.pickSpontaneousPoem, 'undefined', '不应再暴露本地诗句选择器')
+  assert.equal(typeof debug.pickSpontaneousCard, 'undefined', '不应再暴露 poem/hybrid 卡片选择器')
+  assert.equal(typeof debug.chooseSpontType, 'undefined', '不应再暴露 poem/hybrid 类型调度')
+  assert.equal(typeof debug.hybridPrefix, 'undefined')
+  assert.equal(typeof debug.pickMurmur, 'function')
+  assert.equal(debug.selfTalkKindFor('poem'), 'murmur')
+  assert.equal(debug.selfTalkKindFor('hybrid'), 'murmur')
+  const query = debug.selfTalkQuery({ kind: 'intro' })
+  assert.match(query, /kind=murmur/)
+  assert.ok(!query.includes('intro'))
+  assert.ok(!query.includes('《'))
+  for (const entry of debug.MURMUR_POOL) {
+    assert.match(entry.text, /[。！？]$/)
+    assert.ok(!entry.text.includes('《') && !entry.text.includes('——'), '本地随想池不得像诗句/带出处')
+  }
 })

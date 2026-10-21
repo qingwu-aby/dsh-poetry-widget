@@ -29,6 +29,7 @@ const ROUTES = [
   '/api/dsh-poetry/settings.json',
   '/api/dsh-poetry/weather.json',
   '/api/dsh-poetry/mood.json',
+  '/api/dsh-poetry/self-talk.json',
   '/api/dsh-poetry/about.json',
 ]
 
@@ -215,7 +216,10 @@ for (const route of ROUTES) {
       let ok = true, detail = ''
       try {
         const j = JSON.parse(r.text)
-        if (route.endsWith('/mood.json')) {
+        if (route.endsWith('/self-talk.json')) {
+          ok = j.ok === true ? Array.isArray(j.lines) && j.lines.length >= 1 && typeof j.lines[0].text === 'string' : (j.error && ['SELF_TALK_UNAVAILABLE','SELF_TALK_BUSY','SELF_TALK_RATE_LIMITED'].includes(j.error.code))
+          detail = j.ok === true ? `lines=${j.lines.length} model=${j.model && (j.model.provider + '/' + j.model.model)}` : `降级：${j.error && j.error.code}`
+        } else if (route.endsWith('/mood.json')) {
           ok = j.ok === true && Boolean(j.stats && typeof j.stats.userMessages === 'number' && typeof j.stats.toolCalls === 'number')
           detail = ok ? `userMessages=${j.stats.userMessages} toolCalls=${j.stats.toolCalls}` : JSON.stringify(j).slice(0, 120)
         } else if (route.endsWith('/weather.json')) {

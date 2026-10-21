@@ -12,7 +12,7 @@
  * 交互：形象悬浮/拖拽/吸附/缩放（按天气与对局状态切换 92 张立绘）；点击推进 6 步气泡
  *       （诗 → 解析 → 知识 → 韵部 → 词牌 → 飞花令 → 收起）；展开面板 6 tab（今日/课堂/
  *       韵部/词牌/飞花/设置）；按天气推荐诗词；设置 PUT 防抖持久化；隐藏后长按角落热区或
- *       双击空白处恢复；心情换装（按当日会话统计/天气/时段，≥20min 限频）与 45–90min 低频「它想读一句」彩蛋
+ *       双击空白处恢复；心情换装（按当日会话统计/天气/时段，≥20min 限频）与 8–15min「自言自语」模型随想
  *       （每日 ≤3 次、7 天不重句，localStorage 记录）。全部圆点/文案中文，主题只用宿主 `--dsw-alias-*` 变量（含 fallback）。
  */
 
@@ -130,20 +130,10 @@ window.__ModuleLoader__.load({
   const SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1000
   const SPONT_MAX_SEEN = 300
   const SPONT_AUTO_CLOSE_MS = 25000
-  const SPONT_TYPES = ['poem', 'murmur', 'hybrid']
+  const SELF_TALK_PATH = 'self-talk.json'
+  const SELF_TALK_TIMEOUT_MS = 8 * 1000
+  const SELF_TALK_RECENT_MAX = 5
   const MURMUR_TITLES = ['它小声嘀咕：', '（没人理我，我自己说说）', '它自己在念叨：']
-  const MURMUR_TYPE_WEIGHTS = {
-  default: { poem: 40, murmur: 40, hybrid: 20 },
-  tired: { poem: 20, murmur: 65, hybrid: 15 },
-  lonely: { poem: 20, murmur: 65, hybrid: 15 },
-  sleepy: { poem: 25, murmur: 55, hybrid: 20 },
-  happy: { poem: 55, murmur: 25, hybrid: 20 },
-  cozy: { poem: 55, murmur: 25, hybrid: 20 },
-  proud: { poem: 50, murmur: 30, hybrid: 20 },
-  busy: { poem: 25, murmur: 55, hybrid: 20 },
-  curious: { poem: 35, murmur: 45, hybrid: 20 },
-  idle: { poem: 30, murmur: 50, hybrid: 20 },
-  }
   /* 自言自语原创文案池：第一人称、简体、可爱不做作；按 tag 匹配心情/天气/时段。 */
   const MURMUR_POOL = [
   { text: '早上好呀，今天也慢慢来。', tags: ['greeting', 'encourage'] },
@@ -263,17 +253,6 @@ window.__ModuleLoader__.load({
   { id: 'tpl-food', tags: ['hungry', 'food'], when: (ctx) => ctx.hour >= 11 && ctx.hour < 14, text: (ctx) => '到饭点啦，别拿零食糊弄自己。' },
   { id: 'tpl-water', tags: ['encourage', 'time'], when: () => true, text: (ctx) => '记得喝口水，' + ctx.period + '也要照顾好自己。' },
   ]
-  const SPONT_MOOD_RULES = Object.freeze({
-  happy: { tags: ['笑', '酒', '春', '花', '歌'], authors: ['李白', '苏轼', '辛弃疾', '刘禹锡'] },
-  proud: { tags: ['胜', '功', '名', '志', '壮'], authors: ['杜甫', '辛弃疾', '岳飞', '苏轼'] },
-  tired: { tags: ['山', '水', '云', '静', '闲'], authors: ['王维', '孟浩然', '陶渊明'] },
-  sleepy: { tags: ['月', '夜', '梦', '眠', '醉'], authors: ['李白', '孟浩然', '苏轼'] },
-  hungry: { tags: ['酒', '食', '味', '茶', '鱼', '羹'], authors: ['苏轼', '陆游', '白居易'] },
-  lonely: { tags: ['思', '独', '孤', '愁', '别', '忆', '寄'], authors: ['李商隐', '李清照', '杜牧'] },
-  curious: { tags: ['问', '何', '知', '见', '奇'], authors: ['苏轼', '王安石', '杨万里'] },
-  cozy: { tags: ['雨', '雪', '茶', '酒', '暖', '炉', '闲'], authors: ['白居易', '陆游', '王维'] },
-  calm: { tags: ['山', '水', '云', '风', '月', '花'], authors: ['王维', '孟浩然', '李白'] },
-  })
   /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
   const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json' }
   const LIBRARY_CATEGORIES = [
@@ -1417,54 +1396,6 @@ window.__ModuleLoader__.load({
   return Math.max(SPONT_HARD_MIN_MS, Math.round(min + ratio * (max - min)))
   }
 
-  /** 按心情挑一首本地诗/词（先诗后词、作者+tag 打分、排除 7 天内已见）。 */
-  function pickSpontaneousPoem(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const rules = SPONT_MOOD_RULES[opts.moodKey] || SPONT_MOOD_RULES.calm
-  const seen = new Set(Array.isArray(opts.seenIds) ? opts.seenIds : [])
-  const build = (items, kind) => {
-   const out = []
-   for (const item of Array.isArray(items) ? items : []) {
-    if (!item || !item.id || seen.has(item.id)) continue
-    const lines = Array.isArray(item.lines) ? item.lines : []
-    if (!lines.length) continue
-    const hits = countSpontHits(lines.join(''), rules.tags)
-    if (hits <= 0) continue
-    const authorHit = rules.authors.indexOf(item.author) >= 0 ? 1 : 0
-    out.push({ item, kind, score: hits * 2 + authorHit * 3 })
-   }
-   out.sort((a, b) => b.score - a.score || String(a.item.id).localeCompare(String(b.item.id)))
-   return out
-  }
-  const poemRanked = build(opts.poemsData && opts.poemsData.items, 'poem')
-  const ciRanked = build(opts.ciData && opts.ciData.items, 'ci')
-  const anthologyRanked = build(opts.anthologyData && opts.anthologyData.items, 'anthology')
-  const bankRanked = build(opts.bankData && opts.bankData.items, 'bank')
-  const ciBankRanked = build(opts.ciBankData && opts.ciBankData.items, 'ci-bank')
-  const ranked = poemRanked.length ? poemRanked
-   : ciRanked.length ? ciRanked
-    : anthologyRanked.length ? anthologyRanked
-     : bankRanked.length ? bankRanked
-      : ciBankRanked
-  if (!ranked.length) return null
-  const top = ranked.slice(0, 8)
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const index = Math.min(top.length - 1, Math.max(0, Math.floor(num(random(), 0) * top.length)))
-  const chosen = top[index]
-  const title = String(chosen.item.title || chosen.item.rhythmic || '无题')
-  const author = String(chosen.item.author || '')
-  const sentence = pickSentenceFromLines(chosen.item.lines, rules.tags, random)
-  if (!sentence) return null
-  return {
-   kind: chosen.kind,
-   id: String(chosen.item.id),
-   title,
-   author,
-   line: sentence,
-   label: author ? author + '《' + title + '》' : '《' + title + '》',
-  }
-  }
-
   function murmurPeriod(hour) {
   if (hour >= 5 && hour < 9) return '早上'
   if (hour >= 9 && hour < 11) return '上午'
@@ -1555,6 +1486,13 @@ window.__ModuleLoader__.load({
   }
   let pool = buildMurmurCandidates(opts).filter((candidate) => !seen.has(candidate.id))
   if (!pool.length) pool = buildMurmurCandidates(opts)
+  const recentTexts = (Array.isArray(opts.recentTexts) ? opts.recentTexts : [])
+   .map((text) => String(text == null ? '' : text).trim())
+   .filter(Boolean)
+  if (recentTexts.length) {
+   const fresh = pool.filter((candidate) => recentTexts.indexOf(candidate.text) < 0)
+   if (fresh.length) pool = fresh
+  }
   if (!pool.length) return null
   const lastTag = typeof opts.lastTag === 'string' ? opts.lastTag : ''
   const scored = pool.map((candidate) => {
@@ -1580,99 +1518,67 @@ window.__ModuleLoader__.load({
   }
   }
 
-  function spontWeightsFor(moodKey, idle) {
-  const base = MURMUR_TYPE_WEIGHTS[moodKey] || MURMUR_TYPE_WEIGHTS.default
-  const weights = Object.assign({}, base)
-  if (idle) {
-   weights.murmur += 10
-   weights.poem = Math.max(0, weights.poem - 5)
-   weights.hybrid = Math.max(0, weights.hybrid - 5)
-  }
-  return weights
+  function selfTalkKindFor() {
+  return 'murmur'
   }
 
-  function chooseSpontType(options) {
+  /** 构建 self-talk GET：只带聚合上下文（mood/weather/idleMinutes/recent），不含会话内容。 */
+  function selfTalkQuery(options) {
   const opts = options && typeof options === 'object' ? options : {}
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const moodKey = typeof opts.moodKey === 'string' && MURMUR_TYPE_WEIGHTS[opts.moodKey] ? opts.moodKey : 'calm'
-  const weights = spontWeightsFor(moodKey, opts.idle === true)
-  if (opts.avoidType && SPONT_TYPES.indexOf(opts.avoidType) >= 0) weights[opts.avoidType] = 0
-  const total = SPONT_TYPES.reduce((sum, type) => sum + (weights[type] || 0), 0)
-  if (total <= 0) return 'murmur'
-  const value = Number(random())
-  let roll = (Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0) * total
-  for (const type of SPONT_TYPES) {
-   roll -= weights[type] || 0
-   if (roll < 0) return type
+  const params = []
+  const add = (key, value) => {
+   if (value == null || value === '') return
+   params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))
   }
-  return 'poem'
+  add('kind', 'murmur')
+  add('mood', opts.moodKey)
+  add('weather', opts.weather)
+  add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
+  const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-SELF_TALK_RECENT_MAX)
+  if (recent.length) add('recent', recent.join('|'))
+  return SELF_TALK_PATH + (params.length ? '?' + params.join('&') : '')
   }
 
-  function hybridPrefix(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const ctx = buildMurmurContext(opts)
-  const moodKey = opts.moodKey
-  if (moodKey === 'tired') return '有点累了，'
-  if (moodKey === 'lonely') return '忽然想找你说说话，'
-  if (ctx.weatherCategory === 'rain') return '外面在下雨，'
-  if (ctx.weatherCategory === 'snow') return '外面下雪了，'
-  if (ctx.weatherCategory === 'clear' && ctx.isDay) return '今天天气不错，'
-  if (ctx.weatherLabel) return '外面' + ctx.weatherLabel + '，'
-  if (ctx.hour >= 5 && ctx.hour < 10) return '早上好，'
-  if (ctx.hour >= 23 || ctx.hour < 5) return '夜深了，'
-  return '忽然想说，'
+  function parseSelfTalkResponse(data) {
+  if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: 'invalid' }
+  const texts = []
+  for (const line of data.lines) {
+   const text = typeof line === 'string' ? line : line && typeof line.text === 'string' ? line.text : ''
+   const clean = text.trim()
+   if (clean && texts.indexOf(clean) < 0) texts.push(clean)
+  }
+  if (!texts.length) return { ok: false, reason: 'empty' }
+  return { ok: true, line: texts[0], next: texts[1] || '' }
   }
 
-  /** 彩蛋总入口：按比例/心情选 poem / murmur / hybrid，失败自动回退。 */
-  function pickSpontaneousCard(options) {
+  /** 请求 host 实时自言自语；8s 超时；所有失败都 resolve 成 {ok:false}，由调用方静默回退。 */
+  function requestSelfTalk(options) {
   const opts = options && typeof options === 'object' ? options : {}
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const now = num(opts.now, Date.now())
-  const moodKey = typeof opts.moodKey === 'string' ? opts.moodKey : 'calm'
-  const forceType = SPONT_TYPES.indexOf(opts.forceType) >= 0 ? opts.forceType : ''
-  const type = forceType || chooseSpontType({
-   moodKey,
-   idle: opts.idle === true,
-   avoidType: opts.avoidType,
-   random,
-  })
-  const seenEntries = Array.isArray(opts.seenEntries)
-   ? opts.seenEntries
-   : Array.isArray(opts.seenIds) ? opts.seenIds.map((id) => ({ id, at: now })) : []
-  const poemOptions = {
-   moodKey,
-   poemsData: opts.poemsData,
-   ciData: opts.ciData,
-   anthologyData: opts.anthologyData,
-   bankData: opts.bankData,
-   ciBankData: opts.ciBankData,
-   seenIds: seenEntries.map((entry) => entry.id),
-   random,
-  }
-  const murmurOptions = Object.assign({}, opts, { moodKey, now, random, seenEntries })
-  let result = null
-  if (type === 'murmur') {
-   result = pickMurmur(murmurOptions)
-  } else {
-   const poem = pickSpontaneousPoem(poemOptions)
-   if (poem) {
-    if (type === 'hybrid') {
-     result = Object.assign({}, poem, {
-      type: 'hybrid',
-      id: 'hybrid:' + poem.id,
-      prefix: hybridPrefix({ moodKey, weather: opts.weather, now }),
-      title: '它想读一句：',
-     })
-    } else {
-     result = Object.assign({}, poem, { type: 'poem', title: '它想读一句：' })
+  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let timer = null
+  const timeout = new Promise((resolve) => {
+   timer = setTimeout(() => {
+    try {
+     if (controller) controller.abort()
+    } catch (error) {
     }
-   }
-  }
-  if (!result) {
-   result = type === 'murmur' ? pickSpontaneousPoem(Object.assign({}, poemOptions, { type: 'poem' })) : pickMurmur(murmurOptions)
-   if (result && !result.type) result = Object.assign({}, result, { type: 'poem', title: '它想读一句：' })
-  }
-  return result || null
+    resolve({ ok: false, reason: 'timeout' })
+   }, SELF_TALK_TIMEOUT_MS)
+  })
+  const request = Promise.resolve()
+   .then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : undefined))
+   .then((response) => {
+    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
+     return { ok: false, reason: 'http', status: response ? response.status : 0 }
+    }
+    return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: 'json' }))
+   })
+   .catch(() => ({ ok: false, reason: 'network' }))
+  return Promise.race([request, timeout]).then((result) => {
+   if (timer) clearTimeout(timer)
+   return result
+  })
   }
 
   /* ================================================================
@@ -2357,6 +2263,7 @@ window.__ModuleLoader__.load({
   '.dshp-spont-sentence:hover{color:var(--dshp-accent)}',
   '.dshp-spont-source{font-size:11.5px;color:var(--dshp-label-2)}',
   '.dshp-spont-prefix{font-size:12px;color:var(--dshp-label-2);line-height:1.55}',
+  '.dshp-spont-thinking{font-size:13px;color:var(--dshp-label-2);line-height:1.6}',
   '.dshp-spont-actions{display:flex;gap:8px;justify-content:flex-end}',
   '.dshp-tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);',
   'white-space:nowrap;background:var(--dshp-bg);color:var(--dshp-label);border:1px solid var(--dshp-border);',
@@ -2637,11 +2544,11 @@ window.__ModuleLoader__.load({
   weatherUpdatedLabel,
   requestWeather,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG,
-  SPONT_KEY, SPONT_BASE_MIN_MS, SPONT_BASE_MAX_MS, SPONT_IDLE_AFTER_MS, SPONT_IDLE_MIN_MS, SPONT_IDLE_MAX_MS, SPONT_HARD_MIN_MS, SPONT_QUIET_MS, SPONT_BACKGROUND_RESUME_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, SPONT_MOOD_RULES, SPONT_TYPES, MURMUR_TITLES,
-  MURMUR_POOL, MURMUR_TEMPLATES, MURMUR_TYPE_WEIGHTS,
-  buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, chooseSpontType, spontWeightsFor, hybridPrefix, pickSpontaneousCard, isSpontIdle,
+  SPONT_KEY, SPONT_BASE_MIN_MS, SPONT_BASE_MAX_MS, SPONT_IDLE_AFTER_MS, SPONT_IDLE_MIN_MS, SPONT_IDLE_MAX_MS, SPONT_HARD_MIN_MS, SPONT_QUIET_MS, SPONT_BACKGROUND_RESUME_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
+  MURMUR_POOL, MURMUR_TEMPLATES,
+  buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, isSpontIdle, selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
-  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontDelay, pickSpontaneousPoem, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
+  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
   TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
   assetUrlFor, buildLibraryItems, filterLibraryItems, libraryPage, libraryItemLabel, ciBankRhythmics, ciSelectedLibraryItems, ciSelectedRhythmics, mergeFeihuaItems, finishFeihuaIndex, feihuaSourceOf, completeSentencesFromLines,
@@ -2895,6 +2802,7 @@ window.__ModuleLoader__.load({
   const [spontPoem, setSpontPoem] = React.useState(null)
   const [spontPreview, setSpontPreview] = React.useState(false)
   const [mascotExpression, setMascotExpression] = React.useState('')
+  const [selfTalkFallback, setSelfTalkFallback] = React.useState(false)
   const [libraryFocus, setLibraryFocus] = React.useState(null)
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
@@ -2927,6 +2835,9 @@ window.__ModuleLoader__.load({
   const uiRef = React.useRef({})
   const mascotExprTimerRef = React.useRef(null)
   const mascotTapRef = React.useRef(0)
+  const spontReqRef = React.useRef(0)
+  const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
+  const recentSpokenRef = React.useRef([])
   spontPoemRef.current = spontPoem
 
   const showToast = React.useCallback((text, kind) => {
@@ -3281,6 +3192,7 @@ window.__ModuleLoader__.load({
   }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood])
   React.useEffect(() => {
    if (!settings.spontaneousPoem || settings.hidden) {
+    spontReqRef.current += 1
     setSpontPoem(null)
     return undefined
    }
@@ -3307,29 +3219,7 @@ window.__ModuleLoader__.load({
      quietMs: SPONT_QUIET_MS,
     })
     if (ok) {
-     const idle = isSpontIdle(now, lastInteractionRef.current)
-     const picked = pickSpontaneousCard({
-      moodKey: ui.moodView ? ui.moodView.key : 'calm',
-      idle,
-      weather: weatherRef.current,
-      stats: moodStatsRef.current,
-      now,
-      poemsData: { items: ui.poemItems },
-      ciData: { items: ui.ciItems },
-      anthologyData: { items: ui.anthologyItems },
-      bankData: { items: ui.bankItems },
-      ciBankData: { items: ui.ciBankItems },
-      seenEntries: state.seenIds,
-      lastType: state.lastType,
-      lastTag: state.lastTag,
-      avoidType: state.lastType,
-      random: Math.random,
-     })
-     if (picked) {
-      setSpontPreview(false)
-      setSpontPoem(picked)
-      writeSpontState(recordSpontShown(state, picked.id, now, picked.type, picked.tag || picked.kind || ''))
-     }
+     startSpontaneousCard({ record: true })
     }
     const nextNow = Date.now()
     schedule(nextSpontDelay({ idle: isSpontIdle(nextNow, lastInteractionRef.current), random: Math.random }))
@@ -3341,6 +3231,7 @@ window.__ModuleLoader__.load({
    schedule(nextSpontDelay({ idle: isSpontIdle(Date.now(), lastInteractionRef.current), random: Math.random }))
    return () => {
     cancelled = true
+    spontReqRef.current += 1
     if (timer) clearTimeout(timer)
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
    }
@@ -3360,11 +3251,17 @@ window.__ModuleLoader__.load({
 
   React.useEffect(() => {
    if (!spontPoem) return undefined
-   const timer = setTimeout(() => setSpontPoem(null), SPONT_AUTO_CLOSE_MS)
+   const timer = setTimeout(() => {
+    spontReqRef.current += 1
+    setSpontPoem(null)
+   }, SPONT_AUTO_CLOSE_MS)
    return () => clearTimeout(timer)
   }, [spontPoem])
   React.useEffect(() => {
-   if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) setSpontPoem(null)
+   if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
+    spontReqRef.current += 1
+    setSpontPoem(null)
+   }
   }, [panelOpen, step, settings.hidden, spontPoem, spontPreview])
   React.useEffect(() => {
    if (!feihuaOpen) {
@@ -3646,67 +3543,161 @@ window.__ModuleLoader__.load({
    pulseMascot('gameThink')
   }
 
-  function pickSpontForMood(forceType) {
+  function takeCachedSelfTalk(kind) {
+   const list = selfTalkCacheRef.current[kind]
+   if (Array.isArray(list) && list.length) return list.shift()
+   return ''
+  }
+
+  function rememberSpoken(card) {
+   if (!card || card.type !== 'murmur' || !card.text) return
+   const clean = String(card.text).trim()
+   if (!clean) return
+   const list = recentSpokenRef.current.filter((value) => value !== clean)
+   list.push(clean)
+   recentSpokenRef.current = list.slice(-SELF_TALK_RECENT_MAX)
+  }
+
+  function spontPools() {
    const ui = uiRef.current
-   const now = Date.now()
-   const mood = ui.moodView || computeMood({ stats: moodStatsRef.current, weather: weatherRef.current, signals: { now } })
-   const state = readSpontState(now)
-   return pickSpontaneousCard({
-    moodKey: mood.key,
-    idle: isSpontIdle(now, lastInteractionRef.current),
-    weather: weatherRef.current,
-    stats: moodStatsRef.current,
-    now,
+   return {
     poemsData: { items: ui.poemItems },
     ciData: { items: ui.ciItems },
     anthologyData: { items: ui.anthologyItems },
     bankData: { items: ui.bankItems },
     ciBankData: { items: ui.ciBankItems },
-    seenEntries: state.seenIds,
-    lastType: state.lastType,
-    lastTag: state.lastTag,
-    forceType: SPONT_TYPES.indexOf(forceType) >= 0 ? forceType : '',
-    random: Math.random,
-   })
+   }
   }
 
-  function previewSpontaneousPoem(forceType) {
-   const picked = pickSpontForMood(forceType)
-   if (picked) {
-    setSpontPreview(true)
-    setSpontPoem(picked)
+  function fallbackSpontCard(moodKey, state) {
+   const murmur = pickMurmur({
+    moodKey,
+    idle: isSpontIdle(Date.now(), lastInteractionRef.current),
+    weather: weatherRef.current,
+    stats: moodStatsRef.current,
+    now: Date.now(),
+    seenEntries: state ? state.seenIds : [],
+    lastTag: state ? state.lastTag : '',
+    recentTexts: recentSpokenRef.current,
+    random: Math.random,
+   })
+   if (murmur) return Object.assign({}, murmur, { title: '它小声嘀咕：' })
+   const pool = buildMurmurCandidates({
+    moodKey,
+    now: Date.now(),
+    weather: weatherRef.current,
+    stats: moodStatsRef.current,
+   })
+   if (!pool.length) return null
+   return murmurCardFromText(pool[0].text)
+  }
+  function murmurCardFromText(text) {
+   const value = String(text == null ? '' : text).trim()
+   return {
+    type: 'murmur',
+    id: 'model-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    text: value,
+    line: value,
+    tags: [],
+    tag: 'model',
+    title: '它小声嘀咕：',
    }
-   return picked
+  }
+
+  function showSpontCard(card, options) {
+   if (!card) return null
+   const opts = options || {}
+   if (opts.record === true && opts.state) {
+    writeSpontState(recordSpontShown(opts.state, card.id, Date.now(), card.type, card.tag || card.kind || ''))
+   }
+   rememberSpoken(card)
+   setSpontPreview(opts.preview === true)
+   setSpontPoem(card)
+   return card
+  }
+
+  /**
+   * 触发一次自言自语：poem 走本地诗句；murmur/hybrid 先请求 host self-talk，
+   * 生成中显示「它正在想…」占位，失败静默回退本地静态池。
+   */
+  function startSpontaneousCard(options) {
+   const opts = options && typeof options === 'object' ? options : {}
+   const ui = uiRef.current
+   const now = Date.now()
+   const state = readSpontState(now)
+   const moodKey = ui.moodView ? ui.moodView.key : 'calm'
+   const preview = opts.preview === true
+   const record = opts.record === true
+   const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX)
+   const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state })
+   const cached = takeCachedSelfTalk('murmur')
+   if (cached) {
+    setSelfTalkFallback(false)
+    return showMurmur(cached)
+   }
+   const token = spontReqRef.current + 1
+   spontReqRef.current = token
+   setSpontPreview(preview)
+   setSpontPoem({ type: 'thinking', title: '它正在想…', line: '', placeholder: true })
+   const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now - lastInteractionRef.current) / 60000)) : 0
+   const weatherValue = weatherRef.current ? String(weatherRef.current.category || weatherRef.current.label || '') : ''
+   const fallback = () => {
+    setSelfTalkFallback(true)
+    const card = fallbackSpontCard(moodKey, state)
+    if (card) showSpontCard(card, { preview, record, state })
+    else {
+     setSpontPreview(preview)
+     setSpontPoem(null)
+    }
+   }
+   requestSelfTalk({ kind: 'murmur', moodKey, weather: weatherValue, idleMinutes, recent }).then((result) => {
+    if (token !== spontReqRef.current) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+     setSpontPoem((current) => (current && current.type === 'thinking' ? null : current))
+     return
+    }
+    if (!result || !result.ok || !result.line) {
+     fallback()
+     return
+    }
+    if (recent.indexOf(result.line) >= 0) {
+     if (result.next && recent.indexOf(result.next) < 0) {
+      setSelfTalkFallback(false)
+      showMurmur(result.next)
+     } else {
+      fallback()
+     }
+     return
+    }
+    if (result.next && recent.indexOf(result.next) < 0) {
+     const list = selfTalkCacheRef.current.murmur.concat([result.next])
+     selfTalkCacheRef.current.murmur = list.slice(-2)
+    }
+    setSelfTalkFallback(false)
+    showMurmur(result.line)
+   }).catch(() => {
+    if (token !== spontReqRef.current) return
+    fallback()
+   })
+   return null
+  }
+
+  function previewSpontaneousPoem() {
+   return startSpontaneousCard({ preview: true, record: false })
   }
 
   function readAnotherSpontaneous() {
-   const ui = uiRef.current
-   const now = Date.now()
-   const mood = ui.moodView || { key: 'calm' }
-   const state = readSpontState(now)
-   const picked = pickSpontaneousCard({
-    moodKey: mood.key,
-    idle: isSpontIdle(now, lastInteractionRef.current),
-    weather: weatherRef.current,
-    stats: moodStatsRef.current,
-    now,
-    poemsData: { items: ui.poemItems },
-    ciData: { items: ui.ciItems },
-    anthologyData: { items: ui.anthologyItems },
-    bankData: { items: ui.bankItems },
-    ciBankData: { items: ui.ciBankItems },
-    seenEntries: state.seenIds,
-    lastType: state.lastType,
-    lastTag: state.lastTag,
-    avoidType: spontPoemRef.current ? spontPoemRef.current.type : '',
-    random: Math.random,
-   })
-   if (picked) {
-    setSpontPreview(false)
-    setSpontPoem(picked)
-   }
+   return startSpontaneousCard({ preview: false, record: false })
+  }
+  function previewSpontaneousPoem(forceType) {
+   return startSpontaneousCard({ forceType, preview: true, record: false })
   }
 
+  function readAnotherSpontaneous() {
+   const current = spontPoemRef.current
+   const avoidType = current && current.type !== 'thinking' ? current.type : ''
+   return startSpontaneousCard({ avoidType, preview: false, record: false })
+  }
   function requestCiBank() {
    setCiBankWanted(true)
   }
@@ -4116,6 +4107,28 @@ window.__ModuleLoader__.load({
    const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
    if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
    else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
+   if (spontPoem.type === 'thinking') {
+    return h(
+     'div',
+     { key: 'spont', className: 'dshp-spont', style, role: 'status', 'aria-live': 'polite' },
+     h('div', { className: 'dshp-spont-title' }, '它正在想…'),
+     h('div', { className: 'dshp-spont-thinking' }, '稍等一下下…'),
+     h(
+      'div',
+      { className: 'dshp-spont-actions' },
+      h('button', {
+       type: 'button',
+       className: 'dshp-btn dshp-btn-small',
+       onClick: (event) => {
+        event.stopPropagation()
+        spontReqRef.current += 1
+        setSpontPreview(false)
+        setSpontPoem(null)
+       },
+      }, '关闭'),
+     ),
+    )
+   }
    const isPoemCard = spontPoem.type !== 'murmur'
    const sentenceProps = { className: 'dshp-spont-sentence' }
    if (isPoemCard) {
@@ -4136,7 +4149,7 @@ window.__ModuleLoader__.load({
    return h(
     'div',
     { key: 'spont', className: 'dshp-spont', style, role: 'status', 'aria-live': 'polite' },
-    h('div', { className: 'dshp-spont-title' }, String(spontPoem.title || (isPoemCard ? '它想读一句：' : MURMUR_TITLES[0]))),
+    h('div', { className: 'dshp-spont-title' }, String(spontPoem.title || MURMUR_TITLES[0])),
     spontPoem.type === 'hybrid' && spontPoem.prefix
      ? h('div', { className: 'dshp-spont-prefix' }, String(spontPoem.prefix))
      : null,
@@ -4160,6 +4173,7 @@ window.__ModuleLoader__.load({
      className: 'dshp-btn dshp-btn-small',
      onClick: (event) => {
       event.stopPropagation()
+      spontReqRef.current += 1
       setSpontPreview(false)
       setSpontPoem(null)
      },
@@ -5032,8 +5046,9 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '每隔几分钟可能说一句：诗句、随想或吐槽；长时间没人理会更频繁')),
+    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '由当前配置的模型实时生成（说它自己此刻的想法，不背诗）；不可用时回退本地随想池')),
     switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '自言自语开关'),
+    api.selfTalkFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地句子池') : null,
    ),
    h(
     'div',

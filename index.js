@@ -6,6 +6,7 @@
 //   · 设置接口：GET/PUT settings.json（PUT 仅回环来源、白名单校验、原子写 $DSH_HOME/.dsh-poetry/）；
 //   · 天气接口：GET weather.json（Open-Meteo 地理编码 + forecast，20min 缓存，失败降级永 200）；
 //   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
+//   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
 //   · 所有新增路由接入宿主信任栅栏（lib/trust.mjs，委托 connection.requestRejection）。
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
@@ -17,6 +18,7 @@ import { createAssetHandler } from './lib/assets.mjs'
 import { createDataStore } from './lib/data-store.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
 import { createRouteTable } from './lib/routes.mjs'
+import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createMoodTracker } from './lib/mood.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -103,6 +105,26 @@ export async function apply(ctx) {
       const weatherService = createWeatherService({
         fetchImpl: typeof globalThis.fetch === 'function' ? (url, init) => globalThis.fetch(url, init) : null,
       })
+      // 实时自言自语：llm / agentDefaultModel 是 optional 服务（用 get 取，不放进 inject 硬依赖）。
+      // llm 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
+      const selfTalkService = createSelfTalkService({
+        getLlm: () => {
+          try {
+            return hostCtx.get('llm')
+          } catch {
+            return undefined
+          }
+        },
+        getSelection: () => {
+          try {
+            const agentDefaultModel = hostCtx.get('agentDefaultModel')
+            return typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : null
+          } catch {
+            return null
+          }
+        },
+        logger,
+      })
       const routes = createRouteTable({
         dataStore,
         settingsStore,
@@ -111,6 +133,7 @@ export async function apply(ctx) {
         settingsFile: settingsPath.file,
         weatherService,
         moodTracker,
+        selfTalkService,
         env,
         home,
       })

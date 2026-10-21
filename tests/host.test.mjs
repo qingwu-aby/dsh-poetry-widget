@@ -40,6 +40,13 @@ import {
   toMoodResponse,
   zeroMoodResponse,
 } from '../lib/mood.mjs'
+import {
+  SELF_TALK_SYSTEM_PROMPT,
+  buildSelfTalkPrompt,
+  createSelfTalkService,
+  parseRecentQuery,
+  parseSelfTalkLines,
+} from '../lib/self-talk.mjs'
 
 // ---------------------------------------------------------------------------
 // 测试基础设施
@@ -171,6 +178,14 @@ function createHarness(overrides = {}) {
       now: () => FIXED_NOW.getTime(),
       persistDebounceMs: 0,
     })
+  const selfTalkService =
+    overrides.selfTalkService ??
+    createSelfTalkService({
+      llm: null,
+      getSelection: () => null,
+      now: () => FIXED_NOW.getTime(),
+      minIntervalMs: 0,
+    })
   const handlers = new Map(
     createRouteTable({
       dataStore,
@@ -180,6 +195,7 @@ function createHarness(overrides = {}) {
       settingsFile,
       weatherService,
       moodTracker,
+      selfTalkService,
       env,
       home,
       now,
@@ -195,7 +211,7 @@ function createHarness(overrides = {}) {
     return response
   }
 
-  return { dataDir, settingsFile, home, env, dataStore, settingsStore, weatherService, moodTracker, handlers, call }
+  return { dataDir, settingsFile, home, env, dataStore, settingsStore, weatherService, moodTracker, selfTalkService, handlers, call }
 }
 
 /** 构造一个假的 Open-Meteo fetch：calls 记录请求 URL；failFrom 指定第几次请求起抛错。 */
@@ -221,6 +237,61 @@ function makeWeatherFetch(options = {}) {
     return { ok: true, status: 200, json: async () => ({ current }) }
   }
   return { fetchImpl, calls }
+}
+
+/**
+ * 造一个假的 llm 服务：calls 记录每次 stream(options)；responder 返回：
+ *   string → 文本（按 \u0001 分段 yield text-delta，再 yield finish stop）
+ *   {chunks, finish, noFinish, hang, throwError} → 精确控制流
+ */
+function makeMockLlm(responder) {
+  const calls = []
+  const stream = (options) => {
+    calls.push(options)
+    return (async function* iterator() {
+      const outcome = await (typeof responder === 'function' ? responder(options, calls.length) : responder)
+      if (outcome instanceof Error) throw outcome
+      if (outcome !== null && typeof outcome === 'object' && outcome.hang === true) {
+        await new Promise(() => {})
+        return
+      }
+      let chunks = []
+      let finish = { kind: 'stop' }
+      let noFinish = false
+      if (typeof outcome === 'string') {
+        chunks = outcome.split('\u0001').filter((part) => part !== undefined).map((text) => ({ type: 'text-delta', index: 0, text }))
+      } else if (Array.isArray(outcome)) {
+        chunks = outcome
+      } else if (outcome !== null && typeof outcome === 'object') {
+        if (Array.isArray(outcome.chunks)) chunks = outcome.chunks
+        else if (typeof outcome.text === 'string') chunks = [{ type: 'text-delta', index: 0, text: outcome.text }]
+        if (outcome.finish !== undefined) finish = outcome.finish
+        noFinish = outcome.noFinish === true
+      }
+      for (const chunk of chunks) yield chunk
+      if (!noFinish) yield { type: 'finish', reason: finish }
+    })()
+  }
+  return { calls, stream }
+}
+
+const SELF_TALK_SELECTION = { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' }
+const SELF_TALK_LINES_A = ['今天的小雨让我有点想窝在窗边看雨', '我数了数你敲键盘的声音，好像比昨天轻快']
+const SELF_TALK_LINES_B = ['书页翻到一半的时候我忽然想起你在忙', '窗外没有月亮，我就自己亮了会儿']
+
+/** 构造一个注入 mock llm 的 self-talk 服务 + 可控时钟。 */
+function makeSelfTalkHarness(overrides = {}) {
+  const state = { clock: FIXED_NOW.getTime() }
+  const llm = makeMockLlm(overrides.responder ?? (() => SELF_TALK_LINES_A.join('\n')))
+  const service = createSelfTalkService({
+    llm,
+    getSelection: overrides.getSelection ?? (() => SELF_TALK_SELECTION),
+    now: () => state.clock,
+    minIntervalMs: overrides.minIntervalMs ?? 0,
+    timeoutMs: overrides.timeoutMs ?? 300,
+    logger: { warn() {} },
+  })
+  return { llm, service, state }
 }
 
 function expectedPoemId(date, dataVersion, ids) {
@@ -875,6 +946,20 @@ test('weather 服务：地理编码按城市缓存 + 上限淘汰（maxCacheEntr
   assert.equal(geoFetches, 4, '缓存命中城市不重复请求')
 })
 
+test('weather 服务：peekCached 只读缓存、不触发网络请求', async () => {
+  const { fetchImpl, calls } = makeWeatherFetch()
+  const service = createWeatherService({ fetchImpl, now: () => 1_700_000_000_000 })
+  assert.equal(service.peekCached('北京'), null, '没有缓存时返回 null')
+  await service.getWeather('北京')
+  const callsAfter = calls.length
+  const cached = service.peekCached('北京')
+  assert.ok(cached !== null, '有缓存时返回天气')
+  assert.equal(cached.weather.category, 'rain')
+  assert.equal(cached.stale, false)
+  assert.equal(calls.length, callsAfter, 'peekCached 不发起新请求')
+  assert.equal(service.peekCached('不存在的城市'), null)
+})
+
 test('weather 服务：请求失败回退 stale 缓存并标 stale:true；无缓存失败 WEATHER_UNAVAILABLE', async () => {
   let clock = 1_700_000_000_000
   const { fetchImpl: okFetch } = makeWeatherFetch()
@@ -1444,6 +1529,21 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
+    assert.equal(routes.length, 12, 'assets + 11 条 JSON 路由')
+    assert.ok(
+      routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
+      '注册了 self-talk.json 路由',
+    )
+
+    // 假 ctx 里没有 llm/agentDefaultModel → self-talk 路由必须安全降级（200 + ok:false）
+    const selfTalkRoute = routes.find((route) => route.path === '/api/dsh-poetry/self-talk.json')
+    const selfTalkResponse = new MockResponse()
+    await selfTalkRoute.handler(mockRequest({ url: '/api/dsh-poetry/self-talk.json' }), selfTalkResponse)
+    await selfTalkResponse.finished()
+    assert.equal(selfTalkResponse.statusCode, 200)
+    assert.equal(selfTalkResponse.json().ok, false)
+    assert.equal(selfTalkResponse.json().error.code, 'SELF_TALK_UNAVAILABLE')
+
     const moodRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood.json')
     const response = new MockResponse()
     await moodRoute.handler(mockRequest({ url: '/api/dsh-poetry/mood.json' }), response)
@@ -1476,6 +1576,398 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     if (previousDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousDshHome
   }
+})
+
+// ---------------------------------------------------------------------------
+// 实时自言自语（契约 v1.8 §2.11）
+// ---------------------------------------------------------------------------
+
+const SELF_TALK_SEP = '\n'
+
+test('self-talk：system prompt 含关键约束（人格/长度/禁引诗/不提 AI）', () => {
+  for (const phrase of [
+    '第一人称',
+    '简体中文',
+    '8–60',
+    '不迎合',
+    '不说教',
+    'AI',
+    '不编造',
+    'emoji',
+    '只输出一句话',
+    // v1.8b 纯随想：禁止引诗/念诗/往诗词上引，必须用自己的话
+    '不要引用',
+    '背诵',
+    '化用',
+    '古诗文',
+    '不要念诗',
+    '不要报诗名',
+    '用你自己的话',
+    '此刻的感受',
+  ]) {
+    assert.equal(SELF_TALK_SYSTEM_PROMPT.includes(phrase), true, `system prompt 缺少约束：${phrase}`)
+  }
+  assert.equal(SELF_TALK_SYSTEM_PROMPT.includes('8–24'), false, 'intro 已废弃，不再有 8–24 字约束')
+  assert.equal(SELF_TALK_SYSTEM_PROMPT.includes('诗句本身'), false, 'system prompt 不应再出现「诗句本身」类 intro 文案')
+})
+
+test('self-talk：buildSelfTalkPrompt 只有聚合上下文（无今日诗、无会话原文）', () => {
+  const prompt = buildSelfTalkPrompt({
+    kind: 'intro', // 已废弃：应被忽略
+    now: Date.UTC(2026, 9, 21, 2, 0, 0), // 2026-10-21 10:00 Asia/Shanghai
+    weather: 'rain',
+    moodKey: 'busy',
+    stats: { userMessages: 12, toolCalls: 34, activeMs: 31 * 60000 },
+    idleMinutes: 8,
+    // v1.8b：今日诗元数据不再发送，即使调用方误传也必须丢弃
+    poem: { title: '静夜思', author: '李白' },
+    recent: ['最近说过的一句话'],
+    // 下面这些是误传/恶意注入的会话内容，白名单必须丢弃：
+    messages: [{ role: 'user', content: [{ type: 'text', text: '绝密原文' }] }],
+    sessionMessages: ['绝密原文'],
+    sessionText: '绝密原文',
+  })
+  assert.match(prompt, /2026-10-21/)
+  assert.match(prompt, /10:00/)
+  assert.match(prompt, /雨（rain）/)
+  assert.match(prompt, /busy（忙碌）/)
+  assert.match(prompt, /用户消息 12 条/)
+  assert.match(prompt, /工具调用 34 次/)
+  assert.match(prompt, /活跃约 31 分钟/)
+  assert.match(prompt, /8 分钟/)
+  assert.match(prompt, /最近说过的一句话/)
+  assert.match(prompt, /不要重复/)
+  assert.match(prompt, /不要引用/, 'user prompt 也应重申禁止引诗')
+  assert.match(prompt, /古诗文/)
+  // 今日诗上下文必须完全消失
+  assert.equal(prompt.includes('静夜思'), false, '不得发送今日诗标题')
+  assert.equal(prompt.includes('李白'), false, '不得发送今日诗作者')
+  assert.equal(prompt.includes('今天的诗'), false, '不得包含今日诗介绍语')
+  assert.equal(prompt.includes('《'), false, 'prompt 不应出现书名号/诗名格式')
+  assert.equal(prompt.includes('kind='), false, 'kind 固定 murmur，不再写进 prompt')
+  assert.equal(prompt.includes('intro'), false, 'intro 已废弃，不进入 prompt')
+  assert.equal(prompt.includes('绝密原文'), false, '会话原文绝不允许进入 prompt')
+})
+
+test('self-talk：parseSelfTalkLines 过滤长度/引号/编号/非中文/重复', () => {
+  const text = [
+    '1. 「今天小雨，我有点想窝在窗边看雨。」',
+    '2. 太短',
+    '3. 今天小雨，我有点想窝在窗边看雨',
+    '4. This line is long enough but not Chinese at all',
+    `5. ${'我'.repeat(61)}`,
+    '6. 我数了数你敲键盘的声音，好像比昨天轻快一点。',
+  ].join('\n')
+  assert.deepEqual(parseSelfTalkLines(text, { kind: 'murmur' }), [
+    '今天小雨，我有点想窝在窗边看雨',
+    '我数了数你敲键盘的声音，好像比昨天轻快一点',
+  ])
+  // 按句号拆分
+  assert.deepEqual(parseSelfTalkLines('第一句话说得长一点吧。第二句话也说得长一点吧', { kind: 'murmur' }), [
+    '第一句话说得长一点吧',
+    '第二句话也说得长一点吧',
+  ])
+  // 长度边界：murmur 8–60
+  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(7)}\n${'好'.repeat(8)}`, { kind: 'murmur' }), ['好'.repeat(8)])
+  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(60)}\n${'妙'.repeat(61)}`, { kind: 'murmur' }), ['好'.repeat(60)])
+  // intro 已废弃（v1.8b）：按 murmur 的 8–60 字处理（24 字以上也保留）
+  assert.deepEqual(parseSelfTalkLines('明月'.repeat(13), { kind: 'intro' }), ['明月'.repeat(13)])
+  assert.deepEqual(parseSelfTalkLines('山的'.repeat(2), { kind: 'intro' }), [], '过短仍然丢弃')
+  // recent 去重（忽略标点/空白差异）
+  assert.deepEqual(
+    parseSelfTalkLines('窗外的雨声让我想起一句没读过的话\n今天的云很低，低到我想伸手碰一碰', {
+      kind: 'murmur',
+      recent: ['窗外的雨声，让我想起一句没读过的话。'],
+    }),
+    ['今天的云很低，低到我想伸手碰一碰'],
+  )
+  assert.deepEqual(parseSelfTalkLines(''), [])
+  assert.deepEqual(parseSelfTalkLines(null), [])
+})
+
+test('self-talk：过滤疑似引诗/报诗名的句子（v1.8b 纯随想）', () => {
+  assert.deepEqual(parseSelfTalkLines('我想起《静夜思》里的句子，月亮真好看啊', {}), [], '书名号=引诗')
+  assert.deepEqual(parseSelfTalkLines('“明月几时有”这样的句子真应景', {}), [], '引号=引诗')
+  assert.deepEqual(parseSelfTalkLines('这首诗的平仄我背不下来，还是说点别的吧', {}), [], '诗评术语=往诗词上引')
+  assert.deepEqual(parseSelfTalkLines('今天有点想读点诗，不过还是算了吧', {}), [], '带「诗」字的句子丢弃')
+  assert.deepEqual(parseSelfTalkLines('今天的风有点凉，我缩了缩尾巴', {}), ['今天的风有点凉，我缩了缩尾巴'])
+})
+
+test('self-talk：parseRecentQuery（| 分隔 / ≤5 条 / 长度上限）', () => {
+  assert.deepEqual(parseRecentQuery('甲|乙|丙|丁|戊|己|庚'), ['甲', '乙', '丙', '丁', '戊'])
+  assert.deepEqual(parseRecentQuery('a|a|b'), ['a', 'b'])
+  assert.deepEqual(parseRecentQuery(''), [])
+  assert.deepEqual(parseRecentQuery(null), [])
+  const long = parseRecentQuery('x'.repeat(600))
+  assert.equal(long.length, 1)
+  assert.ok(Array.from(long[0]).length <= 80, '单条被截断到安全长度')
+})
+
+test('self-talk 服务：成功生成 2 句并透传模型参数', async () => {
+  const { llm, service } = makeSelfTalkHarness()
+  const result = await service.generate({
+    kind: 'murmur',
+    weather: 'rain',
+    moodKey: 'busy',
+    stats: { userMessages: 3, toolCalls: 9, activeMs: 60000 },
+    idleMinutes: 5,
+    poem: { title: '静夜思', author: '李白' },
+    recent: ['最近说过的一句话'],
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.cached, false)
+  assert.equal(result.lines.length, 2)
+  assert.deepEqual(result.lines.map((line) => line.text), SELF_TALK_LINES_A)
+  for (const line of result.lines) {
+    assert.equal(typeof line.text, 'string')
+    assert.equal(typeof line.ts, 'number')
+  }
+  assert.deepEqual(result.model, { provider: SELF_TALK_SELECTION.provider, model: SELF_TALK_SELECTION.model })
+  assert.equal(typeof result.generatedAt, 'number')
+  assert.equal(llm.calls.length, 1)
+
+  const options = llm.calls[0]
+  assert.equal(options.provider, 'deepseek-account')
+  assert.equal(options.model, 'deepseek-flash')
+  assert.equal(options.reasoningEffort, undefined, '短请求不透传 reasoningEffort（避免推理吃光 200 token / 拖过客户端 8s 超时）')
+  assert.equal(options.system, SELF_TALK_SYSTEM_PROMPT)
+  assert.equal(options.maxTokens, 200)
+  assert.equal(options.temperature, 0.95)
+  assert.ok(options.signal instanceof AbortSignal, '传入了 AbortSignal（20s 超时）')
+  const userText = options.messages[0].content[0].text
+  assert.match(userText, /心情：busy/)
+  assert.match(userText, /天气/)
+  assert.match(userText, /最近说过的一句话/)
+  assert.match(userText, /不要重复/)
+  assert.equal(userText.includes('静夜思'), false, '今日诗标题即使误传也不得进入 prompt')
+  assert.equal(userText.includes('李白'), false, '今日诗作者即使误传也不得进入 prompt')
+})
+
+test('self-talk 服务：多段 text-delta 正确拼接（含无 finish 的容错）', async () => {
+  const llm = makeMockLlm(() => ({
+    chunks: [
+      { type: 'text-delta', index: 0, text: '今天的小雨让我有点' },
+      { type: 'text-delta', index: 0, text: '想窝在窗边看雨\n我数了数你敲键盘' },
+      { type: 'text-delta', index: 0, text: '的声音，好像比昨天轻快' },
+    ],
+    noFinish: true,
+  }))
+  const service = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+  })
+  const result = await service.generate({})
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.lines.map((line) => line.text), SELF_TALK_LINES_A)
+})
+
+test('self-talk：prompt 白名单（传敏感会话文本也不会进入模型请求）', async () => {
+  const { llm, service } = makeSelfTalkHarness()
+  const secrets = ['超级机密的用户原文：我的银行卡密码是 123456', 'sessionMessages 里的对话内容']
+  const result = await service.generate({
+    kind: 'murmur',
+    stats: { userMessages: 2 },
+    recent: ['这是契约允许发送的最近一句模型生成文本'],
+    messages: [{ role: 'user', content: [{ type: 'text', text: secrets[0] }] }],
+    sessionMessages: secrets,
+    sessionText: secrets[1],
+    transcript: secrets,
+    poem: { title: '将进酒', author: '李白' },
+  })
+  assert.equal(result.ok, true)
+  const sent = JSON.stringify(llm.calls[0])
+  for (const secret of secrets) assert.equal(sent.includes(secret), false, '敏感会话文本不得出现在模型请求里')
+  assert.equal(sent.includes('将进酒'), false, '今日诗标题不得出现在模型请求里')
+  assert.equal(sent.includes('李白'), false, '今日诗作者不得出现在模型请求里')
+  assert.equal(sent.includes('这是契约允许发送的最近一句模型生成文本'), true, 'recent 是契约允许的上下文')
+})
+
+test('self-talk 服务：最小间隔内复用上次结果（cached:true），之后可再生成', async () => {
+  let call = 0
+  const { llm, service, state } = makeSelfTalkHarness({
+    minIntervalMs: 3000,
+    responder: () => (call++ === 0 ? SELF_TALK_LINES_A : SELF_TALK_LINES_B).join(SELF_TALK_SEP),
+  })
+  const first = await service.generate({})
+  assert.equal(first.ok, true)
+  assert.equal(first.cached, false)
+  assert.equal(llm.calls.length, 1)
+
+  state.clock += 1000
+  const second = await service.generate({})
+  assert.equal(second.ok, true)
+  assert.equal(second.cached, true, '3s 内复用上次结果')
+  assert.equal(llm.calls.length, 1)
+  assert.deepEqual(second.lines, first.lines)
+
+  state.clock += 3000
+  const third = await service.generate({})
+  assert.equal(third.ok, true)
+  assert.equal(third.cached, false)
+  assert.equal(llm.calls.length, 2)
+  assert.deepEqual(third.lines.map((line) => line.text), SELF_TALK_LINES_B)
+})
+
+test('self-talk 服务：无上次结果时的过早请求 → SELF_TALK_RATE_LIMITED', async () => {
+  const { service, state } = makeSelfTalkHarness({
+    minIntervalMs: 3000,
+    responder: () => new Error('network down'),
+  })
+  const first = await service.generate({})
+  assert.equal(first.ok, false)
+  assert.equal(first.error.code, 'SELF_TALK_UNAVAILABLE')
+  state.clock += 100
+  const second = await service.generate({})
+  assert.equal(second.ok, false)
+  assert.equal(second.error.code, 'SELF_TALK_RATE_LIMITED')
+})
+
+test('self-talk 服务：并发请求 in-flight 去重复用同一次模型调用', async () => {
+  const { llm, service } = makeSelfTalkHarness({
+    responder: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      return SELF_TALK_LINES_A.join(SELF_TALK_SEP)
+    },
+  })
+  const [a, b] = await Promise.all([service.generate({}), service.generate({})])
+  assert.equal(a.ok, true)
+  assert.equal(b.ok, true)
+  assert.equal(llm.calls.length, 1, '并发只调用一次模型')
+  assert.deepEqual([a.cached, b.cached].sort(), [false, true])
+})
+
+test('self-talk 服务：空文本 / 流异常 / finish error / 超时 → ok:false 不抛', async () => {
+  const empty = makeSelfTalkHarness({ responder: () => '' })
+  const emptyResult = await empty.service.generate({})
+  assert.equal(emptyResult.ok, false)
+  assert.equal(emptyResult.error.code, 'SELF_TALK_UNAVAILABLE')
+
+  const boom = makeSelfTalkHarness({ responder: () => new Error('boom') })
+  assert.equal((await boom.service.generate({})).ok, false)
+
+  const finishError = makeSelfTalkHarness({
+    responder: () => ({ text: '', finish: { kind: 'error', failure: { code: 'AUTH', message: 'bad key' } } }),
+  })
+  const errorResult = await finishError.service.generate({})
+  assert.equal(errorResult.ok, false)
+  assert.equal(errorResult.error.code, 'SELF_TALK_UNAVAILABLE')
+  assert.match(errorResult.error.message, /AUTH/)
+
+  const hanging = makeSelfTalkHarness({ responder: () => ({ hang: true }), timeoutMs: 40 })
+  const startedAt = Date.now()
+  const timeoutResult = await hanging.service.generate({})
+  assert.equal(timeoutResult.ok, false)
+  assert.equal(timeoutResult.error.code, 'SELF_TALK_UNAVAILABLE')
+  assert.match(timeoutResult.error.message, /超时/)
+  assert.ok(Date.now() - startedAt < 2000, '超时被及时收敛')
+})
+
+test('self-talk：llm / 默认模型缺失时安全降级（不抛）', async () => {
+  const noLlm = createSelfTalkService({ llm: null, getSelection: () => SELF_TALK_SELECTION })
+  const noLlmResult = await noLlm.generate({})
+  assert.equal(noLlmResult.ok, false)
+  assert.equal(noLlmResult.error.code, 'SELF_TALK_UNAVAILABLE')
+
+  const llm = makeMockLlm(() => SELF_TALK_LINES_A.join(SELF_TALK_SEP))
+  const noSelection = createSelfTalkService({ llm, getSelection: () => null })
+  const noSelectionResult = await noSelection.generate({})
+  assert.equal(noSelectionResult.ok, false)
+  assert.equal(noSelectionResult.error.code, 'SELF_TALK_UNAVAILABLE')
+  assert.equal(llm.calls.length, 0, '没有模型选择时不应发起请求')
+
+  const throwsSelection = createSelfTalkService({
+    llm,
+    getSelection: () => {
+      throw new Error('selection boom')
+    },
+  })
+  assert.equal((await throwsSelection.generate({})).ok, false)
+
+  // getLlm getter 路径（index.js 用这种方式懒取 optional 服务）
+  const viaGetter = createSelfTalkService({ getLlm: () => llm, getSelection: () => SELF_TALK_SELECTION })
+  const viaGetterResult = await viaGetter.generate({})
+  assert.equal(viaGetterResult.ok, true)
+})
+
+test('self-talk：最近 20 条生成文本参与去重（重复结果被丢弃）', async () => {
+  const { llm, service, state } = makeSelfTalkHarness({
+    responder: () => SELF_TALK_LINES_A.join(SELF_TALK_SEP),
+  })
+  const first = await service.generate({})
+  assert.equal(first.ok, true)
+  state.clock += 5000
+  const second = await service.generate({})
+  assert.equal(second.ok, false)
+  assert.equal(second.error.code, 'SELF_TALK_UNAVAILABLE')
+  assert.equal(llm.calls.length, 2, '仍会请求模型，只是结果被判重')
+})
+
+test('self-talk 路由：成功形状 + query 解析 + 隐私白名单 + 栅栏', async () => {
+  const { llm, service } = makeSelfTalkHarness({ responder: () => SELF_TALK_LINES_A.join(SELF_TALK_SEP) })
+  const harness = createHarness({ selfTalkService: service })
+  const base = FIXED_NOW.getTime()
+  harness.moodTracker.record({ id: 's1' }, moodEvent('user/message', base))
+  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/call', base + 1000))
+
+  const recent = encodeURIComponent(['第一句最近说过的话', '第二句最近说过的话'].join('|'))
+  const url =
+    `/api/dsh-poetry/self-talk.json?kind=intro&mood=busy&weather=rain&idleMinutes=12&recent=${recent}` +
+    `&sessionMessages=${encodeURIComponent('超级机密对话内容')}`
+  const response = await harness.call('self-talk.json', mockRequest({ url }))
+  assert.equal(response.statusCode, 200)
+  const body = response.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.lines.length, 2)
+  assert.equal(body.cached, false)
+  assert.deepEqual(body.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.equal(typeof body.generatedAt, 'number')
+
+  const userText = llm.calls[0].messages[0].content[0].text
+  // kind=intro 已废弃：路由统一按 murmur 处理，prompt 里不再出现 kind/intro
+  assert.equal(/kind=/.test(userText), false, 'kind 固定 murmur，不写进 prompt')
+  assert.equal(/intro/.test(userText), false, 'intro 已废弃')
+  assert.match(userText, /busy/)
+  assert.match(userText, /rain/)
+  assert.match(userText, /12 分钟/)
+  assert.match(userText, /第一句最近说过的话/)
+  // v1.8b：不再发送今日诗标题/作者（避免诱导背诗）
+  assert.equal(/今天的诗/.test(userText), false)
+  assert.equal(/《/.test(userText), false, 'prompt 不含书名号/诗名')
+  assert.equal(/诗\d/.test(userText), false, 'prompt 不含数据里的诗标题')
+  assert.equal(JSON.stringify(llm.calls[0]).includes('超级机密'), false, '未知 query 参数不会进入 prompt')
+
+  const crossed = await harness.call(
+    'self-talk.json',
+    mockRequest({ url, headers: { host: '127.0.0.1:57623', 'sec-fetch-site': 'cross-site' } }),
+  )
+  assert.equal(crossed.statusCode, 403)
+  assert.equal(crossed.json().error.code, 'FORBIDDEN')
+})
+
+test('self-talk 路由：非法 query 安全归一/截断（kind/idleMinutes/recent）', async () => {
+  const { llm, service } = makeSelfTalkHarness({ responder: () => SELF_TALK_LINES_B.join(SELF_TALK_SEP) })
+  const harness = createHarness({ selfTalkService: service })
+  const manyRecent = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `最近说过的话第${index}句`).join('|'))
+  const url = `/api/dsh-poetry/self-talk.json?kind=weird&idleMinutes=abc&recent=${manyRecent}`
+  const response = await harness.call('self-talk.json', mockRequest({ url }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().ok, true)
+  const userText = llm.calls[0].messages[0].content[0].text
+  assert.equal(/kind=/.test(userText), false, 'kind 固定 murmur，非法 kind 也不影响 prompt')
+  assert.equal(/距上次和用户互动/.test(userText), false, '非法 idleMinutes 忽略（无聚合回退时不输出）')
+  const recentLines = userText.split('\n').filter((line) => line.startsWith('- '))
+  assert.ok(recentLines.length <= 5, 'recent 最多 5 条')
+})
+
+test('self-talk 路由：llm 缺失时 200 + SELF_TALK_UNAVAILABLE（不抛）', async () => {
+  const harness = createHarness() // 默认 selfTalkService 无 llm
+  const response = await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
+  assert.equal(response.statusCode, 200)
+  const body = response.json()
+  assert.equal(body.ok, false)
+  assert.equal(body.error.code, 'SELF_TALK_UNAVAILABLE')
 })
 
 // ---------------------------------------------------------------------------
