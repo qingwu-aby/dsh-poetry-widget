@@ -1,0 +1,386 @@
+# dsh-poetry-widget 接口契约 v1（冻结）
+
+> 冻结时间：2026-10-21 · Owner：Lead
+> 任何字段/路由变更必须先通知 Lead，由 Lead 更新本文件并同步 host / client / data 三方。
+> 本文件是 M1–M3 的唯一接口依据；PLAN.md 描述整体方案，两者冲突以本文件为准。
+
+## 0. 标识与安装形态
+
+| 项 | 值 |
+|---|---|
+| npm 包名 | `dsh-poetry-widget` |
+| Loader row id | `dsh-poetry-widget` |
+| 客户端模块 id | `dsh-poetry-widget`（`window.__ModuleLoader__.load({id})`） |
+| 宿主插件名 | `dsh-poetry-widget` |
+| 路由前缀 | `/api/dsh-poetry/` |
+| 设置数据目录 | `$DSH_HOME/.dsh-poetry/`（`settings.json`） |
+| 安装形态 | `plugin_manager install_bundle` → profile 内 `link:` 到本项目目录 |
+| 目标宿主 | DSH `0.2.1-rc.2`，desktop profile |
+
+### 开发期生效方式（M0 实测）
+
+- 宿主 `index.js` / `lib/**` 改动：需要重启宿主（Electron 应用）或依赖宿主 HMR；不能假设热更。
+- 客户端 `client.js` 改动：页面刷新后重新拉取（`window.__ModuleLoader__` 惰性 factory）；以 `cordis_inspect_query` Client `Slots.listSubTree` 的 `shell.overlay` occupants 验证。
+- 数据 `data/*.json` 改动：宿主进程内存缓存按 `dataVersion`/mtime 失效（host 实现须支持），客户端刷新即可。
+- **不要**让任何 teammate 执行 `plugin_manager` 或 `dsh plugin`；安装/卸载只由 Lead 做。
+
+## 1. 路由总表
+
+所有响应均为 **HTTP 200 + JSON**（`{ok:true,...}` 或 `{ok:false,error}`），除非是静态资源 404。
+`health.json` 例外于「数据缺失」规则：永远 `ok:true`，用 `dataAvailable` 表达数据状态。
+栅栏范围：**assets 静态路由不套信任栅栏**（只读、仅 GET、非 GET 返回 405）；**其余数据 GET 与 settings PUT 全部套** DSH 信任栅栏；settings PUT 额外做本机来源写保护。
+
+| 路由 | 方法 | 说明 |
+|---|---|---|
+| `/api/dsh-poetry/assets?f=<相对路径>` | GET | `assets/` 下只读文件（webp/svg/png/css/js/json），`Cache-Control: public, max-age=3600`；路径越界 404 |
+| `/api/dsh-poetry/health.json` | GET | 永远 200：`{ok:true, version, dataVersion: string\|null, dataAvailable: boolean}`，供判活（不因数据未就绪而红） |
+| `/api/dsh-poetry/bootstrap.json` | GET | 首屏聚合：版本、数据版本、今日诗 id、计数、**当前设置** |
+| `/api/dsh-poetry/poems.json` | GET | 全部诗（500 首，见 §2.2） |
+| `/api/dsh-poetry/ci.json` | GET | 全部词（300 首，见 §2.3） |
+| `/api/dsh-poetry/yun.json` | GET | 声律启蒙 30 韵部（见 §2.4） |
+| `/api/dsh-poetry/knowledge.json` | GET | 12 张格律卡 + 15 张词牌卡（见 §2.5） |
+| `/api/dsh-poetry/settings.json` | GET | `{ok:true, settings:{...完整 §2.6...}}` |
+| `/api/dsh-poetry/settings.json` | PUT | 部分设置合并写入；仅回环来源；`{ok:true, settings:{...合并后完整...}}` |
+| `/api/dsh-poetry/mood.json` | GET | 当日会话活跃统计（用户/助手消息数、工具调用、回合、活跃时长、最后活动时间），用于挂件心情系统；`$DSH_HOME/.dsh-poetry/mood.json` 持久化、按本地日滚动，失败返回零值，永不 5xx |
+| `/api/dsh-poetry/weather.json` | GET | 按 `settings.weatherCity` 取当前天气（Open-Meteo 地理编码+forecast；20 分钟缓存；`?refresh=1` 强制绕过缓存；失败返回 `{ok:false,error:{code:"WEATHER_UNAVAILABLE"}}`，永不 5xx） |
+| `/api/dsh-poetry/about.json` | GET | 版本、数据版本、数据源 commit/许可、脱敏后的数据文件状态 |
+
+### 1.1 错误约定
+
+- 数据文件缺失/损坏：`{ok:false, error:{code:"DATA_UNAVAILABLE", message:"..."}}`，仍 200。
+- PUT 非回环来源：`403`，JSON `{ok:false, error:{code:"FORBIDDEN", message:"..."}}`。
+- PUT 非法字段：`400`，`{ok:false, error:{code:"INVALID_SETTINGS", message, fields:[...]}}`。
+- 未知路由：交由 DSH 默认 404（不要注册 fallback）。
+
+## 2. JSON 形状
+
+> 字段类型约定：`string` / `number` / `boolean` / `string[]`。所有面向用户的文本默认**简体**（见 §2.2 `script`），数据构建期生成，客户端不再转换。
+
+### 2.1 dataVersion
+
+`dataVersion`：`"<YYYY-MM-DD>.<n>"`，例如 `"2026-10-21.1"`；数据重新生成即递增，写入 `data/manifest.json`。
+`bootstrap`/`health`/`about` 都返回它，供客户端缓存失效。
+
+### 2.2 诗 `POEM`（`data/poems.json`）
+
+```json
+{
+  "id": "tang-003217",
+  "title": "送杜少府之任蜀州",
+  "titleOriginal": "送杜少府之任蜀州",
+  "author": "王勃",
+  "authorOriginal": "王勃",
+  "dynasty": "tang",                  // "tang" | "song"
+  "lines": [
+    "城阙辅三秦，风烟望五津。",
+    "与君离别意，同是宦游人。",
+    "海内存知己，天涯若比邻。",
+    "无为在歧路，儿女共沾巾。"
+  ],
+  "linesOriginal": [                  // 原文（繁体；与 lines 逐字符等长，供「原文」开关使用）
+    "城闕輔三秦，風煙望五津。",
+    "與君離別意，同是宦遊人。",
+    "海內存知己，天涯若比鄰。",
+    "無爲在歧路，兒女共沾巾。"
+  ],
+  "tones": [                          // 与 lines 逐字符等长（标点位置用原标点）
+    "平平仄仄平，平仄仄平平。",
+    "仄平平仄仄，平仄仄平平。",
+    "仄仄平平仄，平平仄仄平。",
+    "平平仄仄仄，平仄仄平平。"
+  ],
+  "form": "五律",                     // "五绝" | "七绝" | "五律" | "七律"
+  "start": "仄起",                    // "平起" | "仄起"（按首句第二字）
+  "firstRhyme": true,                 // 首句是否入韵（首句末字平声）
+  "rhymeIdx": [0, 1, 3],              // 入韵句的 0-based 行号
+  "meter": "仄起首句入韵",             // 标准格式之一，用于解析文案
+  "analysis": "五律，仄起首句入韵。二四六分明，粘对成立；颔联、颈联对仗。", // 预生成简体解析
+  "score": 128000.0,                  // 热度（对数归一化前原始加权值，仅供排序/展示）
+  "source": "strains"                 // "strains" | "curated-matched"
+}
+```
+
+约束：
+
+- `lines.length ∈ {4,8}`；每行去标点后 5 或 7 字；`tones` 与 `lines` **逐字符等长**。
+- `linesOriginal` 与 `lines` / `tones` **逐字符等长**（繁体原文；构建期用 OpenCC 逐字转换，转换后长度不一致的行必须回退并报告）。
+- `tones` 允许字符：`平` `仄` `○`（多音可平可仄）以及原标点 `，。！？；、`；**不允许 `？`**（含 `？` 的诗已在构建期剔除）。
+- `rhymeIdx` 升序；包含所有偶数行（1,3,5,7 中 < lines.length 的）以及 `firstRhyme=true` 时的 0。
+- `form` 与 `lines` 长度/字数一致；`meter` ∈ `{平起首句入韵, 平起首句不入韵, 仄起首句入韵, 仄起首句不入韵}`。
+
+### 2.3 词 `CI`（`data/ci.json`）
+
+```json
+{
+  "id": "ci-000123",
+  "author": "苏轼",
+  "rhythmic": "水调歌头",              // 词牌（来自原数据 rhythmic 字段）
+  "lines": ["明月几时有，把酒问青天。", "..."],
+  "title": "水调歌头·明月几时有",        // 构建期生成：词牌 + "·" + 首句截断（便于列表展示）
+  "score": 80000.0,
+  "quote": "但愿人长久，千里共婵娟。"      // 构建期人工/规则挑选的名句；没有则为 ""
+}
+```
+
+约束：`lines` 原样保留（简体）；`rhythmic` 非空；`id` 唯一；`title` ≤ 40 字符。
+
+### 2.4 韵部 `YUN`（`data/yun.json`）
+
+```json
+{
+  "volumes": [
+    {
+      "title": "上卷",
+      "chapters": [
+        {
+          "name": "一 东",
+          "rhyme": "东",
+          "paragraphs": ["云对雨，雪对风，晚照对晴空。……", "……", "……"],
+          "exampleChars": ["风", "空", "虫", "弓", "东"],
+          "exampleLine": "云对雨，雪对风，晚照对晴空。"
+        }
+      ]
+    }
+  ]
+}
+```
+
+约束：`volumes.length===2`；每卷 `chapters.length===15`；`name` 形如 `"一 东"`；`paragraphs.length===3`；`exampleChars.length ∈ [3,8]`（构建期从韵部内提取的示例字，允许人工校正）。
+
+### 2.5 知识 `KNOWLEDGE`（`data/knowledge.json`）
+
+```json
+{
+  "cards": [
+    {
+      "id": "tones",
+      "title": "四声与平仄",
+      "summary": "一句话导语（≤40 字）",
+      "paragraphs": ["正文段落 1", "正文段落 2"],
+      "examples": [
+        { "text": "白日依山尽，黄河入海流。", "note": "「日」「入」「落」都是入声，今读平声，格律上归仄。" }
+      ]
+    }
+  ],
+  "ciCards": [
+    {
+      "id": "huanxisha",
+      "name": "浣溪沙",
+      "aliases": ["浣溪纱"],
+      "form": "双调四十二字，上片三句三平韵，下片三句两平韵",
+      "rhyme": "平韵",
+      "note": "一句话风格/用法说明",
+      "example": "一曲新词酒一杯，去年天气旧亭台。"
+    }
+  ]
+}
+```
+
+约束：`cards.length===12`，`id` 唯一、稳定；`ciCards.length===15`，`name` 唯一；`paragraphs` 每段 ≤ 160 字；`examples[].text` 必须是诗词原文（可与数据中诗一致）。客户端按数组顺序展示。
+
+### 2.6 设置 `SETTINGS`（`$DSH_HOME/.dsh-poetry/settings.json`）
+
+`script` 语义：`simplified` → 客户端渲染 `lines`/`title`/`author`；`original` → 渲染 `linesOriginal`/`titleOriginal`/`authorOriginal`。
+词（ci）原文通常已是简体，`original` 对其等价。韵部（yun）与知识卡（knowledge）不提供原文切换，始终简体。
+
+```json
+{
+  "schemaVersion": 1,
+  "scale": 1.0,             // 0.6–1.6
+  "showTones": true,
+  "mode": "daily",          // "daily" | "random"
+  "autoplay": 0,            // 0 | 30 | 60 | 300（秒，0=关）
+  "snap": "left",           // "left" | "right" | "free"
+  "script": "simplified",   // "simplified" | "original"
+  "hidden": false,
+  "theme": "auto",          // "auto" | "light" | "dark"
+  "weatherCity": "北京",     // 1–20 字符；空串/超长 → 归一为默认「北京」
+  "weatherPoem": true,      // 是否按天气选今日诗/切换形象
+  "mood": true,             // 是否按心情切换立绘
+  "spontaneousPoem": true,  // 是否允许低频「自己想读的诗」彩蛋
+  "lastPoemId": null,       // string | null
+  "tutorialSeen": false,
+  "updatedAt": 0            // epoch ms，host 写入
+}
+```
+
+校验规则（host 侧白名单 + 类型/枚举）：
+
+- 只接受上表字段；其他字段忽略。
+- `scale` 数值，clamp 到 `[0.6, 1.6]`；`autoplay` 只接受 `0|30|60|300`；`mode`/`snap`/`script`/`theme` 只接受枚举值；`hidden`/`showTones`/`tutorialSeen` 布尔；`lastPoemId` 为字符串或 null（若不在诗列表内则置 null）。
+- 损坏的设置文件：`.bak` 备份后回退默认，不崩溃。
+
+### 2.7 bootstrap 响应
+
+```json
+{
+  "ok": true,
+  "version": "0.1.0",
+  "dataVersion": "2026-10-21.1",
+  "source": {
+    "repo": "chinese-poetry/chinese-poetry",
+    "commit": "b8594f81a89752241442f2ce267d6f66f96704ee",
+    "license": "MIT"
+  },
+  "today": { "date": "2026-10-21", "poemId": "tang-003217" },
+  "counts": { "poems": 500, "ci": 300, "yun": 30, "cards": 12, "ciCards": 15 },
+  "settings": { /* §2.6 完整设置 */ }
+}
+```
+
+`today.poemId` 由 host 按 `date + dataVersion` 确定性计算（与客户端算法一致时客户端只用返回值，不要自行重算）。
+
+### 2.8 about 响应
+
+```json
+{
+  "ok": true,
+  "version": "0.1.0",
+  "dataVersion": "2026-10-21.1",
+  "source": { "repo": "...", "commit": "...", "license": "MIT" },
+  "files": [
+    { "name": "poems.json", "bytes": 380123, "ok": true },
+    { "name": "ci.json", "bytes": 190000, "ok": true }
+  ],
+  "settingsPath": "~/.dsh/.dsh-poetry/settings.json",
+  "builtAt": "2026-10-21T03:00:00.000Z"
+}
+```
+
+### 2.9 天气 `WEATHER`（`/api/dsh-poetry/weather.json`）
+
+成功（永远 HTTP 200）：
+```json
+{
+  "ok": true,
+  "city": "北京",
+  "weather": {
+    "category": "rain",        // clear | cloud | fog | rain | snow | thunder | wind | cold | unknown
+    "label": "小雨",            // 中文天气描述（host 侧映射，客户端直接展示）
+    "tempC": 18.5,
+    "feelsLikeC": 17.2,
+    "humidity": 71,
+    "windKph": 12.4,
+    "isDay": true,
+    "code": 61,                // WMO weather code（原样保留便于排查）
+    "latitude": 39.9075,
+    "longitude": 116.39723,
+    "updatedAt": 1760000000000,
+    "source": "open-meteo"
+  },
+  "stale": false
+}
+```
+失败：`{ "ok": false, "error": { "code": "WEATHER_UNAVAILABLE", "message": "..." } }`（200；客户端静默回退常规/季节选诗）。
+映射规则（host 实现，客户端只消费 category/label/isDay/tempC）：
+- WMO 0 → clear；1–3 → cloud；45/48 → fog；51–57/61–67/80–82 → rain；71–77/85–86 → snow；95–99 → thunder；
+- 非 rain/snow/thunder 时：先 `windKph ≥ 25` → wind，再 `tempC ≤ 0` → cold（降水类不被风/低温覆盖）；
+- 其余 → unknown；`isDay=0` 时客户端优先「月/夜」诗池。
+缓存：地理编码按城市 24h、天气 20min；刷新按钮/城市变更可主动失效。请求超时 6s，失败保留上次结果并标 `stale:true`。
+
+### 2.10 心情统计 `MOOD`（`/api/dsh-poetry/mood.json`）
+
+宿主监听 `session/event`（`user/message` / `assistant/message` / `tool/call` / `tool/result` / `turn/start` / `turn/end`）在内存累计，防抖写 `$DSH_HOME/.dsh-poetry/mood.json`；本地日切换时归零（保留 lastActivityAt 用于「最近活动」）。
+
+```json
+{
+  "ok": true,
+  "date": "2026-10-21",
+  "stats": {
+    "userMessages": 12,        // 用户消息条数（≈聊了多少句）
+    "assistantMessages": 34,
+    "toolCalls": 128,          // 工具调用（工作强度）
+    "toolErrors": 2,
+    "turns": 9,
+    "turnsCompleted": 8,
+    "turnsErrored": 1,
+    "activeMs": 1860000,       // 当日会话活跃时长（事件间隔累加，单段上限 10min）
+    "sessions": 3,
+    "firstActivityAt": 1760000000000,
+    "lastActivityAt": 1760009999999
+  },
+  "updatedAt": 1760009999999
+}
+```
+失败/无数据：返回 `{ok:true,date:"...",stats:{全 0},updatedAt:0}`（永不 5xx，客户端不应因此报错）。
+
+### 2.11 扩展静态数据资产（`assets/data/`，M9）
+
+扩展数据**不新增 Host 路由、不改 data/ 主产物**，直接放 `assets/data/`，由既有静态资源路由提供：
+`GET /api/dsh-poetry/assets?f=data/<name>.json&v=<dataVersion>`（`v` 仅用于客户端缓存失效，服务端忽略）。
+
+| 文件 | 形状 | 用途 |
+|---|---|---|
+| `data/anthology.json` | `{ok,dataVersion,items:[{id,category,title,author,lines:string[]}],categories:[{id,name,count}]}` | 扩展诗库（诗经/楚辞/千家诗/唐诗三百首古体），诗库 tab、飞花令句库、天气/彩蛋选诗池 |
+| `data/poems-bank.json` | `{ok,dataVersion,items:[{id,title,author,dynasty,lines,tones?,form?,start?,firstRhyme?,rhymeIdx?,source:'bank'}]}` | 全唐诗/全宋诗精选库（3000–5000），诗库 tab、飞花令句库、天气/彩蛋池（不进「今日一诗」默认路径） |
+| `data/pingshui.json` | `{ok,dataVersion,source,categories:[{name,short,tone,chars}],charIndex:{<char>:[categoryIndex,...]}}` | 格律检测器：106 韵部平仄/韵部查询 |
+| `data/ci-bank.json` | `{ok,dataVersion,count,items:[{id,author,rhythmic,title,lines:string[]}]}` | 全量宋词库（去重后 ~20,984 首）：诗库「宋词全库」分类、词牌「全库同词牌」、飞花令句库（懒加载并入） |
+| `data/manifest.json` | 三文件 bytes/sha256/dataVersion 生成信息 | 审计/可复现 |
+
+约束：三文件为**只读静态资产**、不含用户数据；生成命令 `node scripts/build-assets-data.mjs --offline`；`dataVersion` 与主数据一致（当前 `2026-10-21.4`）。体积预算：anthology ≤400KB、poems-bank ≤8MB、pingshui ≤400KB、ci-bank ≤12MB。
+
+## 3. 客户端组件契约（client-widget 使用）
+
+- 注册：`ctx.slots.register({ name: 'shell.overlay', id: 'dsh-poetry-widget', order: 80 }, Component)`，`Component` 为 React 组件，props 来自 `shell.overlay`（当前无额外 owner props；无需使用 standardProps）。
+- 根节点：单一 `div[data-dsh-poetry-widget="root"]`，`position:fixed`，`pointer-events:auto`；其余 overlay 区域保持 click-through。
+- provider/数据获取：不引入状态库；使用 `fetch('/api/dsh-poetry/bootstrap.json')` 等；模块级缓存 + `localStorage` 仅存「上次数据」用于首屏直出。
+- 主题：只用宿主 CSS 变量（`--dsw-alias-*`），同时准备 fallback 色值；暗色由变量自动切换。
+- 类名：统一 `dshp-` 前缀；样式通过组件内 `<style>` 或注入一次并在 `ctx.effect` 清理。
+- 不得读取其他插件 DOM / 全局业务 DOM；不得 append 到 `document.body`（M0 的 React 插槽方式为准）。
+- 文案：zh-CN 为默认；为 en 提供 key 回退（v1 允许中文直接回退，但不得出现乱码/占位符）。
+
+## 4. 体积与性能预算
+
+| 项 | 预算 |
+|---|---|
+| `data/poems.json` | ≤ 620 KB（含繁体原文） |
+| `data/ci.json` | ≤ 220 KB |
+| `data/yun.json` | ≤ 80 KB |
+| `data/knowledge.json` | ≤ 90 KB |
+| `client.js`（含内联样式，M6–M10 全部功能） | ≤ 260 KB |
+| 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
+| 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
+
+## 5. 数据构建约定（data-pipeline 使用）
+
+- 输入源：`_ref/poetry-data`（blobless clone）或 `scripts/fetch-data.mjs` 下载；构建必须可复现：记录源 commit + 构建时间；同一输入 + 同一脚本 → 相同 `dataVersion`（除构建时间外字节级一致）。
+- 原始数据只读，不改 `_ref/`；产物只写 `data/`。
+- `data/manifest.json` 结构：
+
+```json
+{
+  "dataVersion": "2026-10-21.1",
+  "source": { "repo": "chinese-poetry/chinese-poetry", "commit": "b8594f81a89752241442f2ce267d6f66f96704ee", "license": "MIT" },
+  "builtAt": "2026-10-21T03:00:00.000Z",
+  "stats": { "poemCandidates": 57871, "poemsKept": 500, "ciKept": 300, "droppedNoStrain": 0 },
+  "files": { "poems.json": 380123, "ci.json": 190000, "yun.json": 50000, "knowledge.json": 60000 }
+}
+```
+
+- **繁简转换**：诗文本（全唐诗/全宋诗）为繁体；构建期用 `node_modules/opencc-js`（devDependency，仅构建用、不随包）逐行转换：`Converter({from:'t',to:'cn'})`。每行转换后需与原文逐字符等长，否则逐字转换或该行回退原文并在 `stats` 里计数；`title`/`author` 同样处理。
+- 数据文件顶层：`{"ok":true,"dataVersion":"...","items":[...]}`（poems/ci）或 `{"ok":true,"dataVersion":"...","volumes":[...]}`（yun）或 `{"ok":true,"dataVersion":"...","cards":[...],"ciCards":[...]}`（knowledge）。
+- **冒烟数据集**：M1 第一交付 = 全链路可跑的小数据集（诗 ≥30、词 ≥20、yun 全 30 韵部、cards 可先用占位），让 host/client 能联调；第二交付再替换为最终 500/300 + 完整内容。
+
+## 6. 分工与写作用域（互斥）
+
+| 角色 | 写作用域 | 只读 |
+|---|---|---|
+| Lead | `package.json`、`cordis.patch.yml`、`README.md`、`dsh-plugin.naming.json`、`locale/**`、`docs/**`、`tests/integration/**`、`PLAN.md` | 其他全部 |
+| data-pipeline | `scripts/**`、`data/**`、`tests/data/**` | `_ref/poetry-data`、`content/**` |
+| host-plugin | `index.js`、`lib/**`、`tests/host/**` | `data/**`（只读） |
+| client-widget | `client.js`、`assets/**`（除 `assets/icon.webp`、`assets/mascot-celebrate.webp`）、`tests/client/**` | `data/**`、`locale/**` |
+| content-author | `content/**` | `_ref/poetry-data`、`data/**` |
+
+- 所有成员先 `team_task_get` → `team_task_update(claim)` → 完成后 `team_task_update(complete)` 并 send_message 给 Lead。
+- 任何 schema/契约疑问：先问 Lead，不擅自改契约。
+- 安装/重启/页面刷新：只由 Lead 或用户执行。
+
+## 修订记录
+
+- **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
+- v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.6（2026-10-21，M10）**：新增 `assets/data/ci-bank.json`（全量宋词 ~20,984 首，≤12MB）；诗库新增「宋词全库」分类、词牌「全库同词牌」联动、飞花令句库懒加载并入；client 预算 240→260KB。仍不新增 Host 路由。
+- **v1.5（2026-10-21，M9）**：新增扩展静态数据资产（`assets/data/` 下 anthology / poems-bank / pingshui，走既有 assets 路由）；`client.js` 预算 165→240KB；客户端新增「诗库」tab、飞花令/天气/彩蛋句库扩容、格律检测器、剩余立绘彩蛋。不新增 Host 路由、不改 data/ 主产物。
+- **v1.4（2026-10-21，M8）**：`client.js` 体积预算 150→165KB；新增心情系统——Host `GET /api/dsh-poetry/mood.json`（监听 session/event 统计当日活跃/工作强度，日滚动持久化）；settings 增加 `mood`/`spontaneousPoem`；Client 用心智（聊天数/工具调用/失败/活跃时长/天气/时段/饭点/闲置/飞花战绩）计算心情并映射立绘（限频 ≥20min；飞花瞬时反馈除外），并以 45–90min 随机间隔、每日 ≤3 次、7 天内不重句的低频彩蛋展示「它想读的诗」。
+- **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
+- **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。

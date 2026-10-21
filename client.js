@@ -1,0 +1,5511 @@
+/**
+ * dsh-poetry-widget —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
+ *
+ * 形态：官方 Client 插件（`dsh.client`）→ `window.__ModuleLoader__.load({ id, factory })`
+ *       → `ctx.slots.inject('shell.overlay')` 注册 order=80 的浮层挂件。
+ *       纯 React.createElement，无 JSX、无构建步骤；样式通过组件内 <style> 注入。
+ *
+ * 数据：只读宿主路由 `/api/dsh-poetry/*`（契约见 docs/contract.md），模块级缓存 +
+ *       localStorage 仅用于「首屏缓存」（按 dataVersion 失效）。任何请求失败都渲染
+ *       友好空态 + 重试按钮，不抛出到 React 树之外（另有 ErrorBoundary 兜底）。
+ *
+ * 交互：形象悬浮/拖拽/吸附/缩放（按天气与对局状态切换 92 张立绘）；点击推进 6 步气泡
+ *       （诗 → 解析 → 知识 → 韵部 → 词牌 → 飞花令 → 收起）；展开面板 6 tab（今日/课堂/
+ *       韵部/词牌/飞花/设置）；按天气推荐诗词；设置 PUT 防抖持久化；隐藏后长按角落热区或
+ *       双击空白处恢复；心情换装（按当日会话统计/天气/时段，≥20min 限频）与 45–90min 低频「它想读一句」彩蛋
+ *       （每日 ≤3 次、7 天不重句，localStorage 记录）。全部圆点/文案中文，主题只用宿主 `--dsw-alias-*` 变量（含 fallback）。
+ */
+
+window.__ModuleLoader__.load({
+ id: 'dsh-poetry-widget',
+ factory: (require) => {
+  'use strict'
+
+  const React = require('react')
+  if (!React || typeof React.createElement !== 'function') {
+  throw new Error('dsh-poetry-widget: React 运行时不可用')
+  }
+  const h = React.createElement
+  const ROUTE = '/api/dsh-poetry/'
+  const ASSET_BASE = ROUTE + 'assets?f='
+  const SETTINGS_URL = ROUTE + 'settings.json'
+  const WIDGET_ID = 'dsh-poetry-widget'
+  const CACHE_KEY = 'dshp.firstscreen.v1'
+  const POS_KEY = 'dshp.position.v1'
+  const BASE_SIZE = 96
+  const MIN_SCALE = 0.6
+  const MAX_SCALE = 1.6
+  const Z_INDEX = 60
+  const FETCH_TIMEOUT_MS = 15000
+  const SAVE_DEBOUNCE_MS = 450
+  const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
+  const PANEL_TABS = [
+  { id: 'today', label: '今日' },
+  { id: 'class', label: '课堂' },
+  { id: 'yun', label: '韵部' },
+  { id: 'ci', label: '词牌' },
+  { id: 'library', label: '诗库' },
+  { id: 'feihua', label: '飞花' },
+  { id: 'settings', label: '设置' },
+  ]
+  const FEIHUA_BEST_KEY = 'dshp-feihua-best-v1'
+  const FEIHUA_CANDIDATE_CHARS = Array.from('花月风春山水人天云雨夜秋江酒白红舟愁梦心柳雪霜日星海玉金长何不无')
+  const FEIHUA_MIN_ENTRIES = 8
+  const FEIHUA_CANDIDATE_LIMIT = 12
+  const FEIHUA_MAX_LIVES = 3
+  const FEIHUA_DECOY_COUNT = 3
+  const FEIHUA_ATLAS_LIMIT = 200
+  const FEIHUA_ATLAS_PAGE = 60
+  const MASCOT_DIR = 'generated/'
+  const MASCOT_FILES = Object.freeze({
+  celebrate: 'dsh-whale-state-celebrate.webp',
+  idle: 'dsh-whale-state-idle-cute.webp',
+  night: 'dsh-whale-state-night.webp',
+  rain: 'dsh-whale-state-weather-umbrella.webp',
+  snow: 'dsh-whale-state-weather-snow.webp',
+  thunder: 'dsh-whale-state-weather-thunder.webp',
+  cold: 'dsh-whale-state-weather-cold.webp',
+  gameWin: 'dsh-whale-state-game-win.webp',
+  gameLose: 'dsh-whale-state-game-lose.webp',
+  gameThink: 'dsh-whale-state-game-think.webp',
+  })
+  const MASCOT_TRANSIENT_MS = 2500
+  const WEATHER_REFRESH_MS = 30 * 60 * 1000
+  const WEATHER_STALE_MS = 20 * 60 * 1000
+  const WEATHER_CATEGORY_TAGS = Object.freeze({
+  rain: ['雨'],
+  snow: ['雪'],
+  thunder: ['雨', '雷'],
+  cloud: ['云'],
+  fog: ['云', '雾'],
+  clear: ['晴', '日'],
+  wind: ['风'],
+  cold: ['霜', '露', '寒'],
+  unknown: [],
+  })
+  const WEATHER_NIGHT_TAGS = ['月', '夜']
+  const WEATHER_POOL_LIMIT = 20
+  const WEATHER_EXPLAIN = Object.freeze({
+  rain: '今日有雨，为你选了写雨的这首',
+  snow: '今日有雪，为你选了写雪的这首',
+  thunder: '今日有雷雨，为你选了写雨雷的这首',
+  cloud: '今日多云，为你选了写云的这首',
+  fog: '今日有雾，为你选了写云雾的这首',
+  clear: '今日晴好，为你选了写晴日的这首',
+  wind: '今日多风，为你选了写风的这首',
+  cold: '今日寒冷，为你选了写霜寒的这首',
+  unknown: '今日天气应景，为你选了应景的这首',
+  })
+  /* 心情系统（M8）：心情引擎限频 + 低频「想读的诗」彩蛋。 */
+  const MOOD_SWITCH_MIN_MS = 20 * 60 * 1000
+  const MOOD_REFRESH_MS = 5 * 60 * 1000
+  const MOOD_TICK_MS = 60 * 1000
+  const MOOD_STRONG = ['tired', 'sleepy', 'proud']
+  const MOOD_LABELS = Object.freeze({
+  happy: '开心', proud: '得意', tired: '有点累', sleepy: '困了', hungry: '有点饿',
+  lonely: '有点孤单', curious: '好奇', cozy: '惬意', calm: '平静',
+  })
+  const MOOD_IMAGES = Object.freeze({
+  happy: ['dsh-whale-state-game-happy.webp', 'dsh-whale-state-celebrate.webp'],
+  proud: ['dsh-whale-state-achievement.webp', 'dsh-whale-state-levelup.webp'],
+  tired: ['dsh-whale-state-work-sleep.webp', 'dsh-whale-state-daily-melt.webp'],
+  sleepy: ['dsh-whale-state-sleep.webp', 'dsh-whale-state-night.webp'],
+  hungry: ['dsh-whale-state-daily-eat.webp', 'dsh-whale-state-daily-cooking.webp'],
+  lonely: ['dsh-whale-state-waiting.webp', 'dsh-whale-state-idle-cute.webp'],
+  curious: ['dsh-whale-state-curious.webp', 'dsh-whale-state-thinking.webp'],
+  cozy: ['dsh-whale-state-daily-coffee.webp', 'dsh-whale-state-weather-rain-happy.webp', 'dsh-whale-state-weather-snow.webp'],
+  calm: ['dsh-whale-state-idle-cute.webp'],
+  })
+  const WEATHER_OVERLAY_STATES = ['rain', 'snow', 'thunder', 'cold', 'night']
+  const SPONT_KEY = 'dshp-mood-spont-v1'
+  const SPONT_MIN_INTERVAL_MS = 45 * 60 * 1000
+  const SPONT_MAX_INTERVAL_MS = 90 * 60 * 1000
+  const SPONT_DAILY_LIMIT = 3
+  const SPONT_IDLE_MIN_MS = 30 * 1000
+  const SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1000
+  const SPONT_MAX_SEEN = 200
+  const SPONT_AUTO_CLOSE_MS = 25000
+  const SPONT_MOOD_RULES = Object.freeze({
+  happy: { tags: ['笑', '酒', '春', '花', '歌'], authors: ['李白', '苏轼', '辛弃疾', '刘禹锡'] },
+  proud: { tags: ['胜', '功', '名', '志', '壮'], authors: ['杜甫', '辛弃疾', '岳飞', '苏轼'] },
+  tired: { tags: ['山', '水', '云', '静', '闲'], authors: ['王维', '孟浩然', '陶渊明'] },
+  sleepy: { tags: ['月', '夜', '梦', '眠', '醉'], authors: ['李白', '孟浩然', '苏轼'] },
+  hungry: { tags: ['酒', '食', '味', '茶', '鱼', '羹'], authors: ['苏轼', '陆游', '白居易'] },
+  lonely: { tags: ['思', '独', '孤', '愁', '别', '忆', '寄'], authors: ['李商隐', '李清照', '杜牧'] },
+  curious: { tags: ['问', '何', '知', '见', '奇'], authors: ['苏轼', '王安石', '杨万里'] },
+  cozy: { tags: ['雨', '雪', '茶', '酒', '暖', '炉', '闲'], authors: ['白居易', '陆游', '王维'] },
+  calm: { tags: ['山', '水', '云', '风', '月', '花'], authors: ['王维', '孟浩然', '李白'] },
+  })
+  /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
+  const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json' }
+  const LIBRARY_CATEGORIES = [
+   { id: 'shijing', label: '诗经' },
+   { id: 'chuci', label: '楚辞' },
+   { id: 'qianjiashi', label: '千家诗' },
+   { id: 'tang300', label: '唐诗三百首' },
+   { id: 'bank', label: '全唐诗精选' },
+   { id: 'ci-selected', label: '宋词精选' },
+  ]
+  const LIBRARY_CATEGORY_ALIASES = { 诗经: 'shijing', 楚辞: 'chuci', 千家诗: 'qianjiashi', 唐诗三百首: 'tang300', 全唐诗精选: 'bank', 宋词精选: 'ci-selected', 宋词全库: 'ci-bank' }
+  const LIBRARY_PAGE = 30
+  const MASCOT_EGG_KEY = 'dshp-mascot-egg-v1'
+  const MASCOT_EXPRESSION_MS = 2500
+  const MASCOT_IDLE_MIN_MS = 45 * 60 * 1000
+  const MASCOT_IDLE_USER_MS = 5 * 60 * 1000
+  const MASCOT_IDLE_POLL_MS = 5 * 60 * 1000
+  const MASCOT_EXPRESSION_FILES = [
+   'dsh-whale-state-greet.webp', 'dsh-whale-state-wink.webp', 'dsh-whale-state-blush.webp',
+   'dsh-whale-state-teasing.webp', 'dsh-whale-state-cool-shades.webp', 'dsh-whale-state-star.webp',
+   'dsh-whale-state-meme-heart.webp', 'dsh-whale-state-meme-kyun.webp', 'dsh-whale-state-meme-smile-pain.webp',
+   'dsh-whale-state-meme-yes.webp', 'dsh-whale-state-meme-no.webp', 'dsh-whale-state-meme-omg.webp',
+   'dsh-whale-state-meme-shock.webp', 'dsh-whale-state-meme-wakuwaku.webp', 'dsh-whale-state-meme-music.webp',
+   'dsh-whale-state-meme-peace.webp', 'dsh-whale-state-daily-coffee.webp', 'dsh-whale-state-daily-picnic.webp',
+   'dsh-whale-state-valentine.webp', 'dsh-whale-state-festival-spring.webp', 'dsh-whale-state-festival-mid-autumn.webp',
+   'dsh-whale-state-festival-christmas.webp',
+  ]
+  const TONE_QUATRAINS = {
+    '仄起不入韵': ['仄仄平平仄', '平平仄仄平', '平平平仄仄', '仄仄仄平平'],
+    '仄起入韵': ['仄仄仄平平', '平平仄仄平', '平平平仄仄', '仄仄仄平平'],
+    '平起不入韵': ['平平平仄仄', '仄仄仄平平', '仄仄平平仄', '平平仄仄平'],
+    '平起入韵': ['平平仄仄平', '仄仄仄平平', '仄仄平平仄', '平平仄仄平'],
+  }
+  const WRITE_KEYS = [
+  'scale', 'showTones', 'mode', 'autoplay', 'snap', 'script',
+  'hidden', 'theme', 'weatherCity', 'weatherPoem', 'mood', 'spontaneousPoem',
+  'lastPoemId', 'tutorialSeen',
+  ]
+  const DEFAULT_SETTINGS = Object.freeze({
+  schemaVersion: 1,
+  scale: 1,
+  showTones: true,
+  mode: 'daily',
+  autoplay: 0,
+  snap: 'left',
+  script: 'simplified',
+  hidden: false,
+  theme: 'auto',
+  weatherCity: '北京',
+  weatherPoem: true,
+  mood: true,
+  spontaneousPoem: true,
+  lastPoemId: null,
+  tutorialSeen: false,
+  updatedAt: 0,
+  })
+  const RESOURCE_PATHS = {
+  poems: 'poems.json',
+  ci: 'ci.json',
+  yun: 'yun.json',
+  knowledge: 'knowledge.json',
+  }
+  function num(value, fallback) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+  }
+
+  function clamp(value, min, max) {
+  const n = num(value, min)
+  if (n < min) return min
+  if (n > max) return max
+  return n
+  }
+
+  function cx() {
+  let out = ''
+  for (let i = 0; i < arguments.length; i++) {
+   const part = arguments[i]
+   if (!part) continue
+   out = out ? out + ' ' + part : String(part)
+  }
+  return out
+  }
+
+  function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+  }
+
+  /** FNV-1a：用于「按日期确定性挑卡片」，不用于安全场景。 */
+  function hashString(input) {
+  const text = String(input == null ? '' : input)
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i++) {
+   hash ^= text.charCodeAt(i)
+   hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+  }
+
+  /** 把 "2026-10-21" 显示成 "10 月 21 日"；解析失败时退回本机日期。 */
+  function formatDateLabel(dateStr) {
+  const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''))
+  if (matched) return Number(matched[2]) + ' 月 ' + Number(matched[3]) + ' 日'
+  const now = new Date()
+  return now.getMonth() + 1 + ' 月 ' + now.getDate() + ' 日'
+  }
+
+  const PUNCTUATION = '，。！？；、：,.!?;:「」『』（）()《》〈〉“”‘’—…·'
+  const TONE_ANY_CHARS = '○〇'
+  const TONE_QUESTION_CHARS = '？?'
+
+  function isPunctuation(ch) {
+  if (!ch) return true
+  if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\u3000') return true
+  return PUNCTUATION.indexOf(ch) >= 0
+  }
+
+  /** '平'→ping，'仄'→ze，'○'→any，其它→unknown；标点由调用方先行分流。 */
+  function toneKindOf(tone) {
+  if (tone === '平') return 'ping'
+  if (tone === '仄') return 'ze'
+  if (tone && TONE_ANY_CHARS.indexOf(tone) >= 0) return 'any'
+  if (tone && TONE_QUESTION_CHARS.indexOf(tone) >= 0) return 'unknown'
+  return 'unknown'
+  }
+
+  /**
+
+  */
+  function buildToneCells(line, toneLine, options) {
+  const opts = options || {}
+  const showTones = opts.showTones !== false
+  const rhymeLine = opts.rhymeLine === true
+  const chars = Array.from(String(line == null ? '' : line))
+  const tones = Array.from(String(toneLine == null ? '' : toneLine))
+  let lastCharIndex = -1
+  for (let i = 0; i < chars.length; i++) {
+   if (!isPunctuation(chars[i])) lastCharIndex = i
+  }
+  const cells = []
+  for (let i = 0; i < chars.length; i++) {
+   const ch = chars[i]
+   const punctuation = isPunctuation(ch)
+   const kind = punctuation ? 'punct' : toneKindOf(tones[i] || '')
+   const annotated = showTones && !punctuation && (kind === 'ping' || kind === 'ze' || kind === 'any')
+   const rhyme = rhymeLine && i === lastCharIndex
+   const classes = ['dshp-ch']
+   if (punctuation) classes.push('dshp-ch-punct')
+   if (annotated) classes.push('dshp-ch-' + kind)
+   if (rhyme) classes.push('dshp-ch-rhyme')
+   cells.push({
+    ch,
+    tone: annotated ? (tones[i] || '') : '',
+    kind,
+    punctuation,
+    rhyme,
+    index: i,
+    className: classes.join(' '),
+   })
+  }
+  return cells
+  }
+
+  /** 按 settings.script 选诗文本：simplified→lines/title/author，original→*Original。 */
+  function selectPoemText(poem, script) {
+  const src = poem && typeof poem === 'object' ? poem : {}
+  const original = script === 'original'
+  const lines = original && Array.isArray(src.linesOriginal) && src.linesOriginal.length
+   ? src.linesOriginal
+   : (Array.isArray(src.lines) ? src.lines : [])
+  const title = original && src.titleOriginal ? src.titleOriginal : (src.title || '')
+  const author = original && src.authorOriginal ? src.authorOriginal : (src.author || '')
+  return {
+   title: String(title || ''),
+   author: String(author || ''),
+   lines: lines.map((line) => (typeof line === 'string' ? line : '')),
+  }
+  }
+
+  function selectCiText(ci) {
+  const src = ci && typeof ci === 'object' ? ci : {}
+  return {
+   title: String(src.title || src.rhythmic || ''),
+   author: String(src.author || ''),
+   lines: (Array.isArray(src.lines) ? src.lines : []).map((line) => (typeof line === 'string' ? line : '')),
+  }
+  }
+
+  /** 韵脚行号（0-based）；数据缺失时退化为偶数行。 */
+  function poemRhymeLines(poem) {
+  const src = poem && typeof poem === 'object' ? poem : {}
+  if (Array.isArray(src.rhymeIdx) && src.rhymeIdx.length) {
+   return src.rhymeIdx.filter((i) => Number.isInteger(i) && i >= 0)
+  }
+  const count = Array.isArray(src.lines) ? src.lines.length : 0
+  const fallback = []
+  for (let i = 1; i < count; i += 2) fallback.push(i)
+  return fallback
+  }
+
+  /** 设置归一化：clamp scale、白名单枚举、布尔/字符串/数值类型兜底。 */
+  function normalizeSettings(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const pickEnum = (value, allowed, fallback) => (allowed.indexOf(value) >= 0 ? value : fallback)
+  const scale = Math.round(clamp(num(src.scale, DEFAULT_SETTINGS.scale), MIN_SCALE, MAX_SCALE) * 100) / 100
+  const autoplayValue = num(src.autoplay, 0)
+  const autoplay = [0, 30, 60, 300].indexOf(autoplayValue) >= 0 ? autoplayValue : 0
+  const lastPoemId = typeof src.lastPoemId === 'string' && src.lastPoemId.length ? src.lastPoemId : null
+  const weatherCityRaw = typeof src.weatherCity === 'string' ? src.weatherCity.trim() : ''
+  const weatherCity = weatherCityRaw.length >= 1 && weatherCityRaw.length <= 20
+   ? weatherCityRaw
+   : DEFAULT_SETTINGS.weatherCity
+  return {
+   schemaVersion: 1,
+   scale,
+   showTones: typeof src.showTones === 'boolean' ? src.showTones : DEFAULT_SETTINGS.showTones,
+   mode: pickEnum(src.mode, ['daily', 'random'], DEFAULT_SETTINGS.mode),
+   autoplay,
+   snap: pickEnum(src.snap, ['left', 'right', 'free'], DEFAULT_SETTINGS.snap),
+   script: pickEnum(src.script, ['simplified', 'original'], DEFAULT_SETTINGS.script),
+   hidden: typeof src.hidden === 'boolean' ? src.hidden : DEFAULT_SETTINGS.hidden,
+   theme: pickEnum(src.theme, ['auto', 'light', 'dark'], DEFAULT_SETTINGS.theme),
+   weatherCity,
+   weatherPoem: typeof src.weatherPoem === 'boolean' ? src.weatherPoem : DEFAULT_SETTINGS.weatherPoem,
+   mood: typeof src.mood === 'boolean' ? src.mood : DEFAULT_SETTINGS.mood,
+   spontaneousPoem: typeof src.spontaneousPoem === 'boolean' ? src.spontaneousPoem : DEFAULT_SETTINGS.spontaneousPoem,
+   lastPoemId,
+   tutorialSeen: typeof src.tutorialSeen === 'boolean' ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
+   updatedAt: num(src.updatedAt, 0),
+  }
+  }
+
+  /** 只保留可写字段（不发送 schemaVersion/updatedAt，host 自己维护）。 */
+  function settingsPatch(input) {
+  const src = input && typeof input === 'object' ? input : {}
+  const normalized = normalizeSettings(src)
+  const out = {}
+  for (let i = 0; i < WRITE_KEYS.length; i++) {
+   const key = WRITE_KEYS[i]
+   if (hasOwn(src, key)) out[key] = normalized[key]
+  }
+  return out
+  }
+
+  /** PUT 请求描述（纯函数，便于单测断言 URL/body 序列化）。 */
+  function buildSettingsRequest(patch) {
+  return {
+   url: SETTINGS_URL,
+   init: {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settingsPatch(patch)),
+    keepalive: true,
+   },
+  }
+  }
+
+  /**
+
+  */
+  function createSettingsSaver(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const put = typeof opts.put === 'function' ? opts.put : () => Promise.resolve()
+  const delay = Math.max(0, num(opts.delay, SAVE_DEBOUNCE_MS))
+  const onError = typeof opts.onError === 'function' ? opts.onError : null
+  const onSaved = typeof opts.onSaved === 'function' ? opts.onSaved : null
+  let timer = null
+  let pending = null
+  let disposed = false
+
+  function flush() {
+   if (timer) {
+    clearTimeout(timer)
+    timer = null
+   }
+   if (!pending) return Promise.resolve()
+   const body = pending
+   pending = null
+   let request
+   try {
+    request = Promise.resolve(put(body))
+   } catch (error) {
+    request = Promise.reject(error)
+   }
+   return request.then(
+    (result) => {
+    if (onSaved) {
+     try {
+      onSaved(result)
+     } catch (error) {
+     }
+    }
+    return result
+    },
+    (error) => {
+    if (onError) {
+     try {
+      onError(error)
+     } catch (ignored) {
+     }
+    }
+    throw error
+    },
+   )
+  }
+
+  function save(patch) {
+   if (disposed) return
+   if (patch && typeof patch === 'object') {
+    pending = Object.assign({}, pending || {}, patch)
+   }
+   if (timer) clearTimeout(timer)
+   timer = setTimeout(() => {
+    timer = null
+    flush().catch(() => {})
+   }, delay)
+  }
+
+  function dispose() {
+   disposed = true
+   if (timer) {
+    clearTimeout(timer)
+    timer = null
+   }
+   pending = null
+  }
+
+  return { save, flush, dispose }
+  }
+
+  /**
+
+  */
+  function selectNextPoemId(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const items = (Array.isArray(opts.items) ? opts.items : []).filter((item) => item && item.id)
+  if (!items.length) return null
+  const mode = opts.mode === 'random' ? 'random' : 'daily'
+  const currentId = opts.currentId || null
+  const todayId = opts.todayId || null
+  if (mode === 'random') {
+   const random = typeof opts.random === 'function' ? opts.random : Math.random
+   let index = Math.floor(num(random(), 0) * items.length)
+   if (!Number.isFinite(index) || index < 0) index = 0
+   if (index >= items.length) index = items.length - 1
+   if (items.length > 1 && items[index].id === currentId) index = (index + 1) % items.length
+   return items[index].id
+  }
+  if (todayId && currentId !== todayId && items.some((item) => item.id === todayId)) {
+   return todayId
+  }
+  const currentIndex = items.findIndex((item) => item.id === currentId)
+  return items[(currentIndex + 1) % items.length].id
+  }
+
+  /** 视口内 clamp 的位置（左上角坐标）。 */
+  function clampPosition(position, size, viewport) {
+  const maxX = Math.max(8, viewport.w - size - 8)
+  const maxY = Math.max(8, viewport.h - size - 8)
+  return {
+   x: Math.round(clamp(position && position.x, 8, maxX)),
+   y: Math.round(clamp(position && position.y, 8, maxY)),
+  }
+  }
+
+  /** 按吸附模式计算位置：left/right 贴边，free 保留原坐标并 clamp。 */
+  function anchorPosition(snap, size, viewport, previous) {
+  const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport)
+  if (snap === 'left') base.x = 16
+  else if (snap === 'right') base.x = Math.max(8, viewport.w - size - 16)
+  return base
+  }
+
+  /** 把 fetch/数据错误翻译成面向用户的中文提示。 */
+  function describeDataError(error) {
+  if (!error) return '诗词数据加载失败，请稍后重试'
+  const status = Number(error.status)
+  if (status === 404) return '数据接口尚未就绪（宿主半区可能未更新），请稍后重试'
+  if (status === 403) return '数据访问被拒绝，请刷新页面后重试'
+  if (status === 401) return '会话未授权，请刷新页面后重试'
+  const message = String(error.message || '')
+  if (/abort|timeout|超时/i.test(message)) return '请求超时，请检查网络后重试'
+  if (error.code === 'DATA_UNAVAILABLE') return '诗词数据暂不可用，请稍后重试'
+  return '诗词数据加载失败，请稍后重试'
+  }
+  let feihuaIndexCache = { poems: null, ci: null, index: null }
+
+  /**
+
+  */
+  /** 把一条目的 lines 先拼成连续文本，再按 。！？ 切成完整句（保留标点、去空、纯字<5 丢）。 */
+  function completeSentencesFromLines(lines) {
+  const text = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? '' : value)).join('').trim()
+  if (!text) return []
+  const out = []
+  let start = 0
+  for (let i = 0; i < text.length; i += 1) {
+   const ch = text.charAt(i)
+   if (ch !== '。' && ch !== '！' && ch !== '？') continue
+   const sentence = text.slice(start, i + 1).trim()
+   start = i + 1
+   if (!sentence) continue
+   const plain = sentence.replace(/[，。！？；、：,.!?;:\s]/g, '')
+   if (plain.length < 5) continue
+   out.push(sentence)
+  }
+  return out
+  }
+
+  function buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
+  const entries = []
+  const seen = new Set()
+  const byChar = {}
+  const counts = {}
+  for (const char of FEIHUA_CANDIDATE_CHARS) {
+   byChar[char] = []
+   counts[char] = 0
+  }
+  function addSentence(text, source) {
+   if (!text || seen.has(text)) return
+   if (!/[。！？]$/.test(text)) return
+   seen.add(text)
+   const entry = { text, source: source || '' }
+   entries.push(entry)
+   for (const char of FEIHUA_CANDIDATE_CHARS) {
+    if (text.indexOf(char) >= 0) {
+    byChar[char].push(entry)
+    counts[char] += 1
+    }
+   }
+  }
+  function addItem(item, source) {
+   for (const sentence of completeSentencesFromLines(item && item.lines)) addSentence(sentence, source)
+  }
+  const poemItems = poemsData && Array.isArray(poemsData.items) ? poemsData.items : []
+  for (const poem of poemItems) {
+   if (!poem) continue
+   const author = typeof poem.author === 'string' ? poem.author : ''
+   const title = typeof poem.title === 'string' ? poem.title : ''
+   const source = author && title ? author + '《' + title + '》' : (author || title)
+   addItem(poem, source)
+  }
+  const ciItems = ciData && Array.isArray(ciData.items) ? ciData.items : []
+  for (const ci of ciItems) {
+   if (!ci) continue
+   const author = typeof ci.author === 'string' ? ci.author : ''
+   const label = (typeof ci.rhythmic === 'string' && ci.rhythmic)
+    ? ci.rhythmic
+    : (typeof ci.title === 'string' ? ci.title : '')
+   const source = author && label ? author + '《' + label + '》' : (author || label)
+   addItem(ci, source)
+  }
+  const addExtraSource = (data) => {
+   for (const item of data && Array.isArray(data.items) ? data.items : []) {
+    if (!item) continue
+    const author = typeof item.author === 'string' ? item.author : ''
+    const title = typeof item.title === 'string' ? item.title : ''
+    const source = author && title ? author + '《' + title + '》' : (author || title)
+    addItem(item, source)
+   }
+  }
+  addExtraSource(anthologyData)
+  addExtraSource(bankData)
+  const candidates = []
+  for (const char of FEIHUA_CANDIDATE_CHARS) {
+   if (counts[char] >= FEIHUA_MIN_ENTRIES) candidates.push({ char, count: counts[char] })
+  }
+  const index = { entries, byChar, counts }
+  if (ciBankData) mergeFeihuaItems(index, ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : (Array.isArray(ciBankData) ? ciBankData : []))
+  return finishFeihuaIndex(index)
+  }
+
+  /** 词句来源文本：作者《标题》/ 词牌。 */
+  function feihuaSourceOf(item) {
+  const author = typeof item.author === 'string' ? item.author : ''
+  const label = item.title || item.rhythmic || item.rhythm || ''
+  const title = typeof label === 'string' ? label : ''
+  return author && title ? author + '《' + title + '》' : (author || title)
+  }
+
+  /** 把一批诗/词条目并入已建索引（分片异步构建用；按句去重，不计入性能关键路径）。 */
+  function mergeFeihuaItems(index, items) {
+  if (!index || !index.entries) return index
+  if (!index.__seen) index.__seen = new Set(index.entries.map((entry) => entry.text))
+  for (const item of Array.isArray(items) ? items : []) {
+   if (!item) continue
+   const source = feihuaSourceOf(item)
+   for (const text of completeSentencesFromLines(item.lines)) {
+    if (!text || !/[。！？]$/.test(text) || index.__seen.has(text)) continue
+    index.__seen.add(text)
+    const entry = { text, source }
+    index.entries.push(entry)
+    for (const char of FEIHUA_CANDIDATE_CHARS) {
+     if (text.indexOf(char) >= 0) {
+      index.byChar[char].push(entry)
+      index.counts[char] = (index.counts[char] || 0) + 1
+     }
+    }
+   }
+  }
+  return index
+  }
+
+  /** 收尾：按句数重算候选令字（合并完成后调用）。 */
+  function finishFeihuaIndex(index) {
+  if (!index || !index.counts) return index
+  const candidates = []
+  for (const char of FEIHUA_CANDIDATE_CHARS) {
+   const count = index.counts[char] || 0
+   if (count >= FEIHUA_MIN_ENTRIES) candidates.push({ char, count })
+  }
+  candidates.sort((a, b) => b.count - a.count || a.char.localeCompare(b.char, 'zh'))
+  index.candidates = candidates.slice(0, FEIHUA_CANDIDATE_LIMIT)
+  return index
+  }
+
+  /** 索引按数据对象引用缓存：换数据（dataVersion 变化）时 clearResourceCache 会一并作废。 */
+  function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
+  if (!poemsData || !Array.isArray(poemsData.items)) return null
+  const cached = feihuaIndexCache
+  if (cached.index && cached.poems === poemsData && cached.ci === ciData
+   && cached.anthology === anthologyData && cached.bank === bankData
+   && cached.ciBank === ciBankData) return cached.index
+  const index = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData)
+  feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index }
+  return index
+  }
+
+  function clearFeihuaIndexCache() {
+  feihuaIndexCache = { poems: null, ci: null, index: null }
+  }
+
+  /** 默认令字：今日诗中出现的候选字里句数最多的；否则「花」。 */
+  function pickDefaultFeihuaChar(index, poem) {
+  const fallback = '花'
+  if (!index || !Array.isArray(index.candidates) || !index.candidates.length) return fallback
+  const lines = poem && Array.isArray(poem.lines) ? poem.lines : []
+  const text = lines.join('')
+  let best = null
+  for (const item of index.candidates) {
+   if (!item || item.count <= 0) continue
+   if (text.indexOf(item.char) < 0) continue
+   if (!best || item.count > best.count) best = item
+  }
+  return best ? best.char : fallback
+  }
+
+  function feihuaRandomIndex(length, random) {
+  if (!length || length <= 0) return 0
+  const value = typeof random === 'function' ? Number(random()) : Math.random()
+  let index = Math.floor((Number.isFinite(value) ? value : 0) * length)
+  if (index < 0) index = 0
+  if (index >= length) index = length - 1
+  return index
+  }
+
+  function feihuaSampleUnique(pool, count, random) {
+  const rest = Array.isArray(pool) ? pool.slice() : []
+  const picked = []
+  while (picked.length < count && rest.length) {
+   picked.push(rest.splice(feihuaRandomIndex(rest.length, random), 1)[0])
+  }
+  return picked
+  }
+
+  function feihuaShuffle(list, random) {
+  const out = Array.isArray(list) ? list.slice() : []
+  for (let i = out.length - 1; i > 0; i -= 1) {
+   const j = feihuaRandomIndex(i + 1, random)
+   const temp = out[i]
+   out[i] = out[j]
+   out[j] = temp
+  }
+  return out
+  }
+
+  /**
+
+  */
+  function generateFeihuaOptions(index, char, usedTexts, random) {
+  if (!index || !index.byChar) return null
+  const used = usedTexts && typeof usedTexts.has === 'function'
+   ? usedTexts
+   : new Set(Array.isArray(usedTexts) ? usedTexts : [])
+  const correctPool = (index.byChar[char] || []).filter((entry) => !used.has(entry.text))
+  if (!correctPool.length) return null
+  const correct = correctPool[feihuaRandomIndex(correctPool.length, random)]
+  const decoyPool = index.entries.filter((entry) => entry.text.indexOf(char) < 0 && !used.has(entry.text))
+  const decoys = feihuaSampleUnique(decoyPool, FEIHUA_DECOY_COUNT, random)
+  const options = feihuaShuffle([correct].concat(decoys), random)
+  return { options, correctIndex: options.indexOf(correct) }
+  }
+
+  /** 开始新一轮：系统先出未用含令字句，然后再生成给玩家的 4 个选项。 */
+  function feihuaBeginRound(state, index, random) {
+  const used = new Set(Array.isArray(state.used) ? state.used : [])
+  const char = state.char
+  const pool = ((index && index.byChar && index.byChar[char]) || []).filter((entry) => !used.has(entry.text))
+  if (!pool.length) {
+   return Object.assign({}, state, {
+    phase: 'cleared',
+    system: null,
+    round: null,
+    lastChoice: null,
+    used: Array.from(used),
+    message: '这一字被你说完了，通关！',
+    feedback: { kind: 'good', text: '这一字被你说完了，通关！' },
+   })
+  }
+  const system = pool[feihuaRandomIndex(pool.length, random)]
+  used.add(system.text)
+  const round = generateFeihuaOptions(index, char, used, random)
+  if (!round) {
+   return Object.assign({}, state, {
+    phase: 'cleared',
+    system,
+    round: null,
+    lastChoice: null,
+    used: Array.from(used),
+    message: '这一字被你说完了，通关！',
+    feedback: { kind: 'good', text: '这一字被你说完了，通关！' },
+   })
+  }
+  return Object.assign({}, state, {
+   phase: 'playing',
+   system,
+   round,
+   lastChoice: null,
+   used: Array.from(used),
+   message: '请接一句含「' + char + '」的诗句',
+   feedback: state.feedback || null,
+  })
+  }
+
+  function feihuaStart(index, char, random) {
+  const base = {
+   char: String(char || '花'),
+   lives: FEIHUA_MAX_LIVES,
+   score: 0,
+   used: [],
+   system: null,
+   round: null,
+   phase: 'playing',
+   message: '',
+   feedback: null,
+   lastChoice: null,
+  }
+  return feihuaBeginRound(base, index, random)
+  }
+
+  /**
+
+  */
+  function feihuaAnswer(state, index, choiceIndex, random) {
+  if (!state || state.phase !== 'playing' || !state.round) return state
+  const options = Array.isArray(state.round.options) ? state.round.options : []
+  const chosen = options[choiceIndex]
+  if (!chosen) return state
+  const isCorrect = choiceIndex === state.round.correctIndex
+  if (isCorrect) {
+   const next = Object.assign({}, state, {
+    score: state.score + 1,
+    used: (state.used || []).concat([chosen.text]),
+    lastChoice: null,
+    feedback: { kind: 'good', text: '接上了：' + chosen.text + '（' + chosen.source + '）' },
+   })
+   return feihuaBeginRound(next, index, random)
+  }
+  const lives = Math.max(0, state.lives - 1)
+  const feedback = { kind: 'bad', text: '这句没有「' + state.char + '」哦（或已经说过）' }
+  if (lives <= 0) {
+   return Object.assign({}, state, {
+    lives: 0,
+    phase: 'over',
+    lastChoice: choiceIndex,
+    feedback,
+    message: '三条命用完了，本局得分 ' + state.score + '。',
+   })
+  }
+  return Object.assign({}, state, { lives, lastChoice: choiceIndex, feedback })
+  }
+
+  function normalizeFeihuaBest(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const chars = {}
+  if (source.chars && typeof source.chars === 'object') {
+   for (const key of Object.keys(source.chars)) {
+    const value = Number(source.chars[key])
+    if (Number.isFinite(value) && value > 0) chars[key] = Math.floor(value)
+   }
+  }
+  const overallRaw = Number(source.overall)
+  return { overall: Number.isFinite(overallRaw) && overallRaw > 0 ? Math.floor(overallRaw) : 0, chars }
+  }
+
+  function feihuaBestUpdate(best, char, score) {
+  const base = normalizeFeihuaBest(best)
+  const safeScore = Math.max(0, Math.floor(num(score, 0)))
+  const chars = Object.assign({}, base.chars)
+  chars[char] = Math.max(chars[char] || 0, safeScore)
+  return { overall: Math.max(base.overall, safeScore), chars }
+  }
+
+  function readFeihuaBest() {
+  const storage = getStorage()
+  if (!storage) return normalizeFeihuaBest(null)
+  try {
+   const raw = storage.getItem(FEIHUA_BEST_KEY)
+   if (!raw) return normalizeFeihuaBest(null)
+   return normalizeFeihuaBest(JSON.parse(raw))
+  } catch (error) {
+   return normalizeFeihuaBest(null)
+  }
+  }
+
+  function writeFeihuaBest(best) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)))
+  } catch (error) {
+  }
+  }
+  let weatherCache = null
+
+  /** 形象状态 key：飞花令脉冲（gameWin/gameLose/gameThink）由调用方优先叠加。 */
+  function mascotStateFor(weather, enabled) {
+  if (!enabled || !weather || typeof weather !== 'object') return 'celebrate'
+  if (weather.isDay === false || weather.isDay === 0) return 'night'
+  const category = typeof weather.category === 'string' ? weather.category : ''
+  if (category === 'rain') return 'rain'
+  if (category === 'snow') return 'snow'
+  if (category === 'thunder') return 'thunder'
+  if (category === 'cold') return 'cold'
+  if (category === 'clear' || category === 'cloud' || category === 'fog' || category === 'wind') return 'idle'
+  return 'celebrate'
+  }
+
+  function mascotFileFor(stateKey) {
+  return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate
+  }
+
+  function mascotUrl(file) {
+  return ASSET_BASE + MASCOT_DIR + file
+  }
+
+  /** 天气类别 → 诗词标签：类别标签 + 夜间追加「月/夜」。 */
+  function weatherPoemTags(weather) {
+  if (!weather || typeof weather !== 'object') return []
+  const tags = []
+  const push = (list) => {
+   for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag)
+  }
+  push(WEATHER_CATEGORY_TAGS[weather.category] || [])
+  if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS)
+  return tags
+  }
+
+  function countWeatherTagHits(lines, tags) {
+  const text = (Array.isArray(lines) ? lines : []).join('')
+  if (!text) return 0
+  let hits = 0
+  for (const tag of Array.isArray(tags) ? tags : []) {
+   if (!tag) continue
+   let from = 0
+   while (from <= text.length) {
+    const at = text.indexOf(tag, from)
+    if (at < 0) break
+    hits += 1
+    from = at + tag.length
+   }
+  }
+  return hits
+  }
+
+  /**
+
+  */
+  function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
+  const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT))
+  const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === 'string' && tag.length > 0)
+  if (!safeTags.length || !poolLimit) return []
+  const build = (items, kind) => {
+   const out = []
+   for (const item of Array.isArray(items) ? items : []) {
+    if (!item || !item.id) continue
+    const hits = countWeatherTagHits(item.lines, safeTags)
+    if (hits > 0) out.push({ kind, id: item.id, hits, item })
+   }
+   out.sort((a, b) => b.hits - a.hits || String(a.id).localeCompare(String(b.id)))
+   return out
+  }
+  const extras = extraSources && typeof extraSources === 'object' ? extraSources : {}
+  const sources = [
+   [poemsData && poemsData.items, 'poem'],
+   [ciData && ciData.items, 'ci'],
+   [extras.anthology && extras.anthology.items, 'anthology'],
+   [extras.bank && extras.bank.items, 'bank'],
+   [extras.ciBank && extras.ciBank.items, 'ci-bank'],
+  ]
+  const pool = []
+  for (const source of sources) {
+   if (pool.length >= poolLimit) break
+   const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length)
+   for (const entry of entries) pool.push(entry)
+  }
+  return pool
+  }
+
+  /** 今日天气诗：hash(date + category + dataVersion) % pool.length（与 todayPoemId 同思路但独立）。 */
+  function selectWeatherPoemEntry(pool, meta) {
+  if (!Array.isArray(pool) || !pool.length) return null
+  const date = meta && meta.date ? String(meta.date) : ''
+  const category = meta && meta.category ? String(meta.category) : ''
+  const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : ''
+  const index = Math.abs(hashString(date + '|' + category + '|' + dataVersion)) % pool.length
+  return pool[index]
+  }
+
+  function weatherChipText(city, weather) {
+  if (!weather || typeof weather !== 'object') return ''
+  const place = typeof city === 'string' && city ? city : ''
+  const label = typeof weather.label === 'string' && weather.label ? weather.label : '天气'
+  const tempC = Number(weather.tempC)
+  const temp = Number.isFinite(tempC) ? Math.round(tempC) + '℃' : ''
+  return (place ? place + ' · ' : '') + label + (temp ? ' ' + temp : '')
+  }
+
+  function weatherExplainText(weather) {
+  if (!weather || typeof weather !== 'object') return ''
+  const category = typeof weather.category === 'string' ? weather.category : 'unknown'
+  const night = weather.isDay === false || weather.isDay === 0
+  if (night && (category === 'clear' || category === 'cloud' || category === 'unknown')) {
+   return '今夜月色正好，为你选了写月夜的这首'
+  }
+  return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown
+  }
+
+  function weatherUpdatedLabel(at) {
+  const time = Number(at)
+  if (!Number.isFinite(time) || time <= 0) return ''
+  const date = new Date(time)
+  const pad = (value) => (value < 10 ? '0' + value : String(value))
+  return pad(date.getHours()) + ':' + pad(date.getMinutes())
+  }
+
+  function requestWeather() {
+  return fetchJson('weather.json').then((data) => {
+   if (!data || data.ok !== true || !data.weather) throw new Error('天气数据不可用')
+   weatherCache = { data, at: Date.now() }
+   return data
+  })
+  }
+
+  function clearWeatherCache() {
+  weatherCache = null
+  }
+
+  let moodCache = null
+  const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000
+
+  function shanghaiParts(now) {
+  const date = new Date(num(now, Date.now()) + SHANGHAI_OFFSET_MS)
+  const hour = date.getUTCHours()
+  return {
+   hour,
+   minutes: hour * 60 + date.getUTCMinutes(),
+   dateKey: date.toISOString().slice(0, 10),
+  }
+  }
+
+  function emptyMoodStats() {
+  return {
+   userMessages: 0, assistantMessages: 0, toolCalls: 0, toolErrors: 0,
+   turns: 0, turnsCompleted: 0, turnsErrored: 0, activeMs: 0, sessions: 0,
+   firstActivityAt: 0, lastActivityAt: 0,
+  }
+  }
+
+  function normalizeMoodStats(raw) {
+  const stats = emptyMoodStats()
+  const src = raw && typeof raw === 'object' ? raw : {}
+  for (const key of ['userMessages', 'assistantMessages', 'toolCalls', 'toolErrors', 'turns', 'turnsCompleted', 'turnsErrored', 'activeMs', 'sessions', 'firstActivityAt', 'lastActivityAt']) {
+   stats[key] = Math.max(0, Math.floor(num(src[key], 0)))
+  }
+  return stats
+  }
+
+  /** 心情引擎：stats + 天气 + 本地信号 → {key,label,image,reason,strong}（Asia/Shanghai）。 */
+  function computeMood(input) {
+  const opts = input && typeof input === 'object' ? input : {}
+  const stats = normalizeMoodStats(opts.stats)
+  const weather = opts.weather && typeof opts.weather === 'object' ? opts.weather : null
+  const signals = opts.signals && typeof opts.signals === 'object' ? opts.signals : {}
+  const now = num(signals.now, Date.now())
+  const local = shanghaiParts(now)
+  const lastKnown = Math.max(num(stats.lastActivityAt, 0), num(signals.lastInteractionAt, 0))
+  const idleMs = lastKnown > 0 ? Math.max(0, now - lastKnown) : 0
+  const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)))
+  const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)))
+  const minutes = local.minutes
+  const meal = (minutes >= 7 * 60 && minutes < 9 * 60)
+   || (minutes >= 11 * 60 + 30 && minutes < 13 * 60)
+   || (minutes >= 17 * 60 + 30 && minutes < 19 * 60 + 30)
+  const night = local.hour >= 23 || local.hour < 6
+  const category = weather && typeof weather.category === 'string' ? weather.category : ''
+  const rainy = category === 'rain' || category === 'snow' || category === 'thunder'
+  const tempC = weather ? Number(weather.tempC) : NaN
+  const coolNight = Boolean(weather) && weather.isDay === false && Number.isFinite(tempC) && tempC <= 22
+  const worksHard = stats.toolCalls >= 80 || stats.activeMs >= 3 * 60 * 60 * 1000 || stats.turnsErrored >= 2
+  let key = 'calm'
+  let reason = '今天平平稳稳'
+  if (worksHard) {
+   key = 'tired'
+   reason = stats.toolCalls >= 80 ? '工具调用 ' + stats.toolCalls + ' 次 · 今天辛苦啦' : '忙了很久 · 有点累'
+  } else if (night || idleMs >= 3 * 60 * 60 * 1000) {
+   key = 'sleepy'
+   reason = night ? '夜深了 · 早点休息' : '好久没动了 · 打个盹'
+  } else if (wins >= 3) {
+   key = 'proud'
+   reason = '飞花令赢了 ' + wins + ' 次 · 好得意'
+  } else if (stats.userMessages >= 10 || wins >= 1) {
+   key = 'happy'
+   reason = wins >= 1 ? '飞花令赢了 · 心情不错' : '今天聊了 ' + stats.userMessages + ' 句 · 心情不错'
+  } else if (meal && idleMs >= 60 * 60 * 1000) {
+   key = 'hungry'
+   reason = '到饭点啦 · 有点饿'
+  } else if (stats.userMessages === 0 && idleMs >= 90 * 60 * 1000) {
+   key = 'lonely'
+   reason = '好一阵没人说话了 · 有点孤单'
+  } else if (rainy || coolNight) {
+   key = 'cozy'
+   reason = category === 'snow' ? '下雪了 · 适合读诗' : (category === 'rain' || category === 'thunder' ? '外面有雨 · 适合读诗' : '夜色凉凉 · 很惬意')
+  } else if ((stats.userMessages > 0 || stats.turns > 0) && clicks === 0) {
+   key = 'curious'
+   reason = '你一直在忙 · 我在旁边看着'
+  }
+  return {
+   key,
+   label: MOOD_LABELS[key] || key,
+   image: (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
+   reason,
+   strong: MOOD_STRONG.indexOf(key) >= 0,
+  }
+  }
+
+  /** 心情立绘限频：同 key 只更新文案；换 key 需 ≥20min，strong 变化/force 可破例。 */
+  function throttleMoodSwitch(previous, next, now, force) {
+  const time = num(now, Date.now())
+  if (!next) return previous || null
+  if (!previous) return Object.assign({}, next, { changed: true, switchedAt: time })
+  if (next.key === previous.key) {
+   return Object.assign({}, next, { changed: false, switchedAt: num(previous.switchedAt, time) })
+  }
+  const elapsed = Math.max(0, time - num(previous.switchedAt, 0))
+  if (next.strong === true || force === true || elapsed >= MOOD_SWITCH_MIN_MS) {
+   return Object.assign({}, next, { changed: true, switchedAt: time })
+  }
+  return Object.assign({}, previous, { changed: false, pendingKey: next.key })
+  }
+
+  /** 天气 + 心情合成立绘：恶劣天气（rain/snow/thunder/cold/night）优先，其次心情，最后默认。 */
+  function mascotImageFor(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const weatherKey = typeof opts.weatherStateKey === 'string' ? opts.weatherStateKey : 'celebrate'
+  const weatherOn = opts.weatherEnabled === true
+  const moodOn = opts.moodEnabled === true
+  const mood = opts.mood && typeof opts.mood === 'object' ? opts.mood : null
+  if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
+   return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: 'weather' }
+  }
+  if (moodOn && mood && mood.image) return { stateKey: 'mood:' + mood.key, file: mood.image, source: 'mood' }
+  if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: 'weather' }
+  return { stateKey: 'celebrate', file: mascotFileFor('celebrate'), source: 'default' }
+  }
+
+  function moodBasisText(stats, weather) {
+  const normalized = normalizeMoodStats(stats)
+  const label = weather && weather.label ? weather.label : '未知'
+  return '今天聊了 ' + normalized.userMessages + ' 句 · 工具调用 ' + normalized.toolCalls + ' 次 · 天气 ' + label
+  }
+
+  function requestMood() {
+  return fetchJson('mood.json').then(
+   (data) => {
+    const normalized = {
+    ok: true,
+    date: data && data.date ? String(data.date) : '',
+    stats: normalizeMoodStats(data && data.stats),
+    updatedAt: num(data && data.updatedAt, 0),
+    }
+    moodCache = { data: normalized, at: Date.now() }
+    return normalized
+   },
+   () => ({ ok: false, date: '', stats: emptyMoodStats(), updatedAt: 0 }),
+  )
+  }
+
+  function normalizeSpontState(raw, now) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const dateKey = shanghaiParts(now).dateKey
+  const seen = []
+  if (Array.isArray(src.seenIds)) {
+   for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
+    let id = ''
+    let at = 0
+    if (typeof entry === 'string') id = entry
+    else if (entry && typeof entry === 'object' && typeof entry.id === 'string') {
+    id = entry.id
+    at = num(entry.at, 0)
+    }
+    if (!id) continue
+    if (at > 0 && now - at > SPONT_SEEN_DAYS) continue
+    seen.push({ id, at })
+   }
+  }
+  const sameDay = src.date === dateKey
+  return {
+   date: dateKey,
+   lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
+   todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
+   seenIds: seen,
+  }
+  }
+
+  function readSpontState(now) {
+  const storage = getStorage()
+  if (!storage) return normalizeSpontState(null, now)
+  try {
+   const raw = storage.getItem(SPONT_KEY)
+   return normalizeSpontState(raw ? JSON.parse(raw) : null, now)
+  } catch (error) {
+   return normalizeSpontState(null, now)
+  }
+  }
+
+  function writeSpontState(state) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(SPONT_KEY, JSON.stringify(state))
+  } catch (error) {
+   /* 配额/隐私模式：放弃记录，不影响展示 */
+  }
+  }
+
+  function recordSpontShown(state, id, now) {
+  const base = normalizeSpontState(state, now)
+  const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now }]).slice(-SPONT_MAX_SEEN)
+  return { date: base.date, lastShownAt: num(now, Date.now()), todayCount: base.todayCount + 1, seenIds: seen }
+  }
+
+  function countSpontHits(text, tags) {
+  let hits = 0
+  for (const tag of Array.isArray(tags) ? tags : []) {
+   if (!tag) continue
+   hits += String(text || '').split(tag).length - 1
+  }
+  return hits
+  }
+
+  /** 彩蛋触发条件（纯函数）：开关/可见/隐藏/面板/气泡/30s 闲置/45min 间隔/每日 3 次。 */
+  /** 把连续文本按句末标点（。！？）切成完整句，保留标点（不吃掉逗号等句中标点）。 */
+  function splitCompleteSentences(text) {
+  const value = String(text == null ? '' : text)
+  const out = []
+  let start = 0
+  for (let i = 0; i < value.length; i += 1) {
+   const ch = value.charAt(i)
+   if (ch === '。' || ch === '！' || ch === '？') {
+    const sentence = value.slice(start, i + 1).trim()
+    if (sentence) out.push(sentence)
+    start = i + 1
+   }
+  }
+  return out
+  }
+
+  /** 从若干行里挑一个完整句：优先 8–40 字且命中心情 tag；无句末标点则回退最后一个完整 line。 */
+  function pickSentenceFromLines(lines, tags, random) {
+  const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? '' : value)).filter((value) => value.length > 0)
+  const sentences = splitCompleteSentences(list.join(''))
+  if (!sentences.length) {
+   if (!list.length) return ''
+   let fallback = list[list.length - 1]
+   if (/[，,]$/.test(fallback)) {
+    fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, '。')
+   }
+   return fallback
+  }
+  const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }))
+  const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0)
+  const medium = scored.filter((item) => item.length >= 8 && item.length <= 40)
+  const withTag = scored.filter((item) => item.hits > 0)
+  const pool = (preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored)
+  if (!pool.length) return ''
+  const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === 'function' ? random() : Math.random(), 0) * pool.length)))
+  return pool[index].sentence
+  }
+
+  function canShowSpontaneous(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (opts.enabled !== true || opts.moodEnabled !== true) return false
+  if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false
+  if (!opts.moodKey) return false
+  const now = num(opts.now, Date.now())
+  const lastInteraction = num(opts.lastInteractionAt, 0)
+  const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY
+  if (idleMs < SPONT_IDLE_MIN_MS) return false
+  if (Math.max(0, Math.floor(num(opts.todayCount, 0))) >= SPONT_DAILY_LIMIT) return false
+  const lastShownAt = num(opts.lastShownAt, 0)
+  if (lastShownAt > 0 && now - lastShownAt < SPONT_MIN_INTERVAL_MS) return false
+  return true
+  }
+
+  function nextSpontDelay(random) {
+  const value = typeof random === 'function' ? Number(random()) : Math.random()
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(SPONT_MIN_INTERVAL_MS + ratio * (SPONT_MAX_INTERVAL_MS - SPONT_MIN_INTERVAL_MS))
+  }
+
+  /** 按心情挑一首本地诗/词（先诗后词、作者+tag 打分、排除 7 天内已见）。 */
+  function pickSpontaneousPoem(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const rules = SPONT_MOOD_RULES[opts.moodKey] || SPONT_MOOD_RULES.calm
+  const seen = new Set(Array.isArray(opts.seenIds) ? opts.seenIds : [])
+  const build = (items, kind) => {
+   const out = []
+   for (const item of Array.isArray(items) ? items : []) {
+    if (!item || !item.id || seen.has(item.id)) continue
+    const lines = Array.isArray(item.lines) ? item.lines : []
+    if (!lines.length) continue
+    const hits = countSpontHits(lines.join(''), rules.tags)
+    if (hits <= 0) continue
+    const authorHit = rules.authors.indexOf(item.author) >= 0 ? 1 : 0
+    out.push({ item, kind, score: hits * 2 + authorHit * 3 })
+   }
+   out.sort((a, b) => b.score - a.score || String(a.item.id).localeCompare(String(b.item.id)))
+   return out
+  }
+  const poemRanked = build(opts.poemsData && opts.poemsData.items, 'poem')
+  const ciRanked = build(opts.ciData && opts.ciData.items, 'ci')
+  const anthologyRanked = build(opts.anthologyData && opts.anthologyData.items, 'anthology')
+  const bankRanked = build(opts.bankData && opts.bankData.items, 'bank')
+  const ciBankRanked = build(opts.ciBankData && opts.ciBankData.items, 'ci-bank')
+  const ranked = poemRanked.length ? poemRanked
+   : ciRanked.length ? ciRanked
+    : anthologyRanked.length ? anthologyRanked
+     : bankRanked.length ? bankRanked
+      : ciBankRanked
+  if (!ranked.length) return null
+  const top = ranked.slice(0, 8)
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const index = Math.min(top.length - 1, Math.max(0, Math.floor(num(random(), 0) * top.length)))
+  const chosen = top[index]
+  const title = String(chosen.item.title || chosen.item.rhythmic || '无题')
+  const author = String(chosen.item.author || '')
+  const sentence = pickSentenceFromLines(chosen.item.lines, rules.tags, random)
+  if (!sentence) return null
+  return {
+   kind: chosen.kind,
+   id: String(chosen.item.id),
+   title,
+   author,
+   line: sentence,
+   label: author ? author + '《' + title + '》' : '《' + title + '》',
+  }
+  }
+
+  /* ================================================================
+   * 2.9 诗库数据 / 平水韵格律检测 / 剩余立绘彩蛋（M9 纯函数）
+   * ================================================================ */
+
+  function assetUrlFor(kind, version) {
+  const file = ASSET_DATA_FILES[kind]
+  if (!file) return ''
+  return '/api/dsh-poetry/assets?f=' + file + '&v=' + encodeURIComponent(String(version == null ? '' : version))
+  }
+
+  function libraryCategoryOf(item, kind) {
+  if (kind === 'bank') return 'bank'
+  const raw = String(item && item.category != null ? item.category : '').trim()
+  if (LIBRARY_CATEGORY_ALIASES[raw]) return LIBRARY_CATEGORY_ALIASES[raw]
+  for (const label of Object.keys(LIBRARY_CATEGORY_ALIASES)) {
+   if (raw.indexOf(label) >= 0) return LIBRARY_CATEGORY_ALIASES[label]
+  }
+  return ''
+  }
+
+  /** 合并 anthology + bank 为诗库条目（统一 categoryId 与 source）。 */
+  function buildLibraryItems(anthologyData, bankData, ciBankData, ciSelectedData) {
+  const out = []
+  for (const item of anthologyData && Array.isArray(anthologyData.items) ? anthologyData.items : []) {
+   if (!item) continue
+   const categoryId = libraryCategoryOf(item, 'anthology')
+   if (!categoryId) continue
+   out.push(Object.assign({}, item, { categoryId, source: 'anthology' }))
+  }
+  for (const item of bankData && Array.isArray(bankData.items) ? bankData.items : []) {
+   if (!item) continue
+   out.push(Object.assign({}, item, { categoryId: 'bank', source: 'bank' }))
+  }
+  for (const item of ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : []) {
+   if (!item) continue
+   out.push(Object.assign({}, item, { categoryId: 'ci-bank', source: 'ci-bank' }))
+  }
+  for (const item of ciSelectedLibraryItems(ciSelectedData)) out.push(item)
+  return out
+  }
+
+  /** 精选宋词（data/ci.json 283 首）→ 诗库条目；title 用「词牌·首句」。 */
+  function ciSelectedLibraryItems(ciData) {
+  const out = []
+  for (const item of ciData && Array.isArray(ciData.items) ? ciData.items : []) {
+   if (!item || !item.id) continue
+   const rhythmic = String(item.rhythmic || '')
+   const firstLine = String((Array.isArray(item.lines) && item.lines[0]) || '')
+   const first = firstLine.replace(/[，。！？；、：,.!?;:·\s]/g, '').slice(0, 24)
+   const title = rhythmic ? rhythmic + '·' + (first || '无题') : String(item.title || first || '无题')
+   out.push({
+    id: String(item.id),
+    author: String(item.author || ''),
+    rhythmic,
+    title,
+    lines: Array.isArray(item.lines) ? item.lines : [],
+    categoryId: 'ci-selected',
+    source: 'ci-selected',
+   })
+  }
+  return out
+  }
+
+  function ciSelectedRhythmics(ciData) {
+  const map = {}
+  for (const item of ciData && Array.isArray(ciData.items) ? ciData.items : []) {
+   const name = item && item.rhythmic ? String(item.rhythmic) : ''
+   if (!name) continue
+   map[name] = (map[name] || 0) + 1
+  }
+  return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'))
+  }
+
+  /** 宋词全库的词牌分布（名 → 数量，降序），用于诗库「宋词全库」的词牌筛选。 */
+  function ciBankRhythmics(ciBankData) {
+  const map = {}
+  for (const item of ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : []) {
+   const name = item && item.rhythmic ? String(item.rhythmic) : ''
+   if (!name) continue
+   map[name] = (map[name] || 0) + 1
+  }
+  return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'))
+  }
+
+  function filterLibraryItems(items, category, query, rhythmic) {
+  const cat = category && category !== 'all' ? category : 'all'
+  const keyword = String(query == null ? '' : query).trim().toLowerCase()
+  const rhythm = rhythmic ? String(rhythmic) : ''
+  return (Array.isArray(items) ? items : []).filter((item) => {
+   if (!item) return false
+   if (cat !== 'all' && item.categoryId !== cat) return false
+   if (rhythm && String(item.rhythmic || '') !== rhythm) return false
+   if (!keyword) return true
+   const hay = String(item.title || '') + ' ' + String(item.author || '') + ' ' + (Array.isArray(item.lines) ? item.lines.join('') : '')
+   return hay.toLowerCase().indexOf(keyword) >= 0
+  })
+  }
+
+  function libraryPage(items, visible) {
+  return (Array.isArray(items) ? items : []).slice(0, Math.max(0, Math.floor(num(visible, LIBRARY_PAGE))))
+  }
+
+  function libraryItemLabel(item) {
+  const title = item && item.title ? String(item.title) : '无题'
+  const author = item && item.author ? String(item.author) : ''
+  return author ? author + '《' + title + '》' : '《' + title + '》'
+  }
+
+  /** 平水韵数据 → 索引（categories 与 charIndex 双驱动，charIndex 缺省时从 chars 反推）。 */
+  function buildPingshuiIndex(raw) {
+  const sourceCategories = raw && Array.isArray(raw.categories) ? raw.categories : []
+  const categories = sourceCategories.map((cat, index) => {
+   const value = cat && typeof cat === 'object' ? cat : {}
+   return {
+    index,
+    name: String(value.name || value.short || '韵部' + (index + 1)),
+    short: String(value.short || value.name || '韵部' + (index + 1)),
+    tone: (String(value.tone || '').toLowerCase() === 'ping' || value.tone === '平') ? '平' : '仄',
+    chars: String(value.chars == null ? '' : value.chars),
+   }
+  })
+  const charMap = {}
+  const addChar = (ch, index) => {
+   if (!ch) return
+   const list = charMap[ch] || (charMap[ch] = [])
+   if (list.indexOf(index) < 0) list.push(index)
+  }
+  const rawIndex = raw && raw.charIndex && typeof raw.charIndex === 'object' ? raw.charIndex : null
+  if (rawIndex) {
+   for (const ch of Object.keys(rawIndex)) {
+    const arr = Array.isArray(rawIndex[ch]) ? rawIndex[ch] : []
+    for (const index of arr) if (Number.isInteger(index) && categories[index]) addChar(ch, index)
+   }
+  }
+  for (const cat of categories) for (const ch of Array.from(cat.chars)) addChar(ch, cat.index)
+  function charInfo(ch) {
+   const indices = charMap[ch] || []
+   const cats = indices.map((index) => categories[index]).filter(Boolean)
+   const tones = []
+   for (const cat of cats) if (tones.indexOf(cat.tone) < 0) tones.push(cat.tone)
+   const rhymes = []
+   for (const cat of cats) if (cat.tone === '平' && rhymes.indexOf(cat.short) < 0) rhymes.push(cat.short)
+   const candidates = []
+   for (const cat of cats) candidates.push({ tone: cat.tone, name: cat.short })
+   return { ch, tones, rhymes, candidates }
+  }
+  return { categories, charMap, charInfo, ready: categories.length > 0 }
+  }
+
+  function tonesFromToneChar(toneChar) {
+  if (toneChar === '平') return ['平']
+  if (toneChar === '仄') return ['仄']
+  if (toneChar === '○' || toneChar === '〇') return ['平', '仄']
+  return []
+  }
+
+  /** 逐字平仄标注：优先用数据里的 tones，否则查平水韵 charIndex（多音字列出候选）。 */
+  function annotatePoemLines(lines, tones, pingshui) {
+  const out = []
+  const toneLines = Array.isArray(tones) ? tones : []
+  for (let lineIndex = 0; lineIndex < (Array.isArray(lines) ? lines.length : 0); lineIndex += 1) {
+   const lineChars = Array.from(String(lines[lineIndex] == null ? '' : lines[lineIndex]))
+   const toneChars = Array.from(String(toneLines[lineIndex] == null ? '' : toneLines[lineIndex]))
+   const cells = []
+   for (let index = 0; index < lineChars.length; index += 1) {
+    const ch = lineChars[index]
+    if (isPunctuation(ch)) continue
+    const rawTone = toneChars[index] || ''
+    const info = pingshui && typeof pingshui.charInfo === 'function' ? pingshui.charInfo(ch) : { tones: [], rhymes: [], candidates: [] }
+    const allowed = rawTone ? tonesFromToneChar(rawTone) : (info.tones || [])
+    cells.push({
+     ch,
+     allowed,
+     tone: allowed.length === 0 ? '？' : allowed.length > 1 ? '○' : allowed[0],
+     rhymes: info.rhymes || [],
+     candidates: info.candidates || [],
+    })
+   }
+   out.push(cells)
+  }
+  return out
+  }
+
+  function patternForShape(form, start, firstRhyme) {
+  const key = start + (firstRhyme ? '入韵' : '不入韵')
+  const five = TONE_QUATRAINS[key] || TONE_QUATRAINS['平起不入韵']
+  const size = form && form.charAt(0) === '七' ? 7 : 5
+  const base = size === 7 ? five.map((line) => (line.charAt(0) === '平' ? '仄仄' : '平平') + line) : five.slice()
+  const lines = form && form.charAt(1) === '律' ? base.concat(base) : base
+  return lines
+  }
+
+  function allowedRelation(cellA, cellB, relation) {
+  const listA = cellA && Array.isArray(cellA.allowed) ? cellA.allowed : []
+  const listB = cellB && Array.isArray(cellB.allowed) ? cellB.allowed : []
+  if (!listA.length || !listB.length) return null
+  for (const a of listA) {
+   for (const b of listB) {
+    if (relation === 'dui' ? a !== b : a === b) return true
+   }
+  }
+  return false
+  }
+
+  function rhymeSetOf(cell) {
+  const names = cell && Array.isArray(cell.rhymes) ? cell.rhymes : []
+  return names
+  }
+
+  /** 格律检测：入参为逐行 cells（annotatePoemLines 结果），返回可读报告对象。 */
+  function detectMetre(annotation, pingshui) {
+  const report = {
+   ok: true,
+   errors: [],
+   form: '',
+   start: '',
+   firstRhyme: false,
+   meter: '',
+   weakTones: !pingshui || !pingshui.ready,
+   rhymeError: '',
+   rhymeLines: [],
+   rhymeGroup: [],
+   violations: [],
+   sticky: [],
+   sanPing: [],
+   guPing: [],
+   summary: '',
+  }
+  const lineCount = Array.isArray(annotation) ? annotation.length : 0
+  const size = lineCount ? annotation[0].length : 0
+  if (![4, 8].includes(lineCount) || ![5, 7].includes(size) || annotation.some((line) => line.length !== size)) {
+   report.ok = false
+   report.errors.push('需要 4 句或 8 句、每句 5 或 7 个字（当前 ' + lineCount + ' 句 / 首句 ' + size + ' 字）')
+   return report
+  }
+  report.form = (size === 5 ? '五' : '七') + (lineCount === 4 ? '绝' : '律')
+  const firstLine = annotation[0]
+  const startOptions = []
+  const secondTones = firstLine[1] ? firstLine[1].allowed : []
+  if (secondTones.indexOf('平') >= 0) startOptions.push('平起')
+  if (secondTones.indexOf('仄') >= 0) startOptions.push('仄起')
+  if (!startOptions.length) startOptions.push('平起', '仄起')
+  const lastTones = firstLine[firstLine.length - 1] ? firstLine[firstLine.length - 1].allowed : []
+  const rhymeOptions = lastTones.indexOf('平') >= 0 ? [true] : lastTones.length ? [false] : [true, false]
+  if (lastTones.indexOf('平') >= 0 && lastTones.indexOf('仄') >= 0) rhymeOptions.length = 0
+  if (rhymeOptions.length === 0) rhymeOptions.push(true, false)
+  const mandatory = size === 5 ? [1, 3] : [1, 3, 5]
+  let best = null
+  for (const start of startOptions) {
+   for (const firstRhyme of rhymeOptions) {
+    const pattern = patternForShape(report.form, start, firstRhyme)
+    let violations = 0
+    for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+     for (const position of mandatory) {
+      const cell = annotation[lineIndex][position]
+      const expected = pattern[lineIndex] ? pattern[lineIndex].charAt(position) : ''
+      if (!cell || !cell.allowed.length || !expected) continue
+      if (cell.allowed.indexOf(expected) < 0) violations += 1
+     }
+    }
+    if (!best || violations < best.violations) best = { start, firstRhyme, pattern, violations }
+   }
+  }
+  report.start = best.start
+  report.firstRhyme = best.firstRhyme
+  report.meter = best.start + '首句' + (best.firstRhyme ? '入韵' : '不入韵')
+  const pattern = best.pattern
+  const rhymeIndexes = []
+  for (let lineIndex = 1; lineIndex < lineCount; lineIndex += 2) rhymeIndexes.push(lineIndex)
+  if (best.firstRhyme) rhymeIndexes.unshift(0)
+  rhymeIndexes.sort((a, b) => a - b)
+  // 拗字（二四六分明；一三五不论不报）
+  for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+   for (const position of mandatory) {
+    const cell = annotation[lineIndex][position]
+    const expected = pattern[lineIndex] ? pattern[lineIndex].charAt(position) : ''
+    if (!cell || !cell.allowed.length || !expected) continue
+    if (cell.allowed.indexOf(expected) < 0) {
+     report.violations.push({ line: lineIndex + 1, position: position + 1, ch: cell.ch, expected, actual: cell.tone })
+    }
+   }
+  }
+  // 韵脚 + 韵部（多音字取候选；首句允许借邻韵）
+  const rhymeSets = []
+  for (const lineIndex of rhymeIndexes) {
+   const cell = annotation[lineIndex][annotation[lineIndex].length - 1]
+   const isPing = cell && (cell.allowed.indexOf('平') >= 0)
+   if (!isPing) report.violations.push({ line: lineIndex + 1, position: annotation[lineIndex].length, ch: cell ? cell.ch : '', expected: '平', actual: cell ? cell.tone : '？', rhyme: true })
+   rhymeSets.push({ line: lineIndex, cell, names: rhymeSetOf(cell) })
+  }
+  if (report.weakTones) {
+   report.rhymeError = '缺少平水韵数据，韵部判定已跳过'
+  } else {
+   const mainSets = rhymeSets.filter((entry) => entry.line !== 0)
+   const anchor = mainSets.length ? mainSets[0].names : (rhymeSets[0] ? rhymeSets[0].names : [])
+   const group = []
+   for (const name of anchor) {
+    if (mainSets.every((entry) => entry.names.indexOf(name) >= 0)) group.push(name)
+   }
+   report.rhymeGroup = group
+   for (const entry of rhymeSets) {
+    const borrowed = entry.line === 0 && !entry.names.some((name) => group.indexOf(name) >= 0)
+    report.rhymeLines.push({
+     line: entry.line + 1,
+     ch: entry.cell ? entry.cell.ch : '',
+     names: entry.names,
+     borrowed: Boolean(borrowed && best.firstRhyme),
+    })
+    if (!group.length) continue
+    if (borrowed) continue
+    if (!entry.names.some((name) => group.indexOf(name) >= 0)) report.rhymeError = '第 ' + (entry.line + 1) + ' 句韵脚出韵（' + (entry.names.join('/') || '未知') + '）'
+   }
+   if (!group.length) report.rhymeError = report.rhymeError || '韵脚没有共同韵部（可能出韵或平水韵数据缺失）'
+  }
+  // 粘对（二四六分明位置）
+  for (let lineIndex = 0; lineIndex + 1 < lineCount; lineIndex += 1) {
+   const relation = lineIndex % 2 === 0 ? 'dui' : 'nian'
+   for (const position of mandatory) {
+    const ok = allowedRelation(annotation[lineIndex][position], annotation[lineIndex + 1][position], relation)
+    if (ok === false) {
+     report.sticky.push({ pair: (lineIndex + 1) + '-' + (lineIndex + 2), type: relation === 'dui' ? '对' : '粘', position: position + 1 })
+    }
+   }
+  }
+  // 三平调 / 孤平
+  for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+   const cells = annotation[lineIndex]
+   if (cells.length >= 3) {
+    const tail = cells.slice(-3)
+    if (tail.every((cell) => cell.allowed.indexOf('平') >= 0)) report.sanPing.push(lineIndex + 1)
+   }
+   const expectedLine = pattern[lineIndex] || ''
+   const lonelyPattern = size === 5 ? '平平仄仄平' : '仄仄平平仄仄平'
+   if (expectedLine === lonelyPattern) {
+    const position = size === 5 ? 0 : 2
+    const cell = cells[position]
+    if (cell && cell.allowed.length === 1 && cell.allowed[0] === '仄') report.guPing.push(lineIndex + 1)
+   }
+  }
+  report.annotation = annotation
+  const rhymeText = report.rhymeLines.map((entry) => entry.ch + (entry.names.length ? '（' + entry.names.join('/') + '）' : '') + (entry.borrowed ? '[借韵]' : '')).join('、')
+  report.summary = report.form + '，' + report.meter + '；韵脚：' + (rhymeText || '—')
+   + (report.rhymeGroup.length ? '，韵部 ' + report.rhymeGroup.join('/') : '')
+   + (report.rhymeError ? '；' + report.rhymeError : '')
+   + '；粘对' + (report.sticky.length ? '有 ' + report.sticky.length + ' 处失粘/失对' : '成立')
+   + '；拗字 ' + report.violations.filter((item) => !item.rhyme).length + ' 处'
+   + (report.sanPing.length ? '；三平调：第 ' + report.sanPing.join('、') + ' 句' : '')
+   + (report.guPing.length ? '；孤平：第 ' + report.guPing.join('、') + ' 句' : '')
+  return report
+  }
+
+  function detectPoem(poem, pingshui) {
+  const lines = poem && Array.isArray(poem.lines) ? poem.lines : []
+  const tones = poem && Array.isArray(poem.tones) ? poem.tones : null
+  return detectMetre(annotatePoemLines(lines, tones, pingshui), pingshui)
+  }
+
+  /** 用户文本框输入：按换行/标点切成句，校验 4/8 句 × 5/7 字。 */
+  function parsePoemInput(text) {
+  const source = String(text == null ? '' : text).trim()
+  if (!source) return { error: '请输入诗句' }
+  const clauses = []
+  for (const row of source.split(/[\n\r]+/)) {
+   for (const part of String(row).split(/[，,。.！!？?；;：:、\s]+/)) {
+    const chars = Array.from(part.replace(/[^\u4e00-\u9fff]/g, ''))
+    if (chars.length) clauses.push({ raw: part.trim(), chars })
+   }
+  }
+  if (![4, 8].includes(clauses.length)) return { error: '需要 4 句或 8 句（当前 ' + clauses.length + ' 句），请用换行或标点分隔' }
+  const size = clauses[0].chars.length
+  if (![5, 7].includes(size)) return { error: '每句需要 5 或 7 个字（首句为 ' + size + ' 字）' }
+  for (let index = 0; index < clauses.length; index += 1) {
+   if (clauses[index].chars.length !== size) return { error: '第 ' + (index + 1) + ' 句为 ' + clauses[index].chars.length + ' 字，与前句 ' + size + ' 字不一致' }
+  }
+  return { lines: clauses }
+  }
+
+  function detectPoemText(text, pingshui) {
+  const parsed = parsePoemInput(text)
+  if (parsed.error) return { ok: false, errors: [parsed.error], summary: parsed.error }
+  const annotation = parsed.lines.map((clause) => annotatePoemLines([clause.raw], null, pingshui)[0])
+  return detectMetre(annotation, pingshui)
+  }
+
+  function formatDetectionReport(report) {
+  if (!report) return ''
+  const lines = ['【格律检测】' + (report.summary || '')]
+  for (const error of report.errors || []) lines.push('⚠ ' + error)
+  for (const item of report.violations || []) lines.push('· 第 ' + item.line + ' 句第 ' + item.position + ' 字「' + item.ch + '」宜' + item.expected + '（实际 ' + item.actual + '）')
+  for (const item of report.sticky || []) lines.push('· 第 ' + item.pair + ' 句失' + item.type + '（第 ' + item.position + ' 字）')
+  for (const line of report.sanPing || []) lines.push('· 第 ' + line + ' 句疑似三平调')
+  for (const line of report.guPing || []) lines.push('· 第 ' + line + ' 句疑似孤平')
+  return lines.join('\n')
+  }
+
+  function detectionRhymeIndexes(report) {
+  const set = {}
+  for (const item of (report && report.rhymeLines) || []) set[item.line - 1] = true
+  return set
+  }
+
+  /* ---- 剩余立绘彩蛋（双击表情 / 每日 greet / idle 姿态限频） ---- */
+  function normalizeMascotEggState(raw, now) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const dateKey = shanghaiParts(now).dateKey
+  const sameDay = source.date === dateKey
+  return {
+   date: dateKey,
+   greeted: sameDay ? source.greeted === true : false,
+   greetAt: sameDay ? num(source.greetAt, 0) : 0,
+   idleAt: num(source.idleAt, 0),
+  }
+  }
+
+  function readMascotEggState(now) {
+  const storage = getStorage()
+  if (!storage) return normalizeMascotEggState(null, now)
+  try {
+   const raw = storage.getItem(MASCOT_EGG_KEY)
+   return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now)
+  } catch (error) {
+   return normalizeMascotEggState(null, now)
+  }
+  }
+
+  function writeMascotEggState(state) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state))
+  } catch (error) {
+   /* 配额/隐私模式：忽略 */
+  }
+  }
+
+  function recordMascotEgg(state, patch, now) {
+  const base = normalizeMascotEggState(state, now)
+  const time = num(now, Date.now())
+  return {
+   date: base.date,
+   greeted: base.greeted || Boolean(patch && patch.greet),
+   greetAt: patch && patch.greet ? time : base.greetAt,
+   idleAt: patch && patch.idle ? time : base.idleAt,
+  }
+  }
+
+  function shouldShowDailyGreet(state, now) {
+  return !normalizeMascotEggState(state, now).greeted
+  }
+
+  function canShowIdlePose(state, now, lastInteractionAt) {
+  const normalized = normalizeMascotEggState(state, now)
+  const time = num(now, Date.now())
+  if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false
+  const lastInteraction = num(lastInteractionAt, 0)
+  if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false
+  return true
+  }
+
+  function pickMascotExpression(random) {
+  const value = typeof random === 'function' ? Number(random()) : Math.random()
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  const index = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length)
+  return MASCOT_EXPRESSION_FILES[index] || MASCOT_EXPRESSION_FILES[0]
+  }
+
+  let bootstrapCache = null
+  const RESOURCE_CACHE_KEYS = ['poems', 'ci', 'yun', 'knowledge', 'anthology', 'bank', 'pingshui', 'ciBank']
+  const resourceCache = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null }
+  const resourceInflight = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null }
+  let assetDataVersion = ''
+  function setAssetDataVersion(version) {
+  const next = version == null ? '' : String(version)
+  if (next === assetDataVersion) return
+  assetDataVersion = next
+  for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank']) {
+   resourceCache[kind] = null
+   resourceInflight[kind] = null
+  }
+  }
+
+  function getStorage() {
+  try {
+   if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
+  } catch (error) {
+  }
+  return null
+  }
+
+  function fetchJson(path, init) {
+  return fetchJsonUrl(ROUTE + path, init)
+  }
+
+  function fetchJsonUrl(url, init) {
+  if (typeof fetch !== 'function') return Promise.reject(new Error('当前环境不支持网络请求'))
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = controller
+   ? setTimeout(() => {
+    try {
+    controller.abort()
+    } catch (error) {
+    }
+   }, FETCH_TIMEOUT_MS)
+   : null
+  const options = Object.assign({}, init || {})
+  if (controller) options.signal = controller.signal
+  return Promise.resolve()
+   .then(() => fetch(url, options))
+   .then((response) => {
+    if (!response || typeof response.ok !== 'boolean') throw new Error('响应异常')
+    if (!response.ok) {
+    const error = new Error('HTTP ' + response.status)
+    error.status = response.status
+    throw error
+    }
+    return response.json()
+   })
+   .then((data) => {
+    if (!data || data.ok === false) {
+    const detail = data && data.error ? data.error : null
+    const error = new Error((detail && detail.message) || '数据不可用')
+    if (detail && detail.code) error.code = detail.code
+    throw error
+    }
+    return data
+   })
+   .finally(() => {
+    if (timer) clearTimeout(timer)
+   })
+  }
+
+  function clearResourceCache(kind) {
+  clearFeihuaIndexCache()
+  if (kind) {
+   resourceCache[kind] = null
+   resourceInflight[kind] = null
+   return
+  }
+  for (const key of RESOURCE_CACHE_KEYS) {
+   resourceCache[key] = null
+   resourceInflight[key] = null
+  }
+  }
+
+  function loadResource(kind) {
+  const assetFile = ASSET_DATA_FILES[kind]
+  if (!assetFile && !RESOURCE_PATHS[kind]) return Promise.reject(new Error('未知数据类型：' + kind))
+  if (resourceCache[kind]) return Promise.resolve(resourceCache[kind])
+  if (!resourceInflight[kind]) {
+   const url = assetFile ? assetUrlFor(kind, assetDataVersion) : ROUTE + RESOURCE_PATHS[kind]
+   resourceInflight[kind] = fetchJsonUrl(url).then(
+    (data) => {
+    resourceCache[kind] = data
+    resourceInflight[kind] = null
+    return data
+    },
+    (error) => {
+    resourceInflight[kind] = null
+    throw error
+    },
+   )
+  }
+  return resourceInflight[kind]
+  }
+
+  /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
+  function readFirstScreenCache() {
+  const storage = getStorage()
+  if (!storage) return null
+  try {
+   const raw = storage.getItem(CACHE_KEY)
+   if (!raw) return null
+   const parsed = JSON.parse(raw)
+   if (!parsed || typeof parsed !== 'object' || !parsed.bootstrap) return null
+   if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== 'object') return null
+   return parsed
+  } catch (error) {
+   return null
+  }
+  }
+
+  function writeFirstScreenCache(payload) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(CACHE_KEY, JSON.stringify(payload))
+  } catch (error) {
+  }
+  }
+
+  function clearFirstScreenCache() {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.removeItem(CACHE_KEY)
+  } catch (error) {
+  }
+  }
+
+  function readStoredPosition() {
+  const storage = getStorage()
+  if (!storage) return null
+  try {
+   const raw = storage.getItem(POS_KEY)
+   if (!raw) return null
+   const parsed = JSON.parse(raw)
+   if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null
+   return {
+    x: Number(parsed.x),
+    y: Number(parsed.y),
+    snap: parsed.snap === 'right' || parsed.snap === 'free' ? parsed.snap : 'left',
+   }
+  } catch (error) {
+   return null
+  }
+  }
+
+  function writeStoredPosition(position) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(POS_KEY, JSON.stringify({
+    x: Math.round(position.x),
+    y: Math.round(position.y),
+    snap: position.snap,
+   }))
+  } catch (error) {
+  }
+  }
+
+  function putSettings(patch) {
+  const request = buildSettingsRequest(patch)
+  return fetchJson('settings.json', request.init).then((data) => {
+   if (bootstrapCache && data && data.settings) {
+    bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings })
+   }
+   return data
+  })
+  }
+  const CSS = [
+  '.dshp-root{--dshp-bg:var(--dsw-alias-bg-module-platform,#fff);',
+  '--dshp-bg-soft:var(--dsw-alias-bg-base-platform,#f6f7f9);',
+  '--dshp-label:var(--dsw-alias-label-primary,#1f2329);',
+  '--dshp-label-2:var(--dsw-alias-label-secondary,#646a73);',
+  '--dshp-border:var(--dsw-alias-border-l2,#e3e5e8);',
+  '--dshp-border-3:var(--dsw-alias-border-l3,#c9cdd6);',
+  '--dshp-hover:var(--dsw-alias-interactive-bg-hover,rgba(31,35,41,.06));',
+  '--dshp-accent:var(--dsw-static-accent,#4d6bfe);',
+  '--dshp-ping:#2563eb;--dshp-ze:#dc2626;--dshp-any:#6b7280;',
+  '--dshp-danger:#dc2626;',
+  '--dshp-shadow:0 12px 40px rgba(0,0,0,.18);',
+  'position:fixed;pointer-events:auto;color:var(--dshp-label);font-size:13px;line-height:1.45;',
+  'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;',
+  'text-align:left;-webkit-font-smoothing:antialiased}',
+  '.dshp-root *,.dshp-root *::before,.dshp-root *::after{box-sizing:border-box}',
+  '.dshp-stage{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;',
+  'cursor:grab;touch-action:none;border-radius:24px}',
+  '.dshp-stage:active{cursor:grabbing}',
+  '.dshp-stage:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:4px}',
+  '.dshp-mascot{width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;',
+  'filter:drop-shadow(0 10px 22px rgba(0,0,0,.22));animation:dshp-float 4.2s ease-in-out infinite}',
+  '.dshp-mascot-img{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none}',
+  '.dshp-mascot-img.dshp-mascot-swap{animation:dshp-mascot-fade 220ms ease-out}',
+  '@keyframes dshp-mascot-fade{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}',
+  '@keyframes dshp-float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-5px) scale(1.012)}}',
+  '.dshp-weather{display:flex;flex-direction:column;gap:3px;align-items:center;margin:2px 0 6px}',
+  '.dshp-weather-chip{display:inline-flex;align-items:center;gap:4px;background:var(--dshp-bg-soft);',
+  'border:1px solid var(--dshp-border);border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--dshp-label-2)}',
+  '.dshp-weather-note{font-size:11px;color:var(--dshp-label-2);opacity:.85;text-align:center}',
+  '.dshp-chip-row{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
+  '.dshp-mood-chip{border-color:var(--dshp-accent);color:var(--dshp-accent)}',
+  '.dshp-spont{position:fixed;z-index:63;display:flex;flex-direction:column;gap:6px;background:var(--dshp-bg);',
+  'border:1px solid var(--dshp-border);border-radius:14px;padding:10px 12px;box-shadow:var(--dshp-shadow);',
+  'animation:dshp-pop 160ms ease-out}',
+  '.dshp-spont-title{font-size:11.5px;color:var(--dshp-label-2)}',
+  '.dshp-spont-sentence{font-family:"Noto Serif SC","Songti SC",serif;font-size:14px;line-height:1.7;',
+  'white-space:normal;word-break:break-word;color:var(--dshp-label);cursor:pointer;max-height:72px;',
+  'overflow-y:auto;overscroll-behavior:contain;border-radius:6px}',
+  '.dshp-spont-sentence:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:2px}',
+  '.dshp-spont-sentence:hover{color:var(--dshp-accent)}',
+  '.dshp-spont-source{font-size:11.5px;color:var(--dshp-label-2)}',
+  '.dshp-spont-actions{display:flex;gap:8px;justify-content:flex-end}',
+  '.dshp-tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);',
+  'white-space:nowrap;background:var(--dshp-bg);color:var(--dshp-label);border:1px solid var(--dshp-border);',
+  'border-radius:999px;padding:4px 10px;font-size:12px;box-shadow:0 6px 18px rgba(0,0,0,.12);',
+  'animation:dshp-pulse 2.4s ease-in-out infinite;pointer-events:none}',
+  '@keyframes dshp-pulse{0%,100%{opacity:.82}50%{opacity:1}}',
+  '.dshp-restore{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;',
+  'background:var(--dshp-bg);border:1px dashed var(--dshp-border-3);color:var(--dshp-label-2);font-size:12px;',
+  'cursor:pointer;opacity:.35;transition:opacity 160ms ease;box-shadow:0 2px 8px rgba(0,0,0,.12)}',
+  '.dshp-restore:hover{opacity:1}',
+  '.dshp-bubble{position:fixed;z-index:61;display:flex;flex-direction:column;background:var(--dshp-bg);',
+  'border:1px solid var(--dshp-border);border-radius:16px;box-shadow:var(--dshp-shadow);overflow:hidden;',
+  'animation:dshp-pop 160ms ease-out}',
+  '@keyframes dshp-pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}',
+  '.dshp-bubble-head{display:flex;align-items:center;gap:8px;padding:10px 8px 6px 14px}',
+  '.dshp-bubble-title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dshp-label-2);',
+  'letter-spacing:.02em;display:flex;align-items:center;gap:8px}',
+  '.dshp-bubble-body{padding:2px 14px 4px;overflow-y:auto;overscroll-behavior:contain}',
+  '.dshp-bubble-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px 10px;',
+  'border-top:1px solid var(--dshp-border);background:var(--dshp-bg-soft)}',
+  '.dshp-bubble,.dshp-panel{user-select:text}',
+  '.dshp-bubble-step-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.dshp-progress{flex:none;font-weight:400;font-size:11px;color:var(--dshp-label-2);letter-spacing:0}',
+  '.dshp-dots{display:inline-flex;gap:6px;flex:none;align-items:center}',
+  '.dshp-dot{appearance:none;width:7px;height:7px;padding:0;border:0;border-radius:50%;',
+  'background:var(--dshp-border-3);cursor:pointer;transition:background 120ms ease,transform 120ms ease}',
+  '.dshp-dot:hover{background:var(--dshp-label-2);transform:scale(1.2)}',
+  '.dshp-dot:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:2px}',
+  '.dshp-dot.dshp-is-active{background:var(--dshp-accent);transform:scale(1.1)}',
+  '.dshp-dot-collapse{background:transparent;border:1px solid var(--dshp-border-3)}',
+  '.dshp-dot-collapse:hover{background:var(--dshp-hover);border-color:var(--dshp-label-2);transform:none}',
+  '.dshp-btn{appearance:none;border:1px solid var(--dshp-border-3);background:transparent;color:inherit;',
+  'border-radius:9px;padding:5px 12px;font:inherit;font-size:12px;line-height:18px;cursor:pointer;',
+  'transition:background 120ms ease,border-color 120ms ease}',
+  '.dshp-btn:hover{background:var(--dshp-hover)}',
+  '.dshp-btn:disabled{opacity:.45;cursor:default}',
+  '.dshp-btn-primary{background:var(--dshp-accent);border-color:transparent;color:#fff}',
+  '.dshp-btn-primary:hover{background:var(--dshp-accent);filter:brightness(1.06)}',
+  '.dshp-btn-danger{color:var(--dshp-danger);border-color:rgba(220,38,38,.42)}',
+  '.dshp-btn-small{padding:3px 9px;font-size:11.5px}',
+  '.dshp-icon-btn{appearance:none;border:0;background:transparent;color:var(--dshp-label-2);width:24px;height:24px;',
+  'border-radius:6px;cursor:pointer;font-size:16px;line-height:1;display:flex;align-items:center;justify-content:center;flex:none}',
+  '.dshp-icon-btn:hover{background:var(--dshp-hover);color:var(--dshp-label)}',
+  '.dshp-link{appearance:none;border:0;background:transparent;color:var(--dshp-accent);font:inherit;',
+  'font-size:11.5px;cursor:pointer;padding:0}',
+  '.dshp-link:hover{text-decoration:underline}',
+  '.dshp-spacer{flex:1}',
+  '.dshp-poem{padding:4px 0 6px}',
+  '.dshp-poem-title{font-size:17px;font-weight:700;text-align:center;letter-spacing:.04em;',
+  'font-family:"Noto Serif SC","Songti SC","STSong",serif}',
+  '.dshp-poem-author{text-align:center;color:var(--dshp-label-2);font-size:12px;margin-top:2px}',
+  '.dshp-poem-lines{margin-top:8px;display:flex;flex-direction:column;gap:2px;align-items:center}',
+  '.dshp-line{display:flex;justify-content:center;flex-wrap:nowrap}',
+  '.dshp-ch{display:inline-flex;flex-direction:column;align-items:center;min-width:1.15em;padding:0 .04em}',
+  '.dshp-tone{font-size:9px;line-height:11px;height:11px;font-family:ui-monospace,Menlo,monospace;',
+  'color:var(--dshp-label-2);opacity:.85}',
+  '.dshp-chr{font-family:"Noto Serif SC","Songti SC","STSong",serif;font-size:18px;line-height:24px;',
+  'color:var(--dshp-label)}',
+  '.dshp-ch-ping .dshp-tone{color:var(--dshp-ping)}',
+  '.dshp-ch-ping .dshp-chr{color:var(--dshp-ping)}',
+  '.dshp-ch-ze .dshp-tone{color:var(--dshp-ze)}',
+  '.dshp-ch-ze .dshp-chr{color:var(--dshp-ze)}',
+  '.dshp-ch-any .dshp-tone{color:var(--dshp-any)}',
+  '.dshp-ch-any .dshp-chr{color:var(--dshp-any)}',
+  '.dshp-ch-punct .dshp-chr{color:var(--dshp-label-2);opacity:.8}',
+  '.dshp-ch-rhyme .dshp-chr{border-bottom:2px solid var(--dshp-accent);padding-bottom:1px}',
+  '.dshp-legend{display:flex;gap:12px;justify-content:center;margin-top:10px;color:var(--dshp-label-2);',
+  'font-size:11px;flex-wrap:wrap}',
+  '.dshp-legend-item{display:inline-flex;align-items:center;gap:4px}',
+  '.dshp-legend-dot{width:7px;height:7px;border-radius:50%;display:inline-block}',
+  '.dshp-legend-line{width:12px;height:2px;background:var(--dshp-accent);display:inline-block;border-radius:2px}',
+  '.dshp-analysis{display:flex;flex-direction:column;gap:8px;padding:2px 0 4px}',
+  '.dshp-kv{display:flex;gap:10px;font-size:12.5px}',
+  '.dshp-kv-key{color:var(--dshp-label-2);min-width:64px;flex:none}',
+  '.dshp-kv-val{color:var(--dshp-label);min-width:0;word-break:break-word}',
+  '.dshp-block{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:10px;',
+  'padding:8px 10px;font-size:12.5px;line-height:1.65}',
+  '.dshp-tags{display:flex;flex-wrap:wrap;gap:6px}',
+  '.dshp-tag{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:999px;',
+  'padding:2px 9px;font-size:11.5px;color:var(--dshp-label-2)}',
+  '.dshp-card{display:flex;flex-direction:column;gap:6px}',
+  '.dshp-card-title{font-size:15px;font-weight:700}',
+  '.dshp-card-summary{color:var(--dshp-label-2);font-size:12.5px}',
+  '.dshp-p{margin:0;font-size:12.5px;line-height:1.65}',
+  '.dshp-example{border-left:3px solid var(--dshp-accent);background:var(--dshp-bg-soft);',
+  'border-radius:0 8px 8px 0;padding:6px 10px;margin:0}',
+  '.dshp-example-text{font-family:"Noto Serif SC","Songti SC",serif;font-size:13px}',
+  '.dshp-example-note{color:var(--dshp-label-2);font-size:11.5px;margin-top:2px}',
+  '.dshp-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:10px 0 2px}',
+  '.dshp-pager-label{color:var(--dshp-label-2);font-size:12px}',
+  '.dshp-ci-lines{display:flex;flex-direction:column;gap:2px;font-family:"Noto Serif SC","Songti SC",serif;',
+  'font-size:13px;line-height:1.7;padding:6px 2px}',
+  '.dshp-muted{color:var(--dshp-label-2)}',
+  '.dshp-panel{position:fixed;z-index:62;width:min(420px,calc(100vw - 16px));height:min(560px,calc(100vh - 16px));',
+  'display:flex;flex-direction:column;background:var(--dshp-bg);border:1px solid var(--dshp-border);',
+  'border-radius:18px;box-shadow:var(--dshp-shadow);overflow:hidden;animation:dshp-pop 160ms ease-out}',
+  '.dshp-panel-head{display:flex;align-items:center;gap:10px;padding:12px 12px 8px 16px}',
+  '.dshp-panel-title{flex:1;min-width:0;font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}',
+  '.dshp-panel-title small{color:var(--dshp-label-2);font-weight:400;font-size:11.5px;white-space:nowrap;',
+  'overflow:hidden;text-overflow:ellipsis}',
+  '.dshp-tabs{display:flex;gap:4px;padding:0 12px 8px;border-bottom:1px solid var(--dshp-border)}',
+  '.dshp-tab{flex:1;appearance:none;border:0;background:transparent;color:var(--dshp-label-2);border-radius:9px;',
+  'padding:6px 0;font:inherit;font-size:12.5px;cursor:pointer;transition:background 120ms ease}',
+  '.dshp-tab:hover{background:var(--dshp-hover)}',
+  '.dshp-tab.dshp-is-active{background:var(--dshp-accent);color:#fff;font-weight:600}',
+  '.dshp-panel-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 18px}',
+  '.dshp-list{display:flex;flex-direction:column;gap:2px}',
+  '.dshp-row{display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-radius:9px;border:0;',
+  'background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%}',
+  '.dshp-row:hover{background:var(--dshp-hover)}',
+  '.dshp-row.dshp-is-open{background:var(--dshp-bg-soft)}',
+  '.dshp-row-main{flex:1;min-width:0}',
+  '.dshp-row-title{font-size:13px;line-height:1.4;word-break:break-word}',
+  '.dshp-row-sub{color:var(--dshp-label-2);font-size:11.5px}',
+  '.dshp-row-body{padding:2px 8px 8px}',
+  '.dshp-search{display:flex;gap:8px;margin-bottom:10px}',
+  '.dshp-input,.dshp-select{appearance:none;border:1px solid var(--dshp-border-3);background:var(--dshp-bg);',
+  'color:var(--dshp-label);border-radius:9px;padding:6px 10px;font:inherit;font-size:12.5px;min-width:0}',
+  '.dshp-input{flex:1}',
+  '.dshp-input:focus,.dshp-select:focus{border-color:var(--dshp-accent);outline:none}',
+  '.dshp-select{max-width:136px}',
+  '.dshp-settings{display:flex;flex-direction:column;gap:2px}',
+  '.dshp-field{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 2px;',
+  'border-bottom:1px solid var(--dshp-border)}',
+  '.dshp-field:last-child{border-bottom:0}',
+  '.dshp-field-label{display:flex;flex-direction:column;gap:1px;min-width:0}',
+  '.dshp-field-label b{font-size:13px;font-weight:500}',
+  '.dshp-field-label small{color:var(--dshp-label-2);font-size:11.5px}',
+  '.dshp-field-control{display:flex;align-items:center;gap:6px;flex:none}',
+  '.dshp-seg{display:inline-flex;background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);',
+  'border-radius:9px;padding:2px;gap:2px}',
+  '.dshp-seg-btn{appearance:none;border:0;background:transparent;color:var(--dshp-label-2);border-radius:7px;',
+  'padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}',
+  '.dshp-seg-btn.dshp-is-active{background:var(--dshp-accent);color:#fff}',
+  '.dshp-range{width:150px;accent-color:var(--dshp-accent)}',
+  '.dshp-switch{appearance:none;border:0;width:42px;height:24px;border-radius:999px;background:var(--dshp-border-3);',
+  'position:relative;cursor:pointer;transition:background 140ms ease;flex:none}',
+  '.dshp-switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;',
+  'background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform 140ms ease}',
+  '.dshp-switch.dshp-is-on{background:var(--dshp-accent)}',
+  '.dshp-switch.dshp-is-on::after{transform:translateX(18px)}',
+  '.dshp-subtitle{font-size:12px;font-weight:600;color:var(--dshp-label-2);margin:14px 0 2px}',
+  '.dshp-about{color:var(--dshp-label-2);font-size:11.5px;line-height:1.7;background:var(--dshp-bg-soft);',
+  'border:1px solid var(--dshp-border);border-radius:12px;padding:10px 12px;display:flex;',
+  'flex-direction:column;gap:2px;word-break:break-all}',
+  '.dshp-fh-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}',
+  '.dshp-fh-chip{appearance:none;display:inline-flex;align-items:center;gap:5px;border:1px solid var(--dshp-border);',
+  'background:var(--dshp-bg-soft);color:var(--dshp-label);border-radius:999px;padding:3px 10px;',
+  'font:inherit;font-size:12px;cursor:pointer;transition:background 120ms ease,border-color 120ms ease}',
+  '.dshp-fh-chip:hover{border-color:var(--dshp-accent)}',
+  '.dshp-fh-chip.dshp-is-active{background:var(--dshp-accent);border-color:transparent;color:#fff}',
+  '.dshp-fh-chip small{font-size:10.5px;color:var(--dshp-label-2)}',
+  '.dshp-fh-chip.dshp-is-active small{color:rgba(255,255,255,.8)}',
+  '.dshp-fh-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px;',
+  'color:var(--dshp-label-2);margin:2px 0 8px}',
+  '.dshp-fh-meta b{color:var(--dshp-label);font-weight:600;font-size:13px}',
+  '.dshp-fh-hearts{letter-spacing:2px;color:#e0245e}',
+  '.dshp-fh-system{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:12px;',
+  'padding:8px 10px;margin:6px 0;font-family:"Noto Serif SC","Songti SC",serif;font-size:13px;line-height:1.6}',
+  '.dshp-fh-system small{display:block;color:var(--dshp-label-2);font-family:inherit;font-size:11px;margin-top:2px}',
+  '.dshp-fh-prompt{font-size:12.5px;color:var(--dshp-label-2);margin:4px 0 6px}',
+  '.dshp-fh-options{display:flex;flex-direction:column;gap:6px;margin-top:4px}',
+  '.dshp-fh-option{appearance:none;text-align:left;background:var(--dshp-bg);border:1px solid var(--dshp-border-3);',
+  'border-radius:10px;padding:8px 10px;font:inherit;font-size:12.5px;line-height:1.55;color:inherit;',
+  'cursor:pointer;transition:background 120ms ease,border-color 120ms ease}',
+  '.dshp-fh-option:hover:not(:disabled){background:var(--dshp-hover);border-color:var(--dshp-accent)}',
+  '.dshp-fh-option:disabled{cursor:default;opacity:.85}',
+  '.dshp-fh-option.dshp-is-wrong{border-color:var(--dshp-danger);background:rgba(220,38,38,.08)}',
+  '.dshp-fh-feedback{min-height:18px;font-size:12px;line-height:1.5;margin-top:8px;color:var(--dshp-label-2)}',
+  '.dshp-fh-feedback.dshp-is-good{color:#16a34a}',
+  '.dshp-fh-feedback.dshp-is-bad{color:var(--dshp-danger)}',
+  '.dshp-fh-result{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:12px;',
+  'padding:10px 12px;margin:8px 0;display:flex;flex-direction:column;gap:4px;font-size:12.5px}',
+  '.dshp-fh-result b{font-size:14px}',
+  '.dshp-fh-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}',
+  '.dshp-fh-atlas{display:flex;flex-direction:column;gap:2px}',
+  '.dshp-fh-line{display:flex;flex-direction:column;gap:1px;padding:7px 4px;',
+  'border-bottom:1px solid var(--dshp-border)}',
+  '.dshp-fh-line:last-child{border-bottom:0}',
+  '.dshp-fh-line-text{font-family:"Noto Serif SC","Songti SC",serif;font-size:13px;line-height:1.6}',
+  '.dshp-fh-line-source{color:var(--dshp-label-2);font-size:11px}',
+  '.dshp-detail{display:flex;flex-direction:column;gap:8px}',
+  '.dshp-lib-detail-title{font-size:15px;font-weight:700;text-align:center;font-family:"Noto Serif SC","Songti SC",serif}',
+  '.dshp-lib-note{font-size:11.5px;color:var(--dshp-label-2);line-height:1.6}',
+  '.dshp-lib-lines{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0}',
+  '.dshp-lib-plain{display:flex;flex-direction:column;gap:2px;font-family:"Noto Serif SC","Songti SC",serif;font-size:14px;line-height:1.8;padding:6px 2px}',
+  '.dshp-lib-tags{display:flex;flex-wrap:wrap;gap:6px}',
+  '.dshp-lib-report{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:10px;padding:8px 10px;font-size:12.5px;line-height:1.6}',
+  '.dshp-lib-errors{font-size:11.5px;color:var(--dshp-danger);line-height:1.6}',
+  '.dshp-lib-detect-lines{display:flex;flex-direction:column;align-items:center;gap:2px}',
+  '.dshp-lib-multi{font-size:11.5px;color:var(--dshp-label-2);line-height:1.6;word-break:break-word}',
+  '.dshp-textarea{width:100%;box-sizing:border-box;border:1px solid var(--dshp-border-3);border-radius:10px;background:var(--dshp-bg);color:var(--dshp-label);padding:8px 10px;font:inherit;font-size:12.5px;line-height:1.6;resize:vertical}',
+  '.dshp-textarea:focus{border-color:var(--dshp-accent);outline:none}',
+  '.dshp-empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:26px 14px}',
+  '.dshp-empty-icon{font-size:26px;line-height:1}',
+  '.dshp-empty-title{font-weight:600;font-size:13.5px}',
+  '.dshp-empty-msg{color:var(--dshp-label-2);font-size:12px;line-height:1.6}',
+  '.dshp-loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:26px 10px;',
+  'color:var(--dshp-label-2);font-size:12.5px}',
+  '.dshp-spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--dshp-border-3);',
+  'border-top-color:var(--dshp-accent);animation:dshp-spin .8s linear infinite}',
+  '@keyframes dshp-spin{to{transform:rotate(360deg)}}',
+  '.dshp-toast{position:fixed;z-index:70;background:var(--dshp-bg);color:var(--dshp-label);',
+  'border:1px solid var(--dshp-border);border-radius:10px;padding:7px 12px;font-size:12px;',
+  'box-shadow:var(--dshp-shadow);animation:dshp-pop 140ms ease-out;pointer-events:none}',
+  '.dshp-toast.dshp-is-error{color:var(--dshp-danger);border-color:rgba(220,38,38,.42)}',
+  '@media (prefers-color-scheme: dark){',
+  '.dshp-root{--dshp-bg:var(--dsw-alias-bg-module-platform,#1f2124);',
+  '--dshp-bg-soft:var(--dsw-alias-bg-base-platform,#17181a);',
+  '--dshp-label:var(--dsw-alias-label-primary,#e8eaed);',
+  '--dshp-label-2:var(--dsw-alias-label-secondary,#9aa0a6);',
+  '--dshp-border:var(--dsw-alias-border-l2,#33363a);',
+  '--dshp-border-3:var(--dsw-alias-border-l3,#4a4e54);',
+  '--dshp-hover:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));',
+  '--dshp-accent:var(--dsw-static-accent,#6b8cff);',
+  '--dshp-ping:#7fb0ff;--dshp-ze:#ff8a8a;--dshp-any:#a3a9b3;',
+  '--dshp-danger:#ff8a8a;--dshp-shadow:0 12px 40px rgba(0,0,0,.5)}}',
+  '@media (prefers-reduced-motion: reduce){',
+  '.dshp-root *,.dshp-root *::before{animation-duration:.01ms!important;',
+  'animation-iteration-count:1!important;transition-duration:.01ms!important}}',
+  ].join('')
+  const DEBUG = {
+  ROUTE,
+  ASSET_BASE,
+  WIDGET_ID,
+  STEPS,
+  PANEL_TABS,
+  DEFAULT_SETTINGS,
+  buildToneCells,
+  selectPoemText,
+  selectCiText,
+  poemRhymeLines,
+  normalizeSettings,
+  settingsPatch,
+  buildSettingsRequest,
+  createSettingsSaver,
+  selectNextPoemId,
+  clampPosition,
+  anchorPosition,
+  describeDataError,
+  formatDateLabel,
+  hashString,
+  fetchJson,
+  loadResource,
+  clearResourceCache,
+  readFirstScreenCache,
+  writeFirstScreenCache,
+  clearFirstScreenCache,
+  putSettings,
+  FEIHUA_BEST_KEY,
+  FEIHUA_CANDIDATE_CHARS,
+  FEIHUA_MIN_ENTRIES,
+  FEIHUA_MAX_LIVES,
+  FEIHUA_ATLAS_LIMIT,
+  FEIHUA_ATLAS_PAGE,
+  buildFeihuaIndex,
+  getFeihuaIndex,
+  clearFeihuaIndexCache,
+  pickDefaultFeihuaChar,
+  generateFeihuaOptions,
+  feihuaStart,
+  feihuaBeginRound,
+  feihuaAnswer,
+  normalizeFeihuaBest,
+  feihuaBestUpdate,
+  readFeihuaBest,
+  writeFeihuaBest,
+  MASCOT_FILES,
+  mascotStateFor,
+  mascotFileFor,
+  mascotUrl,
+  weatherPoemTags,
+  countWeatherTagHits,
+  buildWeatherPoemPool,
+  selectWeatherPoemEntry,
+  weatherChipText,
+  weatherExplainText,
+  weatherUpdatedLabel,
+  requestWeather,
+  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG,
+  SPONT_KEY, SPONT_MIN_INTERVAL_MS, SPONT_MAX_INTERVAL_MS, SPONT_DAILY_LIMIT, SPONT_IDLE_MIN_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, SPONT_MOOD_RULES,
+  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
+  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontDelay, pickSpontaneousPoem, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
+  LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
+  TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
+  assetUrlFor, buildLibraryItems, filterLibraryItems, libraryPage, libraryItemLabel, ciBankRhythmics, ciSelectedLibraryItems, ciSelectedRhythmics, mergeFeihuaItems, finishFeihuaIndex, feihuaSourceOf, completeSentencesFromLines,
+  buildPingshuiIndex, annotatePoemLines, detectMetre, detectPoem, detectPoemText, parsePoemInput, formatDetectionReport, detectionRhymeIndexes, patternForShape,
+  setAssetDataVersion, normalizeMascotEggState, readMascotEggState, writeMascotEggState, recordMascotEgg, shouldShowDailyGreet, canShowIdlePose, pickMascotExpression,
+  LibraryTab,
+  PoetryWidget,
+  TodayTab,
+  ClassTab,
+  YunTab,
+  CiTab,
+  FeihuaTab,
+  SettingsTab,
+  }
+  try {
+  if (typeof globalThis !== 'undefined') globalThis.__dshPoetryDebug = DEBUG
+  } catch (error) {
+  }
+  function readWindowWidth() {
+  try {
+   return window.innerWidth || 1280
+  } catch (error) {
+   return 1280
+  }
+  }
+
+  function readWindowHeight() {
+  try {
+   return window.innerHeight || 800
+  } catch (error) {
+   return 800
+  }
+  }
+
+  function useViewportSize() {
+  const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }))
+  React.useEffect(() => {
+   const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() })
+   window.addEventListener('resize', onResize)
+   return () => window.removeEventListener('resize', onResize)
+  }, [])
+  return size
+  }
+
+  /**
+
+  */
+  function useResource(kind, active) {
+  const [state, setState] = React.useState(() => ({
+   status: resourceCache[kind] ? 'ready' : 'idle',
+   data: resourceCache[kind] || null,
+   error: null,
+  }))
+  const alive = React.useRef(true)
+  const statusRef = React.useRef(state.status)
+  statusRef.current = state.status
+  React.useEffect(() => () => {
+   alive.current = false
+  }, [])
+  const reload = React.useCallback(() => {
+   if (statusRef.current === 'loading') return Promise.resolve()
+   statusRef.current = 'loading'
+   setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
+   return loadResource(kind).then(
+    (data) => {
+    statusRef.current = 'ready'
+    if (alive.current) setState({ status: 'ready', data, error: null })
+    return data
+    },
+    (error) => {
+    statusRef.current = 'error'
+    if (alive.current) setState({ status: 'error', data: null, error })
+    throw error
+    },
+   )
+  }, [kind])
+  React.useEffect(() => {
+   if (active && statusRef.current === 'idle') reload().catch(() => {})
+  }, [active, reload])
+  return [state, reload]
+  }
+
+  function LoadingState(props) {
+  return h(
+   'div',
+   { className: 'dshp-loading' },
+   h('span', { className: 'dshp-spinner', 'aria-hidden': 'true' }),
+   h('span', null, (props && props.text) || '正在载入…'),
+  )
+  }
+
+  function EmptyState(props) {
+  const options = props || {}
+  return h(
+   'div',
+   { className: 'dshp-empty' },
+   h('div', { className: 'dshp-empty-icon', 'aria-hidden': 'true' }, options.icon || '📜'),
+   h('div', { className: 'dshp-empty-title' }, options.title || '暂时没有内容'),
+   h('div', { className: 'dshp-empty-msg' }, options.message || '请稍后重试'),
+   options.onRetry
+    ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-primary', onClick: options.onRetry }, options.retryLabel || '重试')
+    : null,
+  )
+  }
+
+  function Legend() {
+  return h(
+   'div',
+   { className: 'dshp-legend', 'aria-label': '平仄图例' },
+   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-ping)' } }), '平'),
+   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-ze)' } }), '仄'),
+   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-any)' } }), '多音'),
+   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-line' }), '韵脚'),
+  )
+  }
+
+  function ToneLine(props) {
+  const cells = buildToneCells(props.line, props.tones, {
+   showTones: props.showTones !== false,
+   rhymeLine: props.rhyme === true,
+  })
+  return h(
+   'div',
+   { className: 'dshp-line' },
+   cells.map((cell, index) => h(
+    'span',
+    {
+    key: index,
+    className: cell.className,
+    title: cell.punctuation ? undefined : (cell.tone || ''),
+    },
+    cell.tone ? h('span', { className: 'dshp-tone', 'aria-hidden': 'true' }, cell.tone) : null,
+    h('span', { className: 'dshp-chr' }, cell.ch),
+   )),
+  )
+  }
+
+  function PoemBody(props) {
+  if (!props.poem) return null
+  const text = selectPoemText(props.poem, props.script)
+  const rhymeLines = poemRhymeLines(props.poem)
+  return h(
+   'div',
+   { className: 'dshp-poem' },
+   h('div', { className: 'dshp-poem-title' }, text.title || '无题'),
+   text.author ? h('div', { className: 'dshp-poem-author' }, text.author) : null,
+   h(
+    'div',
+    { className: 'dshp-poem-lines' },
+    text.lines.map((line, index) => h(ToneLine, {
+    key: index,
+    line,
+    tones: Array.isArray(props.poem.tones) ? props.poem.tones[index] : '',
+    rhyme: rhymeLines.indexOf(index) >= 0,
+    showTones: props.showTones !== false,
+    })),
+   ),
+   props.showTones !== false ? h(Legend) : null,
+  )
+  }
+
+  function AnalysisBody(props) {
+  const poem = props.poem || {}
+  const rhymeLines = poemRhymeLines(poem).map((index) => '第 ' + (index + 1) + ' 句')
+  const firstRhyme = poem.firstRhyme === true ? '是' : (poem.firstRhyme === false ? '否' : '—')
+  return h(
+   'div',
+   { className: 'dshp-analysis' },
+   h(
+    'div',
+    { className: 'dshp-tags' },
+    h('span', { className: 'dshp-tag' }, '体式：' + (poem.form || '—')),
+    h('span', { className: 'dshp-tag' }, '起式：' + (poem.start || '—')),
+    h('span', { className: 'dshp-tag' }, '首句入韵：' + firstRhyme),
+   ),
+   h(
+    'div',
+    { className: 'dshp-kv' },
+    h('span', { className: 'dshp-kv-key' }, '标准格式'),
+    h('span', { className: 'dshp-kv-val' }, poem.meter || '—'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-analysis-text dshp-block' },
+    poem.analysis ? String(poem.analysis) : '暂无解析文本。',
+   ),
+   rhymeLines.length
+    ? h(
+    'div',
+    { className: 'dshp-kv' },
+    h('span', { className: 'dshp-kv-key' }, '入韵句'),
+    h('span', { className: 'dshp-kv-val' }, rhymeLines.join('、')),
+    )
+    : null,
+  )
+  }
+
+  function CiBody(props) {
+  const ci = props.ci
+  if (!ci) return null
+  const text = selectCiText(ci)
+  return h(
+   'div',
+   { className: 'dshp-poem' },
+   h('div', { className: 'dshp-poem-title' }, text.title || '无题'),
+   text.author ? h('div', { className: 'dshp-poem-author' }, text.author) : null,
+   h('div', { className: 'dshp-ci-lines' }, text.lines.map((line, index) => h('div', { key: index }, line))),
+  )
+  }
+  function PoetryWidget(props) {
+  const ctx = props && props.ctx
+  const cacheRef = React.useRef(null)
+  const cacheLoadedRef = React.useRef(false)
+  if (!cacheLoadedRef.current) {
+   cacheLoadedRef.current = true
+   cacheRef.current = readFirstScreenCache()
+  }
+
+  const [boot, setBoot] = React.useState(() => {
+   const cached = cacheRef.current
+   if (cached && cached.bootstrap) {
+    return { status: 'ready', data: cached.bootstrap, fromCache: true, stale: true, error: null }
+   }
+   return { status: 'loading', data: null, fromCache: false, stale: false, error: null }
+  })
+  const [reloadTick, setReloadTick] = React.useState(0)
+  const [settings, setSettings] = React.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings))
+  const settingsRef = React.useRef(settings)
+  settingsRef.current = settings
+
+  const [step, setStep] = React.useState(-1)
+  const [panelOpen, setPanelOpen] = React.useState(false)
+  const [panelTab, setPanelTab] = React.useState('today')
+  const [selectedPoemId, setSelectedPoemId] = React.useState(null)
+  const [toast, setToast] = React.useState(null)
+  const [feihuaLaunch, setFeihuaLaunch] = React.useState(0)
+  const [weatherRes, setWeatherRes] = React.useState(() => {
+   const cached = weatherCache
+   if (cached && cached.data && cached.data.ok) {
+    return { status: 'ready', data: cached.data, error: null, at: cached.at }
+   }
+   return { status: 'idle', data: null, error: null, at: 0 }
+  })
+  const [mascotPulse, setMascotPulse] = React.useState(null)
+  const [failedMascot, setFailedMascot] = React.useState('')
+  const [moodRes, setMoodRes] = React.useState(() => {
+   const cached = moodCache
+   return cached && cached.data ? { status: 'ready', data: cached.data, at: cached.at } : { status: 'idle', data: null, at: 0 }
+  })
+  const [moodView, setMoodView] = React.useState(null)
+  const [spontPoem, setSpontPoem] = React.useState(null)
+  const [spontPreview, setSpontPreview] = React.useState(false)
+  const [mascotExpression, setMascotExpression] = React.useState('')
+  const [libraryFocus, setLibraryFocus] = React.useState(null)
+  const [ciBankWanted, setCiBankWanted] = React.useState(false)
+  const [feihuaIndex, setFeihuaIndex] = React.useState(null)
+  const [feihuaBuilding, setFeihuaBuilding] = React.useState(false)
+  const [moodTick, setMoodTick] = React.useState(0)
+
+  const [pos, setPos] = React.useState(() => {
+   const stored = readStoredPosition()
+   const viewport = { w: readWindowWidth(), h: readWindowHeight() }
+   if (stored) return clampPosition(stored, BASE_SIZE, viewport)
+   return { x: 16, y: Math.max(8, viewport.h - BASE_SIZE - 24) }
+  })
+  const posRef = React.useRef(pos)
+  posRef.current = pos
+  const dragRef = React.useRef(null)
+  const pressTimer = React.useRef(null)
+  const toastTimer = React.useRef(null)
+  const mascotTimerRef = React.useRef(null)
+  const weatherInFlightRef = React.useRef(null)
+  const userPickedPoemRef = React.useRef(false)
+  const moodViewRef = React.useRef(null)
+  const clicksRef = React.useRef(0)
+  const panelOpensRef = React.useRef(0)
+  const lastInteractionRef = React.useRef(0)
+  const feihuaWinsRef = React.useRef(0)
+  const moodStatsRef = React.useRef(emptyMoodStats())
+  const moodForceRef = React.useRef(false)
+  const weatherRef = React.useRef(null)
+  const spontPoemRef = React.useRef(null)
+  const uiRef = React.useRef({})
+  const mascotExprTimerRef = React.useRef(null)
+  const mascotTapRef = React.useRef(0)
+  spontPoemRef.current = spontPoem
+
+  const showToast = React.useCallback((text, kind) => {
+   setToast({ text: String(text == null ? '' : text), kind: kind === 'error' ? 'error' : 'info' })
+   if (toastTimer.current) clearTimeout(toastTimer.current)
+   toastTimer.current = setTimeout(() => {
+    toastTimer.current = null
+    setToast(null)
+   }, 2600)
+  }, [])
+  const showToastRef = React.useRef(null)
+  showToastRef.current = showToast
+  React.useEffect(() => () => {
+   if (toastTimer.current) {
+    clearTimeout(toastTimer.current)
+    toastTimer.current = null
+   }
+  }, [])
+
+  const saverRef = React.useRef(null)
+  if (!saverRef.current) {
+   saverRef.current = createSettingsSaver({
+    delay: SAVE_DEBOUNCE_MS,
+    put: (patch) => putSettings(patch),
+    onError: () => {
+    if (showToastRef.current) showToastRef.current('保存失败，已保留本地设置', 'error')
+    },
+   })
+  }
+  React.useEffect(() => () => {
+   if (saverRef.current) saverRef.current.flush().catch(() => {})
+   if (pressTimer.current) {
+    clearTimeout(pressTimer.current)
+    pressTimer.current = null
+   }
+   if (mascotTimerRef.current) {
+    clearTimeout(mascotTimerRef.current)
+    mascotTimerRef.current = null
+   }
+   if (mascotExprTimerRef.current) {
+    clearTimeout(mascotExprTimerRef.current)
+    mascotExprTimerRef.current = null
+   }
+  }, [])
+
+  const updateSettings = React.useCallback((patch, options) => {
+   if (!patch || typeof patch !== 'object') return settingsRef.current
+   const previous = settingsRef.current
+   const next = normalizeSettings(Object.assign({}, previous, patch))
+   settingsRef.current = next
+   setSettings(next)
+   if (!(options && options.localOnly) && saverRef.current) {
+    const changed = {}
+    for (let i = 0; i < WRITE_KEYS.length; i++) {
+    const key = WRITE_KEYS[i]
+    if (hasOwn(patch, key) && next[key] !== previous[key]) changed[key] = next[key]
+    }
+    if (Object.keys(changed).length) saverRef.current.save(changed)
+   }
+   return next
+  }, [])
+
+  /** 飞花令/交互反馈：临时切换立绘 2.5s 后回落到天气/默认状态。 */
+  const pulseMascot = React.useCallback((key) => {
+   if (!MASCOT_FILES[key]) return
+   if (key === 'gameWin') feihuaWinsRef.current += 1
+   lastInteractionRef.current = Date.now()
+   setMascotPulse(key)
+   if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
+   mascotTimerRef.current = setTimeout(() => {
+    mascotTimerRef.current = null
+    setMascotPulse(null)
+   }, MASCOT_TRANSIENT_MS)
+  }, [])
+
+  /** 拉取天气（失败静默：仅更新状态，不弹 toast；保留上次结果）。 */
+  const refreshWeather = React.useCallback((force) => {
+   const current = settingsRef.current
+   if (!(current.weatherPoem || current.mood)) return Promise.resolve(null)
+   const cached = weatherCache
+   if (!force && cached && cached.data && cached.data.ok
+    && cached.data.city === current.weatherCity
+    && Date.now() - cached.at < WEATHER_STALE_MS) {
+    setWeatherRes({ status: 'ready', data: cached.data, error: null, at: cached.at })
+    return Promise.resolve(cached.data)
+   }
+   if (weatherInFlightRef.current) return weatherInFlightRef.current
+   setWeatherRes((previous) => ({ status: 'loading', data: previous.data, error: null, at: previous.at }))
+   const request = requestWeather().then(
+    (data) => {
+    weatherInFlightRef.current = null
+    setWeatherRes({ status: 'ready', data, error: null, at: Date.now() })
+    return data
+    },
+    (error) => {
+    weatherInFlightRef.current = null
+    setWeatherRes((previous) => ({ status: 'error', data: previous.data, error, at: previous.at }))
+    return null
+    },
+   )
+   weatherInFlightRef.current = request
+   return request
+  }, [])
+
+  const applyMood = React.useCallback((force) => {
+   const current = settingsRef.current
+   if (!current.mood && !current.spontaneousPoem) {
+    moodViewRef.current = null
+    setMoodView(null)
+    return null
+   }
+   const next = computeMood({
+    stats: moodStatsRef.current,
+    weather: weatherRef.current,
+    signals: {
+    now: Date.now(),
+    clicks: clicksRef.current,
+    lastInteractionAt: lastInteractionRef.current,
+    feihuaWins: feihuaWinsRef.current,
+    feihuaLosses: 0,
+    panelOpens: panelOpensRef.current,
+    },
+   })
+   const selected = throttleMoodSwitch(moodViewRef.current, next, Date.now(), force === true)
+   moodViewRef.current = selected
+   setMoodView(selected)
+   return selected
+  }, [])
+
+  const refreshMoodNow = React.useCallback(() => {
+   moodForceRef.current = true
+   return requestMood().then((data) => {
+    moodStatsRef.current = data.stats
+    setMoodRes({ status: data.ok ? 'ready' : 'error', data, at: Date.now() })
+    return data
+   })
+  }, [])
+
+  function showMascotExpression(file) {
+   if (!file) return
+   setMascotExpression(file)
+   if (mascotExprTimerRef.current) clearTimeout(mascotExprTimerRef.current)
+   mascotExprTimerRef.current = setTimeout(() => {
+    mascotExprTimerRef.current = null
+    setMascotExpression('')
+   }, MASCOT_EXPRESSION_MS)
+  }
+
+  React.useEffect(() => {
+   const timer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    const ui = uiRef.current
+    if (ui.panelOpen || ui.step >= 0 || ui.settings.hidden) return
+    if (mascotExprTimerRef.current) return
+    const now = Date.now()
+    const state = readMascotEggState(now)
+    if (!canShowIdlePose(state, now, lastInteractionRef.current)) return
+    writeMascotEggState(recordMascotEgg(state, { idle: true }, now))
+    showMascotExpression(pickMascotExpression())
+   }, MASCOT_IDLE_POLL_MS)
+   return () => clearInterval(timer)
+  }, [])
+
+  const viewport = useViewportSize()
+  const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale))
+  React.useEffect(() => {
+   let alive = true
+   fetchJson('bootstrap.json').then(
+    (data) => {
+    if (!alive) return
+    const cached = cacheRef.current
+    if (cached && cached.dataVersion && data.dataVersion && cached.dataVersion !== data.dataVersion) {
+     clearFirstScreenCache()
+     clearResourceCache()
+     cacheRef.current = null
+    }
+    const normalized = normalizeSettings(data.settings)
+    settingsRef.current = normalized
+    setSettings(normalized)
+    setAssetDataVersion(data.dataVersion)
+    setBoot({ status: 'ready', data, fromCache: false, stale: false, error: null })
+    },
+    (error) => {
+    if (!alive) return
+    const cached = cacheRef.current
+    if (cached && cached.bootstrap) {
+     setBoot({ status: 'ready', data: cached.bootstrap, fromCache: true, stale: true, error })
+    } else {
+     setBoot({ status: 'error', data: null, fromCache: false, stale: false, error })
+    }
+    },
+   )
+   return () => {
+    alive = false
+   }
+  }, [reloadTick])
+
+  React.useEffect(() => {
+   if (!boot.data) return
+   setSelectedPoemId((previous) => {
+    if (previous) return previous
+    const initial = normalizeSettings(boot.data.settings)
+    if (initial.mode === 'random' && initial.lastPoemId) return initial.lastPoemId
+    return boot.data.today && boot.data.today.poemId ? boot.data.today.poemId : null
+   })
+  }, [boot.data])
+  React.useEffect(() => {
+   if (!(settings.weatherPoem || settings.mood)) return undefined
+   refreshWeather(false)
+   const timer = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS)
+   return () => clearInterval(timer)
+  }, [settings.weatherPoem, settings.mood, settings.weatherCity, refreshWeather])
+
+  React.useEffect(() => {
+   if (!(settings.mood || settings.spontaneousPoem)) return undefined
+   let alive = true
+   const load = () => {
+    requestMood().then((data) => {
+    if (!alive) return
+    moodStatsRef.current = data.stats
+    setMoodRes({ status: data.ok ? 'ready' : 'error', data, at: Date.now() })
+    })
+   }
+   load()
+   const timer = setInterval(load, MOOD_REFRESH_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [settings.mood, settings.spontaneousPoem])
+
+  React.useEffect(() => {
+   if (!(settings.mood || settings.spontaneousPoem)) return undefined
+   const timer = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS)
+   return () => clearInterval(timer)
+  }, [settings.mood, settings.spontaneousPoem])
+  const [poemsRes, reloadPoems] = useResource('poems', Boolean(boot.data))
+  const classActive = step === 2 || step === 4 || (panelOpen && (panelTab === 'class' || panelTab === 'ci'))
+  const yunActive = step === 3 || (panelOpen && panelTab === 'yun')
+  const weatherNeedsCi = settings.weatherPoem && !resourceCache.ci
+   && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather
+   && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT
+  const ciActive = step === 4 || step === 5 || weatherNeedsCi
+   || (panelOpen && (panelTab === 'ci' || panelTab === 'feihua' || panelTab === 'library'))
+  const [knowledgeRes, reloadKnowledge] = useResource('knowledge', classActive)
+  const [yunRes, reloadYun] = useResource('yun', yunActive)
+  const [ciRes, reloadCi] = useResource('ci', ciActive)
+  const libraryActive = panelOpen && panelTab === 'library'
+  const feihuaOpen = (panelOpen && panelTab === 'feihua') || step === 5
+  const ciTabActive = panelOpen && panelTab === 'ci'
+  const extraPoolActive = libraryActive || feihuaOpen
+  const [anthologyRes, reloadAnthology] = useResource('anthology', extraPoolActive)
+  const [bankRes, reloadBank] = useResource('bank', extraPoolActive)
+  const [pingshuiRes, reloadPingshui] = useResource('pingshui', libraryActive)
+  const [ciBankRes, reloadCiBank] = useResource('ciBank', ciBankWanted || feihuaOpen)
+
+  const poemItems = poemsRes.data && Array.isArray(poemsRes.data.items) ? poemsRes.data.items : []
+  const bootstrapTodayPoemId = boot.data && boot.data.today ? boot.data.today.poemId : null
+  const cache = cacheRef.current
+  const cachedPoem = cache && cache.todayPoem ? cache.todayPoem : null
+  const weatherData = weatherRes.data && weatherRes.data.ok ? weatherRes.data : null
+  const weather = weatherData && weatherData.weather ? weatherData.weather : null
+  const weatherTags = React.useMemo(() => weatherPoemTags(weather), [weather])
+  const weatherPool = React.useMemo(
+   () => buildWeatherPoemPool(poemsRes.data, ciRes.data, weatherTags, WEATHER_POOL_LIMIT, { anthology: anthologyRes.data, bank: bankRes.data, ciBank: ciBankRes.data }),
+   [poemsRes.data, ciRes.data, weatherTags, anthologyRes.data, bankRes.data, ciBankRes.data],
+  )
+  const weatherEntry = React.useMemo(() => {
+   if (!settings.weatherPoem || !weather) return null
+   return selectWeatherPoemEntry(weatherPool, {
+    date: boot.data && boot.data.today ? boot.data.today.date : '',
+    category: weather.category,
+    dataVersion: boot.data ? boot.data.dataVersion : '',
+   })
+  }, [settings.weatherPoem, weather, weatherPool, boot.data])
+  const weatherActive = Boolean(weatherEntry)
+  const activeTodayPoemId = weatherActive ? weatherEntry.id : bootstrapTodayPoemId
+  const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : ''
+  const weatherNote = weatherActive ? weatherExplainText(weather) : ''
+  weatherRef.current = weather
+  const moodStats = moodRes.data ? moodRes.data.stats : emptyMoodStats()
+  const moodChip = settings.mood && moodView ? '心情：' + moodView.label : ''
+  const moodBasis = moodBasisText(moodStats, weather)
+  uiRef.current = {
+   settings: settingsRef.current,
+   panelOpen,
+   step,
+   moodView,
+   poemItems,
+   ciItems: ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [],
+   anthologyItems: anthologyRes.data && Array.isArray(anthologyRes.data.items) ? anthologyRes.data.items : [],
+   bankItems: bankRes.data && Array.isArray(bankRes.data.items) ? bankRes.data.items : [],
+   ciBankItems: ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [],
+   moodRes,
+  }
+
+  const poem = React.useMemo(() => {
+   if (weatherActive && weatherEntry && (!selectedPoemId || selectedPoemId === weatherEntry.id)) return weatherEntry.item || null
+   const weatherPick = weatherActive && selectedPoemId ? weatherPool.find((entry) => entry.id === selectedPoemId) : null
+   if (weatherPick) return weatherPick.item || null
+   const findById = (id) => poemItems.find((item) => item && item.id === id)
+   if (!boot.data) return null
+   if (poemItems.length) return findById(selectedPoemId) || findById(activeTodayPoemId) || poemItems[0] || null
+   if (cachedPoem && (!selectedPoemId || cachedPoem.id === selectedPoemId || cachedPoem.id === activeTodayPoemId)) return cachedPoem
+   return null
+  }, [poemItems, selectedPoemId, activeTodayPoemId, cachedPoem, boot.data, weatherActive, weatherEntry, weatherPool])
+
+  const todayPoem = React.useMemo(() => {
+   if (weatherActive && weatherEntry && weatherEntry.id === activeTodayPoemId) return weatherEntry.item || null
+   if (poem && poem.id === activeTodayPoemId) return poem
+   if (cachedPoem && cachedPoem.id === activeTodayPoemId) return cachedPoem
+   return poemItems.find((item) => item && item.id === activeTodayPoemId) || null
+  }, [poem, cachedPoem, activeTodayPoemId, poemItems])
+  React.useEffect(() => {
+   if (!boot.data) return
+   const record = {
+    dataVersion: boot.data.dataVersion || '',
+    bootstrap: boot.data,
+    settings: settingsRef.current,
+    todayPoem: todayPoem || null,
+   }
+   cacheRef.current = record
+   writeFirstScreenCache(record)
+  }, [boot.data, settings, todayPoem])
+  React.useEffect(() => {
+   userPickedPoemRef.current = false
+  }, [weatherChip])
+
+  React.useEffect(() => {
+   if (!weatherActive || userPickedPoemRef.current) return
+   setSelectedPoemId(activeTodayPoemId)
+  }, [weatherActive, activeTodayPoemId])
+  React.useEffect(() => {
+   try {
+    if (typeof window === 'undefined' || typeof window.Image !== 'function') return
+    for (const file of [MASCOT_FILES.celebrate, MASCOT_FILES.idle, MASCOT_FILES.night]) {
+    const image = new window.Image()
+    image.src = mascotUrl(file)
+    }
+   } catch (error) {
+   }
+  }, [])
+  React.useEffect(() => {
+   if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
+    moodViewRef.current = null
+    setMoodView(null)
+    return
+   }
+   const force = moodForceRef.current
+   moodForceRef.current = false
+   applyMood(force)
+  }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood])
+  React.useEffect(() => {
+   if (!(settings.spontaneousPoem && settings.mood) || settings.hidden) {
+    setSpontPoem(null)
+    return undefined
+   }
+   let cancelled = false
+   let timer = null
+   const schedule = (delay) => {
+    if (timer) clearTimeout(timer)
+    if (!cancelled) timer = setTimeout(run, delay)
+   }
+   const run = () => {
+    if (cancelled) return
+    const ui = uiRef.current
+    const now = Date.now()
+    const state = readSpontState(now)
+    const ok = canShowSpontaneous({
+    enabled: ui.settings.spontaneousPoem === true && ui.settings.mood === true,
+    moodEnabled: ui.settings.mood === true,
+    hidden: ui.settings.hidden === true,
+    panelOpen: ui.panelOpen === true,
+    bubbleOpen: ui.step >= 0,
+    visible: typeof document === 'undefined' ? true : document.visibilityState !== 'hidden',
+    now,
+    lastInteractionAt: lastInteractionRef.current,
+    todayCount: state.todayCount,
+    lastShownAt: state.lastShownAt,
+    moodKey: ui.moodView && ui.moodView.key,
+    })
+    if (ok) {
+    const picked = pickSpontaneousPoem({
+     moodKey: ui.moodView.key,
+     poemsData: { items: ui.poemItems },
+     ciData: { items: ui.ciItems },
+     anthologyData: { items: ui.anthologyItems },
+     bankData: { items: ui.bankItems },
+     ciBankData: { items: ui.ciBankItems },
+     seenIds: state.seenIds.map((entry) => entry.id),
+     random: Math.random,
+    })
+    if (picked) {
+     setSpontPreview(false)
+     setSpontPoem(picked)
+     writeSpontState(recordSpontShown(state, picked.id, now))
+     lastInteractionRef.current = now
+    }
+    }
+    schedule(nextSpontDelay())
+   }
+   const onVisible = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') schedule(MOOD_TICK_MS)
+   }
+   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
+   schedule(nextSpontDelay())
+   return () => {
+    cancelled = true
+    if (timer) clearTimeout(timer)
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
+   }
+  }, [settings.spontaneousPoem, settings.mood, settings.hidden])
+  React.useEffect(() => {
+   if (!spontPoem) return undefined
+   const timer = setTimeout(() => setSpontPoem(null), SPONT_AUTO_CLOSE_MS)
+   return () => clearTimeout(timer)
+  }, [spontPoem])
+  React.useEffect(() => {
+   if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) setSpontPoem(null)
+  }, [panelOpen, step, settings.hidden, spontPoem, spontPreview])
+  React.useEffect(() => {
+   if (!feihuaOpen) {
+    setFeihuaBuilding(false)
+    setFeihuaIndex(null)
+    return undefined
+   }
+   const base = getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data)
+   setFeihuaIndex(base)
+   const ciBankItemsData = ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : []
+   if (!ciBankItemsData.length) {
+    setFeihuaBuilding(ciBankRes.status === 'loading')
+    return undefined
+   }
+   let cancelled = false
+   let timer = null
+   const working = buildFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data)
+   let offset = 0
+   const CHUNK = 500
+   setFeihuaBuilding(true)
+   const run = () => {
+    if (cancelled) return
+    mergeFeihuaItems(working, ciBankItemsData.slice(offset, offset + CHUNK))
+    offset += CHUNK
+    if (offset < ciBankItemsData.length) {
+     timer = setTimeout(run, 0)
+    } else {
+     finishFeihuaIndex(working)
+     setFeihuaIndex(working)
+     setFeihuaBuilding(false)
+    }
+   }
+   timer = setTimeout(run, 0)
+   return () => {
+    cancelled = true
+    if (timer) clearTimeout(timer)
+   }
+  }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status])
+
+  React.useEffect(() => {
+   setPos((previous) => {
+    const next = anchorPosition(settings.snap, mascotSize, viewport, previous)
+    return next.x === previous.x && next.y === previous.y ? previous : next
+   })
+  }, [settings.snap, mascotSize, viewport.w, viewport.h])
+
+  React.useEffect(() => {
+   const timer = setTimeout(() => {
+    writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap })
+   }, 250)
+   return () => clearTimeout(timer)
+  }, [pos, settings.snap])
+  React.useEffect(() => {
+   const seconds = num(settings.autoplay, 0)
+   if (!seconds || step < 0 || panelOpen || settings.hidden) return undefined
+   const timer = setTimeout(() => {
+    setStep((current) => (current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1))
+   }, seconds * 1000)
+   return () => clearTimeout(timer)
+  }, [settings.autoplay, step, panelOpen, settings.hidden])
+  React.useEffect(() => {
+   if (!panelOpen && step < 0) return undefined
+   const onKeyDown = (event) => {
+    if (event.key !== 'Escape') return
+    if (panelOpen) setPanelOpen(false)
+    else setStep(-1)
+   }
+   document.addEventListener('keydown', onKeyDown)
+   return () => document.removeEventListener('keydown', onKeyDown)
+  }, [panelOpen, step])
+  React.useEffect(() => {
+   if (!settings.hidden) return undefined
+   const onDoubleClick = (event) => {
+    const target = event.target
+    if (target && typeof target.closest === 'function'
+    && target.closest('input,textarea,select,button,a,[contenteditable="true"],[role="textbox"],[data-composer-input],[data-composer-seat],[data-composer-card]')) {
+    return
+    }
+    restoreWidget()
+   }
+   document.addEventListener('dblclick', onDoubleClick, true)
+   return () => document.removeEventListener('dblclick', onDoubleClick, true)
+  }, [settings.hidden])
+  function hideWidget() {
+   setPanelOpen(false)
+   setStep(-1)
+   updateSettings({ hidden: true })
+  }
+
+  function restoreWidget() {
+   updateSettings({ hidden: false })
+  }
+
+  function noteInteraction() {
+   lastInteractionRef.current = Date.now()
+  }
+
+  function openPanel(tab) {
+   noteInteraction()
+   panelOpensRef.current += 1
+   setPanelTab(tab && PANEL_TABS.some((item) => item.id === tab) ? tab : 'today')
+   setPanelOpen(true)
+  }
+
+  function advanceStep() {
+   setStep((current) => (current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1))
+  }
+
+  function handleMascotTap() {
+   if (settingsRef.current.hidden) return
+   const now = Date.now()
+   clicksRef.current += 1
+   noteInteraction()
+   const eggState = readMascotEggState(now)
+   if (shouldShowDailyGreet(eggState, now)) {
+    writeMascotEggState(recordMascotEgg(eggState, { greet: true }, now))
+    showMascotExpression(MASCOT_EXPRESSION_FILES[0])
+   }
+   if (!settingsRef.current.tutorialSeen) updateSettings({ tutorialSeen: true })
+   if (panelOpen) {
+    setPanelOpen(false)
+    return
+   }
+   advanceStep()
+  }
+
+  function handleMascotKeyDown(event) {
+   if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+    event.preventDefault()
+    handleMascotTap()
+   }
+  }
+
+  function handlePointerDown(event) {
+   if (event.button !== undefined && event.button !== 0) return
+   dragRef.current = {
+    id: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    baseX: posRef.current.x,
+    baseY: posRef.current.y,
+    moved: false,
+   }
+   try {
+    event.currentTarget.setPointerCapture(event.pointerId)
+   } catch (error) {
+   }
+   if (event.cancelable) event.preventDefault()
+  }
+
+  function handlePointerMove(event) {
+   const drag = dragRef.current
+   if (!drag || drag.id !== event.pointerId) return
+   const dx = event.clientX - drag.startX
+   const dy = event.clientY - drag.startY
+   if (!drag.moved && Math.max(Math.abs(dx), Math.abs(dy)) > 3) drag.moved = true
+   if (!drag.moved) return
+   setPos(clampPosition({ x: drag.baseX + dx, y: drag.baseY + dy }, mascotSize, viewport))
+  }
+
+  function finishPointer(event, cancelled) {
+   const drag = dragRef.current
+   if (!drag || (event && drag.id !== event.pointerId)) return
+   dragRef.current = null
+   try {
+    if (event && event.currentTarget && event.currentTarget.releasePointerCapture) {
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+   } catch (error) {
+   }
+   if (cancelled) return
+   if (!drag.moved) {
+    handleMascotTap()
+    return
+   }
+   const current = posRef.current
+   let snap = 'free'
+   if (current.x <= 40) snap = 'left'
+   else if (current.x + mascotSize >= viewport.w - 40) snap = 'right'
+   const snapped = anchorPosition(snap, mascotSize, viewport, current)
+   if (snapped.x !== current.x || snapped.y !== current.y) setPos(snapped)
+   if (snap !== settingsRef.current.snap) updateSettings({ snap })
+  }
+
+  function handlePointerUp(event) {
+   finishPointer(event, false)
+  }
+
+  function handlePointerCancel(event) {
+   finishPointer(event, true)
+  }
+
+  function handleRestorePointerDown(event) {
+   if (event.button !== undefined && event.button !== 0) return
+   if (event.cancelable) event.preventDefault()
+   if (pressTimer.current) clearTimeout(pressTimer.current)
+   pressTimer.current = setTimeout(() => {
+    pressTimer.current = null
+    restoreWidget()
+   }, 1200)
+  }
+
+  function handleRestorePointerUp() {
+   if (pressTimer.current) {
+    clearTimeout(pressTimer.current)
+    pressTimer.current = null
+   }
+  }
+
+  function changePoem() {
+   noteInteraction()
+   if (weatherActive && weatherPool.length) {
+    const currentIndex = weatherPool.findIndex((entry) => entry.id === (poem && poem.id))
+    const nextEntry = weatherPool[(currentIndex + 1 + weatherPool.length) % weatherPool.length]
+    userPickedPoemRef.current = true
+    setSelectedPoemId(nextEntry.id)
+    return
+   }
+   const items = poemItems
+   if (!items.length) {
+    if (poemsRes.status === 'error') reloadPoems().catch(() => {})
+    else showToast(poemsRes.status === 'loading' ? '诗库加载中，请稍候' : '诗库暂时不可用')
+    return
+   }
+   const nextId = selectNextPoemId({
+    items,
+    currentId: poem && poem.id,
+    todayId: activeTodayPoemId,
+    mode: settingsRef.current.mode,
+   })
+   if (!nextId) {
+    showToast('暂无可用的诗篇')
+    return
+   }
+   userPickedPoemRef.current = true
+   setSelectedPoemId(nextId)
+   if (settingsRef.current.mode === 'random' && nextId !== activeTodayPoemId) {
+    saverRef.current.save({ lastPoemId: nextId })
+   }
+  }
+
+  function backToToday() {
+   noteInteraction()
+   if (!activeTodayPoemId) {
+    showToast('今日诗尚未就绪')
+    return
+   }
+   if (poem && poem.id === activeTodayPoemId) return
+   userPickedPoemRef.current = true
+   setSelectedPoemId(activeTodayPoemId)
+   if (settingsRef.current.mode === 'random') saverRef.current.save({ lastPoemId: activeTodayPoemId })
+  }
+
+  function resetSettings() {
+   updateSettings({
+    scale: DEFAULT_SETTINGS.scale,
+    showTones: DEFAULT_SETTINGS.showTones,
+    mode: DEFAULT_SETTINGS.mode,
+    autoplay: DEFAULT_SETTINGS.autoplay,
+    snap: DEFAULT_SETTINGS.snap,
+    script: DEFAULT_SETTINGS.script,
+    hidden: DEFAULT_SETTINGS.hidden,
+    theme: DEFAULT_SETTINGS.theme,
+    lastPoemId: DEFAULT_SETTINGS.lastPoemId,
+    tutorialSeen: DEFAULT_SETTINGS.tutorialSeen,
+   })
+   showToast('已恢复默认设置')
+  }
+
+  function retryBootstrap() {
+   setReloadTick((tick) => tick + 1)
+  }
+
+  /** 气泡「来一局」：打开面板飞花 tab 并自增启动令牌（FeihuaTab 见令牌自动开局）。 */
+  function openFeihuaGame() {
+   setPanelTab('feihua')
+   setPanelOpen(true)
+   setFeihuaLaunch((token) => token + 1)
+   pulseMascot('gameThink')
+  }
+
+  function pickSpontForMood() {
+   const ui = uiRef.current
+   const mood = ui.moodView || computeMood({ stats: moodStatsRef.current, weather: weatherRef.current, signals: { now: Date.now() } })
+   return pickSpontaneousPoem({
+    moodKey: mood.key,
+    poemsData: { items: ui.poemItems },
+    ciData: { items: ui.ciItems },
+    anthologyData: { items: ui.anthologyItems },
+    bankData: { items: ui.bankItems },
+    ciBankData: { items: ui.ciBankItems },
+    seenIds: [],
+    random: Math.random,
+   })
+  }
+
+  function previewSpontaneousPoem() {
+   const picked = pickSpontForMood()
+   if (picked) {
+    setSpontPreview(true)
+    setSpontPoem(picked)
+   }
+   return picked
+  }
+
+  function readAnotherSpontaneous() {
+   const ui = uiRef.current
+   const mood = ui.moodView || { key: 'calm' }
+   const picked = pickSpontaneousPoem({
+    moodKey: mood.key,
+    poemsData: { items: ui.poemItems },
+    ciData: { items: ui.ciItems },
+    anthologyData: { items: ui.anthologyItems },
+    bankData: { items: ui.bankItems },
+    ciBankData: { items: ui.ciBankItems },
+    seenIds: spontPoemRef.current ? [spontPoemRef.current.id] : [],
+    random: Math.random,
+   })
+   if (picked) setSpontPoem(picked)
+  }
+
+  function requestCiBank() {
+   setCiBankWanted(true)
+  }
+
+  function consumeLibraryFocus() {
+   setLibraryFocus(null)
+  }
+
+  function openCiSelectedForRhythmic(rhythmic) {
+   setLibraryFocus({ type: 'ci-selected', rhythmic: String(rhythmic || ''), token: Date.now() })
+   setPanelTab('library')
+   setPanelOpen(true)
+   noteInteraction()
+  }
+
+  function openCiBankForRhythmic(rhythmic) {
+   setCiBankWanted(true)
+   setLibraryFocus({ type: 'ci', rhythmic: String(rhythmic || ''), token: Date.now() })
+   setPanelTab('library')
+   setPanelOpen(true)
+   noteInteraction()
+  }
+
+  function openSpontPoem() {
+   const picked = spontPoemRef.current
+   if (!picked) return
+   setSpontPreview(false)
+   setSpontPoem(null)
+   setPanelOpen(true)
+   if (picked.kind === 'poem') {
+    userPickedPoemRef.current = true
+    setSelectedPoemId(picked.id)
+    setPanelTab('today')
+   } else if (picked.kind === 'ci') {
+    setPanelTab('ci')
+   } else {
+    setLibraryFocus({ id: picked.id, source: picked.kind, token: Date.now() })
+    setPanelTab('library')
+   }
+  }
+
+  /** FeihuaTab 消费启动令牌后归零，避免后续从 tab 栏进入时重复自动开局。 */
+  function consumeFeihuaLaunch() {
+   setFeihuaLaunch(0)
+  }
+  const dateSeed = (boot.data && boot.data.today && boot.data.today.date) || ''
+  const dateLabel = formatDateLabel(dateSeed)
+
+  function renderPoemFallback() {
+   if (boot.status === 'error') {
+    return h(EmptyState, {
+    title: '诗词数据尚未就绪',
+    message: describeDataError(boot.error),
+    onRetry: retryBootstrap,
+    })
+   }
+   if (poemsRes.status === 'error') {
+    return h(EmptyState, {
+    title: '今日一诗暂时不可用',
+    message: describeDataError(poemsRes.error),
+    onRetry: () => reloadPoems().catch(() => {}),
+    })
+   }
+   return h(LoadingState, { text: '正在载入今日一诗…' })
+  }
+
+  function renderPoemStep() {
+   if (poem) {
+    return h(
+    'div',
+    null,
+    weatherChip || moodChip
+     ? h(
+      'div',
+      { className: 'dshp-weather' },
+      h(
+      'div',
+      { className: 'dshp-chip-row' },
+      weatherChip ? h('span', { className: 'dshp-weather-chip' }, weatherChip) : null,
+      moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip' }, moodChip) : null,
+      ),
+      weatherNote ? h('div', { className: 'dshp-weather-note' }, weatherNote) : null,
+     )
+     : null,
+    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px', textAlign: 'center', marginBottom: '2px' } }, '今日一诗 · ' + dateLabel),
+    h(PoemBody, { poem, script: settings.script, showTones: settings.showTones }),
+    )
+   }
+   return renderPoemFallback()
+  }
+
+  function renderAnalysisStep() {
+   if (!poem) return renderPoemFallback()
+   return h(
+    'div',
+    null,
+    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px', textAlign: 'center', marginBottom: '4px' } }, (poem.title || '这首诗') + ' · 格律解析'),
+    h(AnalysisBody, { poem }),
+   )
+  }
+
+  function renderKnowledgeStep() {
+   const resource = knowledgeRes
+   if (resource.status === 'error') {
+    return h(EmptyState, {
+    title: '格律知识卡暂时不可用',
+    message: describeDataError(resource.error),
+    onRetry: () => reloadKnowledge().catch(() => {}),
+    })
+   }
+   const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : []
+   if (!cards.length) {
+    if (resource.status === 'ready') {
+    return h(EmptyState, {
+     title: '知识卡尚未就绪',
+     message: '数据文件中还没有课堂内容，稍后再来看看。',
+     onRetry: () => reloadKnowledge().catch(() => {}),
+    })
+    }
+    return h(LoadingState, { text: '正在载入格律知识卡…' })
+   }
+   const index = Math.abs(hashString(dateSeed + '|knowledge')) % cards.length
+   return h(
+    'div',
+    null,
+    h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '今日知识卡 · 第 ' + (index + 1) + ' / ' + cards.length + ' 张'),
+    h(KnowledgeCardView, { card: cards[index] }),
+   )
+  }
+
+  function renderYunStep() {
+   const resource = yunRes
+   if (resource.status === 'error') {
+    return h(EmptyState, {
+    title: '韵部数据暂时不可用',
+    message: describeDataError(resource.error),
+    onRetry: () => reloadYun().catch(() => {}),
+    })
+   }
+   const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : []
+   const chapters = []
+   volumes.forEach((volume) => {
+    const list = volume && Array.isArray(volume.chapters) ? volume.chapters : []
+    list.forEach((chapter) => chapters.push({ volume: volume.title, chapter }))
+   })
+   if (!chapters.length) {
+    if (resource.status === 'ready') {
+    return h(EmptyState, {
+     title: '韵部尚未就绪',
+     message: '声律启蒙数据还不完整，稍后再试。',
+     onRetry: () => reloadYun().catch(() => {}),
+    })
+    }
+    return h(LoadingState, { text: '正在载入声律启蒙…' })
+   }
+   const index = Math.abs(hashString(dateSeed + '|yun')) % chapters.length
+   const picked = chapters[index]
+   const chapter = picked.chapter || {}
+   return h(
+    'div',
+    { className: 'dshp-card' },
+    h('div', { className: 'dshp-card-summary' }, '声律启蒙 · ' + (picked.volume || '') + ' · 第 ' + (index + 1) + ' / ' + chapters.length + ' 韵部'),
+    h('div', { className: 'dshp-card-title' }, String(chapter.name || '韵部')),
+    chapter.exampleLine
+    ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(chapter.exampleLine)))
+    : (Array.isArray(chapter.paragraphs) && chapter.paragraphs.length
+     ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(chapter.paragraphs[0])))
+     : null),
+    Array.isArray(chapter.exampleChars) && chapter.exampleChars.length
+    ? h('div', { className: 'dshp-tags' }, chapter.exampleChars.map((ch, i) => h('span', { key: i, className: 'dshp-tag' }, String(ch))))
+    : null,
+    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px' } }, '韵部例字仅作教学示例，不构成完整韵表。'),
+   )
+  }
+
+  function renderCiStep() {
+   const knowledge = knowledgeRes
+   if (knowledge.status === 'error') {
+    return h(EmptyState, {
+    title: '词牌数据暂时不可用',
+    message: describeDataError(knowledge.error),
+    onRetry: () => reloadKnowledge().catch(() => {}),
+    })
+   }
+   if (ciRes.status === 'error') {
+    return h(EmptyState, {
+    title: '名篇词暂时不可用',
+    message: describeDataError(ciRes.error),
+    onRetry: () => reloadCi().catch(() => {}),
+    })
+   }
+   const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : []
+   if (!ciCards.length) {
+    if (knowledge.status === 'ready') {
+    return h(EmptyState, {
+     title: '词牌卡尚未就绪',
+     message: '数据文件中还没有词牌内容，稍后再试。',
+     onRetry: () => reloadKnowledge().catch(() => {}),
+    })
+    }
+    return h(LoadingState, { text: '正在载入词牌…' })
+   }
+   const index = Math.abs(hashString(dateSeed + '|ci')) % ciCards.length
+   const card = ciCards[index] || {}
+   const ciItems = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : []
+   const matched = ciItems.filter((item) => item && item.rhythmic && item.rhythmic === card.name)
+   const ci = matched.length
+    ? matched[Math.abs(hashString(dateSeed + '|ciname')) % matched.length]
+    : (ciItems.length ? ciItems[Math.abs(hashString(dateSeed + '|ciany')) % ciItems.length] : null)
+   const meta = h(
+    'div',
+    { className: 'dshp-card' },
+    h('div', { className: 'dshp-card-summary' }, '词牌名篇 · 第 ' + (index + 1) + ' / ' + ciCards.length + ' 个词牌'),
+    h(
+    'div',
+    { className: 'dshp-card-title' },
+    String(card.name || '词牌'),
+    Array.isArray(card.aliases) && card.aliases.length
+     ? h('span', { className: 'dshp-muted', style: { fontSize: '11.5px', fontWeight: 400 } }, '（' + card.aliases.join('、') + '）')
+     : null,
+    ),
+    card.form
+    ? h('div', { className: 'dshp-p dshp-muted' }, String(card.form) + (card.rhyme ? ' · ' + String(card.rhyme) : ''))
+    : null,
+    card.example
+    ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-note' }, '代表名句'), h('div', { className: 'dshp-example-text' }, String(card.example)))
+    : null,
+   )
+   if (!ci) {
+    return h(
+    'div',
+    null,
+    meta,
+    ciRes.status === 'ready'
+     ? h('div', { className: 'dshp-empty-msg', style: { marginTop: '8px' } }, '名篇词暂时没有匹配到这一词牌。')
+     : h(LoadingState, { text: '正在载入名篇词…' }),
+    )
+   }
+   return h('div', null, meta, h('div', { className: 'dshp-subtitle' }, '名篇词'), h(CiBody, { ci }))
+  }
+
+  function renderStepContent() {
+   if (step === 0) return renderPoemStep()
+   if (step === 1) return renderAnalysisStep()
+   if (step === 2) return renderKnowledgeStep()
+   if (step === 3) return renderYunStep()
+   if (step === 4) return renderCiStep()
+   return renderFeihuaStep()
+  }
+
+  /** 气泡第 6 张卡：飞花令入口（今日令字 + 句数 + 历史最佳 + 来一局）。 */
+  function renderFeihuaStep() {
+   if (poemsRes.status === 'error' || ciRes.status === 'error') {
+    const failed = poemsRes.status === 'error' ? poemsRes : ciRes
+    const retry = poemsRes.status === 'error' ? reloadPoems : reloadCi
+    return h(EmptyState, {
+    title: '飞花令句库暂时不可用',
+    message: describeDataError(failed.error),
+    onRetry: () => retry().catch(() => {}),
+    })
+   }
+   const index = feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data)
+   if (!index || !ciRes.data) return h(LoadingState, { text: '正在载入飞花令句库…' })
+   const char = pickDefaultFeihuaChar(index, poem)
+   const count = (index.byChar[char] || []).length
+   const best = readFeihuaBest()
+   const charBest = best.chars[char] || 0
+   return h(
+    'div',
+    { className: 'dshp-card' },
+    h('div', { className: 'dshp-card-summary' }, '飞花令 · 边玩边记'),
+    h(
+    'div',
+    { className: 'dshp-fh-meta' },
+    h('span', null, '今日令字 ', h('b', null, '「' + char + '」')),
+    h('span', null, '句库 ', h('b', null, String(count)), ' 句'),
+    h('span', null, '历史最佳 ', h('b', null, String(best.overall)), ' 分'),
+    ),
+    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你从四个选项里接一句。答对 +1 分，答错扣 1 条命，共 3 条命。'),
+    feihuaBuilding || (ciBankRes.status === 'loading') ? h('div', { className: 'dshp-lib-note' }, '正在并入宋词全库…') : null,
+    ciBankRes.status === 'error' ? h('div', { className: 'dshp-lib-note' }, '宋词全库加载失败，已回退原句库') : null,
+    count
+    ? h(
+     'div',
+     { className: 'dshp-fh-actions' },
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn dshp-btn-primary',
+      onClick: (event) => {
+      event.stopPropagation()
+      openFeihuaGame()
+      },
+     }, '来一局'),
+     h('span', { className: 'dshp-pager-label' }, '本字最佳 ' + charBest + ' 分'),
+    )
+    : h('div', { className: 'dshp-empty-msg', style: { marginTop: '8px' } }, '这一字暂时没有句子，换一个令字试试。'),
+   )
+  }
+
+  function renderBubbleFooter() {
+   if (step < 0) return null
+   const buttons = []
+   if (step === 0) {
+    buttons.push(h('button', {
+    key: 'next',
+    type: 'button',
+    className: 'dshp-btn dshp-btn-primary',
+    onClick: changePoem,
+    title: settings.mode === 'random' ? '随机换一首' : '每日模式：回到今日，再点翻下一首',
+    }, '换一首'))
+    if (poem && activeTodayPoemId && poem.id !== activeTodayPoemId) {
+    buttons.push(h('button', { key: 'today', type: 'button', className: 'dshp-link', onClick: backToToday }, '回到今日'))
+    }
+   } else {
+    buttons.push(h('button', {
+    key: 'next',
+    type: 'button',
+    className: 'dshp-btn dshp-btn-primary',
+    onClick: advanceStep,
+    }, step >= STEPS.length - 1 ? '收起' : '下一条'))
+   }
+   buttons.push(h('span', { key: 'spacer', className: 'dshp-spacer' }))
+   buttons.push(h('button', {
+    key: 'panel',
+    type: 'button',
+    className: 'dshp-btn',
+    onClick: () => openPanel(['today', 'today', 'class', 'yun', 'ci', 'feihua'][step] || 'today'),
+   }, '展开面板'))
+   return h('div', { className: 'dshp-bubble-foot' }, buttons)
+  }
+
+  function renderBubble() {
+   if (step < 0 || panelOpen || settings.hidden) return null
+   const width = Math.min(304, viewport.w - 16)
+   const placeAbove = pos.y > Math.min(300, viewport.h * 0.45)
+   const available = placeAbove
+    ? Math.max(140, pos.y - 20)
+    : Math.max(140, viewport.h - pos.y - mascotSize - 20)
+   const bodyMax = Math.max(120, Math.min(380, available - 96))
+   let left = pos.x + mascotSize / 2 - width / 2
+   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
+   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
+   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
+   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
+   return h(
+    'div',
+    { key: 'bubble', className: 'dshp-bubble', style, role: 'dialog', 'aria-label': STEPS[step] || '诗词气泡' },
+    h(
+    'div',
+    { className: 'dshp-bubble-head' },
+    h(
+     'span',
+     { className: 'dshp-bubble-title' },
+     h('span', { className: 'dshp-bubble-step-name' }, STEPS[step] || '诗词'),
+     h('span', { className: 'dshp-progress', 'aria-hidden': 'true' }, (step + 1) + ' / ' + STEPS.length),
+     h(
+      'span',
+      { className: 'dshp-dots', role: 'group', 'aria-label': '切换到指定卡片' },
+      STEPS.map((label, index) => h('button', {
+      key: label,
+      type: 'button',
+      className: cx('dshp-dot', index === step && 'dshp-is-active'),
+      title: label,
+      'aria-label': '切换到第 ' + (index + 1) + ' 张：' + label,
+      'aria-current': index === step ? 'step' : undefined,
+      onClick: (event) => {
+       event.stopPropagation()
+       setStep(index)
+      },
+      })),
+      h('button', {
+      key: 'collapse',
+      type: 'button',
+      className: 'dshp-dot dshp-dot-collapse',
+      title: '收起气泡',
+      'aria-label': '收起气泡',
+      onClick: (event) => {
+       event.stopPropagation()
+       setStep(-1)
+      },
+      }),
+     ),
+    ),
+    h('button', {
+     type: 'button',
+     className: 'dshp-icon-btn',
+     title: '收起气泡',
+     'aria-label': '收起气泡',
+     onClick: () => setStep(-1),
+    }, '×'),
+    ),
+    h('div', { className: 'dshp-bubble-body', style: { maxHeight: Math.round(bodyMax) + 'px' } }, renderStepContent()),
+    renderBubbleFooter(),
+   )
+  }
+
+  function renderSpontPoem() {
+   if (!spontPoem || settings.hidden || (panelOpen && !spontPreview) || (!spontPreview && step >= 0)) return null
+   const width = Math.min(288, viewport.w - 16)
+   let left = pos.x + mascotSize / 2 - width / 2
+   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
+   const placeAbove = pos.y > Math.min(280, viewport.h * 0.45)
+   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
+   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
+   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
+   return h(
+    'div',
+    { key: 'spont', className: 'dshp-spont', style, role: 'status', 'aria-live': 'polite' },
+    h('div', { className: 'dshp-spont-title' }, '它想读一句：'),
+    h(
+    'div',
+    {
+     className: 'dshp-spont-sentence',
+     role: 'button',
+     tabIndex: 0,
+     title: '在面板里查看整首',
+     onClick: (event) => {
+      event.stopPropagation()
+      openSpontPoem()
+     },
+     onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+       event.preventDefault()
+       openSpontPoem()
+      }
+     },
+    },
+    String(spontPoem.line || ''),
+    ),
+    h('div', { className: 'dshp-spont-source' }, '—— ' + spontPoem.label),
+    h(
+    'div',
+    { className: 'dshp-spont-actions' },
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn dshp-btn-small',
+     onClick: (event) => {
+      event.stopPropagation()
+      readAnotherSpontaneous()
+     },
+    }, '再读一句'),
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn dshp-btn-small',
+     onClick: (event) => {
+      event.stopPropagation()
+      setSpontPreview(false)
+      setSpontPoem(null)
+     },
+    }, '关闭'),
+    ),
+   )
+  }
+
+  function renderToast() {
+   if (!toast) return null
+   const left = clamp(pos.x, 8, Math.max(8, viewport.w - 280))
+   const top = clamp(pos.y - 44, 8, Math.max(8, viewport.h - 72))
+   return h('div', {
+    key: 'toast',
+    className: cx('dshp-toast', toast.kind === 'error' && 'dshp-is-error'),
+    role: 'status',
+    'aria-live': 'polite',
+    style: { left: Math.round(left) + 'px', top: Math.round(top) + 'px' },
+   }, toast.text)
+  }
+
+  function renderMascot() {
+   const showHint = !settings.tutorialSeen && step < 0 && !panelOpen
+   const weatherOn = settings.weatherPoem || settings.mood
+   const imageInfo = mascotImageFor({
+    weatherStateKey: mascotStateFor(weather, weatherOn),
+    weatherEnabled: weatherOn,
+    moodEnabled: settings.mood,
+    mood: moodView,
+   })
+   const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
+   const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
+   const stateKey = pulseFile ? mascotPulse : expressionFile ? 'egg:' + expressionFile : imageInfo.stateKey
+   const desiredFile = pulseFile || expressionFile || imageInfo.file
+   const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
+   return h(
+    'div',
+    {
+    key: 'mascot',
+    className: 'dshp-stage',
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': '诗词格律挂件：点击查看今日一诗，可拖动',
+    title: '点击：今日一诗 · 拖动：移动 · 右键：设置',
+    onPointerDown: handlePointerDown,
+    onPointerMove: handlePointerMove,
+    onPointerUp: handlePointerUp,
+    onPointerCancel: handlePointerCancel,
+    onDoubleClick: (event) => {
+     if (event && typeof event.preventDefault === 'function') event.preventDefault()
+     noteInteraction()
+     showMascotExpression(pickMascotExpression())
+     setStep((current) => (current > 0 ? current - 2 : -1))
+    },
+    onKeyDown: handleMascotKeyDown,
+    onContextMenu: (event) => {
+     event.preventDefault()
+     openPanel('settings')
+    },
+    },
+    h(
+    'div',
+    { className: 'dshp-mascot', 'aria-hidden': 'true' },
+    h('img', {
+     key: stateKey,
+     className: 'dshp-mascot-img dshp-mascot-swap',
+     src: mascotUrl(mascotFile),
+     alt: '',
+     draggable: false,
+     loading: 'lazy',
+     decoding: 'async',
+     onError: () => setFailedMascot(desiredFile),
+    }),
+    ),
+    showHint ? h('div', { className: 'dshp-tip' }, '点我看今日一诗') : null,
+   )
+  }
+
+  function renderRestoreHotspot() {
+   return h(
+    'div',
+    {
+    key: 'restore',
+    className: 'dshp-restore',
+    role: 'button',
+    tabIndex: 0,
+    title: '双击空白处或长按这里恢复诗词挂件',
+    'aria-label': '恢复诗词挂件',
+    onPointerDown: handleRestorePointerDown,
+    onPointerUp: handleRestorePointerUp,
+    onPointerCancel: handleRestorePointerUp,
+    onDoubleClick: (event) => {
+     event.preventDefault()
+     event.stopPropagation()
+     restoreWidget()
+    },
+    onKeyDown: (event) => {
+     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault()
+      restoreWidget()
+     }
+    },
+    },
+    '诗',
+   )
+  }
+
+  function renderPanelTab() {
+   const api = {
+    settings: settingsRef.current,
+    updateSettings,
+    showToast,
+    hideWidget,
+    resetSettings,
+    poem,
+    todayPoemId: activeTodayPoemId,
+    poemItems,
+    poemsRes,
+    knowledgeRes,
+    yunRes,
+    ciRes,
+    reloadPoems,
+    reloadKnowledge,
+    reloadYun,
+    reloadCi,
+    retryBootstrap,
+    boot,
+    dateLabel,
+    dateSeed,
+    changePoem,
+    backToToday,
+    feihuaLaunch,
+    consumeFeihuaLaunch,
+    openFeihuaGame,
+    weatherRes,
+    weatherData,
+    weather,
+    weatherActive,
+    weatherChip,
+    weatherNote,
+    refreshWeather,
+    pulseMascot,
+    moodView,
+    moodRes,
+    moodStats,
+    moodChip,
+    moodBasis,
+    refreshMoodNow,
+    previewSpontaneousPoem,
+    anthologyRes,
+    bankRes,
+    pingshuiRes,
+    reloadAnthology,
+    reloadBank,
+    reloadPingshui,
+    libraryFocus,
+   }
+   if (panelTab === 'class') return h(ClassTab, { api })
+   if (panelTab === 'yun') return h(YunTab, { api })
+   if (panelTab === 'ci') return h(CiTab, { api })
+   if (panelTab === 'library') return h(LibraryTab, { api })
+   if (panelTab === 'feihua') return h(FeihuaTab, { api })
+   if (panelTab === 'settings') return h(SettingsTab, { api })
+   return h(TodayTab, { api })
+  }
+
+  function renderPanel() {
+   if (!panelOpen || settings.hidden) return null
+   const width = Math.min(420, viewport.w - 16)
+   const height = Math.min(560, viewport.h - 16)
+   let left = pos.x + mascotSize + 12
+   if (left + width > viewport.w - 8) left = pos.x - width - 12
+   if (left + width > viewport.w - 8) left = viewport.w - width - 8
+   left = Math.max(8, left)
+   let top = pos.y + mascotSize - height
+   top = clamp(top, 8, Math.max(8, viewport.h - height - 8))
+   return h(
+    'div',
+    {
+    key: 'panel',
+    className: 'dshp-panel',
+    role: 'dialog',
+    'aria-label': '诗词格律面板',
+    style: { left: Math.round(left) + 'px', top: Math.round(top) + 'px' },
+    },
+    h(
+    'div',
+    { className: 'dshp-panel-head' },
+    h(
+     'div',
+     { className: 'dshp-panel-title' },
+     '诗词格律挂件',
+     boot.data && boot.data.dataVersion ? h('small', null, '数据 ' + boot.data.dataVersion) : null,
+    ),
+    h('button', {
+     type: 'button',
+     className: 'dshp-icon-btn',
+     title: '关闭面板（Esc）',
+     'aria-label': '关闭面板',
+     onClick: () => setPanelOpen(false),
+    }, '×'),
+    ),
+    h(
+    'div',
+    { className: 'dshp-tabs', role: 'tablist' },
+    PANEL_TABS.map((tab) => h('button', {
+     key: tab.id,
+     type: 'button',
+     role: 'tab',
+     'aria-selected': panelTab === tab.id,
+     className: cx('dshp-tab', panelTab === tab.id && 'dshp-is-active'),
+     onClick: () => setPanelTab(tab.id),
+    }, tab.label)),
+    ),
+    h('div', { className: 'dshp-panel-body' }, renderPanelTab()),
+   )
+  }
+
+  const rootSize = settings.hidden ? 28 : mascotSize
+  const rootStyle = {
+   position: 'fixed',
+   left: Math.round(pos.x) + 'px',
+   top: Math.round(pos.y) + 'px',
+   width: rootSize + 'px',
+   height: rootSize + 'px',
+   zIndex: Z_INDEX,
+   pointerEvents: 'auto',
+   userSelect: 'none',
+  }
+  const nodes = [h('style', { key: 'dshp-style' }, CSS)]
+  if (settings.hidden) {
+   nodes.push(renderRestoreHotspot())
+  } else {
+   nodes.push(renderMascot())
+   const bubbleNode = renderBubble()
+   if (bubbleNode) nodes.push(bubbleNode)
+   const panelNode = renderPanel()
+   if (panelNode) nodes.push(panelNode)
+   const toastNode = renderToast()
+   if (toastNode) nodes.push(toastNode)
+   const spontNode = renderSpontPoem()
+   if (spontNode) nodes.push(spontNode)
+  }
+  return h(
+   'div',
+   {
+    'data-dsh-poetry-widget': 'root',
+    'data-dshp-hidden': settings.hidden ? 'true' : 'false',
+    className: 'dshp-root',
+    style: rootStyle,
+   },
+   nodes,
+  )
+  }
+  function KnowledgeCardView(props) {
+  const card = props.card || {}
+  const paragraphs = Array.isArray(card.paragraphs) ? card.paragraphs : []
+  const examples = Array.isArray(card.examples) ? card.examples : []
+  return h(
+   'div',
+   { className: 'dshp-card' },
+   h('div', { className: 'dshp-card-title' }, String(card.title || '格律知识')),
+   card.summary ? h('div', { className: 'dshp-card-summary' }, String(card.summary)) : null,
+   paragraphs.map((paragraph, index) => h('p', { key: index, className: 'dshp-p' }, String(paragraph == null ? '' : paragraph))),
+   examples.map((example, index) => h(
+    'div',
+    { key: 'example-' + index, className: 'dshp-example' },
+    h('div', { className: 'dshp-example-text' }, String((example && example.text) || '')),
+    example && example.note ? h('div', { className: 'dshp-example-note' }, String(example.note)) : null,
+   )),
+  )
+  }
+
+  function TodayTab(props) {
+  const api = props.api || {}
+  const poem = api.poem
+  if (!poem) {
+   if (api.boot && api.boot.status === 'error') {
+    return h(EmptyState, {
+    title: '诗词数据尚未就绪',
+    message: describeDataError(api.boot.error),
+    onRetry: api.retryBootstrap,
+    })
+   }
+   if (api.poemsRes && api.poemsRes.status === 'error') {
+    return h(EmptyState, {
+    title: '今日一诗暂时不可用',
+    message: describeDataError(api.poemsRes.error),
+    onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {}),
+    })
+   }
+   return h(LoadingState, { text: '正在载入今日一诗…' })
+  }
+  const items = Array.isArray(api.poemItems) ? api.poemItems : []
+  const index = items.findIndex((item) => item && item.id === poem.id)
+  const total = items.length
+  return h(
+   'div',
+   null,
+   api.weatherChip || api.moodChip
+    ? h(
+    'div',
+    { className: 'dshp-weather', style: { marginTop: 0 } },
+    h(
+     'div',
+     { className: 'dshp-chip-row' },
+     api.weatherChip ? h('span', { className: 'dshp-weather-chip' }, String(api.weatherChip)) : null,
+     api.moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip' }, String(api.moodChip)) : null,
+    ),
+    api.weatherNote ? h('div', { className: 'dshp-weather-note' }, String(api.weatherNote)) : null,
+    )
+    : null,
+   h(
+    'div',
+    { className: 'dshp-pager', style: { marginTop: 0 } },
+    h('span', { className: 'dshp-pager-label' }, (api.weatherActive ? '天气推荐' : (api.settings.mode === 'random' ? '随机' : '每日')) + ' · 第 ' + Math.max(1, index + 1) + (total ? ' / ' + total : '') + ' 首'),
+    h(
+    'span',
+    { className: 'dshp-field-control' },
+    h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: api.changePoem }, '换一首'),
+    poem.id !== api.todayPoemId
+     ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: api.backToToday }, '回到今日')
+     : null,
+    ),
+   ),
+   h(PoemBody, { poem, script: api.settings.script, showTones: api.settings.showTones }),
+   h('div', { className: 'dshp-subtitle' }, '格律解析'),
+   h(AnalysisBody, { poem }),
+  )
+  }
+
+  function ClassTab(props) {
+  const api = props.api || {}
+  const [index, setIndex] = React.useState(0)
+  const resource = api.knowledgeRes || {}
+  if (resource.status === 'error') {
+   return h(EmptyState, {
+    title: '格律课堂暂时不可用',
+    message: describeDataError(resource.error),
+    onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {}),
+   })
+  }
+  const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : []
+  if (!cards.length) {
+   if (resource.status === 'ready') {
+    return h(EmptyState, { title: '暂无知识卡', message: '课堂内容还在准备中，请稍后再来。' })
+   }
+   return h(LoadingState, { text: '正在载入格律课堂…' })
+  }
+  const safeIndex = Math.min(Math.max(0, index), cards.length - 1)
+  const card = cards[safeIndex]
+  return h(
+   'div',
+   null,
+   h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '格律小课堂 · 共 ' + cards.length + ' 张卡'),
+   h(KnowledgeCardView, { card }),
+   h(
+    'div',
+    { className: 'dshp-pager' },
+    h('button', {
+    type: 'button',
+    className: 'dshp-btn dshp-btn-small',
+    disabled: safeIndex <= 0,
+    onClick: () => setIndex(safeIndex - 1),
+    }, '上一张'),
+    h('span', { className: 'dshp-pager-label' }, '第 ' + (safeIndex + 1) + ' / ' + cards.length + ' 张'),
+    h('button', {
+    type: 'button',
+    className: 'dshp-btn dshp-btn-small',
+    disabled: safeIndex >= cards.length - 1,
+    onClick: () => setIndex(safeIndex + 1),
+    }, '下一张'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-tags', style: { marginTop: '10px' } },
+    cards.map((item, cardIndex) => h('button', {
+    key: (item && item.id) || cardIndex,
+    type: 'button',
+    className: 'dshp-tag',
+    style: {
+     cursor: 'pointer',
+     borderColor: cardIndex === safeIndex ? 'var(--dshp-accent)' : undefined,
+     color: cardIndex === safeIndex ? 'var(--dshp-accent)' : undefined,
+    },
+    onClick: () => setIndex(cardIndex),
+    }, (cardIndex + 1) + '. ' + String((item && item.title) || '卡片'))),
+   ),
+  )
+  }
+
+  function YunTab(props) {
+  const api = props.api || {}
+  const [expanded, setExpanded] = React.useState(null)
+  const resource = api.yunRes || {}
+  if (resource.status === 'error') {
+   return h(EmptyState, {
+    title: '韵部数据暂时不可用',
+    message: describeDataError(resource.error),
+    onRetry: () => api.reloadYun && api.reloadYun().catch(() => {}),
+   })
+  }
+  const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : []
+  if (!volumes.length) {
+   if (resource.status === 'ready') {
+    return h(EmptyState, { title: '暂无韵部数据', message: '声律启蒙数据还不完整，请稍后再来。' })
+   }
+   return h(LoadingState, { text: '正在载入声律启蒙…' })
+  }
+  return h(
+   'div',
+   null,
+   h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '声律启蒙 · 平声三十韵部（上卷 15 / 下卷 15）'),
+   volumes.map((volume, volumeIndex) => {
+    const chapters = volume && Array.isArray(volume.chapters) ? volume.chapters : []
+    return h(
+    'div',
+    { key: 'volume-' + volumeIndex },
+    h('div', { className: 'dshp-subtitle' }, String(volume.title || '')),
+    chapters.map((chapter, chapterIndex) => {
+     const key = volumeIndex + '-' + chapterIndex
+     const open = expanded === key
+     const chars = Array.isArray(chapter.exampleChars) ? chapter.exampleChars : []
+     return h(
+      'div',
+      { key },
+      h(
+      'button',
+      {
+       type: 'button',
+       className: cx('dshp-row', open && 'dshp-is-open'),
+       onClick: () => setExpanded(open ? null : key),
+       'aria-expanded': open,
+      },
+      h(
+       'span',
+       { className: 'dshp-row-main' },
+       h('span', { className: 'dshp-row-title' }, String(chapter.name || '')),
+       chars.length ? h('span', { className: 'dshp-row-sub' }, ' 例字：' + chars.join('、')) : null,
+      ),
+      h('span', { className: 'dshp-muted', style: { flex: 'none' } }, open ? '▾' : '▸'),
+      ),
+      open
+      ? h(
+       'div',
+       { className: 'dshp-row-body' },
+       (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index) => h('p', { key: index, className: 'dshp-p' }, String(paragraph == null ? '' : paragraph))),
+       chapter.exampleLine
+        ? h('div', { className: 'dshp-example', style: { marginTop: '6px' } }, h('div', { className: 'dshp-example-text' }, String(chapter.exampleLine)))
+        : null,
+      )
+      : null,
+     )
+    }),
+    )
+   }),
+  )
+  }
+
+  function CiTab(props) {
+  const api = props.api || {}
+  const [subTab, setSubTab] = React.useState('poems')
+  const [query, setQuery] = React.useState('')
+  const [rhythmic, setRhythmic] = React.useState('')
+  const [visible, setVisible] = React.useState(40)
+  const [openId, setOpenId] = React.useState(null)
+  const knowledge = api.knowledgeRes || {}
+  const ciRes = api.ciRes || {}
+  const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : []
+  const items = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : []
+  const ciBankCounts = React.useMemo(() => {
+   const map = {}
+   const bankItems = api.ciBankRes && api.ciBankRes.data && Array.isArray(api.ciBankRes.data.items) ? api.ciBankRes.data.items : []
+   for (const item of bankItems) {
+    if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1
+   }
+   return map
+  }, [api.ciBankRes])
+  const ciSelectedCounts = React.useMemo(() => {
+   const map = {}
+   for (const item of items) {
+    if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1
+   }
+   return map
+  }, [items])
+  const rhythms = React.useMemo(() => {
+   const seen = {}
+   items.forEach((item) => {
+    if (item && item.rhythmic) seen[item.rhythmic] = true
+   })
+   return Object.keys(seen).sort((a, b) => a.localeCompare(b, 'zh'))
+  }, [items])
+  const filtered = React.useMemo(() => {
+   const keyword = query.trim()
+   return items.filter((item) => {
+    if (!item) return false
+    if (rhythmic && item.rhythmic !== rhythmic) return false
+    if (!keyword) return true
+    const haystack = [item.title, item.author, item.rhythmic, item.quote]
+    .concat(Array.isArray(item.lines) ? item.lines : [])
+    .join(' ')
+    return haystack.indexOf(keyword) >= 0
+   })
+  }, [items, query, rhythmic])
+  React.useEffect(() => {
+   setVisible(40)
+  }, [query, rhythmic])
+
+  if (knowledge.status === 'error') {
+   return h(EmptyState, {
+    title: '词牌数据暂时不可用',
+    message: describeDataError(knowledge.error),
+    onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {}),
+   })
+  }
+
+  function renderCards() {
+   if (!ciCards.length) {
+    if (knowledge.status === 'ready') return h(EmptyState, { title: '暂无词牌卡', message: '词牌内容还在准备中，请稍后再来。' })
+    return h(LoadingState, { text: '正在载入词牌卡…' })
+   }
+   return h(
+    'div',
+    { className: 'dshp-list' },
+    ciCards.map((card, index) => h(
+    'div',
+    { key: (card && card.id) || index, className: 'dshp-card', style: { padding: '8px 2px', borderBottom: '1px solid var(--dshp-border)' } },
+    h(
+     'div',
+     { className: 'dshp-card-title', style: { fontSize: '14px' } },
+     String((card && card.name) || '词牌'),
+     card && Array.isArray(card.aliases) && card.aliases.length
+      ? h('span', { className: 'dshp-muted', style: { fontSize: '11.5px', fontWeight: 400 } }, '（' + card.aliases.join('、') + '）')
+      : null,
+    ),
+    card && card.form ? h('div', { className: 'dshp-card-summary' }, String(card.form) + (card.rhyme ? ' · ' + String(card.rhyme) : '')) : null,
+    card && card.note ? h('p', { className: 'dshp-p' }, String(card.note)) : null,
+    card && card.example
+     ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(card.example)))
+     : null,
+    card && card.name
+     ? h('div', { className: 'dshp-fh-actions' },
+      h('button', {
+       type: 'button',
+       className: 'dshp-link',
+       onClick: () => { if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(card.name) },
+      }, '同词牌精选' + (ciSelectedCounts[card.name] ? '（' + ciSelectedCounts[card.name] + ' 首）' : '')),
+      h('button', {
+       type: 'button',
+       className: 'dshp-link dshp-muted',
+       onClick: () => { if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(card.name) },
+      }, '全库' + (ciBankCounts[card.name] ? '（' + ciBankCounts[card.name] + ' 首）' : '同词牌')))
+     : null,
+    )),
+   )
+  }
+
+  function renderPoems() {
+   if (ciRes.status === 'error') {
+    return h(EmptyState, {
+    title: '名篇词暂时不可用',
+    message: describeDataError(ciRes.error),
+    onRetry: () => api.reloadCi && api.reloadCi().catch(() => {}),
+    })
+   }
+   if (!items.length) {
+    if (ciRes.status === 'ready') return h(EmptyState, { title: '暂无词作', message: '名篇词数据正在准备中。' })
+    return h(LoadingState, { text: '正在载入名篇词…' })
+   }
+   const shown = filtered.slice(0, visible)
+   return h(
+    'div',
+    null,
+    h(
+    'div',
+    { className: 'dshp-search' },
+    h('input', {
+     className: 'dshp-input',
+     type: 'search',
+     value: query,
+     placeholder: '搜索词牌 / 作者 / 词句',
+     'aria-label': '搜索名篇词',
+     onChange: (event) => setQuery(event.target.value),
+    }),
+    h(
+     'select',
+     {
+      className: 'dshp-select',
+      value: rhythmic,
+      'aria-label': '按词牌筛选',
+      onChange: (event) => setRhythmic(event.target.value),
+     },
+     h('option', { value: '' }, '全部词牌'),
+     rhythms.map((name) => h('option', { key: name, value: name }, name)),
+    ),
+    ),
+    h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '共 ' + filtered.length + ' 首（总计 ' + items.length + ' 首）'),
+    h(
+    'div',
+    { className: 'dshp-list' },
+    shown.map((ci, index) => {
+     const ciId = ci.id || 'ci-' + index
+     const open = openId === ciId
+     return h(
+      'div',
+      { key: ciId },
+      h(
+      'button',
+      {
+       type: 'button',
+       className: cx('dshp-row', open && 'dshp-is-open'),
+       onClick: () => setOpenId(open ? null : ciId),
+       'aria-expanded': open,
+      },
+      h(
+       'span',
+       { className: 'dshp-row-main' },
+       h('span', { className: 'dshp-row-title' }, String(ci.title || ci.rhythmic || '无题')),
+       h('span', { className: 'dshp-row-sub' }, String(ci.author || '') + (ci.rhythmic ? ' · ' + String(ci.rhythmic) : '')),
+      ),
+      h('span', { className: 'dshp-muted', style: { flex: 'none' } }, open ? '▾' : '▸'),
+      ),
+      open
+      ? h(
+       'div',
+       { className: 'dshp-row-body' },
+       h('div', { className: 'dshp-ci-lines' }, (Array.isArray(ci.lines) ? ci.lines : []).map((line, lineIndex) => h('div', { key: lineIndex }, String(line)))),
+       ci.quote ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(ci.quote))) : null,
+      ci.rhythmic
+       ? h('div', { className: 'dshp-fh-actions' },
+        h('button', {
+         type: 'button',
+         className: 'dshp-link',
+         onClick: () => { if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(ci.rhythmic) },
+        }, '同词牌精选' + (ciSelectedCounts[ci.rhythmic] ? '（' + ciSelectedCounts[ci.rhythmic] + ' 首）' : '')),
+        h('button', {
+         type: 'button',
+         className: 'dshp-link dshp-muted',
+         onClick: () => { if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(ci.rhythmic) },
+        }, '全库' + (ciBankCounts[ci.rhythmic] ? '（' + ciBankCounts[ci.rhythmic] + ' 首）' : '同词牌')))
+       : null,
+      )
+      : null,
+     )
+    }),
+    ),
+    filtered.length > visible
+    ? h(
+     'div',
+     { style: { textAlign: 'center', marginTop: '10px' } },
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: () => setVisible(visible + 60),
+     }, '加载更多（剩余 ' + (filtered.length - visible) + ' 首）'),
+    )
+    : null,
+   )
+  }
+
+  return h(
+   'div',
+   null,
+   h(
+    'div',
+    { className: 'dshp-seg', style: { marginBottom: '10px' } },
+    h('button', {
+    type: 'button',
+    className: cx('dshp-seg-btn', subTab === 'poems' && 'dshp-is-active'),
+    onClick: () => setSubTab('poems'),
+    }, '名篇词'),
+    h('button', {
+    type: 'button',
+    className: cx('dshp-seg-btn', subTab === 'cards' && 'dshp-is-active'),
+    onClick: () => setSubTab('cards'),
+    }, '词牌卡'),
+   ),
+   subTab === 'cards' ? renderCards() : renderPoems(),
+  )
+  }
+
+  function SettingsTab(props) {
+  const api = props.api || {}
+  const settings = (api.settings && typeof api.settings === 'object') ? api.settings : normalizeSettings()
+  const [confirmReset, setConfirmReset] = React.useState(false)
+  const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || '北京')
+  React.useEffect(() => {
+   setCityDraft(settings.weatherCity || '北京')
+  }, [settings.weatherCity])
+  const update = api.updateSettings || (() => {})
+
+  function commitCity() {
+   const raw = String(cityDraft == null ? '' : cityDraft).trim()
+   const nextCity = raw.length >= 1 && raw.length <= 20 ? raw : '北京'
+   setCityDraft(nextCity)
+   if (nextCity !== settings.weatherCity) update({ weatherCity: nextCity })
+  }
+
+  const weatherRes = api.weatherRes || {}
+  const weatherInfo = api.weatherData && api.weatherData.weather ? api.weatherData.weather : null
+  const weatherAt = weatherRes.at || (weatherInfo && weatherInfo.updatedAt) || 0
+  const weatherStatusText = weatherInfo
+   ? weatherChipText(api.weatherData.city, weatherInfo)
+    + (weatherAt ? ' · 更新于 ' + weatherUpdatedLabel(weatherAt) : '')
+   : (weatherRes.status === 'loading' ? '正在获取天气…' : '天气暂不可用（不影响其他功能）')
+  const moodStats = api.moodStats || emptyMoodStats()
+  const currentMood = api.moodView || null
+  const moodAt = (api.moodRes && (api.moodRes.at || (api.moodRes.data && api.moodRes.data.updatedAt))) || 0
+  const moodStatusText = (api.moodBasis || moodBasisText(moodStats, api.weather))
+   + (currentMood ? '；当前：' + currentMood.label + '（' + currentMood.reason + '）' : '')
+   + (moodAt ? ' · 更新于 ' + weatherUpdatedLabel(moodAt) : '')
+
+  function seg(options, current, onPick) {
+   return h(
+    'div',
+    { className: 'dshp-seg' },
+    options.map((option) => h('button', {
+    key: String(option.value),
+    type: 'button',
+    className: cx('dshp-seg-btn', current === option.value && 'dshp-is-active'),
+    onClick: () => onPick(option.value),
+    }, option.label)),
+   )
+  }
+
+  function switchNode(checked, onChange, label) {
+   return h('button', {
+    type: 'button',
+    role: 'switch',
+    'aria-checked': checked === true,
+    'aria-label': label,
+    className: cx('dshp-switch', checked === true && 'dshp-is-on'),
+    onClick: onChange,
+   })
+  }
+
+  const boot = api.boot || {}
+  const data = boot.data || {}
+  const version = data.version || '0.1.0'
+  const dataVersion = data.dataVersion || '—'
+  const source = data.source || {}
+  return h(
+   'div',
+   { className: 'dshp-settings' },
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '大小'), h('small', null, '形象缩放 60%–160%')),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('input', {
+     type: 'range',
+     className: 'dshp-range',
+     min: 60,
+     max: 160,
+     step: 5,
+     value: Math.round(settings.scale * 100),
+     'aria-label': '挂件大小',
+     onChange: (event) => update({ scale: num(event.target.value, 100) / 100 }),
+    }),
+    h('span', { className: 'dshp-muted', style: { fontSize: '11.5px', width: '38px', textAlign: 'right' } }, Math.round(settings.scale * 100) + '%'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '平仄标注'), h('small', null, '平蓝 / 仄红 / 多音灰')),
+    switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), '平仄标注开关'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '点诗模式'), h('small', null, '「换一首」的策略')),
+    seg([
+    { value: 'daily', label: '每日' },
+    { value: 'random', label: '随机' },
+    ], settings.mode, (value) => update({ mode: value })),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '自动轮播'), h('small', null, '气泡自动推进间隔')),
+    h(
+    'select',
+    {
+     className: 'dshp-select',
+     value: String(settings.autoplay),
+     'aria-label': '自动轮播间隔',
+     onChange: (event) => update({ autoplay: num(event.target.value, 0) }),
+    },
+    h('option', { value: '0' }, '关闭'),
+    h('option', { value: '30' }, '30 秒'),
+    h('option', { value: '60' }, '1 分钟'),
+    h('option', { value: '300' }, '5 分钟'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '吸附'), h('small', null, '拖动后贴边或自由摆放')),
+    seg([
+    { value: 'left', label: '贴左' },
+    { value: 'right', label: '贴右' },
+    { value: 'free', label: '自由' },
+    ], settings.snap, (value) => update({ snap: value })),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '显示文字'), h('small', null, '简体或诗词原文')),
+    seg([
+    { value: 'simplified', label: '简体' },
+    { value: 'original', label: '原文' },
+    ], settings.script, (value) => update({ script: value })),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '天气城市'), h('small', null, '1–20 字，保存后自动重拉天气')),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('input', {
+     type: 'text',
+     className: 'dshp-input',
+     style: { width: '118px' },
+     value: cityDraft,
+     maxLength: 20,
+     placeholder: '北京',
+     'aria-label': '天气城市',
+     onChange: (event) => setCityDraft(event.target.value),
+     onBlur: commitCity,
+     onKeyDown: (event) => {
+      if (event.key === 'Enter') {
+      event.preventDefault()
+      commitCity()
+      }
+     },
+    }),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '按天气选诗'), h('small', null, '今日诗与形象跟随天气')),
+    switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), '按天气选诗开关'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '天气'), h('small', null, weatherStatusText)),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn',
+     onClick: () => {
+      if (api.refreshWeather) api.refreshWeather(true)
+     },
+    }, '刷新天气'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '心情换装'), h('small', null, '按当天状态换立绘（≥20 分钟换一次）')),
+    switchNode(settings.mood, () => update({ mood: !settings.mood }), '心情换装开关'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '偶尔读诗'), h('small', null, '45–90 分钟一次 · 每日最多 3 次 · 7 天不重句')),
+    switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '偶尔读诗开关'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn',
+     onClick: () => {
+      if (api.refreshMoodNow) api.refreshMoodNow()
+     },
+    }, '刷新心情'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '想读的诗'), h('small', null, '预览一次彩蛋（不计入每日次数）')),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn',
+     onClick: () => {
+      if (api.previewSpontaneousPoem) api.previewSpontaneousPoem()
+     },
+    }, '预览一首'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '隐藏挂件'), h('small', null, '双击空白处或长按角落小圆点恢复')),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    h('button', {
+     type: 'button',
+     className: 'dshp-btn dshp-btn-danger',
+     onClick: () => {
+      setConfirmReset(false)
+      if (api.hideWidget) api.hideWidget()
+     },
+    }, '隐藏'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '恢复默认'), h('small', null, '大小 / 平仄 / 模式 / 吸附 / 字体')),
+    h(
+    'div',
+    { className: 'dshp-field-control' },
+    confirmReset
+     ? [
+      h('button', {
+      key: 'confirm',
+      type: 'button',
+      className: 'dshp-btn dshp-btn-primary',
+      onClick: () => {
+       setConfirmReset(false)
+       if (api.resetSettings) api.resetSettings()
+      },
+      }, '确认恢复'),
+      h('button', {
+      key: 'cancel',
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: () => setConfirmReset(false),
+      }, '取消'),
+     ]
+     : h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: () => setConfirmReset(true),
+     }, '恢复默认'),
+    ),
+   ),
+   h('div', { className: 'dshp-subtitle' }, '关于'),
+   h(
+    'div',
+    { className: 'dshp-about' },
+    h('div', null, '诗词格律挂件 v' + String(version)),
+    h('div', null, '数据版本：' + String(dataVersion)),
+    h('div', null, '数据源：chinese-poetry（MIT）· 诗词为公版文本'),
+    source.commit ? h('div', null, '源提交：' + String(source.commit).slice(0, 12)) : null,
+    h('div', null, '设置保存在本机 $DSH_HOME/.dsh-poetry/settings.json；隐藏后双击页面空白处或长按角落小圆点恢复。'),
+   ),
+  )
+  }
+  function FeihuaTab(props) {
+  const api = props.api || {}
+  const poemsRes = api.poemsRes || {}
+  const ciRes = api.ciRes || {}
+  const index = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data)
+  const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === 'loading')
+  const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === 'error')
+  const [char, setChar] = React.useState(null)
+  const [mode, setMode] = React.useState('chain')
+  const [game, setGame] = React.useState(null)
+  const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE)
+  const [best, setBest] = React.useState(() => readFeihuaBest())
+  const bestRef = React.useRef(best)
+  bestRef.current = best
+  const launch = num(api.feihuaLaunch, 0)
+  const launchRef = React.useRef(0)
+  const activeChar = index
+   ? (char || pickDefaultFeihuaChar(index, api.poem))
+   : null
+  React.useEffect(() => {
+   if (!index || !activeChar) return
+   if (launch > 0 && launch !== launchRef.current) {
+    launchRef.current = launch
+    setGame(feihuaStart(index, activeChar))
+    setMode('chain')
+    if (typeof api.consumeFeihuaLaunch === 'function') api.consumeFeihuaLaunch()
+   }
+  }, [launch, index, activeChar])
+
+  if (poemsRes.status === 'error') {
+   return h(EmptyState, {
+    title: '飞花令句库暂时不可用',
+    message: describeDataError(poemsRes.error),
+    onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {}),
+   })
+  }
+  if (ciRes.status === 'error') {
+   return h(EmptyState, {
+    title: '词库暂时不可用',
+    message: describeDataError(ciRes.error),
+    onRetry: () => api.reloadCi && api.reloadCi().catch(() => {}),
+   })
+  }
+  if (!poemsRes.data || !ciRes.data) return h(LoadingState, { text: '正在载入飞花令句库…' })
+  if (!index || !index.entries.length) {
+   return h(EmptyState, { title: '飞花令句库为空', message: '诗/词数据里还没有可用的句子。', icon: '🪶' })
+  }
+  const candidateChips = index.candidates.slice()
+  if (!candidateChips.some((item) => item.char === activeChar)) {
+   candidateChips.unshift({ char: activeChar, count: index.counts[activeChar] || 0 })
+  }
+  const charEntries = index.byChar[activeChar] || []
+  const bestForChar = best.chars[activeChar] || 0
+
+  function startGame(target) {
+   const use = target || activeChar
+   if (!index || !use) return
+   setChar(use)
+   setGame(feihuaStart(index, use))
+   setMode('chain')
+   setAtlasLimit(FEIHUA_ATLAS_PAGE)
+   if (typeof api.pulseMascot === 'function') api.pulseMascot('gameThink')
+  }
+
+  function chooseChar(next) {
+   if (!next) return
+   if (next === activeChar) {
+    setGame(null)
+    return
+   }
+   setChar(next)
+   setGame(null)
+   setAtlasLimit(FEIHUA_ATLAS_PAGE)
+  }
+
+  function randomChar() {
+   if (!index || !index.candidates.length) return
+   const pool = index.candidates.filter((item) => item.char !== activeChar)
+   const picked = pool.length ? pool[feihuaRandomIndex(pool.length)] : index.candidates[0]
+   chooseChar(picked.char)
+  }
+
+  function answer(choiceIndex) {
+   if (!game || game.phase !== 'playing') return
+   const next = feihuaAnswer(game, index, choiceIndex)
+   setGame(next)
+   if (next.feedback && typeof api.pulseMascot === 'function') {
+    api.pulseMascot(next.feedback.kind === 'good' ? 'gameWin' : 'gameLose')
+   }
+   const updated = feihuaBestUpdate(bestRef.current, next.char, next.score)
+   if (updated.overall !== bestRef.current.overall
+    || (updated.chars[next.char] || 0) !== (bestRef.current.chars[next.char] || 0)) {
+    setBest(updated)
+    writeFeihuaBest(updated)
+   }
+  }
+
+  function renderChain() {
+   if (!game) {
+    return h(
+    'div',
+    { className: 'dshp-card' },
+    h('div', { className: 'dshp-card-title' }, '飞花令 · 接龙赛'),
+    h('div', { className: 'dshp-card-summary' }, '令字「' + activeChar + '」· ' + charEntries.length + ' 句可接'),
+    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你从 4 个选项里接一句；答对 +1 分，答错扣 1 条命（共 3 条命）。'),
+    charEntries.length
+     ? h(
+      'div',
+      { className: 'dshp-fh-actions' },
+      h('button', {
+      type: 'button',
+      className: 'dshp-btn dshp-btn-primary',
+      onClick: (event) => {
+       event.stopPropagation()
+       startGame(activeChar)
+      },
+      }, '来一局'),
+      h('span', { className: 'dshp-pager-label' }, '本字最佳 ' + bestForChar + ' 分'),
+     )
+     : h('div', { className: 'dshp-empty-msg' }, '这一字暂时没有句子，换一个令字试试。'),
+    )
+   }
+   const options = game.round && Array.isArray(game.round.options) ? game.round.options : []
+   const playing = game.phase === 'playing'
+   const finished = game.phase === 'over' || game.phase === 'cleared'
+   return h(
+    'div',
+    { className: 'dshp-card' },
+    game.system
+    ? h(
+     'div',
+     { className: 'dshp-fh-system' },
+     '对方：' + game.system.text,
+     game.system.source ? h('small', null, game.system.source) : null,
+    )
+    : null,
+    h('div', { className: 'dshp-fh-prompt' }, game.message || '请接一句含「' + activeChar + '」的诗句'),
+    options.length
+    ? h(
+     'div',
+     { className: 'dshp-fh-options' },
+     options.map((option, choiceIndex) => h('button', {
+      key: choiceIndex,
+      type: 'button',
+      className: cx('dshp-fh-option', game.lastChoice === choiceIndex && 'dshp-is-wrong'),
+      disabled: !playing,
+      onClick: (event) => {
+      event.stopPropagation()
+      answer(choiceIndex)
+      },
+     }, option.text)),
+    )
+    : null,
+    h('div', {
+    className: cx(
+     'dshp-fh-feedback',
+     game.feedback && game.feedback.kind === 'good' && 'dshp-is-good',
+     game.feedback && game.feedback.kind === 'bad' && 'dshp-is-bad',
+    ),
+    role: 'status',
+    'aria-live': 'polite',
+    }, game.feedback ? game.feedback.text : ''),
+    finished
+    ? h(
+     'div',
+     { className: 'dshp-fh-result' },
+     h('b', null, game.phase === 'cleared' ? '通关！' : '本局结束'),
+     h('span', null, '得分 ' + game.score + ' · 本字最佳 ' + Math.max(bestForChar, game.score) + ' · 历史最佳 ' + Math.max(best.overall, game.score)),
+     h('span', null, game.phase === 'cleared' ? '这一字的句子都被接过了，换个令字再战。' : '三条命用完了，再来一局练练手。'),
+     h(
+      'div',
+      { className: 'dshp-fh-actions' },
+      h('button', {
+      type: 'button',
+      className: 'dshp-btn dshp-btn-primary',
+      onClick: (event) => {
+       event.stopPropagation()
+       startGame(activeChar)
+      },
+      }, '再来一局'),
+      h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: (event) => {
+       event.stopPropagation()
+       randomChar()
+      },
+      }, '换个令字'),
+     ),
+    )
+    : null,
+    playing
+    ? h(
+     'div',
+     { className: 'dshp-fh-actions' },
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: (event) => {
+      event.stopPropagation()
+      startGame(activeChar)
+      },
+     }, '重新开局'),
+    )
+    : null,
+   )
+  }
+
+  function renderAtlas() {
+   const total = charEntries.length
+   const limit = Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit)
+   const shown = charEntries.slice(0, limit)
+   return h(
+    'div',
+    null,
+    h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } },
+    '令字「' + activeChar + '」· 共 ' + total + ' 句（去重后最多展示 ' + FEIHUA_ATLAS_LIMIT + ' 条）'),
+    shown.length
+    ? h(
+     'div',
+     { className: 'dshp-fh-atlas' },
+     shown.map((entry, entryIndex) => h(
+      'div',
+      { key: entryIndex, className: 'dshp-fh-line' },
+      h('div', { className: 'dshp-fh-line-text' }, entry.text),
+      h('div', { className: 'dshp-fh-line-source' }, '—— ' + entry.source),
+     )),
+    )
+    : h(EmptyState, { title: '这一字暂时没有句子', message: '换一个令字试试。', icon: '🪶' }),
+    total > shown.length
+    ? h(
+     'div',
+     { style: { textAlign: 'center', marginTop: '10px' } },
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE)),
+     }, '加载更多（剩余 ' + (total - shown.length) + ' 条）'),
+    )
+    : null,
+   )
+  }
+
+  return h(
+   'div',
+   null,
+   h(
+    'div',
+    { className: 'dshp-fh-chips' },
+    candidateChips.map((item) => h('button', {
+    key: item.char,
+    type: 'button',
+    className: cx('dshp-fh-chip', item.char === activeChar && 'dshp-is-active'),
+    title: '令字「' + item.char + '」· ' + item.count + ' 句',
+    'aria-pressed': item.char === activeChar,
+    onClick: (event) => {
+     event.stopPropagation()
+     chooseChar(item.char)
+    },
+    }, item.char, h('small', null, String(item.count)))),
+    h('button', {
+    key: 'random',
+    type: 'button',
+    className: 'dshp-fh-chip',
+    title: '随机换一个令字',
+    onClick: (event) => {
+     event.stopPropagation()
+     randomChar()
+    },
+    }, '随机'),
+   ),
+   feihuaBuilding ? h('div', { className: 'dshp-card-summary' }, '正在并入宋词全库…') : null,
+   ciBankFailed ? h('div', { className: 'dshp-card-summary' }, '宋词全库加载失败，已回退原句库') : null,
+   h(
+    'div',
+    { className: 'dshp-fh-meta' },
+    h('span', null, '令字 ', h('b', null, '「' + activeChar + '」')),
+    h('span', null, '句库 ', h('b', null, String(charEntries.length)), ' 句'),
+    h('span', null, '历史最佳 ', h('b', null, String(best.overall)), ' 分'),
+    game
+    ? h('span', { className: 'dshp-fh-hearts', title: '剩余生命' },
+     '♥'.repeat(game.lives) + '♡'.repeat(Math.max(0, FEIHUA_MAX_LIVES - game.lives)))
+    : null,
+    game ? h('span', null, '本局 ', h('b', null, String(game.score)), ' 分') : null,
+   ),
+   h(
+    'div',
+    { className: 'dshp-seg', style: { marginBottom: '10px' } },
+    h('button', {
+    type: 'button',
+    className: cx('dshp-seg-btn', mode === 'chain' && 'dshp-is-active'),
+    onClick: () => setMode('chain'),
+    }, '接龙赛'),
+    h('button', {
+    type: 'button',
+    className: cx('dshp-seg-btn', mode === 'atlas' && 'dshp-is-active'),
+    onClick: () => setMode('atlas'),
+    }, '图鉴'),
+   ),
+   mode === 'atlas' ? renderAtlas() : renderChain(),
+  )
+  }
+  /* ================================================================
+   * 8.9 诗库（anthology + bank）与格律检测器（pingshui）
+   * ================================================================ */
+
+  function DetectionView(props) {
+   const report = props.report
+   const api = props.api || {}
+   if (!report) return null
+   const annotation = Array.isArray(report.annotation) ? report.annotation : []
+   const rhymeIndexes = detectionRhymeIndexes(report)
+   const lines = []
+   for (let lineIndex = 0; lineIndex < annotation.length; lineIndex += 1) {
+    const cells = annotation[lineIndex]
+    const lineText = cells.map((cell) => cell.ch).join('')
+    const toneText = cells.map((cell) => (cell.tone === '○' ? '○' : cell.tone === '？' ? '？' : cell.tone)).join('')
+    lines.push(h(ToneLine, { key: lineIndex, line: lineText, tones: toneText, rhyme: Boolean(rhymeIndexes[lineIndex]), showTones: true }))
+   }
+   const multiTones = []
+   for (const line of annotation) {
+    for (const cell of line) {
+     if (cell.candidates.length > 1) multiTones.push(cell)
+    }
+   }
+   return h(
+    'div',
+    { className: 'dshp-detail' },
+    h('div', { className: 'dshp-lib-report' }, report.summary || ''),
+    (report.errors || []).length ? h('div', { className: 'dshp-lib-errors' }, report.errors.join('；')) : null,
+    h('div', { className: 'dshp-lib-detect-lines' }, lines),
+    report.rhymeLines && report.rhymeLines.length
+     ? h('div', { className: 'dshp-lib-tags' }, report.rhymeLines.map((item) => h('span', { key: item.line, className: 'dshp-tag' },
+      '第' + item.line + '句 ' + item.ch + (item.names.length ? '（' + item.names.join('/') + '）' : '') + (item.borrowed ? ' 借韵' : ''))))
+     : null,
+    report.violations && report.violations.length
+     ? h('div', { className: 'dshp-lib-errors' }, report.violations.map((item) => '第' + item.line + '句第' + item.position + '字「' + item.ch + '」宜' + item.expected + '（实际' + item.actual + '）').join('；'))
+     : null,
+    report.sticky && report.sticky.length
+     ? h('div', { className: 'dshp-lib-errors' }, report.sticky.map((item) => '第' + item.pair + '句失' + item.type).join('；'))
+     : null,
+    report.sanPing && report.sanPing.length ? h('div', { className: 'dshp-lib-errors' }, '三平调：第 ' + report.sanPing.join('、') + ' 句') : null,
+    report.guPing && report.guPing.length ? h('div', { className: 'dshp-lib-errors' }, '孤平：第 ' + report.guPing.join('、') + ' 句') : null,
+    multiTones.length
+     ? h('div', { className: 'dshp-lib-multi' }, '多音字：' + multiTones.map((cell) => '「' + cell.ch + '」' + cell.candidates.map((item) => item.tone + '·' + item.name).join('/')).join('；'))
+     : null,
+    h(
+     'div',
+     { className: 'dshp-fh-actions' },
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn dshp-btn-small',
+      onClick: () => {
+       const text = formatDetectionReport(report)
+       try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+         navigator.clipboard.writeText(text).catch(() => {})
+        }
+       } catch (error) {
+        /* 剪贴板不可用时忽略，报告本身可选中复制 */
+       }
+       if (typeof api.showToast === 'function') api.showToast('检测结果已复制')
+      },
+     }, '复制结果'),
+    ),
+   )
+  }
+
+  function LibraryTab(props) {
+   const api = props.api || {}
+   const anthologyRes = api.anthologyRes || {}
+   const bankRes = api.bankRes || {}
+   const pingshuiRes = api.pingshuiRes || {}
+   const ciBankRes = api.ciBankRes || {}
+   const ciRes = api.ciRes || {}
+   const [category, setCategory] = React.useState('all')
+   const [ciRhythmic, setCiRhythmic] = React.useState('')
+   const [searchScope, setSearchScope] = React.useState('category')
+   const [ciSearchScope, setCiSearchScope] = React.useState('selected')
+   const [query, setQuery] = React.useState('')
+   const [debounced, setDebounced] = React.useState('')
+   const [visible, setVisible] = React.useState(LIBRARY_PAGE)
+   const [detail, setDetail] = React.useState(null)
+   const [detector, setDetector] = React.useState('')
+   const [inputText, setInputText] = React.useState('')
+   const [inputReport, setInputReport] = React.useState(null)
+   const ciMode = category === 'ci-selected' || category === 'ci-bank'
+
+   React.useEffect(() => {
+    const timer = setTimeout(() => setDebounced(query), 300)
+    return () => clearTimeout(timer)
+   }, [query])
+   React.useEffect(() => {
+    setVisible(LIBRARY_PAGE)
+   }, [category, debounced, ciRhythmic, ciSearchScope])
+   React.useEffect(() => {
+    if (category === 'ci-bank' || (ciMode && ciSearchScope === 'allCi')) {
+     if (typeof api.requestCiBank === 'function') api.requestCiBank()
+    }
+   }, [category, ciMode, ciSearchScope, api.requestCiBank])
+   React.useEffect(() => {
+    const focus = api.libraryFocus
+    if (!focus || !focus.token) return
+    if (focus.type === 'ci') {
+     setCategory('ci-bank')
+     setCiRhythmic(String(focus.rhythmic || ''))
+     setDetector('')
+     if (typeof api.requestCiBank === 'function') api.requestCiBank()
+     if (typeof api.consumeLibraryFocus === 'function') api.consumeLibraryFocus()
+     return
+    }
+    if (focus.type === 'ci-selected') {
+     setCategory('ci-selected')
+     setCiRhythmic(String(focus.rhythmic || ''))
+     setDetector('')
+     if (typeof api.consumeLibraryFocus === 'function') api.consumeLibraryFocus()
+     return
+    }
+    const items = buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data)
+    const target = items.find((item) => item.id === focus.id)
+    if (target) {
+     setCategory(target.categoryId === 'ci-bank' ? 'ci-bank' : target.categoryId === 'ci-selected' ? 'ci-selected' : 'all')
+     setDetail(target)
+     setDetector('')
+    }
+    if (typeof api.consumeLibraryFocus === 'function') api.consumeLibraryFocus()
+   }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data])
+
+   const pingshui = React.useMemo(() => (pingshuiRes.data ? buildPingshuiIndex(pingshuiRes.data) : null), [pingshuiRes.data])
+   const items = React.useMemo(
+    () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
+    [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data],
+   )
+   const ciSelectedRhythmicsList = React.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data])
+   const ciFullRhythmics = React.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data])
+   const ciRhythmics = category === 'ci-bank' ? ciFullRhythmics : ciSelectedRhythmicsList
+   const ciSelectedCount = items.filter((entry) => entry.categoryId === 'ci-selected').length
+   let filterCategory = category
+   let filterRhythmic = ''
+   if (ciMode) {
+    filterRhythmic = ciRhythmic
+    filterCategory = !debounced ? category : ciSearchScope === 'allCi' ? 'all' : 'ci-selected'
+   } else if (searchScope === 'all') {
+    filterCategory = 'all'
+   }
+   const filtered = React.useMemo(
+    () => filterLibraryItems(items, filterCategory, debounced, filterRhythmic),
+    [items, filterCategory, filterRhythmic, debounced],
+   )
+   const shown = libraryPage(filtered, visible)
+   const poemReport = React.useMemo(
+    () => (detail && detector === 'poem' && pingshui ? detectPoem(detail, pingshui) : null),
+    [detail, detector, pingshui],
+   )
+   const pingshuiError = pingshuiRes.status === 'error'
+   const loading = !anthologyRes.data && !bankRes.data
+   const ciSelectedLoading = category === 'ci-selected' && !ciRes.data
+   const ciBankLoading = category === 'ci-bank' && !ciBankRes.data
+
+   function runInputDetection() {
+    if (!pingshui) {
+     if (typeof api.showToast === 'function') api.showToast('平水韵数据加载中，请稍候')
+     if (typeof api.reloadPingshui === 'function') api.reloadPingshui().catch(() => {})
+     return
+    }
+    setInputReport(detectPoemText(inputText, pingshui))
+   }
+
+   if (loading) {
+    if (anthologyRes.status === 'error' && bankRes.status === 'error') {
+     return h(EmptyState, {
+      title: '诗库数据暂时不可用',
+      message: (anthologyRes.error && anthologyRes.error.status === 404) || (bankRes.error && bankRes.error.status === 404)
+       ? '诗库数据尚未生成（assets/data），请稍后重试。'
+       : describeDataError(anthologyRes.error || bankRes.error),
+      onRetry: () => {
+       if (typeof api.reloadAnthology === 'function') api.reloadAnthology().catch(() => {})
+       if (typeof api.reloadBank === 'function') api.reloadBank().catch(() => {})
+      },
+     })
+    }
+    return h(LoadingState, { text: '正在载入诗库…' })
+   }
+
+   function renderDetector() {
+    if (!pingshui) {
+     return pingshuiError
+      ? h(EmptyState, { title: '平水韵数据不可用', message: '格律检测需要平水韵数据。', onRetry: () => api.reloadPingshui && api.reloadPingshui().catch(() => {}) })
+      : h(LoadingState, { text: '正在载入平水韵…' })
+    }
+    const headers = h(
+     'div',
+     { className: 'dshp-fh-actions' },
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => setDetector('') }, '返回'),
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => setDetector('input') }, '自测输入'),
+    )
+    if (detector === 'poem' && detail) {
+     return h(
+      'div',
+      { className: 'dshp-detail' },
+      headers,
+      h('div', { className: 'dshp-lib-detail-title' }, libraryItemLabel(detail)),
+      h('div', { className: 'dshp-lib-note' }, detail.tones ? '基于数据内平仄标注检测' : '已用平水韵逐字标注（多音字取候选）'),
+      h(DetectionView, { report: poemReport, api }),
+     )
+    }
+    return h(
+     'div',
+     { className: 'dshp-detail' },
+     headers,
+     h('div', { className: 'dshp-lib-note' }, '输入 4 句或 8 句（每句 5 或 7 字，可含标点），逐字标注平仄与韵部。'),
+     h('textarea', {
+      className: 'dshp-textarea',
+      rows: 6,
+      value: inputText,
+      placeholder: '例如：\n空山不见人，\n但闻人语响。\n返景入深林，\n复照青苔上。',
+      onChange: (event) => setInputText(event.target.value),
+     }),
+     h(
+      'div',
+      { className: 'dshp-fh-actions' },
+      h('button', { type: 'button', className: 'dshp-btn dshp-btn-primary', onClick: runInputDetection }, '开始检测'),
+      h('button', { type: 'button', className: 'dshp-btn', onClick: () => { setInputText(''); setInputReport(null) } }, '清空'),
+     ),
+     inputReport ? h(DetectionView, { report: inputReport, api }) : null,
+    )
+   }
+
+   if (detector) {
+    return h(
+     'div',
+     null,
+     h('div', { className: 'dshp-fh-chips' },
+      h('button', { type: 'button', className: 'dshp-fh-chip', onClick: () => setDetector('input') }, '自测输入'),
+      detail ? h('button', { type: 'button', className: 'dshp-fh-chip dshp-is-active', onClick: () => setDetector('poem') }, '检测《' + detail.title + '》') : null),
+     renderDetector(),
+    )
+   }
+
+   if (detail) {
+    const rhymeIndexes = detail.tones && Array.isArray(detail.rhymeIdx) ? detail.rhymeIdx : []
+    const rhymeSet = {}
+    for (const index of rhymeIndexes) rhymeSet[index] = true
+    const rows = []
+    const lines = Array.isArray(detail.lines) ? detail.lines : []
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+     rows.push(h(ToneLine, {
+      key: lineIndex,
+      line: lines[lineIndex],
+      tones: detail.tones ? detail.tones[lineIndex] : '',
+      rhyme: Boolean(rhymeSet[lineIndex]),
+      showTones: Boolean(detail.tones),
+     }))
+    }
+    return h(
+     'div',
+     { className: 'dshp-detail' },
+     h('div', { className: 'dshp-fh-actions' },
+      h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { setDetail(null); setDetector('') } }, '← 返回列表'),
+      h('button', { type: 'button', className: 'dshp-btn dshp-btn-small dshp-btn-primary', onClick: () => { setDetector('poem'); if (typeof api.reloadPingshui === 'function' && !pingshui) api.reloadPingshui().catch(() => {}) } }, '格律检测'),
+     ),
+     h('div', { className: 'dshp-lib-detail-title' }, libraryItemLabel(detail)),
+     h('div', { className: 'dshp-lib-note' },
+      ((LIBRARY_CATEGORIES.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId)
+      + (detail.rhythmic ? ' · 词牌 ' + detail.rhythmic : '')),
+     detail.tones ? h('div', { className: 'dshp-lib-lines' }, rows) : h('div', { className: 'dshp-lib-plain' }, lines.map((line, index) => h('div', { key: index }, line))),
+     detail.tones
+      ? h('div', { className: 'dshp-lib-tags' },
+       detail.form ? h('span', { className: 'dshp-tag' }, '体式 ' + detail.form) : null,
+       detail.start ? h('span', { className: 'dshp-tag' }, '起式 ' + detail.start) : null,
+       detail.meter ? h('span', { className: 'dshp-tag' }, detail.meter) : null)
+      : h('div', { className: 'dshp-lib-note' }, '未标注平仄（可点「格律检测」用平水韵逐字标注）'),
+    )
+   }
+
+   const ciModeActive = category === 'ci-selected' || category === 'ci-bank'
+   return h(
+    'div',
+    { className: 'dshp-library' },
+    h(
+     'div',
+     { className: 'dshp-fh-chips' },
+     h('button', { type: 'button', className: 'dshp-fh-chip' + (category === 'all' ? ' dshp-is-active' : ''), onClick: () => setCategory('all') }, '全部 ' + items.length),
+     LIBRARY_CATEGORIES.map((item) => {
+      const count = item.id === 'ci-selected'
+       ? (ciRes.data ? ciSelectedCount : '…')
+       : items.filter((entry) => entry.categoryId === item.id).length
+      return h('button', {
+       key: item.id,
+       type: 'button',
+       className: 'dshp-fh-chip' + (category === item.id ? ' dshp-is-active' : ''),
+       onClick: () => setCategory(item.id),
+      }, item.label + ' ' + count)
+     }),
+    ),
+    ciModeActive
+     ? h('div', { className: 'dshp-search', style: { marginTop: 0 } },
+      h(
+       'div',
+       { className: 'dshp-seg' },
+       h('button', {
+        type: 'button',
+        className: 'dshp-seg-btn' + (category === 'ci-selected' ? ' dshp-is-active' : ''),
+        onClick: () => setCategory('ci-selected'),
+       }, '宋词精选 ' + (ciRes.data ? ciSelectedCount : '…')),
+       h('button', {
+        type: 'button',
+        className: 'dshp-seg-btn' + (category === 'ci-bank' ? ' dshp-is-active' : ''),
+        onClick: () => {
+         setCategory('ci-bank')
+        },
+       }, '全部宋词' + (ciBankRes.data ? '（' + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === 'ci-bank').length) + '）' : '（点击加载）')),
+      ),
+      h('select', {
+       className: 'dshp-select',
+       value: ciRhythmic,
+       'aria-label': category === 'ci-bank' ? '按词牌筛选全部宋词' : '按词牌筛选宋词精选',
+       onChange: (event) => setCiRhythmic(event.target.value),
+      },
+      h('option', { value: '' }, '全部词牌'),
+      (ciRhythmic && !ciRhythmics.some((entry) => entry.name === ciRhythmic)
+       ? [{ name: ciRhythmic, count: 0 }].concat(ciRhythmics)
+       : ciRhythmics).slice(0, 300).map((entry) => h('option', { key: entry.name, value: entry.name }, entry.name + '（' + entry.count + '）'))),
+      h('span', { className: 'dshp-pager-label' }, category === 'ci-bank'
+       ? (ciBankRes.data ? '已载入 ' + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === 'ci-bank').length) + ' 首' : '载入中…')
+       : (ciRes.data ? '已载入 ' + ciSelectedCount + ' 首' : '载入中…')),
+     )
+     : null,
+    h('div', { className: 'dshp-search' },
+     h('input', {
+      className: 'dshp-input',
+      type: 'search',
+      value: query,
+      placeholder: '搜索标题 / 作者 / 词牌 / 诗句',
+      'aria-label': '搜索诗库',
+      onChange: (event) => setQuery(event.target.value),
+     }),
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => setDetector('input') }, '格律自测'),
+    ),
+    debounced
+     ? h(
+      'div',
+      { className: 'dshp-search', style: { marginBottom: '4px' } },
+      h('span', { className: 'dshp-pager-label' }, '搜索范围'),
+      ciModeActive
+       ? h(
+        'div',
+        { className: 'dshp-seg' },
+        h('button', {
+         type: 'button',
+         className: 'dshp-seg-btn' + (ciSearchScope === 'selected' ? ' dshp-is-active' : ''),
+         onClick: () => setCiSearchScope('selected'),
+        }, '精选'),
+        h('button', {
+         type: 'button',
+         className: 'dshp-seg-btn' + (ciSearchScope === 'allCi' ? ' dshp-is-active' : ''),
+         onClick: () => {
+          setCiSearchScope('allCi')
+         },
+        }, '全部宋词'),
+       )
+       : h(
+        'div',
+        { className: 'dshp-seg' },
+        h('button', {
+         type: 'button',
+         className: 'dshp-seg-btn' + (searchScope === 'category' ? ' dshp-is-active' : ''),
+         onClick: () => setSearchScope('category'),
+        }, '当前分类'),
+        h('button', {
+         type: 'button',
+         className: 'dshp-seg-btn' + (searchScope === 'all' ? ' dshp-is-active' : ''),
+         onClick: () => setSearchScope('all'),
+        }, '全部'),
+       ),
+      ciModeActive && ciSearchScope === 'allCi' && !ciBankRes.data
+       ? h('span', { className: 'dshp-pager-label' }, ciBankRes.status === 'loading' ? '宋词全库加载中，暂只搜精选…' : '宋词全库未加载，暂只搜精选')
+       : null,
+     )
+     : null,
+    ciSelectedLoading
+     ? (ciRes.status === 'error'
+      ? h(EmptyState, {
+       title: '宋词精选暂时不可用',
+       message: describeDataError(ciRes.error),
+       onRetry: () => api.reloadCi && api.reloadCi().catch(() => {}),
+      })
+      : h(LoadingState, { text: '正在载入宋词精选 283 首…' }))
+     : ciBankLoading
+      ? (ciBankRes.status === 'error'
+       ? h(EmptyState, {
+        title: '全部宋词暂时不可用',
+        message: ciBankRes.error && ciBankRes.error.status === 404 ? '宋词全库数据尚未生成（assets/data），请稍后重试。' : describeDataError(ciBankRes.error),
+        onRetry: () => api.reloadCiBank && api.reloadCiBank().catch(() => {}),
+       })
+       : h(LoadingState, { text: '正在载入全部宋词（约 2 万首，首次稍慢）…' }))
+      : h(
+       'div',
+       null,
+       h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '共 ' + filtered.length + ' 首' + (debounced !== query ? '（搜索中…）' : '')),
+       shown.length
+        ? h('div', { className: 'dshp-list' }, shown.map((item) => h('button', {
+         key: item.id,
+         type: 'button',
+         className: 'dshp-row',
+         onClick: () => setDetail(item),
+        }, h('span', { className: 'dshp-row-main' },
+         h('span', { className: 'dshp-row-title' }, libraryItemLabel(item)),
+         h('span', { className: 'dshp-row-sub' }, (item.rhythmic ? '词牌 ' + item.rhythmic + ' · ' : '') + ((Array.isArray(item.lines) ? item.lines[0] : '') || '')),
+        ))))
+        : h(EmptyState, { title: '没有匹配的诗词', message: '换一个分类或关键词试试。', icon: '📚' }),
+      ),
+    filtered.length > shown.length
+     ? h('div', { style: { textAlign: 'center', marginTop: '10px' } },
+      h('button', { type: 'button', className: 'dshp-btn', onClick: () => setVisible(visible + LIBRARY_PAGE) }, '加载更多（剩余 ' + (filtered.length - shown.length) + ' 首）'))
+     : null,
+   )
+  }
+
+  class WidgetBoundary extends React.Component {
+  constructor(props) {
+   super(props)
+   this.state = { failed: false }
+   this.handleRetry = this.handleRetry.bind(this)
+  }
+
+  static getDerivedStateFromError() {
+   return { failed: true }
+  }
+
+  componentDidCatch(error) {
+   try {
+    console.warn('[dsh-poetry-widget] 渲染异常，已降级为最小形象：', error)
+   } catch (ignored) {
+   }
+  }
+
+  handleRetry() {
+   this.setState({ failed: false })
+  }
+
+  render() {
+   if (!this.state.failed) return this.props.children
+   return h(
+    'div',
+    {
+    'data-dsh-poetry-widget': 'root',
+    className: 'dshp-root',
+    style: {
+     position: 'fixed',
+     left: '16px',
+     bottom: '24px',
+     zIndex: Z_INDEX,
+     pointerEvents: 'auto',
+     display: 'flex',
+     flexDirection: 'column',
+     alignItems: 'center',
+     gap: '6px',
+     padding: '8px',
+    },
+    },
+    h('style', null, CSS),
+    h('img', {
+    src: mascotUrl(MASCOT_FILES.celebrate),
+    alt: '诗词格律挂件',
+    width: 64,
+    height: 64,
+    draggable: false,
+    style: { display: 'block' },
+    }),
+    h('button', {
+    type: 'button',
+    className: 'dshp-btn',
+    onClick: this.handleRetry,
+    }, '挂件显示异常，点此重试'),
+   )
+  }
+  }
+
+  function apply(ctx) {
+  const host = (props) => h(WidgetBoundary, null, h(PoetryWidget, Object.assign({}, props || {}, { ctx })))
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+   { name: 'shell.overlay', id: WIDGET_ID, order: 80 },
+   host,
+  ))
+  try {
+   if (ctx.logger && typeof ctx.logger.info === 'function') {
+    ctx.logger.info('dsh-poetry-widget: 已注册 shell.overlay 挂件')
+   }
+  } catch (error) {
+  }
+  }
+
+  return {
+  inject: ['slots'],
+  apply,
+  }
+ },
+})
+

@@ -1,0 +1,64 @@
+{
+  "name": "dsh-poetry-widget",
+  "version": "0.1.0",
+  "description": "DSH Web 界面诗词格律挂件：每日一诗、逐字平仄、体式解析与格律小课堂",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "icon": "./assets/icon.webp",
+  "files": [
+    "index.js",
+    "client.js",
+    "assets",
+    "data",
+    "locale",
+    "cordis.patch.yml",
+    "dsh-plugin.naming.json",
+    "README.md",
+    "lib",
+    "PROVENANCE.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "dsh": "0.2.1-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "poetry",
+    "chinese-poetry",
+    "widget",
+    "feihua",
+    "mood"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "opencc-js": "^1.4.2"
+  },
+  "author": "qingwu-aby",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qingwu-aby/dsh-poetry-widget.git"
+  },
+  "homepage": "https://github.com/qingwu-aby/dsh-poetry-widget#readme",
+  "bugs": {
+    "url": "https://github.com/qingwu-aby/dsh-poetry-widget/issues"
+  }
+}

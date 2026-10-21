@@ -1,0 +1,3356 @@
+/**
+ * dsh-poetry-widget —— 客户端挂件单测（node:test，无需真实宿主 / 网络）。
+ *
+ * 做法：在 vm 沙箱里执行 client.js，mock `window.__ModuleLoader__.load`、
+ *       `require('react')`、fetch、localStorage 与 ctx.slots；再断言：
+ *       1) factory 注册 shell.overlay（id/order/组件）；
+ *       2) 设置 PUT body 序列化 + 防抖 + 失败回调；
+ *       3) 逐字平仄渲染 / 繁简选择 / 换一首策略等纯函数；
+ *       4) 组件在主状态与 5 个面板 tab 下可渲染、不崩溃（轻量 React 桩）。
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import vm from 'node:vm'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const CLIENT_PATH = path.join(ROOT, 'client.js')
+const CACHE_KEY = 'dshp.firstscreen.v1'
+
+const POEM = {
+  id: 'p1',
+  title: '送杜少府之任蜀州',
+  titleOriginal: '送杜少府之任蜀州',
+  author: '王勃',
+  authorOriginal: '王勃',
+  dynasty: 'tang',
+  lines: [
+    '城阙辅三秦，风烟望五津。',
+    '与君离别意，同是宦游人。',
+    '海内存知己，天涯若比邻。',
+    '无为在歧路，儿女共沾巾。',
+  ],
+  linesOriginal: [
+    '城闕輔三秦，風煙望五津。',
+    '與君離別意，同是宦遊人。',
+    '海內存知己，天涯若比鄰。',
+    '無爲在歧路，兒女共沾巾。',
+  ],
+  tones: [
+    '平平仄仄平，平仄仄平平。',
+    '仄平平仄仄，平仄仄平平。',
+    '仄仄平平仄，平平仄仄平。',
+    '平平仄仄仄，平仄仄平平。',
+  ],
+  form: '五律',
+  start: '仄起',
+  firstRhyme: true,
+  rhymeIdx: [0, 1, 3],
+  meter: '仄起首句入韵',
+  analysis: '五律，仄起首句入韵。二四六分明，粘对成立；颔联、颈联对仗。',
+  score: 128000,
+  source: 'strains',
+}
+
+/* ------------------------------------------------------------------ */
+/* 轻量 React 桩（支持本插件用到的 hooks / createElement / Component）   */
+/* ------------------------------------------------------------------ */
+
+function createReactMock() {
+  const newState = () => ({ cursor: 0, states: [], refs: [], effects: [] })
+  let state = newState()
+  let cleanups = []
+
+  const react = {
+    _newInstance() {
+      state = newState()
+      cleanups = []
+    },
+    _beginRender() {
+      state.cursor = 0
+      state.effects = []
+    },
+    _state() {
+      return state
+    },
+    /** 执行本轮收集到的 useEffect 回调（测试用；返回值即 cleanup，最后统一清理）。 */
+    _runEffects() {
+      const effects = state.effects.slice()
+      state.effects = []
+      for (const fn of effects) {
+        try {
+          const cleanup = fn()
+          if (typeof cleanup === 'function') cleanups.push(cleanup)
+        } catch (error) {
+          /* 测试桩：单个 effect 失败不中断其余 effect，交给断言暴露 */
+        }
+      }
+      return cleanups.slice()
+    },
+    _cleanup() {
+      for (const fn of cleanups.splice(0)) {
+        try {
+          fn()
+        } catch (error) {
+          /* ignore */
+        }
+      }
+    },
+    createElement(type, props) {
+      const children = Array.prototype.slice.call(arguments, 2).flat(Infinity)
+      return { type, props: props || {}, children }
+    },
+    useState(initial) {
+      const index = state.cursor++
+      if (!(index in state.states)) {
+        state.states[index] = typeof initial === 'function' ? initial() : initial
+      }
+      return [state.states[index], (update) => {
+        state.states[index] = typeof update === 'function' ? update(state.states[index]) : update
+      }]
+    },
+    useRef(initial) {
+      const index = state.cursor++
+      if (!(index in state.refs)) state.refs[index] = { current: initial }
+      return state.refs[index]
+    },
+    useEffect(fn) {
+      state.cursor++
+      if (typeof fn === 'function') state.effects.push(fn)
+    },
+    useMemo(factory) {
+      state.cursor++
+      return factory()
+    },
+    useCallback(callback) {
+      state.cursor++
+      return callback
+    },
+    Component: class Component {
+      constructor(props) {
+        this.props = props || {}
+        this.state = {}
+      }
+
+      setState(update) {
+        this.state = Object.assign({}, this.state, typeof update === 'function' ? update(this.state) : update)
+      }
+    },
+    Fragment: Symbol('Fragment'),
+  }
+  return react
+}
+
+function createStorage(seed) {
+  const map = new Map(Object.entries(seed || {}))
+  return {
+    getItem(key) {
+      return map.has(key) ? map.get(key) : null
+    },
+    setItem(key, value) {
+      map.set(key, String(value))
+    },
+    removeItem(key) {
+      map.delete(key)
+    },
+    clear() {
+      map.clear()
+    },
+  }
+}
+
+function createDocumentMock() {
+  return {
+    head: { appendChild() {} },
+    body: { appendChild() {} },
+    addEventListener() {},
+    removeEventListener() {},
+    createElement() {
+      return { style: {}, setAttribute() {}, appendChild() {}, remove() {}, textContent: '' }
+    },
+  }
+}
+
+/** 在 vm 里执行 client.js，返回 loader spec / 沙箱 context / React 桩 / require 桩。 */
+function loadClient(options) {
+  const opts = options || {}
+  const react = createReactMock()
+  const storage = createStorage(opts.seed)
+  const doc = createDocumentMock()
+  let loaded = null
+
+  const windowMock = {
+    __ModuleLoader__: {
+      load(spec) {
+        loaded = spec
+      },
+    },
+    localStorage: storage,
+    innerWidth: 1280,
+    innerHeight: 800,
+    addEventListener() {},
+    removeEventListener() {},
+    matchMedia() {
+      return { matches: false, addEventListener() {}, removeEventListener() {} }
+    },
+    setTimeout,
+    clearTimeout,
+  }
+
+  const context = {
+    console,
+    window: windowMock,
+    document: doc,
+    localStorage: storage,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    AbortController,
+    requestAnimationFrame: (callback) => setTimeout(callback, 0),
+    cancelAnimationFrame: (id) => clearTimeout(id),
+    fetch: typeof opts.fetch === 'function'
+      ? opts.fetch
+      : async () => ({ ok: true, json: async () => ({ ok: true }) }),
+  }
+
+  vm.createContext(context)
+  vm.runInContext(readFileSync(CLIENT_PATH, 'utf8'), context, { filename: CLIENT_PATH })
+
+  assert.ok(loaded, 'client.js 必须调用 window.__ModuleLoader__.load')
+  const requireMock = (id) => {
+    if (id === 'react') return react
+    throw new Error('测试桩未提供模块：' + id)
+  }
+  const mod = loaded.factory(requireMock)
+  const debug = context.__dshPoetryDebug
+  assert.ok(debug, 'factory 必须挂载 globalThis.__dshPoetryDebug 调试钩子')
+  return { loaded, context, react, requireMock, storage, debug, mod }
+}
+
+/* ------------------------------------------------------------------ */
+/* 树遍历：展开函数组件（测试桩里没有 hooks 依赖的纯展示组件）            */
+/* ------------------------------------------------------------------ */
+
+/* 只展开无 hooks 的纯展示组件；带 hooks 的组件必须由 renderFresh 直接渲染，
+   否则测试桩的 hook 槽位会被嵌套调用打乱。 */
+const EXPANDABLE_COMPONENTS = new Set([
+  'PoemBody',
+  'ToneLine',
+  'Legend',
+  'AnalysisBody',
+  'CiBody',
+  'KnowledgeCardView',
+  'EmptyState',
+  'LoadingState',
+  'TodayTab',
+  'DetectionView',
+])
+
+function expand(node) {
+  let current = node
+  let guard = 0
+  while (current && typeof current === 'object' && !Array.isArray(current)
+    && typeof current.type === 'function'
+    && EXPANDABLE_COMPONENTS.has(current.type.name)
+    && guard < 60) {
+    guard += 1
+    current = current.type(current.props || {})
+  }
+  return current
+}
+
+function walk(node, visit) {
+  if (node === null || node === undefined || node === false || node === true) return
+  if (Array.isArray(node)) {
+    node.forEach((item) => walk(item, visit))
+    return
+  }
+  if (typeof node === 'string' || typeof node === 'number') {
+    visit({ text: String(node) })
+    return
+  }
+  if (typeof node !== 'object') return
+  const expanded = expand(node)
+  if (expanded !== node) {
+    walk(expanded, visit)
+    return
+  }
+  visit(node)
+  const children = Array.isArray(node.children) ? node.children : []
+  children.forEach((child) => walk(child, visit))
+}
+
+function textOf(node) {
+  const parts = []
+  walk(node, (item) => {
+    if (typeof item.text === 'string') parts.push(item.text)
+  })
+  return parts.join('')
+}
+
+function findAll(node, predicate) {
+  const out = []
+  walk(node, (item) => {
+    if (item && item.type && predicate(item)) out.push(item)
+  })
+  return out
+}
+
+function renderFresh(react, component, props) {
+  react._newInstance()
+  return component(props)
+}
+
+function rerender(react, component, props) {
+  react._beginRender()
+  return component(props)
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** vm 沙箱里创建的对象原型来自另一个 realm，先 JSON 归一化再比较结构。 */
+function toPlain(value) {
+  return JSON.parse(JSON.stringify(value))
+}
+
+function assertDeep(actual, expected, message) {
+  assert.deepEqual(toPlain(actual), expected, message)
+}
+
+/* ------------------------------------------------------------------ */
+/* 1. 注册契约                                                          */
+/* ------------------------------------------------------------------ */
+
+test('factory 注册 shell.overlay：id=dsh-poetry-widget、order=80、组件为函数', () => {
+  const { loaded, requireMock } = loadClient()
+  assert.equal(loaded.id, 'dsh-poetry-widget')
+  assert.equal(typeof loaded.factory, 'function')
+
+  const mod = loaded.factory(requireMock)
+  assertDeep(mod.inject, ['slots'])
+  assert.equal(typeof mod.apply, 'function')
+
+  const injections = []
+  const registrations = []
+  const ctx = {
+    slots: {
+      inject(name, callback) {
+        injections.push(name)
+        callback()
+      },
+      register(options, component) {
+        registrations.push({ options, component })
+        return () => {}
+      },
+    },
+    effect(fn) {
+      return fn()
+    },
+    logger: { info() {} },
+  }
+  mod.apply(ctx)
+
+  assertDeep(injections, ['shell.overlay'])
+  assert.equal(registrations.length, 1)
+  const { options, component } = registrations[0]
+  assert.equal(options.name, 'shell.overlay')
+  assert.equal(options.id, 'dsh-poetry-widget')
+  assert.equal(options.order, 80)
+  assert.equal(typeof component, 'function')
+
+  const hostElement = component({})
+  assert.equal(typeof hostElement.type, 'function', '注册组件必须返回错误边界包裹的 React 元素')
+})
+
+/* ------------------------------------------------------------------ */
+/* 2. 设置：归一化 / PUT body 序列化 / 防抖                              */
+/* ------------------------------------------------------------------ */
+
+test('normalizeSettings：clamp scale、枚举白名单、默认值', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.normalizeSettings(null).scale, 1)
+  assert.equal(debug.normalizeSettings({ scale: 3 }).scale, 1.6)
+  assert.equal(debug.normalizeSettings({ scale: 0.1 }).scale, 0.6)
+  assert.equal(debug.normalizeSettings({ scale: 'x' }).scale, 1)
+  assert.equal(debug.normalizeSettings({ mode: 'nope' }).mode, 'daily')
+  assert.equal(debug.normalizeSettings({ mode: 'random' }).mode, 'random')
+  assert.equal(debug.normalizeSettings({ autoplay: 45 }).autoplay, 0)
+  assert.equal(debug.normalizeSettings({ autoplay: 60 }).autoplay, 60)
+  assert.equal(debug.normalizeSettings({ snap: 'right' }).snap, 'right')
+  assert.equal(debug.normalizeSettings({ snap: 'diagonal' }).snap, 'left')
+  assert.equal(debug.normalizeSettings({ script: 'original' }).script, 'original')
+  assert.equal(debug.normalizeSettings({ showTones: false }).showTones, false)
+  assert.equal(debug.normalizeSettings({ hidden: true }).hidden, true)
+  assert.equal(debug.normalizeSettings({ lastPoemId: '' }).lastPoemId, null)
+})
+
+test('settingsPatch / buildSettingsRequest：白名单序列化 PUT body', () => {
+  const { debug } = loadClient()
+  const patch = debug.settingsPatch({
+    scale: 1.2,
+    mode: 'random',
+    hidden: true,
+    lastPoemId: 'p9',
+    bogus: 1,
+    schemaVersion: 9,
+    updatedAt: 5,
+  })
+  assertDeep(patch, { scale: 1.2, mode: 'random', hidden: true, lastPoemId: 'p9' })
+  assert.equal(Object.prototype.hasOwnProperty.call(patch, 'schemaVersion'), false)
+  assert.equal(Object.prototype.hasOwnProperty.call(patch, 'updatedAt'), false)
+
+  const request = debug.buildSettingsRequest({ scale: 1.25, showTones: false, snap: 'free' })
+  assert.equal(request.url, '/api/dsh-poetry/settings.json')
+  assert.equal(request.init.method, 'PUT')
+  assert.equal(request.init.headers['Content-Type'], 'application/json')
+  assertDeep(JSON.parse(request.init.body), { scale: 1.25, showTones: false, snap: 'free' })
+})
+
+test('createSettingsSaver：防抖合并多次改动为一次 PUT，失败回调不抛出', async () => {
+  const { debug } = loadClient()
+  const calls = []
+  const errors = []
+  const saver = debug.createSettingsSaver({
+    delay: 25,
+    put: async (patch) => {
+      calls.push(patch)
+      return { ok: true }
+    },
+    onError: (error) => errors.push(error),
+  })
+
+  saver.save({ scale: 1.1 })
+  saver.save({ mode: 'random' })
+  saver.save({ showTones: false })
+  assert.equal(calls.length, 0, 'debounce 窗口内不应发请求')
+  await sleep(90)
+  assert.equal(calls.length, 1, '多次 save 应合并为一次 PUT')
+  assertDeep(calls[0], { scale: 1.1, mode: 'random', showTones: false })
+
+  const failing = debug.createSettingsSaver({
+    delay: 10,
+    put: () => Promise.reject(new Error('network down')),
+    onError: (error) => errors.push(error),
+  })
+  assert.doesNotThrow(() => failing.save({ snap: 'left' }))
+  await sleep(50)
+  assert.equal(errors.length, 1)
+  assert.match(errors[0].message, /network down/)
+
+  saver.dispose()
+  failing.dispose()
+})
+
+/* ------------------------------------------------------------------ */
+/* 3. 平仄渲染 / 繁简选择 / 换一首策略                                    */
+/* ------------------------------------------------------------------ */
+
+test('buildToneCells：平/仄/○/标点/韵脚下划线，平仄开关生效', () => {
+  const { debug } = loadClient()
+  const cells = debug.buildToneCells('城阙辅三秦，', '平平仄仄平，', { showTones: true, rhymeLine: true })
+  assert.equal(cells.length, 6)
+  assertDeep(cells.map((cell) => cell.ch), ['城', '阙', '辅', '三', '秦', '，'])
+  assertDeep(cells.slice(0, 5).map((cell) => cell.kind), ['ping', 'ping', 'ze', 'ze', 'ping'])
+  assertDeep(cells.slice(0, 5).map((cell) => cell.tone), ['平', '平', '仄', '仄', '平'])
+  assert.equal(cells[5].punctuation, true)
+  assert.equal(cells[5].tone, '')
+  assert.ok(cells[0].className.includes('dshp-ch-ping'))
+  assert.ok(cells[2].className.includes('dshp-ch-ze'))
+  assert.equal(cells[4].rhyme, true)
+  assert.ok(cells[4].className.includes('dshp-ch-rhyme'))
+  assert.equal(cells[5].rhyme, false)
+
+  // 关闭平仄标注：不出现平/仄 class，但韵脚下划线保留（自测模式）
+  const plain = debug.buildToneCells('城阙辅三秦，', '平平仄仄平，', { showTones: false, rhymeLine: true })
+  assert.equal(plain[0].tone, '')
+  assert.ok(!plain[0].className.includes('dshp-ch-ping'))
+  assert.ok(!plain[2].className.includes('dshp-ch-ze'))
+  assert.ok(plain[4].className.includes('dshp-ch-rhyme'))
+
+  // ○ = 多音可平可仄（灰）；未知/空 = 不标注
+  const multi = debug.buildToneCells('看', '○', { showTones: true })
+  assert.equal(multi[0].kind, 'any')
+  assert.ok(multi[0].className.includes('dshp-ch-any'))
+  const unknown = debug.buildToneCells('看', '', { showTones: true })
+  assert.equal(unknown[0].className.trim(), 'dshp-ch')
+})
+
+test('selectPoemText：original 选 *Original，缺字段回落简体', () => {
+  const { debug } = loadClient()
+  assertDeep(debug.selectPoemText(POEM, 'original'), {
+    title: '送杜少府之任蜀州',
+    author: '王勃',
+    lines: POEM.linesOriginal,
+  })
+  assertDeep(debug.selectPoemText(POEM, 'simplified'), {
+    title: '送杜少府之任蜀州',
+    author: '王勃',
+    lines: POEM.lines,
+  })
+  const bare = { title: '静夜思', author: '李白', lines: ['床前明月光，'] }
+  assertDeep(debug.selectPoemText(bare, 'original'), {
+    title: '静夜思',
+    author: '李白',
+    lines: ['床前明月光，'],
+  })
+  assertDeep(debug.poemRhymeLines(POEM), [0, 1, 3])
+  assertDeep(debug.poemRhymeLines({ lines: ['a', 'b', 'c', 'd'] }), [1, 3])
+})
+
+test('selectNextPoemId：daily 回到今日/顺序下一首，random 避开当前', () => {
+  const { debug } = loadClient()
+  const items = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  assert.equal(debug.selectNextPoemId({ items, currentId: 'b', todayId: 'a', mode: 'daily' }), 'a')
+  assert.equal(debug.selectNextPoemId({ items, currentId: 'a', todayId: 'a', mode: 'daily' }), 'b')
+  assert.equal(debug.selectNextPoemId({ items, currentId: 'b', todayId: 'a', mode: 'random', random: () => 0 }), 'a')
+  assert.equal(debug.selectNextPoemId({ items, currentId: 'a', todayId: 'a', mode: 'random', random: () => 0 }), 'b')
+  assert.equal(debug.selectNextPoemId({ items: [], mode: 'daily' }), null)
+})
+
+/* ------------------------------------------------------------------ */
+/* 4. 数据层：失败友好提示 / 可重试                                      */
+/* ------------------------------------------------------------------ */
+
+test('fetchJson / loadResource：HTTP 错误与 DATA_UNAVAILABLE 友好降级，失败后可重试', async () => {
+  const { context, debug } = loadClient()
+  let calls = 0
+  context.fetch = async () => {
+    calls += 1
+    if (calls === 1) return { ok: false, status: 404, json: async () => ({}) }
+    if (calls === 2) return { ok: true, json: async () => ({ ok: false, error: { code: 'DATA_UNAVAILABLE', message: '缺失' } }) }
+    return { ok: true, json: async () => ({ ok: true, items: [{ id: 'poem-1' }] }) }
+  }
+
+  await assert.rejects(() => debug.fetchJson('bootstrap.json'), (error) => {
+    assert.equal(error.status, 404)
+    return true
+  })
+  assert.match(debug.describeDataError({ status: 404 }), /接口尚未就绪/)
+  assert.match(debug.describeDataError({ message: 'The operation was aborted' }), /超时/)
+
+  await assert.rejects(() => debug.fetchJson('poems.json'), (error) => {
+    assert.equal(error.code, 'DATA_UNAVAILABLE')
+    return true
+  })
+  assert.match(debug.describeDataError({ code: 'DATA_UNAVAILABLE' }), /暂不可用/)
+
+  let resourceCalls = 0
+  context.fetch = async () => {
+    resourceCalls += 1
+    if (resourceCalls === 1) return { ok: false, status: 500, json: async () => ({}) }
+    return { ok: true, json: async () => ({ ok: true, items: [{ id: 'poem-1' }] }) }
+  }
+  await assert.rejects(() => debug.loadResource('poems'))
+  const data = await debug.loadResource('poems')
+  assert.equal(data.items.length, 1)
+  assert.equal(resourceCalls, 2, '失败后 in-flight 必须清空，允许重试')
+  debug.clearResourceCache()
+})
+
+test('clampPosition / anchorPosition：限制在视口内，贴左贴右', () => {
+  const { debug } = loadClient()
+  const viewport = { w: 1280, h: 800 }
+  assertDeep(debug.clampPosition({ x: -50, y: 99999 }, 96, viewport), { x: 8, y: 800 - 96 - 8 })
+  assertDeep(debug.anchorPosition('left', 96, viewport, { x: 900, y: 100 }), { x: 16, y: 100 })
+  assertDeep(debug.anchorPosition('right', 96, viewport, { x: 20, y: 100 }), { x: 1280 - 96 - 16, y: 100 })
+  assertDeep(debug.anchorPosition('free', 96, viewport, { x: 500, y: 300 }), { x: 500, y: 300 })
+})
+
+/* ------------------------------------------------------------------ */
+/* 5. 组件渲染冒烟（轻量 React 桩）                                      */
+/* ------------------------------------------------------------------ */
+
+test('PoetryWidget：root 契约 / 形象资源 / 样式 / 首屏指引', () => {
+  const { react, debug } = loadClient()
+  const tree = renderFresh(react, debug.PoetryWidget, {})
+
+  const roots = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')
+  assert.equal(roots.length, 1)
+  const root = roots[0]
+  assert.equal(root.type, 'div')
+  assert.equal(root.props.className, 'dshp-root')
+  assert.equal(root.props.style.position, 'fixed')
+  assert.equal(root.props.style.pointerEvents, 'auto')
+  assert.equal(root.props.style.width, '96px')
+  assert.equal(root.props.style.height, '96px')
+
+  const images = findAll(tree, (node) => node.type === 'img')
+  assert.equal(images.length, 1)
+  assert.equal(images[0].props.src, '/api/dsh-poetry/assets?f=generated/dsh-whale-state-celebrate.webp')
+
+  const styles = findAll(tree, (node) => node.type === 'style')
+  assert.equal(styles.length, 1)
+  const css = String(styles[0].children[0] || '')
+  assert.match(css, /\.dshp-root/)
+  assert.match(css, /dshp-ch-ping/)
+  assert.match(css, /prefers-reduced-motion/)
+
+  const text = textOf(tree)
+  assert.match(text, /点我看今日一诗/)
+  const tips = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-tip')
+  assert.equal(tips.length, 1)
+})
+
+test('PoetryWidget：hidden=true 时渲染恢复热区（长按/双击恢复）', () => {
+  const seed = {}
+  seed[CACHE_KEY] = JSON.stringify({
+    dataVersion: '2026-10-21.1',
+    bootstrap: {
+      ok: true,
+      version: '0.1.0',
+      dataVersion: '2026-10-21.1',
+      today: { date: '2026-10-21', poemId: 'p1' },
+      settings: { hidden: true },
+    },
+    settings: { hidden: true },
+    todayPoem: null,
+  })
+  const { react, debug } = loadClient({ seed })
+  const tree = renderFresh(react, debug.PoetryWidget, {})
+  const root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  assert.equal(root.props.style.width, '28px')
+  assert.equal(root.props['data-dshp-hidden'], 'true')
+  const restore = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-restore')
+  assert.equal(restore.length, 1)
+  assert.equal(restore[0].props.role, 'button')
+  assert.match(String(restore[0].props.title), /长按/)
+  assert.equal(findAll(tree, (node) => node.type === 'img').length, 0)
+})
+
+test('TodayTab：诗题/作者/正文平仄着色 + 格律解析', () => {
+  const { react, debug } = loadClient()
+  const api = {
+    poem: POEM,
+    todayPoemId: 'p1',
+    poemItems: [POEM],
+    settings: debug.normalizeSettings({}),
+    poemsRes: { status: 'ready', data: { ok: true, items: [POEM] } },
+    boot: { status: 'ready', data: { version: '0.1.0' } },
+    changePoem() {},
+    backToToday() {},
+  }
+  const tree = renderFresh(react, debug.TodayTab, { api })
+  const text = textOf(tree)
+  assert.match(text, /送杜少府之任蜀州/)
+  assert.match(text, /王勃/)
+  assert.match(text.replace(/[平仄○]/g, ''), /城阙辅三秦/)
+  assert.match(text, /换一首/)
+  assert.match(text, /格律解析/)
+  assert.match(text, /仄起首句入韵/)
+
+  const pingCells = findAll(tree, (node) => node.type === 'span'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-ch-ping'))
+  const zeCells = findAll(tree, (node) => node.type === 'span'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-ch-ze'))
+  const rhymeCells = findAll(tree, (node) => node.type === 'span'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-ch-rhyme'))
+  assert.ok(pingCells.length > 0, '应渲染平声字')
+  assert.ok(zeCells.length > 0, '应渲染仄声字')
+  assert.ok(rhymeCells.length >= 3, 'rhymeIdx 中每句应有一个韵脚下划线')
+})
+
+test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', () => {
+  const { react, debug } = loadClient()
+  const api = {
+    settings: debug.normalizeSettings({}),
+    updateSettings() {},
+    hideWidget() {},
+    resetSettings() {},
+    boot: {
+      data: { version: '0.1.0', dataVersion: '2026-10-21.1', source: { commit: 'abcdef1234567890' } },
+    },
+  }
+  const tree = renderFresh(react, debug.SettingsTab, { api })
+  const text = textOf(tree)
+  for (const label of ['大小', '平仄标注', '点诗模式', '自动轮播', '吸附', '显示文字', '隐藏挂件', '恢复默认', '关于', '数据版本']) {
+    assert.ok(text.includes(label), '设置面板缺少：' + label)
+  }
+  const ranges = findAll(tree, (node) => node.type === 'input' && node.props.type === 'range')
+  assert.equal(ranges.length, 1)
+  assert.equal(ranges[0].props.min, 60)
+  assert.equal(ranges[0].props.max, 160)
+  assert.equal(ranges[0].props.value, 100)
+  assert.ok(findAll(tree, (node) => node.props && node.props.role === 'switch').length >= 1)
+  assert.ok(findAll(tree, (node) => node.type === 'select').length >= 1)
+  assert.ok(findAll(tree, (node) => node.type === 'option').length >= 4)
+  assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === '隐藏').length, 1)
+  assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === '恢复默认').length, 1)
+})
+
+test('ClassTab / YunTab / CiTab：12 卡课堂、30 韵部结构、词牌卡与名篇词列表', () => {
+  const { react, debug } = loadClient()
+
+  const cards = [
+    { id: 'tones', title: '四声与平仄', summary: '导语一', paragraphs: ['正文一'], examples: [{ text: '白日依山尽，', note: '例句注释' }] },
+    { id: 'rhyme', title: '平水韵与押韵', summary: '导语二', paragraphs: ['正文二'], examples: [] },
+  ]
+  const classTree = renderFresh(react, debug.ClassTab, {
+    api: { knowledgeRes: { status: 'ready', data: { cards } }, reloadKnowledge: async () => {} },
+  })
+  const classText = textOf(classTree)
+  assert.match(classText, /四声与平仄/)
+  assert.match(classText, /平水韵与押韵/)
+  assert.match(classText, /白日依山尽/)
+  assert.match(classText, /上一张/)
+  assert.match(classText, /下一张/)
+
+  const volumes = [
+    {
+      title: '上卷',
+      chapters: [
+        { name: '一 东', exampleChars: ['风', '空'], exampleLine: '云对雨，雪对风。', paragraphs: ['云对雨，雪对风。'] },
+        { name: '二 冬', exampleChars: ['冬', '钟'], exampleLine: '春对夏，秋对冬。', paragraphs: ['春对夏，秋对冬。'] },
+      ],
+    },
+    {
+      title: '下卷',
+      chapters: [
+        { name: '一 先', exampleChars: ['先', '天'], exampleLine: '晴对雨，地对天。', paragraphs: ['晴对雨，地对天。'] },
+      ],
+    },
+  ]
+  const yunApi = { yunRes: { status: 'ready', data: { volumes } }, reloadYun: async () => {} }
+  const yunTree = renderFresh(react, debug.YunTab, { api: yunApi })
+  const yunText = textOf(yunTree)
+  assert.match(yunText, /声律启蒙/)
+  assert.match(yunText, /上卷/)
+  assert.match(yunText, /下卷/)
+  assert.match(yunText, /一 东/)
+  assert.match(yunText, /一 先/)
+  const rows = findAll(yunTree, (node) => node.type === 'button' && node.props['aria-expanded'] !== undefined)
+  assert.equal(rows.length, 3)
+  // 点击第一个韵部 → 展开正文（状态更新后重渲染）
+  assert.equal(rows[0].props['aria-expanded'], false)
+  rows[0].props.onClick()
+  const yunTree2 = rerender(react, debug.YunTab, { api: yunApi })
+  const expandedRows = findAll(yunTree2, (node) => node.type === 'button' && node.props['aria-expanded'] === true)
+  assert.equal(expandedRows.length, 1)
+  assert.match(textOf(yunTree2), /云对雨，雪对风。/)
+
+  const ciItems = [
+    { id: 'ci-1', author: '苏轼', rhythmic: '水调歌头', title: '水调歌头·明月几时有', lines: ['明月几时有，把酒问青天。'], quote: '但愿人长久，千里共婵娟。', score: 1 },
+    { id: 'ci-2', author: '李清照', rhythmic: '如梦令', title: '如梦令·常记溪亭日暮', lines: ['常记溪亭日暮，沉醉不知归路。'], quote: '', score: 2 },
+  ]
+  const ciCards = [
+    { id: 'shuidiaogetou', name: '水调歌头', aliases: ['元会曲'], form: '双调九十五字', rhyme: '平韵', note: '风格', example: '但愿人长久，千里共婵娟。' },
+  ]
+  const ciApi = {
+    knowledgeRes: { status: 'ready', data: { ciCards } },
+    ciRes: { status: 'ready', data: { items: ciItems } },
+    reloadKnowledge: async () => {},
+    reloadCi: async () => {},
+  }
+  const ciTree = renderFresh(react, debug.CiTab, { api: ciApi })
+  const ciText = textOf(ciTree)
+  assert.match(ciText, /名篇词/)
+  assert.match(ciText, /词牌卡/)
+  assert.match(ciText, /共 2 首/)
+  assert.match(ciText, /水调歌头·明月几时有/)
+  assert.match(ciText, /如梦令/)
+  const searches = findAll(ciTree, (node) => node.type === 'input' && node.props.type === 'search')
+  assert.equal(searches.length, 1)
+  const filters = findAll(ciTree, (node) => node.type === 'select')
+  assert.equal(filters.length, 1)
+  // 切到词牌卡
+  const segButtons = findAll(ciTree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-seg-btn'))
+  assert.equal(segButtons.length, 2)
+  segButtons[1].props.onClick()
+  const ciTree2 = rerender(react, debug.CiTab, { api: ciApi })
+  const ciText2 = textOf(ciTree2)
+  assert.match(ciText2, /双调九十五字/)
+  assert.match(ciText2, /元会曲/)
+})
+
+test('数据未就绪时组件显示空态 + 重试按钮，不崩溃', () => {
+  const { react, debug } = loadClient()
+  const api = {
+    poem: null,
+    poemItems: [],
+    poemsRes: { status: 'error', error: { status: 404 } },
+    boot: { status: 'error', error: { status: 404 } },
+    settings: debug.normalizeSettings({}),
+    poem: null,
+    retryBootstrap() {},
+    reloadPoems: async () => {},
+    changePoem() {},
+    backToToday() {},
+  }
+  const tree = renderFresh(react, debug.TodayTab, { api })
+  const text = textOf(tree)
+  assert.match(text, /数据尚未就绪|暂时不可用/)
+  assert.match(text, /重试/)
+  assert.ok(findAll(tree, (node) => node.type === 'button').length >= 1)
+})
+
+/* ------------------------------------------------------------------ */
+/* 6. 首屏缓存与交互链路冒烟                                             */
+/* ------------------------------------------------------------------ */
+
+const CACHE_SEED = (() => {
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion: '2026-10-21.1',
+    source: { repo: 'chinese-poetry/chinese-poetry', commit: 'b8594f81a897', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: POEM.id },
+    counts: { poems: 500, ci: 300, yun: 30, cards: 12, ciCards: 15 },
+    settings: {},
+  }
+  return {
+    [CACHE_KEY]: JSON.stringify({
+      dataVersion: '2026-10-21.1',
+      bootstrap,
+      settings: {},
+      todayPoem: POEM,
+    }),
+  }
+})()
+
+function pointerEvent(pointerId) {
+  return {
+    pointerId,
+    button: 0,
+    clientX: 120,
+    clientY: 740,
+    cancelable: false,
+    currentTarget: { setPointerCapture() {}, releasePointerCapture() {} },
+    preventDefault() {},
+  }
+}
+
+function findStage(tree) {
+  return findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-stage')[0]
+}
+
+test('localStorage 首屏缓存：读写 / 损坏 JSON 安全降级', () => {
+  const { storage, debug } = loadClient()
+  const payload = {
+    dataVersion: '2026-10-21.1',
+    bootstrap: { ok: true, today: { date: '2026-10-21', poemId: 'p1' } },
+    settings: { scale: 1.2 },
+    todayPoem: POEM,
+  }
+  debug.writeFirstScreenCache(payload)
+  const read = debug.readFirstScreenCache()
+  assert.equal(read.dataVersion, '2026-10-21.1')
+  assert.equal(read.bootstrap.today.poemId, 'p1')
+  debug.clearFirstScreenCache()
+  assert.equal(debug.readFirstScreenCache(), null)
+  storage.setItem(CACHE_KEY, '{broken json')
+  assert.equal(debug.readFirstScreenCache(), null)
+})
+
+test('气泡序列：点击形象依次推进 6 步后收起，再点回到第 1 步', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  let stage = findStage(tree)
+  assert.ok(stage, '形象必须可点击')
+
+  for (let index = 0; index < debug.STEPS.length; index++) {
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = rerender(react, debug.PoetryWidget, {})
+    const bubbles = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
+    assert.equal(bubbles.length, 1, '第 ' + (index + 1) + ' 步应显示气泡')
+    assert.ok(textOf(bubbles[0]).includes(debug.STEPS[index]), '气泡标题应为「' + debug.STEPS[index] + '」')
+    stage = findStage(tree)
+    assert.ok(stage, '推进过程中形象应保持可见')
+  }
+
+  // 第 7 次点击 → 收起（无气泡）
+  stage.props.onPointerDown(pointerEvent(2))
+  stage.props.onPointerUp(pointerEvent(2))
+  const closed = rerender(react, debug.PoetryWidget, {})
+  assert.equal(findAll(closed, (node) => node.type === 'div' && node.props.className === 'dshp-bubble').length, 0)
+
+  // 收起后再点 → 回到第 1 步
+  const stageClosed = findStage(closed)
+  stageClosed.props.onPointerDown(pointerEvent(3))
+  stageClosed.props.onPointerUp(pointerEvent(3))
+  const reopened = rerender(react, debug.PoetryWidget, {})
+  const bubbles = findAll(reopened, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
+  assert.equal(bubbles.length, 1)
+  assert.match(textOf(bubbles[0]), /今日一诗/)
+})
+
+test('面板 7 tab 可切换；隐藏后热区双击可恢复', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  const stage = findStage(tree)
+  stage.props.onContextMenu({ preventDefault() {} })
+  tree = rerender(react, debug.PoetryWidget, {})
+
+  const panels = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-panel')
+  assert.equal(panels.length, 1, '右键形象应打开面板')
+  const tabs = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-tab'))
+  assert.equal(tabs.length, 7)
+  assert.deepEqual(tabs.map((tab) => textOf(tab)), ['今日', '课堂', '韵部', '词牌', '诗库', '飞花', '设置'])
+
+  for (let index = 0; index < tabs.length; index++) {
+    tabs[index].props.onClick()
+    tree = rerender(react, debug.PoetryWidget, {})
+    assert.equal(
+      findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-panel').length,
+      1,
+      'tab ' + index + ' 切换后面板不应消失',
+    )
+    assert.ok(textOf(tree).length > 0)
+  }
+
+  // 设置 tab：隐藏按钮（面板 tab 有 hooks 不展开，直接调 api）→ 只剩恢复热区
+  const settingsElement = findAll(
+    tree,
+    (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab',
+  )[0]
+  assert.ok(settingsElement, '设置 tab 应渲染 SettingsTab')
+  settingsElement.props.api.hideWidget()
+  tree = rerender(react, debug.PoetryWidget, {})
+  let root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  assert.equal(root.props.style.width, '28px')
+  const restore = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-restore')[0]
+  assert.ok(restore)
+  assert.equal(findAll(tree, (node) => node.type === 'img').length, 0)
+
+  // 双击热区 → 恢复
+  restore.props.onDoubleClick({ preventDefault() {}, stopPropagation() {} })
+  tree = rerender(react, debug.PoetryWidget, {})
+  root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  assert.equal(root.props.style.width, '96px')
+  assert.equal(findAll(tree, (node) => node.type === 'img').length, 1)
+})
+
+test('CSS 变量与样式注入：宿主 token + 暗色兜底 + 花括号平衡', () => {
+  const { react, debug } = loadClient()
+  const tree = renderFresh(react, debug.PoetryWidget, {})
+  const css = String(findAll(tree, (node) => node.type === 'style')[0].children[0] || '')
+  assert.match(css, /--dsw-alias-bg-module-platform/)
+  assert.match(css, /--dsw-alias-label-primary/)
+  assert.match(css, /--dsw-alias-border-l2/)
+  assert.match(css, /--dsw-static-accent/)
+  assert.match(css, /prefers-color-scheme: dark/)
+  assert.equal((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length, 'CSS 花括号必须平衡')
+})
+
+/* ------------------------------------------------------------------ */
+/* 7. 真实 data/ 产物冒烟（只读；缺失时跳过）                             */
+/* ------------------------------------------------------------------ */
+
+const DATA_DIR = path.join(ROOT, 'data')
+const REAL_DATA_FILES = ['poems.json', 'ci.json', 'yun.json', 'knowledge.json']
+const HAS_REAL_DATA = REAL_DATA_FILES.every((name) => existsSync(path.join(DATA_DIR, name)))
+
+test('真实数据冒烟：全部诗逐字渲染 / 30 韵部 / 全部词 / 12+15 卡', {
+  skip: HAS_REAL_DATA ? false : 'data/ 产物尚未就绪',
+}, () => {
+  const readJson = (name) => JSON.parse(readFileSync(path.join(DATA_DIR, name), 'utf8'))
+  const poems = readJson('poems.json')
+  const ci = readJson('ci.json')
+  const yun = readJson('yun.json')
+  const knowledge = readJson('knowledge.json')
+  const manifest = readJson('manifest.json')
+
+  assert.ok(poems.items.length >= 30)
+  assert.equal(yun.volumes.length, 2)
+  assert.equal(knowledge.cards.length, 12)
+  assert.equal(knowledge.ciCards.length, 15)
+
+  const { react, debug } = loadClient()
+  const settings = debug.normalizeSettings({})
+
+  // 每一首诗的正文 + 平仄都能渲染（不崩溃、逐字单元格数 >= 字符数）
+  for (const poem of poems.items) {
+    const api = {
+      poem,
+      todayPoemId: poem.id,
+      poemItems: poems.items,
+      settings,
+      poemsRes: { status: 'ready', data: poems },
+      boot: { status: 'ready', data: { version: '0.1.0' } },
+      changePoem() {},
+      backToToday() {},
+    }
+    const tree = renderFresh(react, debug.TodayTab, { api })
+    const cells = findAll(tree, (node) => node.type === 'span'
+      && typeof node.props.className === 'string'
+      && node.props.className.indexOf('dshp-ch') === 0)
+    const expected = poem.lines.reduce((sum, line) => sum + Array.from(line).length, 0)
+    assert.ok(cells.length >= expected, '诗 ' + poem.id + ' 的平仄单元格数量不足')
+    const text = textOf(tree).replace(/[平仄○]/g, '')
+    assert.ok(text.includes(Array.from(poem.title)[0]), '诗 ' + poem.id + ' 标题未渲染')
+  }
+
+  // 韵部：上下卷共 30 个可展开行
+  const yunTree = renderFresh(react, debug.YunTab, {
+    api: { yunRes: { status: 'ready', data: yun }, reloadYun: async () => {} },
+  })
+  const yunRows = findAll(yunTree, (node) => node.type === 'button' && node.props['aria-expanded'] !== undefined)
+  assert.equal(yunRows.length, 30)
+
+  // 课堂：12 张卡目录
+  const classTree = renderFresh(react, debug.ClassTab, {
+    api: { knowledgeRes: { status: 'ready', data: knowledge }, reloadKnowledge: async () => {} },
+  })
+  assert.match(textOf(classTree), /共 12 张卡/)
+
+  // 词牌：全部名篇词 + 15 张词牌卡
+  const ciTree = renderFresh(react, debug.CiTab, {
+    api: {
+      knowledgeRes: { status: 'ready', data: knowledge },
+      ciRes: { status: 'ready', data: ci },
+      reloadKnowledge: async () => {},
+      reloadCi: async () => {},
+    },
+  })
+  assert.match(textOf(ciTree), new RegExp('共 ' + ci.items.length + ' 首'))
+
+  // 主挂件：真实 bootstrap + 今日诗（localStorage 首屏缓存路径）
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion: manifest.dataVersion,
+    source: manifest.source,
+    today: { date: '2026-10-21', poemId: poems.items[0].id },
+    counts: { poems: poems.items.length, ci: ci.items.length, yun: 30, cards: 12, ciCards: 15 },
+    settings: {},
+  }
+  const todayPoem = poems.items[0]
+  const client = loadClient({
+    seed: {
+      [CACHE_KEY]: JSON.stringify({ dataVersion: manifest.dataVersion, bootstrap, settings: {}, todayPoem }),
+    },
+  })
+  const mainTree = renderFresh(client.react, client.debug.PoetryWidget, {})
+  assert.equal(findAll(mainTree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root').length, 1)
+  const stage = findStage(mainTree)
+  stage.props.onPointerDown(pointerEvent(1))
+  stage.props.onPointerUp(pointerEvent(1))
+  const stepTree = rerender(client.react, client.debug.PoetryWidget, {})
+  const bubbles = findAll(stepTree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
+  assert.equal(bubbles.length, 1)
+  assert.ok(textOf(bubbles[0]).includes(todayPoem.title))
+})
+
+/* ------------------------------------------------------------------ */
+/* 8. 气泡头部圆点直切卡片 + 面板关闭回归                                */
+/* ------------------------------------------------------------------ */
+
+function findBubble(tree) {
+  return findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')[0]
+}
+
+function findDotButtons(tree) {
+  return findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.split(' ').indexOf('dshp-dot') >= 0)
+}
+
+function tapMascot(tree) {
+  const stage = findStage(tree)
+  assert.ok(stage, '形象应可点击')
+  stage.props.onPointerDown(pointerEvent(1))
+  stage.props.onPointerUp(pointerEvent(1))
+}
+
+test('气泡头部圆点：点第 i 个直达第 i 张，第 6 个收起，且不冒泡', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  tapMascot(tree)
+  tree = rerender(react, debug.PoetryWidget, {})
+
+  let bubble = findBubble(tree)
+  assert.ok(bubble, '首次点击形象后应显示气泡')
+  // 进度提示（当前 1 / 5）
+  assert.match(textOf(bubble), new RegExp('1 / ' + debug.STEPS.length))
+
+  let dots = findDotButtons(tree)
+  assert.equal(dots.length, debug.STEPS.length + 1, '应为 5 个步骤点 + 1 个收起点')
+  assert.equal(dots[0].props['aria-current'], 'step')
+  assert.equal(dots[0].props.title, debug.STEPS[0])
+  assert.ok(String(dots[0].props['aria-label']).includes(debug.STEPS[0]))
+
+  // 依次点第 3 / 5 / 2 / 4 / 1 个点，直接跳转
+  for (const index of [2, 4, 1, 3, 0]) {
+    dots = findDotButtons(tree)
+    let propagated = false
+    dots[index].props.onClick({ stopPropagation() { propagated = true } })
+    assert.equal(propagated, true, '点击圆点必须 stopPropagation，避免触发形象 tap/drag')
+    tree = rerender(react, debug.PoetryWidget, {})
+    bubble = findBubble(tree)
+    assert.ok(bubble, '第 ' + (index + 1) + ' 个圆点点击后气泡应保持显示')
+    assert.ok(
+      textOf(bubble).includes(debug.STEPS[index]),
+      '第 ' + (index + 1) + ' 个圆点应切到「' + debug.STEPS[index] + '」',
+    )
+    dots = findDotButtons(tree)
+    assert.equal(dots[index].props['aria-current'], 'step')
+    assert.equal(dots.filter((dot) => dot.props['aria-current'] === 'step').length, 1)
+    assert.match(textOf(bubble), new RegExp((index + 1) + ' / ' + debug.STEPS.length))
+  }
+
+  // 第 6 个点（收起）→ 无气泡；再点形象 → 回到第 1 张
+  dots = findDotButtons(tree)
+  let propagated = false
+  dots[debug.STEPS.length].props.onClick({ stopPropagation() { propagated = true } })
+  assert.equal(propagated, true)
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.equal(findBubble(tree), undefined, '点击收起点后气泡应关闭')
+  tapMascot(tree)
+  tree = rerender(react, debug.PoetryWidget, {})
+  bubble = findBubble(tree)
+  assert.ok(bubble)
+  assert.ok(textOf(bubble).includes(debug.STEPS[0]))
+})
+
+test('回归：开面板→点形象关闭面板→再点形象继续推进下一张', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  tapMascot(tree)
+  tree = rerender(react, debug.PoetryWidget, {})
+  let bubble = findBubble(tree)
+  assert.ok(bubble)
+  assert.ok(textOf(bubble).includes(debug.STEPS[0]))
+
+  // 从气泡打开面板
+  const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+  assert.ok(panelButton, '气泡底部应有「展开面板」')
+  panelButton.props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.equal(
+    findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-panel').length,
+    1,
+    '点击「展开面板」后面板应打开',
+  )
+  assert.equal(findBubble(tree), undefined, '面板打开时气泡应隐藏')
+
+  // 点形象 → 只关闭面板，不推进
+  tapMascot(tree)
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.equal(
+    findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-panel').length,
+    0,
+    '点形象应关闭面板',
+  )
+  bubble = findBubble(tree)
+  assert.ok(bubble, '关闭面板后气泡应恢复')
+  assert.ok(textOf(bubble).includes(debug.STEPS[0]), '关闭面板不应自己推进卡片')
+
+  // 再点形象 → 正常推进到第 2 张
+  tapMascot(tree)
+  tree = rerender(react, debug.PoetryWidget, {})
+  bubble = findBubble(tree)
+  assert.ok(bubble, '关闭面板后再点形象应继续推进（不卡死）')
+  assert.ok(textOf(bubble).includes(debug.STEPS[1]), '应推进到「' + debug.STEPS[1] + '」')
+})
+
+/* ------------------------------------------------------------------ */
+/* 9. 飞花令：索引 / 选项 / 对局 / 最佳成绩 / 面板与气泡入口              */
+/* ------------------------------------------------------------------ */
+
+function makeFeihuaFixture() {
+  const many = '花月风春山水人天云雨夜秋江酒白'.split('')
+  const poemItems = many.map((char, index) => ({
+    id: 'p' + index,
+    author: '测试诗人',
+    title: '测试诗' + (index + 1),
+    lines: Array.from({ length: 9 }, (_, lineIndex) => char + '字第' + (lineIndex + 1) + '句。'),
+  }))
+  poemItems.push({
+    id: 'p-decoy',
+    author: '无名氏',
+    title: '诱饵集',
+    lines: ['一二三四五，六七八九十。', '子丑寅卯，辰巳午未。'],
+  })
+  const ciItems = [
+    {
+      id: 'c1',
+      author: '苏轼',
+      rhythmic: '水调歌头',
+      title: '水调歌头·明月几时有',
+      // 故意用「，」半句，验证会先合句再入库；末句与诗重复用于去重
+      lines: ['明月几时有，', '把酒问青天。', '花落知多少。', '花字第1句。'],
+    },
+  ]
+  return { poems: { ok: true, items: poemItems }, ci: { ok: true, items: ciItems } }
+}
+
+function findButtonsByClass(tree, className) {
+  return findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.split(' ').indexOf(className) >= 0)
+}
+
+test('飞花令 buildFeihuaIndex：诗+词行入库、按字计数、去重、来源', () => {
+  const { debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+
+  // 去重：entries 数量 = 唯一句数 < 原始行数
+  const uniqueTexts = new Set(index.entries.map((entry) => entry.text))
+  assert.equal(index.entries.length, uniqueTexts.size)
+  assert.ok(index.entries.length < fixture.poems.items.reduce((sum, poem) => sum + poem.lines.length, 0) + fixture.ci.items[0].lines.length)
+
+  // 按字计数（「花」= 9 首诗行 + 1 句词；重复的「花字第1句，」只计一次）
+  assert.equal(index.counts['花'], 10)
+  assert.equal(index.counts['月'], 10)
+  assert.equal(index.counts['白'], 9)
+  assert.equal(index.byChar['花'].length, 10)
+  assert.equal(index.byChar['花'].filter((entry) => entry.text === '花字第1句。').length, 1)
+
+  // 来源：诗用 作者《标题》，词用 作者《词牌》
+  const first = index.byChar['花'][0]
+  assert.match(first.source, /测试诗人《测试诗1》/)
+  const fromCi = index.byChar['花'].find((entry) => entry.text === '花落知多少。')
+  assert.match(fromCi.source, /苏轼《水调歌头》/)
+
+  // 候选字：>=8 句、按句数降序、最多 12 个
+  assert.equal(index.candidates.length, 12)
+  assert.ok(index.candidates.every((item) => item.count >= debug.FEIHUA_MIN_ENTRIES))
+  assert.equal(index.candidates[0].count, 10)
+  for (let i = 1; i < index.candidates.length; i += 1) {
+    assert.ok(index.candidates[i - 1].count >= index.candidates[i].count)
+  }
+
+  // 默认令字：今日诗中出现且句数最多；否回退「花」
+  assert.equal(debug.pickDefaultFeihuaChar(index, { lines: ['举头望明月，'] }), '月')
+  assert.equal(debug.pickDefaultFeihuaChar(index, { lines: ['一二三四五，'] }), '花')
+})
+
+test('飞花令 generateFeihuaOptions：恰 1 正确、3 诱饵不含令字、无重复', () => {
+  const { debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+  const used = ['花字第1句。']
+  const round = debug.generateFeihuaOptions(index, '花', used, () => 0.37)
+  assert.ok(round, '应能生成选项')
+  assert.equal(round.options.length, 4)
+  const correct = round.options[round.correctIndex]
+  assert.ok(correct.text.includes('花'), '正确项必须含令字')
+  assert.ok(!used.includes(correct.text), '正确项不能是已用句')
+  assert.equal(round.options.filter((option) => option.text.includes('花')).length, 1, '只能有 1 个正确项')
+  for (let i = 0; i < round.options.length; i += 1) {
+    if (i !== round.correctIndex) assert.ok(!round.options[i].text.includes('花'), '诱饵不含令字')
+    assert.equal(typeof round.options[i].source, 'string')
+  }
+  assert.equal(new Set(round.options.map((option) => option.text)).size, 4, '选项文本不重复')
+  // 正确池耗尽 → null
+  const exhausted = debug.generateFeihuaOptions(index, '花', index.byChar['花'].map((entry) => entry.text), () => 0.5)
+  assert.equal(exhausted, null)
+})
+
+test('飞花令对局：答对加分 / used 生效 / 系统接句不重复；答错扣命到结束', () => {
+  const { debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+
+  let state = debug.feihuaStart(index, '花', () => 0.1)
+  assert.equal(state.lives, debug.FEIHUA_MAX_LIVES)
+  assert.equal(state.score, 0)
+  assert.equal(state.phase, 'playing')
+  assert.ok(state.system && state.system.text.includes('花'), '系统先出含令字的句子')
+  assert.ok(state.used.includes(state.system.text), '系统出句也要计入 used')
+  assert.equal(state.round.options.length, 4)
+
+  const chosen = state.round.options[state.round.correctIndex]
+  const firstSystem = state.system.text
+  state = debug.feihuaAnswer(state, index, state.round.correctIndex, () => 0.2)
+  assert.equal(state.score, 1)
+  assert.ok(state.used.includes(chosen.text), '答对的句子应记入 used')
+  assert.ok(state.feedback.text.includes('接上了'))
+  assert.ok(state.feedback.text.includes(chosen.source), '反馈应显示来源')
+  assert.ok(state.system && state.system.text !== firstSystem, '系统应接新句')
+  assert.ok(!state.used.slice(0, -1).includes(state.system.text), '系统接句不能与已用句重复')
+  assert.equal(new Set(state.used).size, state.used.length, 'used 不重复')
+
+  // 一路答对直到池尽通关
+  let guard = 0
+  while (state.phase === 'playing' && guard < 20) {
+    state = debug.feihuaAnswer(state, index, state.round.correctIndex, () => 0.3)
+    guard += 1
+  }
+  assert.equal(state.phase, 'cleared', '正确池耗尽应通关')
+  assert.match(state.message, /通关/)
+  assert.equal(state.score, 5, '「花」共 10 句，每轮消耗 2 句 → 5 轮通关')
+
+  // 答错扣命，扣完 3 条结束
+  let bad = debug.feihuaStart(index, '花', () => 0.6)
+  for (let expectedLives = 2; expectedLives >= 0; expectedLives -= 1) {
+    const wrongIndex = (bad.round.correctIndex + 1) % bad.round.options.length
+    bad = debug.feihuaAnswer(bad, index, wrongIndex)
+    assert.equal(bad.lives, expectedLives)
+    assert.match(bad.feedback.text, /没有「花」哦/)
+  }
+  assert.equal(bad.phase, 'over')
+  assert.match(bad.message, /得分 0/)
+})
+
+test('飞花令 best：localStorage 读写 / 损坏降级 / 逐字与总最佳', () => {
+  const { debug, storage } = loadClient()
+  assertDeep(debug.normalizeFeihuaBest(null), { overall: 0, chars: {} })
+  assertDeep(debug.normalizeFeihuaBest({ overall: 7, chars: { 花: 5, 月: 7 } }), { overall: 7, chars: { 花: 5, 月: 7 } })
+  assertDeep(debug.normalizeFeihuaBest({ overall: 'x', chars: { 花: -3, 月: '4' } }), { overall: 0, chars: { 月: 4 } })
+
+  const best1 = debug.feihuaBestUpdate(null, '花', 5)
+  assert.equal(best1.overall, 5)
+  assert.equal(best1.chars['花'], 5)
+  const best2 = debug.feihuaBestUpdate(best1, '花', 3)
+  assert.equal(best2.chars['花'], 5, 'best 只增不减')
+  const best3 = debug.feihuaBestUpdate(best2, '月', 8)
+  assert.equal(best3.overall, 8)
+  assert.equal(best3.chars['月'], 8)
+
+  debug.writeFeihuaBest(best3)
+  const readBack = debug.readFeihuaBest()
+  assert.equal(readBack.overall, 8)
+  assert.equal(readBack.chars['花'], 5)
+  assert.ok(storage.getItem(debug.FEIHUA_BEST_KEY).includes('overall'))
+
+  storage.setItem(debug.FEIHUA_BEST_KEY, '{bad json')
+  assert.equal(debug.readFeihuaBest().overall, 0, '损坏 best 应安全降级')
+})
+
+test('飞花 tab：chips 切换 / 来一局 / 接龙答题 / 图鉴列表', () => {
+  const { react, debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const api = {
+    poemsRes: { status: 'ready', data: fixture.poems },
+    ciRes: { status: 'ready', data: fixture.ci },
+    poem: { lines: ['举头望明月，'] },
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    feihuaLaunch: 0,
+  }
+
+  let tree = renderFresh(react, debug.FeihuaTab, { api })
+  let text = textOf(tree)
+  assert.match(text, /接龙赛/)
+  assert.match(text, /图鉴/)
+  assert.match(text, /来一局/)
+  assert.match(text, /「月」/, '默认令字应取今日诗中出现且句数最多的「月」')
+  const chips = findButtonsByClass(tree, 'dshp-fh-chip')
+  assert.ok(chips.length >= 13, '12 个候选字 chips + 随机')
+
+  // 切到「花」
+  const huaChip = chips.find((chip) => textOf(chip) === '花9' || textOf(chip).indexOf('花') === 0)
+  assert.ok(huaChip)
+  huaChip.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  text = textOf(tree)
+  assert.match(text, /「花」/)
+  assert.match(text, /句库 10 句/)
+
+  // 来一局 → 出现「对方」+ 4 个选项 + aria-live 反馈
+  const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
+  assert.ok(startButton)
+  startButton.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  text = textOf(tree)
+  assert.match(text, /对方：/)
+  assert.match(text, /请接一句含「花」的诗句/)
+  let options = findButtonsByClass(tree, 'dshp-fh-option')
+  assert.equal(options.length, 4)
+  const live = findAll(tree, (node) => node.props && node.props['aria-live'] === 'polite')
+  assert.ok(live.length >= 1, '反馈区需要 aria-live')
+
+  // 点含「花」的选项（唯一正确项）→ 得分 +1、反馈显示来源
+  const correctOption = options.find((option) => textOf(option).includes('花'))
+  assert.ok(correctOption)
+  correctOption.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  text = textOf(tree)
+  assert.match(text, /本局 1 分/)
+  assert.match(text, /接上了：/)
+  assert.match(text, /测试诗人《测试诗/)
+
+  // 图鉴：显示当前令字句子 + 来源
+  const atlasButton = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴')
+  assert.ok(atlasButton)
+  atlasButton.props.onClick()
+  tree = rerender(react, debug.FeihuaTab, { api })
+  text = textOf(tree)
+  assert.match(text, /共 10 句/)
+  const lines = findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-fh-line')
+  assert.equal(lines.length, 10)
+  assert.match(text, /测试诗人《测试诗1》/)
+})
+
+test('飞花令入口：面板第 6 个 tab 进入飞花页；气泡第 6 张卡 + 圆点直切', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  const stage = findStage(tree)
+  stage.props.onContextMenu({ preventDefault() {} })
+  tree = rerender(react, debug.PoetryWidget, {})
+
+  const tabs = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-tab'))
+  assert.equal(tabs.length, 7)
+  assert.equal(textOf(tabs[4]), '诗库')
+  assert.equal(textOf(tabs[5]), '飞花')
+  tabs[5].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  const feihuaElements = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'FeihuaTab')
+  assert.equal(feihuaElements.length, 1, '点击「飞花」tab 应渲染 FeihuaTab')
+  assert.ok(feihuaElements[0].props.api.poemsRes, 'FeihuaTab 应能拿到 poems 数据源')
+
+  // 回到气泡：第 6 张「飞花令」，圆点直切
+  let bubbleTree = renderFresh(react, debug.PoetryWidget, {})
+  tapMascot(bubbleTree)
+  bubbleTree = rerender(react, debug.PoetryWidget, {})
+  let dots = findDotButtons(bubbleTree)
+  assert.equal(dots.length, debug.STEPS.length + 1)
+  assert.equal(debug.STEPS[5], '飞花令')
+  dots[5].props.onClick({ stopPropagation() {} })
+  bubbleTree = rerender(react, debug.PoetryWidget, {})
+  const bubble = findBubble(bubbleTree)
+  assert.ok(bubble, '第 6 张卡应显示气泡')
+  assert.ok(textOf(bubble).includes('飞花令'))
+  assert.match(textOf(bubble), new RegExp('6 / ' + debug.STEPS.length))
+  assert.ok(
+    textOf(bubble).includes('正在载入飞花令句库') || textOf(bubble).includes('今日令字'),
+    '无资源注入时应为加载态，有资源时应显示今日令字',
+  )
+  dots = findDotButtons(bubbleTree)
+  dots[6].props.onClick({ stopPropagation() {} })
+  bubbleTree = rerender(react, debug.PoetryWidget, {})
+  assert.equal(findBubble(bubbleTree), undefined, '第 7 个点是收起点')
+})
+
+test('真实数据飞花令：完整句口径下限 / 候选 12 / 图鉴分页', {
+  skip: HAS_REAL_DATA ? false : 'data/ 产物尚未就绪',
+}, () => {
+  const readJson = (name) => JSON.parse(readFileSync(path.join(DATA_DIR, name), 'utf8'))
+  const poems = readJson('poems.json')
+  const ci = readJson('ci.json')
+  const { react, debug } = loadClient()
+  const index = debug.buildFeihuaIndex(poems, ci)
+
+  assert.ok(index.counts['花'] >= 250, '完整句口径花应 ≥250，实际 ' + index.counts['花'])
+  assert.ok(index.counts['月'] >= 180)
+  assert.ok(index.counts['风'] >= 300)
+  assert.ok(index.entries.length > 3000, '完整句口径基础句库应有 3000+ 句')
+  assert.ok(index.entries.every((entry) => /[。！？]$/.test(entry.text)), '句库条目必须是完整句')
+  assert.equal(index.candidates.length, 12)
+  assert.ok(index.candidates.every((item) => item.count >= debug.FEIHUA_MIN_ENTRIES))
+
+  // 真实数据下开局：4 个选项、正确项含令字且来自真实来源
+  const round = debug.generateFeihuaOptions(index, '花', new Set(), () => 0.42)
+  assert.equal(round.options.length, 4)
+  assert.ok(round.options[round.correctIndex].text.includes('花'))
+  assert.ok(round.options[round.correctIndex].source.length > 0)
+
+  // FeihuaTab 用真实数据渲染：chips / 来一局 / 图鉴默认 60 条加载更多
+  const api = {
+    poemsRes: { status: 'ready', data: poems },
+    ciRes: { status: 'ready', data: ci },
+    poem: poems.items[0],
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    feihuaLaunch: 0,
+  }
+  let tree = renderFresh(react, debug.FeihuaTab, { api })
+  let text = textOf(tree)
+  assert.match(text, /接龙赛/)
+  const defaultChar = debug.pickDefaultFeihuaChar(index, poems.items[0])
+  assert.ok(text.includes('「' + defaultChar + '」'))
+  const atlasButton = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴')
+  assert.ok(atlasButton)
+  atlasButton.props.onClick()
+  tree = rerender(react, debug.FeihuaTab, { api })
+  const rows = findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-fh-line')
+  assert.ok(rows.length > 0)
+  assert.ok(rows.length <= debug.FEIHUA_ATLAS_PAGE, '图鉴首屏最多 FEIHUA_ATLAS_PAGE 条')
+  const atlasTexts = findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-fh-line-text')
+  assert.ok(atlasTexts.length > 0)
+  for (const node of atlasTexts) {
+    assert.ok(/[。！？]$/.test(textOf(node)), '图鉴不得显示半句：' + textOf(node))
+    assert.ok(!/…/.test(textOf(node)), '图鉴不得加省略号')
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* 10. 立绘状态映射 + 按天气推荐古诗词                                    */
+/* ------------------------------------------------------------------ */
+
+function makeWeatherPoemFixture() {
+  return {
+    poems: {
+      items: [
+        { id: 'p-rain-2', title: '雨诗', author: '甲', lines: ['夜来风雨声，', '花落知多少。'] },
+        { id: 'p-rain-1', title: '春雨', author: '乙', lines: ['好雨知时节，', '当春乃发生。'] },
+        { id: 'p-sun', title: '晴诗', author: '丙', lines: ['晴日暖风生麦气，'] },
+        { id: 'p-none', title: '无', author: '丁', lines: ['一二三四五，'] },
+      ],
+    },
+    ci: {
+      items: [
+        { id: 'c-rain', author: '苏', rhythmic: '浣溪沙', title: '雨', lines: ['一蓑烟雨任平生。'] },
+      ],
+    },
+  }
+}
+
+test('立绘状态映射：rain/snow/thunder/cold/night/game-win/game-lose → 对应文件', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.mascotStateFor({ category: 'rain', isDay: true }, true), 'rain')
+  assert.equal(debug.mascotStateFor({ category: 'snow', isDay: true }, true), 'snow')
+  assert.equal(debug.mascotStateFor({ category: 'thunder', isDay: true }, true), 'thunder')
+  assert.equal(debug.mascotStateFor({ category: 'cold', isDay: true }, true), 'cold')
+  assert.equal(debug.mascotStateFor({ category: 'clear', isDay: true }, true), 'idle')
+  assert.equal(debug.mascotStateFor({ category: 'cloud', isDay: true }, true), 'idle')
+  assert.equal(debug.mascotStateFor({ category: 'fog', isDay: true }, true), 'idle')
+  assert.equal(debug.mascotStateFor({ category: 'wind', isDay: true }, true), 'idle')
+  assert.equal(debug.mascotStateFor({ category: 'rain', isDay: false }, true), 'night', '夜间优先夜间立绘')
+  assert.equal(debug.mascotStateFor({ category: 'rain', isDay: true }, false), 'celebrate', '关闭天气选诗时用默认')
+  assert.equal(debug.mascotStateFor(null, true), 'celebrate', '天气不可用回默认')
+  assert.equal(debug.mascotStateFor({}, true), 'celebrate')
+
+  assert.equal(debug.mascotFileFor('rain'), 'dsh-whale-state-weather-umbrella.webp')
+  assert.equal(debug.mascotFileFor('snow'), 'dsh-whale-state-weather-snow.webp')
+  assert.equal(debug.mascotFileFor('thunder'), 'dsh-whale-state-weather-thunder.webp')
+  assert.equal(debug.mascotFileFor('cold'), 'dsh-whale-state-weather-cold.webp')
+  assert.equal(debug.mascotFileFor('idle'), 'dsh-whale-state-idle-cute.webp')
+  assert.equal(debug.mascotFileFor('night'), 'dsh-whale-state-night.webp')
+  assert.equal(debug.mascotFileFor('gameWin'), 'dsh-whale-state-game-win.webp')
+  assert.equal(debug.mascotFileFor('gameLose'), 'dsh-whale-state-game-lose.webp')
+  assert.equal(debug.mascotFileFor('gameThink'), 'dsh-whale-state-game-think.webp')
+  assert.equal(debug.mascotFileFor('unknown-state'), 'dsh-whale-state-celebrate.webp')
+  assert.equal(debug.mascotUrl(debug.mascotFileFor('rain')), '/api/dsh-poetry/assets?f=generated/dsh-whale-state-weather-umbrella.webp')
+})
+
+test('天气类别→诗词 tag / chip 文案 / 说明文案', () => {
+  const { debug } = loadClient()
+  assertDeep(debug.weatherPoemTags({ category: 'rain', isDay: true }), ['雨'])
+  assertDeep(debug.weatherPoemTags({ category: 'snow', isDay: true }), ['雪'])
+  assertDeep(debug.weatherPoemTags({ category: 'thunder', isDay: true }), ['雨', '雷'])
+  assertDeep(debug.weatherPoemTags({ category: 'cloud', isDay: true }), ['云'])
+  assertDeep(debug.weatherPoemTags({ category: 'fog', isDay: true }), ['云', '雾'])
+  assertDeep(debug.weatherPoemTags({ category: 'clear', isDay: true }), ['晴', '日'])
+  assertDeep(debug.weatherPoemTags({ category: 'wind', isDay: true }), ['风'])
+  assertDeep(debug.weatherPoemTags({ category: 'cold', isDay: true }), ['霜', '露', '寒'])
+  assertDeep(debug.weatherPoemTags({ category: 'cloud', isDay: false }), ['云', '月', '夜'])
+  assertDeep(debug.weatherPoemTags(null), [])
+
+  assert.equal(debug.weatherChipText('北京', { label: '小雨', tempC: 18.5 }), '北京 · 小雨 19℃')
+  assert.equal(debug.weatherChipText('', { label: '小雨', tempC: 18.5 }), '小雨 19℃')
+  assert.equal(debug.weatherChipText('北京', null), '')
+  assert.match(debug.weatherExplainText({ category: 'rain', isDay: true }), /写雨/)
+  assert.match(debug.weatherExplainText({ category: 'snow', isDay: true }), /写雪/)
+  assert.match(debug.weatherExplainText({ category: 'thunder', isDay: true }), /写雨雷/)
+  assert.match(debug.weatherExplainText({ category: 'clear', isDay: true }), /写晴日/)
+  assert.match(debug.weatherExplainText({ category: 'cold', isDay: true }), /写霜寒/)
+  assert.match(debug.weatherExplainText({ category: 'clear', isDay: false }), /写月夜/)
+  assert.equal(debug.weatherUpdatedLabel(new Date(2026, 0, 2, 3, 4).getTime()), '03:04')
+})
+
+test('天气诗池：先诗后词、按命中数降序、确定性选择、空池回退', () => {
+  const { debug } = loadClient()
+  const fixture = makeWeatherPoemFixture()
+  const rainTags = debug.weatherPoemTags({ category: 'rain', isDay: true })
+  const pool = debug.buildWeatherPoemPool(fixture.poems, fixture.ci, rainTags, 20)
+  assert.ok(pool.length >= 3)
+  assert.equal(pool[0].kind, 'poem', '诗池优先使用诗')
+  assert.ok(pool.some((entry) => entry.kind === 'ci' && entry.id === 'c-rain'), '诗不足时用词补足')
+  for (let i = 1; i < pool.length; i += 1) {
+    const prev = pool[i - 1]
+    const cur = pool[i]
+    if (prev.kind === cur.kind) assert.ok(prev.hits >= cur.hits, '同来源按命中数降序')
+  }
+  const poemsOnly = debug.buildWeatherPoemPool(fixture.poems, fixture.ci, rainTags, 2)
+  assert.equal(poemsOnly.length, 2)
+  assert.ok(poemsOnly.every((entry) => entry.kind === 'poem'), '诗够用时不用词')
+
+  assert.equal(debug.buildWeatherPoemPool(fixture.poems, fixture.ci, ['不存在的字'], 20).length, 0)
+
+  const meta = { date: '2026-10-21', category: 'rain', dataVersion: '2026-10-21.4' }
+  const first = debug.selectWeatherPoemEntry(pool, meta)
+  const second = debug.selectWeatherPoemEntry(pool, meta)
+  assert.ok(first && first.id)
+  assert.equal(first.id, second.id, '同日期/类别/数据版本选诗确定')
+  assert.ok(pool.some((entry) => entry.id === first.id))
+  assert.equal(debug.selectWeatherPoemEntry([], meta), null)
+})
+
+test('天气请求失败静默：requestWeather 可 reject、不影响无天气 UI', async () => {
+  const { context, debug } = loadClient()
+  context.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) })
+  await assert.rejects(() => debug.requestWeather(), (error) => {
+    assert.equal(error.status, 404)
+    return true
+  })
+  assert.equal(debug.weatherChipText('北京', null), '')
+  assert.equal(debug.mascotStateFor(null, true), 'celebrate')
+
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      city: '北京',
+      weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true, updatedAt: 1760000000000 },
+      stale: false,
+    }),
+  })
+  const data = await debug.requestWeather()
+  assert.equal(data.city, '北京')
+  assert.equal(data.weather.category, 'rain')
+})
+
+test('天气 chip 渲染：有天气显示、无天气不显示；设置 tab 含城市/开关/刷新', () => {
+  const { react, debug } = loadClient()
+  const baseApi = {
+    poem: POEM,
+    todayPoemId: POEM.id,
+    poemItems: [POEM],
+    settings: debug.normalizeSettings({}),
+    poemsRes: { status: 'ready', data: { ok: true, items: [POEM] } },
+    boot: { status: 'ready', data: { version: '0.1.0' } },
+    changePoem() {},
+    backToToday() {},
+  }
+  const noWeather = renderFresh(react, debug.TodayTab, { api: baseApi })
+  assert.equal(findAll(noWeather, (node) => node.type === 'div' && node.props.className === 'dshp-weather').length, 0)
+  assert.ok(!textOf(noWeather).includes('℃'))
+
+  const withWeather = renderFresh(react, debug.TodayTab, {
+    api: Object.assign({}, baseApi, {
+      weatherActive: true,
+      weatherChip: '北京 · 小雨 18℃',
+      weatherNote: '今日有雨，为你选了写雨的这首',
+    }),
+  })
+  assert.equal(findAll(withWeather, (node) => node.type === 'div' && node.props.className === 'dshp-weather').length, 1)
+  const weatherText = textOf(withWeather)
+  assert.match(weatherText, /北京 · 小雨 18℃/)
+  assert.match(weatherText, /今日有雨，为你选了写雨的这首/)
+  assert.match(weatherText, /天气推荐/)
+
+  const updates = []
+  const refreshes = []
+  const settingsApi = {
+    settings: debug.normalizeSettings({ weatherCity: '北京' }),
+    updateSettings: (patch) => updates.push(patch),
+    hideWidget() {},
+    resetSettings() {},
+    weatherRes: { status: 'ready', at: new Date(2026, 0, 2, 3, 4).getTime() },
+    weatherData: { ok: true, city: '北京', weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true } },
+    refreshWeather: (force) => refreshes.push(force),
+    boot: { data: { version: '0.1.0', dataVersion: 'x', source: {} } },
+  }
+  let tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
+  let text = textOf(tree)
+  for (const label of ['天气城市', '按天气选诗', '刷新天气']) assert.ok(text.includes(label), '设置缺少：' + label)
+  assert.match(text, /北京 · 小雨 18℃/)
+  assert.match(text, /更新于 03:04/)
+
+  const cityInput = findAll(tree, (node) => node.type === 'input' && node.props.type === 'text')[0]
+  assert.ok(cityInput)
+  assert.equal(cityInput.props.value, '北京')
+  cityInput.props.onChange({ target: { value: '上海' } })
+  tree = rerender(react, debug.SettingsTab, { api: settingsApi })
+  const cityInput2 = findAll(tree, (node) => node.type === 'input' && node.props.type === 'text')[0]
+  cityInput2.props.onBlur()
+  assertDeep(updates[0], { weatherCity: '上海' })
+
+  const weatherSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '按天气选诗开关')[0]
+  assert.ok(weatherSwitch)
+  weatherSwitch.props.onClick()
+  assertDeep(updates[1], { weatherPoem: false })
+
+  const weatherRes = findAll(tree, (node) => node.type === 'button' && textOf(node) === '刷新天气')[0]
+  assert.ok(weatherRes, '设置应有刷新天气按钮')
+  weatherRes.props.onClick()
+  assertDeep(refreshes, [true])
+})
+
+test('settings weatherCity/weatherPoem：归一化与 PUT 序列化', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.normalizeSettings({}).weatherCity, '北京')
+  assert.equal(debug.normalizeSettings({}).weatherPoem, true)
+  assert.equal(debug.normalizeSettings({ weatherCity: '  上海  ' }).weatherCity, '上海')
+  assert.equal(debug.normalizeSettings({ weatherCity: '' }).weatherCity, '北京')
+  assert.equal(debug.normalizeSettings({ weatherCity: 'x'.repeat(21) }).weatherCity, '北京')
+  assert.equal(debug.normalizeSettings({ weatherPoem: false }).weatherPoem, false)
+  const patch = debug.settingsPatch({ weatherCity: '上海', weatherPoem: false })
+  assertDeep(patch, { weatherCity: '上海', weatherPoem: false })
+  const request = debug.buildSettingsRequest({ weatherCity: '上海', weatherPoem: false })
+  assertDeep(JSON.parse(request.init.body), { weatherCity: '上海', weatherPoem: false })
+})
+
+test('真实数据天气诗池：rain 20 首、按命中降序、确定性选诗', {
+  skip: HAS_REAL_DATA ? false : 'data/ 产物尚未就绪',
+}, () => {
+  const readJson = (name) => JSON.parse(readFileSync(path.join(DATA_DIR, name), 'utf8'))
+  const poems = readJson('poems.json')
+  const ci = readJson('ci.json')
+  const manifest = readJson('manifest.json')
+  const { debug } = loadClient()
+  const pool = debug.buildWeatherPoemPool(poems, ci, debug.weatherPoemTags({ category: 'rain', isDay: true }), 20)
+  assert.equal(pool.length, 20)
+  assert.ok(pool.every((entry) => entry.kind === 'poem'), 'rain 在真实数据中应足够 20 首诗')
+  for (let i = 1; i < pool.length; i += 1) assert.ok(pool[i - 1].hits >= pool[i].hits)
+  const meta = { date: '2026-10-21', category: 'rain', dataVersion: manifest.dataVersion }
+  const first = debug.selectWeatherPoemEntry(pool, meta)
+  const second = debug.selectWeatherPoemEntry(pool, meta)
+  assert.equal(first.id, second.id)
+  assert.ok(first.item.lines.join('').includes('雨'))
+})
+
+test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 chip + 天气池选诗', async () => {
+  const rainPoems = Array.from({ length: 5 }, (_, index) => ({
+    id: 'rp-' + index,
+    title: '雨诗' + index,
+    author: '诗人' + index,
+    lines: ['夜来风雨声，', '花落知多少。'],
+    tones: ['仄平平仄平，', '平仄平平仄。'],
+    form: '五绝',
+    start: '仄起',
+    firstRhyme: true,
+    rhymeIdx: [0, 1],
+    meter: '仄起首句入韵',
+    analysis: '测试',
+  }))
+  const todayPoem = { id: 'today-1', title: '晴日诗', author: '甲', lines: ['晴日暖风生，'], tones: ['平仄仄平平，'] }
+  const dataVersion = 'test.weather.1'
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion,
+    source: { repo: 'test', commit: 'abcdef', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: 'today-1' },
+    counts: { poems: rainPoems.length + 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings: { weatherPoem: true, weatherCity: '北京' },
+  }
+  const responses = {
+    'bootstrap.json': bootstrap,
+    'poems.json': { ok: true, dataVersion, items: rainPoems.concat([todayPoem]) },
+    'ci.json': { ok: true, dataVersion, items: [] },
+    'weather.json': {
+      ok: true,
+      city: '北京',
+      weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true, code: 61, updatedAt: 1760000000000 },
+      stale: false,
+    },
+    'settings.json': { ok: true, settings: bootstrap.settings },
+  }
+  const { react, debug } = loadClient({
+    seed: {
+      [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings: bootstrap.settings, todayPoem: null }),
+    },
+    fetch: async (url) => {
+      const key = String(url).replace('/api/dsh-poetry/', '')
+      const data = responses[key]
+      if (!data) return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => data }
+    },
+  })
+
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 4; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+
+    // 天气加载完成 → rain 立绘
+    const mascotImages = findAll(tree, (node) => node.type === 'img')
+    assert.ok(mascotImages.length >= 1)
+    assert.ok(
+      String(mascotImages[0].props.src).includes('dsh-whale-state-weather-umbrella.webp'),
+      'rain 天气应切换雨伞立绘，实际：' + mascotImages[0].props.src,
+    )
+
+    // 打开第 1 张气泡 → 天气 chip + 说明 + 选中天气诗池中的雨诗
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const bubble = findBubble(tree)
+    assert.ok(bubble, '点击形象应打开气泡')
+    const bubbleText = textOf(bubble)
+    assert.match(bubbleText, /北京 · 小雨 18℃/)
+    assert.match(bubbleText, /今日有雨，为你选了写雨的这首/)
+    assert.ok(
+      rainPoems.some((poem) => bubbleText.includes(poem.title)),
+      '应显示天气诗池中的雨诗，实际：' + bubbleText.slice(0, 100),
+    )
+
+    // 设置 tab：天气城市输入 / 开关 / 刷新按钮（真实 api 透传）
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    if (panelButton) {
+      panelButton.props.onClick()
+      tree = renderMain()
+      const tabs = findAll(tree, (node) => node.type === 'button'
+        && typeof node.props.className === 'string'
+        && node.props.className.includes('dshp-tab'))
+      const settingsTab = tabs.find((tab) => textOf(tab) === '设置')
+      assert.ok(settingsTab)
+      settingsTab.props.onClick()
+      tree = renderMain()
+      const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+      assert.ok(settingsElement)
+      assert.equal(settingsElement.props.api.weatherData.city, '北京')
+      assert.equal(typeof settingsElement.props.api.refreshWeather, 'function')
+    }
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('飞花令 pulseMascot：来一局→gameThink、答对→gameWin、答错→gameLose', () => {
+  const { react, debug } = loadClient()
+  const fixture = makeFeihuaFixture()
+  const pulses = []
+  const api = {
+    poemsRes: { status: 'ready', data: fixture.poems },
+    ciRes: { status: 'ready', data: fixture.ci },
+    poem: { lines: ['举头望明月，'] },
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    feihuaLaunch: 0,
+    pulseMascot: (key) => pulses.push(key),
+  }
+  let tree = renderFresh(react, debug.FeihuaTab, { api })
+  const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
+  assert.ok(startButton)
+  startButton.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assertDeep(pulses, ['gameThink'])
+
+  let options = findButtonsByClass(tree, 'dshp-fh-option')
+  const correct = options.find((option) => textOf(option).includes('月'))
+  assert.ok(correct, '应有含「月」的正确选项')
+  correct.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assert.ok(pulses.includes('gameWin'), '答对应触发 gameWin 立绘')
+  assertDeep(pulses.slice(0, 2), ['gameThink', 'gameWin'])
+
+  options = findButtonsByClass(tree, 'dshp-fh-option')
+  const wrong = options.find((option) => !textOf(option).includes('月'))
+  assert.ok(wrong, '应有不含「月」的诱饵选项')
+  wrong.props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assert.ok(pulses.includes('gameLose'), '答错应触发 gameLose 立绘')
+})
+
+/* ------------------------------------------------------------------ */
+/* 11. 心情系统 + 低频「想读的诗」彩蛋                                    */
+/* ------------------------------------------------------------------ */
+
+function shanghaiTs(year, month, day, hour, minute) {
+  return Date.UTC(year, month - 1, day, hour - 8, minute || 0, 0)
+}
+
+function baseMoodInput(overrides) {
+  const now = shanghaiTs(2026, 10, 21, 10, 0)
+  const stats = Object.assign({
+    userMessages: 0, assistantMessages: 0, toolCalls: 0, toolErrors: 0,
+    turns: 0, turnsCompleted: 0, turnsErrored: 0, activeMs: 0, sessions: 0,
+    firstActivityAt: 0, lastActivityAt: 0,
+  }, overrides && overrides.stats)
+  const signals = Object.assign({
+    now,
+    clicks: 1,
+    lastInteractionAt: now - 60 * 1000,
+    feihuaWins: 0,
+    feihuaLosses: 0,
+    panelOpens: 0,
+  }, overrides && overrides.signals)
+  return { stats, signals, weather: overrides ? overrides.weather : null }
+}
+
+test('心情引擎 computeMood：各分类 + 优先级（tired/sleepy/proud > happy > hungry/lonely > cozy > curious > calm）', () => {
+  const { debug } = loadClient()
+  const moodOf = (overrides) => debug.computeMood(baseMoodInput(overrides))
+
+  assert.equal(moodOf({}).key, 'calm')
+  assert.equal(debug.computeMood({}).key, 'calm', '未知数据按 0 → calm')
+  assert.equal(moodOf({ stats: { toolCalls: 100 } }).key, 'tired')
+  assert.equal(moodOf({ stats: { activeMs: 4 * 3600 * 1000 } }).key, 'tired')
+  assert.equal(moodOf({ stats: { turnsErrored: 2 } }).key, 'tired')
+  assert.equal(moodOf({ signals: { now: shanghaiTs(2026, 10, 21, 2, 0), lastInteractionAt: shanghaiTs(2026, 10, 21, 1, 59) } }).key, 'sleepy')
+  assert.equal(moodOf({ signals: { lastInteractionAt: shanghaiTs(2026, 10, 21, 5, 0) } }).key, 'sleepy')
+  assert.equal(moodOf({ signals: { feihuaWins: 3 } }).key, 'proud')
+  assert.equal(moodOf({ signals: { feihuaWins: 1 } }).key, 'happy')
+  assert.equal(moodOf({ stats: { userMessages: 12 } }).key, 'happy')
+  assert.equal(moodOf({
+    signals: { now: shanghaiTs(2026, 10, 21, 12, 10), lastInteractionAt: shanghaiTs(2026, 10, 21, 10, 0) },
+    stats: { userMessages: 1 },
+  }).key, 'hungry')
+  assert.equal(moodOf({
+    signals: { lastInteractionAt: shanghaiTs(2026, 10, 21, 8, 0) },
+    stats: { userMessages: 0 },
+  }).key, 'lonely')
+  assert.equal(moodOf({ weather: { category: 'rain', isDay: true } }).key, 'cozy')
+  assert.equal(moodOf({ weather: { category: 'clear', isDay: false, tempC: 15 } }).key, 'cozy')
+  assert.equal(moodOf({ signals: { clicks: 0 }, stats: { userMessages: 3 } }).key, 'curious')
+
+  // 优先级
+  assert.equal(moodOf({ stats: { toolCalls: 100, userMessages: 20 }, weather: { category: 'rain', isDay: true } }).key, 'tired')
+  assert.equal(moodOf({ signals: { now: shanghaiTs(2026, 10, 21, 23, 30), lastInteractionAt: shanghaiTs(2026, 10, 21, 23, 29), feihuaWins: 5 } }).key, 'sleepy')
+  assert.equal(moodOf({ signals: { feihuaWins: 5 }, stats: { userMessages: 20 } }).key, 'proud')
+  assert.equal(moodOf({ stats: { userMessages: 20 }, weather: { category: 'rain', isDay: true } }).key, 'happy')
+  assert.equal(moodOf({ signals: { clicks: 0 }, stats: { userMessages: 3 }, weather: { category: 'rain', isDay: true } }).key, 'cozy')
+
+  // label/image/reason 完整；图片映射文件均来自 92 张本地立绘
+  for (const key of ['happy', 'proud', 'tired', 'sleepy', 'hungry', 'lonely', 'curious', 'cozy', 'calm']) {
+    const mood = debug.computeMood(baseMoodInput({ stats: {} }))
+    assert.equal(typeof debug.MOOD_LABELS[key], 'string')
+    const file = debug.moodImageFor(key)
+    assert.ok(file.endsWith('.webp'))
+    assert.ok(existsSync(path.join(ROOT, 'assets', 'generated', file)), '缺少立绘：' + file)
+    assert.ok(mood.label && mood.reason)
+  }
+})
+
+test('心情限频 throttleMoodSwitch：20min 内不换、strong/force 可破例、同 key 只更新文案', () => {
+  const { debug } = loadClient()
+  const t0 = 1_800_000_000_000
+  const calm = { key: 'calm', label: '平静', image: 'a.webp', reason: 'r', strong: false }
+  const happy = { key: 'happy', label: '开心', image: 'b.webp', reason: 'r2', strong: false }
+  const tired = { key: 'tired', label: '有点累', image: 'c.webp', reason: 'r3', strong: true }
+  const first = debug.throttleMoodSwitch(null, calm, t0, false)
+  assert.equal(first.changed, true)
+  assert.equal(first.switchedAt, t0)
+
+  const blocked = debug.throttleMoodSwitch(first, happy, t0 + 10 * 60 * 1000, false)
+  assert.equal(blocked.key, 'calm', '20min 内非 strong 不换')
+  assert.equal(blocked.changed, false)
+
+  const later = debug.throttleMoodSwitch(first, happy, t0 + 21 * 60 * 1000, false)
+  assert.equal(later.key, 'happy')
+  assert.equal(later.changed, true)
+
+  const strong = debug.throttleMoodSwitch(first, tired, t0 + 60 * 1000, false)
+  assert.equal(strong.key, 'tired', 'strong 状态变化可破例')
+  const forced = debug.throttleMoodSwitch(first, happy, t0 + 60 * 1000, true)
+  assert.equal(forced.key, 'happy', '手动刷新可强制生效')
+
+  const same = debug.throttleMoodSwitch(first, Object.assign({}, calm, { reason: '新理由' }), t0 + 5 * 60 * 1000, false)
+  assert.equal(same.key, 'calm')
+  assert.equal(same.reason, '新理由')
+  assert.equal(same.changed, false)
+  assert.equal(same.switchedAt, t0)
+})
+
+test('天气 + 心情合成立绘：恶劣天气优先，其次心情，最后默认', () => {
+  const { debug } = loadClient()
+  const moodHappy = { key: 'happy', image: debug.moodImageFor('happy') }
+  assert.equal(debug.mascotImageFor({ weatherStateKey: 'rain', weatherEnabled: true, moodEnabled: true, mood: moodHappy }).stateKey, 'rain')
+  assert.equal(debug.mascotImageFor({ weatherStateKey: 'night', weatherEnabled: true, moodEnabled: true, mood: moodHappy }).stateKey, 'night')
+  const moodImage = debug.mascotImageFor({ weatherStateKey: 'idle', weatherEnabled: true, moodEnabled: true, mood: moodHappy })
+  assert.equal(moodImage.source, 'mood')
+  assert.equal(moodImage.file, debug.moodImageFor('happy'))
+  assert.equal(debug.mascotImageFor({ weatherStateKey: 'idle', weatherEnabled: true, moodEnabled: false, mood: moodHappy }).stateKey, 'idle')
+  assert.equal(debug.mascotImageFor({ weatherStateKey: 'celebrate', weatherEnabled: false, moodEnabled: false, mood: moodHappy }).source, 'default')
+})
+
+test('彩蛋触发条件 canShowSpontaneous：开关/可见/面板/气泡/30s 闲置/45min/每日 3 次', () => {
+  const { debug } = loadClient()
+  const now = shanghaiTs(2026, 10, 21, 15, 0)
+  const base = {
+    enabled: true, moodEnabled: true, hidden: false, panelOpen: false, bubbleOpen: false,
+    visible: true, now, lastInteractionAt: now - 31 * 1000, todayCount: 0, lastShownAt: 0, moodKey: 'happy',
+  }
+  assert.equal(debug.canShowSpontaneous(base), true)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { enabled: false })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodEnabled: false })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { hidden: true })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { panelOpen: true })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { bubbleOpen: true })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { visible: false })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodKey: '' })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 10 * 1000 })), false, '30s 内有交互不弹')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { todayCount: 3 })), false, '每日最多 3 次')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 10 * 60 * 1000 })), false, '距上次 <45min 不弹')
+  assert.equal(
+    debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 46 * 60 * 1000 })),
+    true,
+    '距上次 ≥45min 可弹',
+  )
+  assert.equal(debug.canShowSpontaneous(base), true, '无交互记录视为已闲置')
+})
+
+test('彩蛋记录：每日重置 / 7 天去重 / 最多 200 条 / localStorage 读写', () => {
+  const { debug, storage } = loadClient()
+  const now = shanghaiTs(2026, 10, 21, 15, 0)
+  const old = debug.normalizeSpontState(
+    {
+      date: '2026-10-20',
+      lastShownAt: now - 24 * 3600 * 1000,
+      todayCount: 2,
+      seenIds: [{ id: 'oldday', at: now - 24 * 3600 * 1000 }],
+    },
+    now,
+  )
+  assert.equal(old.todayCount, 0, '新的一天每日次数归零')
+  assert.equal(old.lastShownAt, 0)
+  assert.equal(old.date, '2026-10-21')
+
+  const pruned = debug.normalizeSpontState(
+    { date: '2026-10-21', todayCount: 1, lastShownAt: now, seenIds: [
+      { id: 'recent', at: now - 6 * 24 * 3600 * 1000 },
+      { id: 'stale', at: now - 8 * 24 * 3600 * 1000 },
+    ] },
+    now,
+  )
+  assertDeep(pruned.seenIds.map((entry) => entry.id), ['recent'], '7 天以前的句子不再去重')
+  assert.equal(pruned.todayCount, 1)
+
+  const many = Array.from({ length: 250 }, (_, index) => ({ id: 'p' + index, at: now }))
+  const capped = debug.normalizeSpontState({ date: '2026-10-21', seenIds: many }, now)
+  assert.equal(capped.seenIds.length, debug.SPONT_MAX_SEEN)
+
+  const recorded = debug.recordSpontShown(capped, 'p999', now)
+  assert.equal(recorded.todayCount, 1)
+  assert.equal(recorded.lastShownAt, now)
+  assert.equal(recorded.seenIds[recorded.seenIds.length - 1].id, 'p999')
+  assert.equal(debug.recordSpontShown(recorded, 'p1000', now + 1000).todayCount, 2)
+
+  debug.writeSpontState(recorded)
+  const readBack = debug.readSpontState(now)
+  assert.equal(readBack.todayCount, 1)
+  assert.ok(readBack.seenIds.some((entry) => entry.id === 'p999'))
+  storage.setItem(debug.SPONT_KEY, '{bad json')
+  assert.equal(debug.readSpontState(now).todayCount, 0, '损坏记录安全降级')
+})
+
+test('彩蛋间隔 nextSpontDelay：45–90 分钟随机', () => {
+  const { debug } = loadClient()
+  const low = debug.nextSpontDelay(() => 0)
+  const high = debug.nextSpontDelay(() => 0.999999)
+  const mid = debug.nextSpontDelay(() => 0.5)
+  assert.equal(low, debug.SPONT_MIN_INTERVAL_MS)
+  assert.ok(high <= debug.SPONT_MAX_INTERVAL_MS)
+  assert.ok(high >= debug.SPONT_MAX_INTERVAL_MS - 1000)
+  assert.ok(mid > low && mid < high)
+})
+
+test('彩蛋选诗 pickSpontaneousPoem：心情作者+tag、先诗后词、排除已见、行/来源', () => {
+  const { debug } = loadClient()
+  const poemsData = {
+    items: [
+      { id: 'p1', author: '李白', title: '将进酒', lines: ['君不见黄河之水天上来，', '莫使金樽空对月。'] },
+      { id: 'p2', author: '苏轼', title: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] },
+      { id: 'p3', author: '王维', title: '鹿柴', lines: ['空山不见人，'] },
+    ],
+  }
+  const ciData = {
+    items: [
+      { id: 'c1', author: '李清照', rhythmic: '如梦令', title: '如梦令·常记溪亭日暮', lines: ['常记溪亭日暮，'] },
+      { id: 'c2', author: '苏轼', rhythmic: '念奴娇', title: '念奴娇·赤壁怀古', lines: ['大江东去，浪淘尽，千古风流人物。'] },
+      { id: 'c3', author: '李清照', rhythmic: '武陵春', title: '武陵春·春晚', lines: ['风住尘香花已尽，日晚倦梳头。', '只恐双溪舴艋舟，载不动许多愁。'] },
+    ],
+  }
+  const picked = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData, ciData, seenIds: [], random: () => 0 })
+  assert.equal(picked.kind, 'poem', '诗池优先')
+  assert.ok(['p1', 'p2'].includes(picked.id))
+  const pickedSource = poemsData.items.find((poem) => poem.id === picked.id)
+  assert.match(picked.line, /[。！？]$/, '彩蛋必须是一个以句末标点结尾的完整句')
+  assert.ok(!/[，,]$/.test(picked.line), '展示句不能以逗号结尾')
+  const sentences = debug.splitCompleteSentences(pickedSource.lines.join(''))
+  assert.ok(sentences.includes(picked.line), '展示句必须来自拼接文本的切句集合')
+  assert.ok(picked.line.length <= 40, '单句不应超长')
+  assert.ok(picked.label.includes('《'))
+  assert.ok(!picked.label.includes('王维'), '无 tag/作者命中的诗不应入选')
+
+  const excluded = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData, ciData, seenIds: ['p1'], random: () => 0 })
+  assert.equal(excluded.id, 'p2', '已见句子排除（7 天去重）')
+
+  // 诗都不命中时退到词
+  const lonelyPoems = { items: [{ id: 'p9', author: '王维', title: '鹿柴', lines: ['空山不见人，'] }] }
+  const fromCi = debug.pickSpontaneousPoem({ moodKey: 'lonely', poemsData: lonelyPoems, ciData, random: () => 0 })
+  assert.equal(fromCi.kind, 'ci')
+  assert.equal(fromCi.id, 'c3')
+  const ciSentences = debug.splitCompleteSentences(ciData.items.find((item) => item.id === 'c3').lines.join(''))
+  assert.ok(ciSentences.includes(fromCi.line), '词彩蛋同样取完整句')
+  assert.match(fromCi.line, /[。！？]$/)
+  assertDeep(debug.splitCompleteSentences('空山不见人，但闻人语响。返景入深林，复照青苔上。'),
+    ['空山不见人，但闻人语响。', '返景入深林，复照青苔上。'])
+  assert.equal(debug.pickSentenceFromLines(['无标点第一行', '无标点第二行'], [], () => 0), '无标点第二行', '无句末标点时回退最后一个完整 line')
+  assert.equal(debug.pickSentenceFromLines(['只有半句话，'], [], () => 0), '只有半句话。', '回退也不以逗号结尾')
+  assert.equal(debug.pickSpontaneousPoem({ moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] } }), null)
+})
+
+test('settings mood/spontaneousPoem：归一化与 PUT 序列化', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.normalizeSettings({}).mood, true)
+  assert.equal(debug.normalizeSettings({}).spontaneousPoem, true)
+  assert.equal(debug.normalizeSettings({ mood: false }).mood, false)
+  assert.equal(debug.normalizeSettings({ spontaneousPoem: false }).spontaneousPoem, false)
+  const patch = debug.settingsPatch({ mood: false, spontaneousPoem: true })
+  assertDeep(patch, { mood: false, spontaneousPoem: true })
+  const request = debug.buildSettingsRequest({ mood: false, spontaneousPoem: false })
+  assertDeep(JSON.parse(request.init.body), { mood: false, spontaneousPoem: false })
+})
+
+test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览按钮', () => {
+  const { react, debug } = loadClient()
+  const baseApi = {
+    poem: POEM,
+    todayPoemId: POEM.id,
+    poemItems: [POEM],
+    settings: debug.normalizeSettings({}),
+    poemsRes: { status: 'ready', data: { ok: true, items: [POEM] } },
+    boot: { status: 'ready', data: { version: '0.1.0' } },
+    changePoem() {},
+    backToToday() {},
+  }
+  const plain = renderFresh(react, debug.TodayTab, { api: baseApi })
+  assert.equal(findAll(plain, (node) => node.type === 'div' && node.props.className === 'dshp-weather').length, 0)
+  const withMood = renderFresh(react, debug.TodayTab, {
+    api: Object.assign({}, baseApi, {
+      weatherChip: '北京 · 小雨 18℃',
+      weatherNote: '今日有雨，为你选了写雨的这首',
+      moodChip: '心情：开心',
+    }),
+  })
+  const moodText = textOf(withMood)
+  assert.match(moodText, /心情：开心/)
+  assert.match(moodText, /北京 · 小雨 18℃/)
+  const moodChips = findAll(withMood, (node) => node.type === 'span'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-mood-chip'))
+  assert.equal(moodChips.length, 1)
+
+  const updates = []
+  const refreshed = []
+  const previews = []
+  const settingsApi = {
+    settings: debug.normalizeSettings({}),
+    updateSettings: (patch) => updates.push(patch),
+    hideWidget() {},
+    resetSettings() {},
+    weatherRes: { status: 'ready', at: shanghaiTs(2026, 10, 21, 10, 0) },
+    weatherData: { ok: true, city: '北京', weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true } },
+    refreshWeather: () => {},
+    moodRes: { status: 'ready', at: shanghaiTs(2026, 10, 21, 10, 0), data: { updatedAt: shanghaiTs(2026, 10, 21, 10, 0) } },
+    moodStats: debug.normalizeMoodStats({ userMessages: 12, toolCalls: 128 }),
+    moodView: { key: 'tired', label: '有点累', reason: '工具调用 128 次 · 今天辛苦啦' },
+    moodBasis: '今天聊了 12 句 · 工具调用 128 次 · 天气 小雨',
+    refreshMoodNow: () => refreshed.push(true),
+    previewSpontaneousPoem: () => previews.push(true),
+    boot: { data: { version: '0.1.0', dataVersion: 'x', source: {} } },
+  }
+  const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
+  const text = textOf(tree)
+  for (const label of ['心情换装', '偶尔读诗', '刷新心情', '预览一首', '45–90 分钟一次']) {
+    assert.ok(text.includes(label), '设置缺少：' + label)
+  }
+  assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
+  assert.match(text, /有点累/)
+
+  const moodSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '心情换装开关')[0]
+  assert.ok(moodSwitch)
+  moodSwitch.props.onClick()
+  assertDeep(updates[0], { mood: false })
+  const readSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '偶尔读诗开关')[0]
+  assert.ok(readSwitch)
+  readSwitch.props.onClick()
+  assertDeep(updates[1], { spontaneousPoem: false })
+
+  const refreshButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '刷新心情')[0]
+  assert.ok(refreshButton)
+  refreshButton.props.onClick()
+  assertDeep(refreshed, [true])
+  const previewButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '预览一首')[0]
+  assert.ok(previewButton)
+  previewButton.props.onClick()
+  assertDeep(previews, [true])
+})
+
+test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情立绘/chip、预览不计次数、关闭回默认', async () => {
+  const poems = [
+    {
+      id: 'w-1',
+      title: '鹿柴',
+      author: '王维',
+      lines: ['空山不见人，', '但闻人语响。', '返景入深林，', '复照青苔上。'],
+      tones: ['平平仄仄平，', '仄平平仄仄。', '仄仄仄平平，', '仄仄平平仄。'],
+    },
+    { id: 'w-2', title: '春晓', author: '孟浩然', lines: ['春眠不觉晓，'], tones: ['平平仄仄仄，'] },
+  ]
+  const dataVersion = 'test.mood.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: true, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: 'w-1' },
+    counts: { poems: poems.length, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'bootstrap.json': bootstrap,
+    'poems.json': { ok: true, dataVersion, items: poems },
+    'ci.json': { ok: true, dataVersion, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 100 }, updatedAt: shanghaiTs(2026, 10, 21, 10, 0) },
+    'settings.json': { ok: true, settings },
+  }
+  const fetchUrls = []
+  const { react, debug, storage } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: async (url) => {
+      fetchUrls.push(String(url))
+      const key = String(url).replace('/api/dsh-poetry/', '')
+      const data = responses[key]
+      if (!data) return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => data }
+    },
+  })
+
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 4; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+
+    // 补充要求 3：weatherPoem=false 但 mood=true 时仍拉天气（心情也要天气）
+    assert.ok(fetchUrls.some((url) => url.includes('weather.json')), 'mood 开启也应拉取天气')
+    assert.ok(fetchUrls.some((url) => url.includes('mood.json')), '应拉取心情统计')
+
+    // 心情 tired（工具调用 100）→ work-sleep 立绘（天气晴不是强制 overlay）
+    let mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(String(mascot.props.src).includes('dsh-whale-state-work-sleep.webp'), '心情立绘应为 work-sleep，实际：' + mascot.props.src)
+
+    // 气泡第 1 张：心情 chip（天气诗被关闭，无天气 chip）
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    let bubble = findBubble(tree)
+    assert.ok(bubble)
+    let bubbleText = textOf(bubble)
+    assert.match(bubbleText, /心情：有点累/)
+    assert.ok(!bubbleText.includes('℃'), 'weatherPoem=false 不应显示天气 chip')
+
+    // 补充要求 1：预览心情诗立即弹出，且不写 lastShownAt/todayCount
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    const panelTabs = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab'))
+    const settingsTab = panelTabs.find((tab) => textOf(tab) === '设置')
+    assert.ok(settingsTab)
+    settingsTab.props.onClick()
+    tree = renderMain()
+    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsElement)
+    const mainApi = settingsElement.props.api
+    mainApi.previewSpontaneousPoem()
+    tree = renderMain()
+    const spontCards = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')
+    assert.equal(spontCards.length, 1, '预览应立即显示彩蛋卡片（面板开着也可）')
+    const spontText = textOf(spontCards[0])
+    assert.match(spontText, /它想读一句：/)
+    assert.match(spontText, /王维/)
+    const previewPoem = poems.find((poem) => spontText.includes(poem.title)) || poems[0]
+    const sentenceNodes = findAll(spontCards[0], (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-sentence')
+    assert.equal(sentenceNodes.length, 1, '卡片正文只渲染一个完整句')
+    const shownSentence = textOf(sentenceNodes[0])
+    assert.match(shownSentence, /[。！？]$/)
+    assert.ok(debug.splitCompleteSentences(previewPoem.lines.join('')).includes(shownSentence), '展示句来自完整切句')
+    assert.ok(!previewPoem.lines.includes(shownSentence) || /[。！？]$/.test(shownSentence), '不能显示逗号结尾残句')
+    assert.equal(findAll(spontCards[0], (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-line').length, 0, '不应再渲染整首各行')
+    assert.equal(storage.getItem(debug.SPONT_KEY), null, '预览不写 localStorage（不计次数/不写 lastShownAt）')
+
+    // 点击诗句 → 打开面板「今日」并选中该诗
+    const linesNode = findAll(spontCards[0], (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-sentence')[0]
+    assert.ok(linesNode)
+    linesNode.props.onClick({ stopPropagation() {} })
+    tree = renderMain()
+    const afterClickText = textOf(tree)
+    assert.ok(afterClickText.includes(previewPoem.title), '点击彩蛋应切到今日 tab 并显示该诗')
+    assert.ok(!findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab').length, '应离开设置 tab')
+
+    // 补充要求 2 + C：刷新心情 / 关闭心情后回默认立绘
+    // 假 React 每轮都会重跑 bootstrap effect；同步 mock 设置，模拟真实宿主已保存 mood=false
+    responses['bootstrap.json'] = Object.assign({}, bootstrap, { settings: Object.assign({}, settings, { mood: false }) })
+    mainApi.updateSettings({ mood: false })
+    tree = renderMain()
+    for (let round = 0; round < 2; round += 1) {
+      react._runEffects()
+      await sleep(10)
+      tree = renderMain()
+    }
+    await sleep(2600) // 等每日 greet / 表情彩蛋 2.5s 结束
+    tree = renderMain()
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(
+      String(mascot.props.src).includes('dsh-whale-state-celebrate.webp'),
+      '关闭心情后应回默认立绘，实际：' + mascot.props.src,
+    )
+  } finally {
+    react._cleanup()
+  }
+})
+
+
+test('彩蛋卡片：30s 自动关闭 + 正文可滚动不截断（CSS 与常量）', () => {
+  const { react, debug } = loadClient()
+  assert.equal(debug.SPONT_AUTO_CLOSE_MS, 25000, '自动关闭应为 25 秒')
+  const tree = renderFresh(react, debug.PoetryWidget, {})
+  const css = String(findAll(tree, (node) => node.type === 'style')[0].children[0] || '')
+  assert.match(css, /\.dshp-spont-sentence\{/)
+  assert.match(css, /max-height:72px/)
+  assert.match(css, /overflow-y:auto/)
+  const sentenceRule = (css.match(/\.dshp-spont-sentence\{[^}]*\}/) || [''])[0]
+  assert.match(sentenceRule, /white-space:normal/)
+  assert.ok(!sentenceRule.includes('nowrap'), '彩蛋正文不能 nowrap')
+  assert.ok(!sentenceRule.includes('ellipsis'), '彩蛋正文不能 ellipsis 截断')
+})
+
+/* ------------------------------------------------------------------ */
+/* 12. M9：诗库 / 平水韵格律检测 / 句库扩容 / 剩余立绘彩蛋                */
+/* ------------------------------------------------------------------ */
+
+function makeM9Fixtures() {
+  const anthology = {
+    ok: true,
+    dataVersion: 'test.m9.1',
+    categories: ['诗经', '楚辞', '千家诗', '唐诗三百首'],
+    items: [
+      { id: 'shijing-001', category: '诗经', title: '关雎', author: '佚名', lines: ['关关雎鸠，在河之洲。', '窈窕淑女，君子好逑。'] },
+      { id: 'chuci-001', category: '楚辞', title: '离骚', author: '屈原', lines: ['路漫漫其修远兮，吾将上下而求索。'] },
+      { id: 'qianjiashi-001', category: '千家诗', title: '春日', author: '朱熹', lines: ['胜日寻芳泗水滨，', '无边光景一时新。'] },
+      { id: 'tang300-001', category: '唐诗三百首', title: '月下独酌', author: '李白', lines: ['花间一壶酒，独酌无相亲。'] },
+    ],
+  }
+  const bank = {
+    ok: true,
+    dataVersion: 'test.m9.1',
+    items: [
+      {
+        id: 'bank-001',
+        title: '登鹳雀楼',
+        author: '王之涣',
+        dynasty: 'tang',
+        lines: ['白日依山尽，', '黄河入海流。', '欲穷千里目，', '更上一层楼。'],
+        tones: ['仄仄平平仄，', '平平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'],
+        form: '五绝',
+        start: '仄起',
+        firstRhyme: false,
+        rhymeIdx: [1, 3],
+        source: 'bank',
+      },
+      { id: 'bank-002', title: '春晓', author: '孟浩然', dynasty: 'tang', lines: ['春眠不觉晓，', '处处闻啼鸟。'], source: 'bank' },
+    ],
+  }
+  const pingshui = {
+    ok: true,
+    dataVersion: 'test.m9.1',
+    source: { repo: 'pingshui', license: 'MIT' },
+    categories: [
+      { name: '下平聲十一尤', short: '十一尤', tone: 'ping', chars: '流楼愁' },
+      { name: '上平聲一東', short: '一东', tone: 'ping', chars: '依山河穷千层' },
+      { name: '上聲一董', short: '一董', tone: 'ze', chars: '白日尽黄入海欲里目更上一' },
+    ],
+    charIndex: {},
+  }
+  return { anthology, bank, pingshui }
+}
+
+test('诗库 helpers：分类合并、搜索过滤、分页', () => {
+  const { debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const items = debug.buildLibraryItems(anthology, bank)
+  assert.equal(items.length, 6)
+  assert.equal(items.filter((item) => item.categoryId === 'shijing').length, 1)
+  assert.equal(items.filter((item) => item.categoryId === 'bank').length, 2)
+  assert.equal(items[items.length - 1].source, 'bank')
+
+  assert.equal(debug.filterLibraryItems(items, 'all', '').length, 6)
+  assert.equal(debug.filterLibraryItems(items, 'bank', '').length, 2)
+  assert.equal(debug.filterLibraryItems(items, 'all', '李白').length, 1)
+  assert.equal(debug.filterLibraryItems(items, 'all', '流').length, 1)
+  assert.equal(debug.filterLibraryItems(items, 'all', '不存在的词').length, 0)
+  assert.equal(debug.libraryPage(items, 3).length, 3)
+  assert.equal(debug.libraryPage(items, 0).length, 0)
+})
+
+test('平水韵检测：诗体/起式/韵部/借韵/拗字/三平调/孤平/出韵', () => {
+  const { debug } = loadClient()
+  const { pingshui } = makeM9Fixtures()
+  const index = debug.buildPingshuiIndex(pingshui)
+  assert.equal(index.ready, true)
+  assert.equal(index.charInfo('流').rhymes[0], '十一尤')
+  assertDeep(index.charInfo('日').tones, ['仄'])
+
+  const poem = {
+    lines: ['白日依山尽，', '黄河入海流。', '欲穷千里目，', '更上一层楼。'],
+    tones: ['仄仄平平仄，', '平平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'],
+  }
+  const report = debug.detectPoem(poem, index)
+  assert.equal(report.ok, true)
+  assert.equal(report.form, '五绝')
+  assert.equal(report.start, '仄起')
+  assert.equal(report.firstRhyme, false)
+  assert.equal(report.meter, '仄起首句不入韵')
+  assert.equal(report.violations.filter((item) => !item.rhyme).length, 0)
+  assert.ok(report.rhymeGroup.indexOf('十一尤') >= 0)
+  assert.equal(report.rhymeError, '')
+  assert.match(report.summary, /五绝/)
+  assert.match(report.summary, /十一尤/)
+
+  // 一三五不论：首句第一字 仄→平 不算拗
+  const freeTone = Object.assign({}, poem, { tones: ['平仄平平仄，', '平平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'] })
+  assert.equal(debug.detectPoem(freeTone, index).violations.filter((item) => !item.rhyme).length, 0)
+  // 二四六分明：第二句第二字 平→仄 记拗
+  const violation = Object.assign({}, poem, { tones: ['仄仄平平仄，', '平仄仄仄平。', '仄平平仄仄，', '仄仄仄平平。'] })
+  const violationReport = debug.detectPoem(violation, index)
+  assert.ok(violationReport.violations.some((item) => item.line === 2 && item.position === 2), '二四六位置违律应报拗字')
+  // 孤平：平平仄仄平 首字用仄
+  const guPing = Object.assign({}, poem, { tones: ['仄仄平平仄，', '仄平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'] })
+  assert.ok(debug.detectPoem(guPing, index).guPing.indexOf(2) >= 0)
+  // 三平调：末三字全平
+  const sanPing = Object.assign({}, poem, { lines: ['白日依山尽，', '黄河入海流。', '欲穷千里目，', '更上一层楼。'] })
+  sanPing.tones = ['仄仄平平仄，', '平平平平平。', '仄平平仄仄，', '仄仄仄平平。']
+  assert.ok(debug.detectPoem(sanPing, index).sanPing.indexOf(2) >= 0)
+
+  // 借韵：首句用别部平声韵（一东），2/4 句十一尤
+  const borrowPoem = {
+    lines: ['白日依山风，', '黄河入海流。', '欲穷千里目，', '更上一层楼。'],
+    tones: ['仄仄仄平平，', '平平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'],
+  }
+  const borrowReport = debug.detectPoem(borrowPoem, index)
+  assert.equal(borrowReport.firstRhyme, true)
+  assert.equal(borrowReport.rhymeLines[0].borrowed, true, '首句可借邻韵')
+
+  // 出韵：第 4 句韵脚换部
+  const outPoem = {
+    lines: ['白日依山尽，', '黄河入海流。', '欲穷千里目，', '更上一层东。'],
+    tones: ['仄仄平平仄，', '平平仄仄平。', '仄平平仄仄，', '仄仄仄平平。'],
+  }
+  const outReport = debug.detectPoem(outPoem, index)
+  assert.match(outReport.rhymeError, /出韵|共同韵部/)
+
+  // 七绝 / 七律 体裁判定
+  const seven = {
+    lines: ['朝辞白帝彩云间，', '千里江陵一日还。', '两岸猿声啼不住，', '轻舟已过万重山。'],
+    tones: ['平平仄仄仄平平，', '平仄平平仄仄平。', '仄仄平平平仄仄，', '平平仄仄仄平平。'],
+  }
+  assert.equal(debug.detectPoem(seven, index).form, '七绝')
+  const eight = { lines: [], tones: [] }
+  for (let i = 0; i < 8; i += 1) {
+    eight.lines.push('Test')
+    eight.tones.push('')
+  }
+  // 占位长度不足时给出可读错误而不是崩溃
+  assert.equal(debug.detectPoem(eight, index).ok, false)
+})
+
+test('格律检测输入：解析/校验/逐字标注/错误提示', () => {
+  const { debug } = loadClient()
+  const { pingshui } = makeM9Fixtures()
+  const index = debug.buildPingshuiIndex(pingshui)
+  const text = '白日依山尽，\n黄河入海流。\n欲穷千里目，\n更上一层楼。'
+  const parsed = debug.parsePoemInput(text)
+  assert.equal(parsed.error, undefined)
+  assert.equal(parsed.lines.length, 4)
+  assert.deepEqual(parsed.lines[0].chars.join(''), '白日依山尽')
+
+  const report = debug.detectPoemText(text, index)
+  assert.equal(report.form, '五绝')
+  assert.equal(report.ok, true)
+  assert.match(report.summary, /五绝/)
+  assert.ok(Array.isArray(report.annotation) && report.annotation[0][0].tone === '仄')
+
+  assert.match(debug.parsePoemInput('白日依山尽，黄河入海流。').error, /4 句或 8 句/)
+  assert.equal(debug.parsePoemInput('白日依山尽，黄河入海流。欲穷千里目，更上一层楼。').error, undefined)
+  assert.match(debug.parsePoemInput('白白白日依山尽，\n黄河入海流。\n欲穷千里目，\n更上一层楼。').error, /5 或 7|不一致/)
+  assert.match(debug.detectPoemText('', index).errors[0], /请输入/)
+  assert.ok(debug.formatDetectionReport(report).includes('格律检测'))
+  assertDeep(Object.keys(debug.detectionRhymeIndexes(report)).map(Number).sort((a, b) => a - b), [1, 3])
+})
+
+test('诗库 UI：分类 chips / 列表 / 详情 / 平仄与检测入口；加载与失败态', () => {
+  const { react, debug } = loadClient()
+  const { anthology, bank, pingshui } = makeM9Fixtures()
+  const api = {
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    pingshuiRes: { status: 'ready', data: pingshui },
+    reloadAnthology: async () => {},
+    reloadBank: async () => {},
+    reloadPingshui: async () => {},
+    showToast() {},
+    libraryFocus: null,
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.LibraryTab, { api })
+  let text = textOf(tree)
+  assert.match(text, /共 6 首/)
+  for (const label of ['诗经', '楚辞', '千家诗', '唐诗三百首', '全唐诗精选']) assert.ok(text.includes(label), '缺少分类：' + label)
+  const rows = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  assert.equal(rows.length, 6)
+
+  // 详情：有 tones → 平仄 + 体式；点条目进入
+  const bankChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('全唐诗精选'))
+  bankChip.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  const bankRows = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  assert.equal(bankRows.length, 2)
+  bankRows[0].props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  text = textOf(tree)
+  assert.match(text, /王之涣《登鹳雀楼》/)
+  assert.match(text, /体式 五绝/)
+  assert.ok(findAll(tree, (node) => node.type === 'span'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-ch-ping')).length > 0, '有 tones 应逐字平仄着色')
+
+  // 格律检测入口 → 报告
+  const detectButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '格律检测')[0]
+  assert.ok(detectButton)
+  detectButton.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  text = textOf(tree)
+  assert.match(text, /五绝/)
+  assert.match(text, /十一尤/)
+
+  // 输入自测
+  const selfButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '自测输入')[0]
+  assert.ok(selfButton)
+  selfButton.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  const textarea = findAll(tree, (node) => node.type === 'textarea')[0]
+  assert.ok(textarea)
+  textarea.props.onChange({ target: { value: '白日依山尽，\n黄河入海流。\n欲穷千里目，\n更上一层楼。' } })
+  tree = rerender(react, debug.LibraryTab, { api })
+  const runButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '开始检测')[0]
+  runButton.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  assert.match(textOf(tree), /五绝/)
+
+  // 失败/加载态
+  const errorTree = renderFresh(react, debug.LibraryTab, {
+    api: Object.assign({}, api, { anthologyRes: { status: 'error', error: { status: 404 } }, bankRes: { status: 'error', error: { status: 404 } } }),
+  })
+  assert.match(textOf(errorTree), /诗库数据暂时不可用|重试/)
+  const loadingTree = renderFresh(react, debug.LibraryTab, { api: Object.assign({}, api, { anthologyRes: { status: 'loading', data: null }, bankRes: { status: 'loading', data: null } }) })
+  assert.match(textOf(loadingTree), /正在载入诗库/)
+})
+
+test('资产数据缓存：URL 带 dataVersion，版本变化失效，404 友好降级', async () => {
+  const { context, debug } = loadClient()
+  const calls = []
+  context.fetch = async (url) => {
+    calls.push(String(url))
+    return { ok: true, json: async () => ({ ok: true, dataVersion: String(url).slice(String(url).indexOf('v=') + 2), items: [] }) }
+  }
+  debug.setAssetDataVersion('2026-10-21.4')
+  await debug.loadResource('anthology')
+  assert.ok(calls[0].includes('f=data/anthology.json'))
+  assert.ok(calls[0].includes('v=2026-10-21.4'))
+  await debug.loadResource('anthology')
+  assert.equal(calls.length, 1, '同版本应命中模块缓存')
+
+  debug.setAssetDataVersion('2026-10-22.1')
+  await debug.loadResource('anthology')
+  assert.equal(calls.length, 2, 'dataVersion 变化应使缓存失效')
+  assert.ok(calls[1].includes('v=2026-10-22.1'))
+
+  context.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) })
+  debug.clearResourceCache('pingshui')
+  await assert.rejects(() => debug.loadResource('pingshui'), (error) => error.status === 404)
+})
+
+test('飞花令句库扩容：anthology + bank lines 入索引且去重、句数增长', () => {
+  const { debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const poems = {
+    items: [{ id: 'p1', title: '静夜思', author: '李白', lines: ['床前明月光，', '疑是地上霜。'] }],
+  }
+  const ci = { items: [{ id: 'c1', author: '苏轼', rhythmic: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] }] }
+  const base = debug.buildFeihuaIndex(poems, ci)
+  const extended = debug.buildFeihuaIndex(poems, ci, anthology, bank)
+  assert.ok(extended.entries.length > base.entries.length)
+  assert.ok(extended.entries.some((entry) => entry.text === '关关雎鸠，在河之洲。'))
+  assert.ok(extended.entries.some((entry) => entry.text === '白日依山尽，黄河入海流。'), '半句应合为完整句')
+  assert.ok(extended.entries.every((entry) => /[。！？]$/.test(entry.text)), '不得保留半句结尾')
+  assert.equal(extended.counts['月'], base.counts['月'], '不含令字的句子不增加该字计数')
+  assert.ok(extended.counts['山'] > base.counts['山'], '额外句库应提升令字句数')
+  // 去重：同一句跨诗/词/选集只保留一次
+  const dup = { items: [{ id: 'dup', author: '甲', title: '重复', lines: ['床前明月光，', '疑是地上霜。'] }] }
+  const deduped = debug.buildFeihuaIndex(poems, ci, dup)
+  assert.equal(deduped.entries.filter((entry) => entry.text === '床前明月光，疑是地上霜。').length, 1)
+})
+
+test('天气诗 / 彩蛋选诗池优先级：精选 320 → anthology → bank', () => {
+  const { debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const tags = ['雨', '风', '春', '白']
+  const poemsData = {
+    items: [
+      { id: 'p1', title: '雨诗', author: '甲', lines: ['夜来风雨声，'] },
+      { id: 'p2', title: '雨诗二', author: '乙', lines: ['好雨知时节，'] },
+    ],
+  }
+  const extraAnthology = { items: [
+    { id: 'a1', author: '甲', title: '春风', lines: ['春风又绿江南岸，'] },
+    { id: 'a2', author: '乙', title: '春雨', lines: ['春雨贵如油，'] },
+  ] }
+  const extraBank = { items: [
+    { id: 'b1', author: '丙', title: '白雪', lines: ['白雪却嫌春色晚，'] },
+  ] }
+  const weatherPool = debug.buildWeatherPoemPool(poemsData, null, tags, 3, { anthology: extraAnthology, bank: extraBank })
+  assert.equal(weatherPool.length, 3)
+  assert.equal(weatherPool[0].kind, 'poem')
+  assert.equal(weatherPool[1].kind, 'poem')
+  assert.equal(weatherPool[2].kind, 'anthology', '诗不足时先用 anthology 再 bank')
+  const weatherPool2 = debug.buildWeatherPoemPool(poemsData, null, tags, 5, { anthology: extraAnthology, bank: extraBank })
+  assertDeep(weatherPool2.map((entry) => entry.kind), ['poem', 'poem', 'anthology', 'anthology', 'bank'])
+
+  const happyPoems = { items: [{ id: 'p9', title: '春日', author: '李白', lines: ['春风得意马蹄疾，'] }] }
+  const pickedPoem = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData: happyPoems, ciData: { items: [] }, anthologyData: anthology, bankData: bank, seenIds: [], random: () => 0 })
+  assert.equal(pickedPoem.kind, 'poem')
+  const pickedAnthology = debug.pickSpontaneousPoem({ moodKey: 'happy', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: anthology, bankData: bank, seenIds: [], random: () => 0 })
+  assert.equal(pickedAnthology.kind, 'anthology', '诗/词都不命中时用 anthology')
+  const pickedBank = debug.pickSpontaneousPoem({ moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: { items: [] }, bankData: bank, seenIds: [], random: () => 0, })
+  assert.equal(pickedBank.kind, 'bank')
+})
+
+test('剩余立绘彩蛋：随机表情映射、每日 greet、idle ≤1 次/45min', async () => {
+  const { debug, storage } = loadClient()
+  assert.ok(debug.MASCOT_EXPRESSION_FILES.length >= 20)
+  for (const file of debug.MASCOT_EXPRESSION_FILES) {
+    assert.ok(existsSync(path.join(ROOT, 'assets', 'generated', file)), '缺少立绘：' + file)
+  }
+  assert.equal(debug.pickMascotExpression(() => 0), debug.MASCOT_EXPRESSION_FILES[0])
+  assert.equal(debug.pickMascotExpression(() => 0.9999), debug.MASCOT_EXPRESSION_FILES[debug.MASCOT_EXPRESSION_FILES.length - 1])
+
+  const now = shanghaiTs(2026, 10, 21, 10, 0)
+  const empty = debug.normalizeMascotEggState(null, now)
+  assert.equal(debug.shouldShowDailyGreet(empty, now), true)
+  const greeted = debug.recordMascotEgg(empty, { greet: true }, now)
+  assert.equal(debug.shouldShowDailyGreet(greeted, now), false)
+  assert.equal(debug.shouldShowDailyGreet(greeted, now + 24 * 3600 * 1000), true, '新的一天重新 greet')
+  debug.writeMascotEggState(debug.recordMascotEgg(greeted, { idle: true }, now))
+  const stored = debug.readMascotEggState(now)
+  assert.equal(stored.idleAt, now)
+  assert.equal(debug.canShowIdlePose({ idleAt: 0 }, now, now - 6 * 60 * 1000), true)
+  assert.equal(debug.canShowIdlePose({ idleAt: 0 }, now, now - 60 * 1000), false, '用户刚交互过不出 idle 姿态')
+  assert.equal(debug.canShowIdlePose({ idleAt: now - 10 * 60 * 1000 }, now, now - 6 * 60 * 1000), false, '45min 内只出一次')
+  assert.equal(debug.canShowIdlePose({ idleAt: now - 46 * 60 * 1000 }, now, now - 6 * 60 * 1000), true)
+  storage.setItem(debug.MASCOT_EGG_KEY, '{bad json')
+  assert.equal(debug.shouldShowDailyGreet(debug.readMascotEggState(now), now), true, '损坏记录安全降级')
+})
+
+test('立绘彩蛋：双击随机表情（2.5s 回退）+ onError 回 celebrate', async () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  const stage = findStage(tree)
+  assert.ok(stage)
+  stage.props.onDoubleClick({ preventDefault() {} })
+  tree = renderMain()
+  let img = findAll(tree, (node) => node.type === 'img')[0]
+  const expressionFile = String(img.props.src).split('generated/')[1]
+  assert.ok(debug.MASCOT_EXPRESSION_FILES.indexOf(expressionFile) >= 0, '双击应显示随机表情立绘，实际：' + img.props.src)
+
+  // onError 回退 celebrate
+  img.props.onError()
+  tree = renderMain()
+  img = findAll(tree, (node) => node.type === 'img')[0]
+  assert.ok(String(img.props.src).includes('dsh-whale-state-celebrate.webp'), '加载失败应回 fallback celebrate')
+
+  await sleep(2600)
+  tree = renderMain()
+  img = findAll(tree, (node) => node.type === 'img')[0]
+  assert.ok(String(img.props.src).includes('dsh-whale-state-celebrate.webp'), '2.5s 后应回到心情/天气/默认立绘')
+})
+
+const M9_DATA_DIR = path.join(ROOT, 'assets', 'data')
+const HAS_M9_DATA = ['anthology.json', 'poems-bank.json', 'pingshui.json'].every((name) => existsSync(path.join(M9_DATA_DIR, name)))
+
+test('真实 M9 数据冒烟：诗库/平水韵/格律检测/句库扩容/选诗池', {
+  skip: HAS_M9_DATA ? false : 'assets/data 尚未生成',
+}, () => {
+  const readM9 = (name) => JSON.parse(readFileSync(path.join(M9_DATA_DIR, name), 'utf8'))
+  const anthology = readM9('anthology.json')
+  const bank = readM9('poems-bank.json')
+  const pingshuiRaw = readM9('pingshui.json')
+  const manifest = readM9('manifest.json')
+  const poems = JSON.parse(readFileSync(path.join(DATA_DIR, 'poems.json'), 'utf8'))
+  const { react, debug } = loadClient()
+
+  assert.equal(anthology.dataVersion, manifest.dataVersion)
+  assert.ok(anthology.items.length >= 600)
+  assert.ok(bank.items.length >= 3000)
+  assert.ok(bank.items.some((item) => Array.isArray(item.tones) && item.tones.length > 0))
+
+  const libraryItems = debug.buildLibraryItems(anthology, bank)
+  assert.equal(libraryItems.length, anthology.items.length + bank.items.length)
+  for (const category of ['shijing', 'chuci', 'qianjiashi', 'tang300', 'bank']) {
+    assert.ok(libraryItems.some((item) => item.categoryId === category), '缺少分类：' + category)
+  }
+
+  const pingshui = debug.buildPingshuiIndex(pingshuiRaw)
+  assert.equal(pingshui.ready, true)
+  assert.equal(pingshui.categories.length, 106)
+  assertDeep(pingshui.charInfo('月').tones, ['仄'])
+  assertDeep(pingshui.charInfo('风').tones, ['平'])
+  assert.equal(pingshui.charInfo('看').tones.length, 2, '多音字应有平仄候选')
+  assert.ok(pingshui.charInfo('月').rhymes.length === 0, '仄声字不作为平声韵脚')
+
+  const inputText = '白日依山尽，\n黄河入海流。\n欲穷千里目，\n更上一层楼。'
+  const report = debug.detectPoemText(inputText, pingshui)
+  assert.equal(report.form, '五绝')
+  assert.equal(report.start, '仄起')
+  assert.equal(report.firstRhyme, false)
+  assert.ok(report.rhymeGroup.indexOf('十一尤') >= 0)
+  assert.equal(report.violations.filter((item) => !item.rhyme).length, 0)
+  assert.match(report.summary, /粘对成立/)
+
+  const baseFeihua = debug.buildFeihuaIndex({ ok: true, items: poems.items.slice(0, 5) }, { ok: true, items: [] })
+  const extended = debug.buildFeihuaIndex({ ok: true, items: poems.items }, { ok: true, items: [] }, anthology, bank)
+  assert.ok(extended.entries.length > 20000, '扩容句库应有 2 万句以上')
+  assert.ok(extended.entries.length > baseFeihua.entries.length)
+  assert.ok(extended.counts['花'] > 500)
+
+  const rainTags = debug.weatherPoemTags({ category: 'rain', isDay: true })
+  const pool = debug.buildWeatherPoemPool(poems, null, rainTags, 20, { anthology, bank })
+  assert.equal(pool.length, 20)
+  assert.ok(pool.every((entry) => entry.kind === 'poem'), '精选 320 足够时优先用诗')
+
+  const picked = debug.pickSpontaneousPoem({
+    moodKey: 'calm',
+    poemsData: { items: [] },
+    ciData: { items: [] },
+    anthologyData: anthology,
+    bankData: bank,
+    seenIds: [],
+    random: () => 0.42,
+  })
+  assert.ok(picked)
+  assert.match(picked.line, /[。！？]$/)
+  assert.ok(picked.label.includes('《'))
+
+  // 真实数据渲染诗库：分类/列表/详情/检测
+  const api = {
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    pingshuiRes: { status: 'ready', data: pingshuiRaw },
+    reloadAnthology: async () => {},
+    reloadBank: async () => {},
+    reloadPingshui: async () => {},
+    showToast() {},
+    libraryFocus: null,
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.LibraryTab, { api })
+  assert.match(textOf(tree), new RegExp('共 ' + libraryItems.length + ' 首'))
+  const bankChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('全唐诗精选'))
+  assert.ok(bankChip)
+  bankChip.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  const bankRows = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  assert.ok(bankRows.length > 0)
+  bankRows[0].props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  const detailText = textOf(tree)
+  assert.match(detailText, /格律检测/)
+  const detectButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '格律检测')[0]
+  detectButton.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api })
+  const reportText = textOf(tree)
+  assert.match(reportText, /五|七/)
+  assert.ok(reportText.includes('韵脚') || reportText.includes('粘对') || reportText.includes('拗字'), '真实数据应渲染检测报告')
+})
+
+/* ------------------------------------------------------------------ */
+/* 13. M9c：宋词全库（ci-bank）懒加载 / 诗库联动 / 句库并入 / 池降级      */
+/* ------------------------------------------------------------------ */
+
+function makeCiSelectedFixture() {
+  return {
+    ok: true,
+    items: [
+      { id: 'ci-s1', author: '苏轼', rhythmic: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] },
+      { id: 'ci-s2', author: '李清照', rhythmic: '如梦令', lines: ['常记溪亭日暮，', '沉醉不知归路。'] },
+    ],
+  }
+}
+
+function makeCiBankFixture() {
+  return {
+    ok: true,
+    dataVersion: 'test.m9.1',
+    count: 3,
+    items: [
+      { id: 'cib-1', author: '苏轼', rhythmic: '水调歌头', title: '水调歌头·明月几时有', lines: ['明月几时有，', '把酒问青天。'] },
+      { id: 'cib-2', author: '李清照', rhythmic: '如梦令', title: '如梦令·常记溪亭日暮', lines: ['常记溪亭日暮，', '沉醉不知归路。'] },
+      { id: 'cib-3', author: '苏轼', rhythmic: '水调歌头', title: '水调歌头·落日绣帘卷', lines: ['落日绣帘卷，', '亭下水连空。'] },
+    ],
+  }
+}
+
+test('诗库 helpers：宋词全库合并 / 词牌分布 / 词牌筛选', () => {
+  const { debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const ciBank = makeCiBankFixture()
+  const items = debug.buildLibraryItems(anthology, bank, ciBank)
+  assert.equal(items.length, 6 + 3)
+  assert.equal(items.filter((item) => item.categoryId === 'ci-bank').length, 3)
+  assert.equal(items[items.length - 1].source, 'ci-bank')
+  assertDeep(debug.ciBankRhythmics(ciBank), [{ name: '水调歌头', count: 2 }, { name: '如梦令', count: 1 }])
+  assert.equal(debug.filterLibraryItems(items, 'ci-bank', '').length, 3)
+  assert.equal(debug.filterLibraryItems(items, 'ci-bank', '', '水调歌头').length, 2)
+  assert.equal(debug.filterLibraryItems(items, 'ci-bank', '李清照').length, 1)
+  assert.equal(debug.filterLibraryItems(items, 'ci-bank', '把酒').length, 1)
+  assert.equal(debug.filterLibraryItems(items, 'all', '如梦令').length, 1)
+})
+
+test('诗库 UI：宋词精选默认 283 条不拉全库；全部宋词点击才加载；切回不重复拉', () => {
+  const { react, debug } = loadClient()
+  const { anthology, bank, pingshui } = makeM9Fixtures()
+  const ciSelected = makeCiSelectedFixture()
+  const ciBank = makeCiBankFixture()
+  const requested = []
+  const baseApi = {
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    pingshuiRes: { status: 'ready', data: pingshui },
+    ciRes: { status: 'ready', data: ciSelected },
+    ciBankRes: { status: 'idle', data: null },
+    reloadAnthology: async () => {},
+    reloadBank: async () => {},
+    reloadPingshui: async () => {},
+    reloadCi: async () => {},
+    reloadCiBank: async () => {},
+    requestCiBank: () => requested.push(true),
+    showToast() {},
+    libraryFocus: null,
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.LibraryTab, { api: baseApi })
+  const ciChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('宋词精选'))
+  assert.ok(ciChip, '应有宋词精选分类')
+  assert.match(textOf(ciChip), /宋词精选 2/)
+  ciChip.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  assert.match(textOf(tree), /共 2 首/)
+  assertDeep(requested, [], '进入宋词精选不应拉取 ci-bank')
+  const fullEntry = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button).includes('全部宋词'))
+  assert.ok(fullEntry, '应有「全部宋词」入口')
+  assert.match(textOf(fullEntry), /点击加载/)
+  fullEntry.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  assert.match(textOf(tree), /正在载入全部宋词/)
+  react._runEffects()
+  react._cleanup()
+  assertDeep(requested, [true], '点全部宋词才触发 ci-bank 加载')
+
+  const readyApi = Object.assign({}, baseApi, { ciBankRes: { status: 'ready', data: ciBank } })
+  tree = rerender(react, debug.LibraryTab, { api: readyApi })
+  assert.match(textOf(tree), /共 3 首/)
+  const selectedSeg = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button).includes('宋词精选'))
+  selectedSeg.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: readyApi })
+  assert.match(textOf(tree), /共 2 首/)
+  assert.equal(requested.length, 1, '切回精选不应重复请求 ci-bank')
+  const rhythmSelect = findAll(tree, (node) => node.type === 'select' && node.props['aria-label'] === '按词牌筛选宋词精选')[0]
+  assert.ok(rhythmSelect)
+  rhythmSelect.props.onChange({ target: { value: '如梦令' } })
+  tree = rerender(react, debug.LibraryTab, { api: readyApi })
+  assert.match(textOf(tree), /共 1 首/)
+  const rows = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  assert.equal(rows.length, 1)
+  rows[0].props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: readyApi })
+  const detailText = textOf(tree)
+  assert.match(detailText, /宋词精选/)
+  assert.match(detailText, /词牌 如梦令/)
+  assert.match(detailText, /未标注平仄/)
+
+  const requested2 = []
+  const focusApi = Object.assign({}, readyApi, {
+    ciBankRes: { status: 'idle', data: null },
+    requestCiBank: () => requested2.push(true),
+    libraryFocus: { type: 'ci-selected', rhythmic: '水调歌头', token: 1 },
+  })
+  const focusedTree = renderFresh(react, debug.LibraryTab, { api: focusApi })
+  react._runEffects()
+  react._cleanup()
+  const focusedAfter = rerender(react, debug.LibraryTab, { api: focusApi })
+  assert.match(textOf(focusedAfter), /共 1 首/, '预置词牌精选应只筛出精选词牌')
+  assertDeep(requested2, [], '精选预置不应拉 ci-bank')
+})
+test('词牌 tab：同词牌精选 N 首优先，次级全库 M 首点击才加载并跳转', () => {
+  const { react, debug } = loadClient()
+  const ciBank = makeCiBankFixture()
+  const ciSelected = makeCiSelectedFixture()
+  const selectedJumps = []
+  const fullJumps = []
+  const knowledge = { status: 'ready', data: { cards: [], ciCards: [{ id: 'shuidiao', name: '水调歌头', aliases: [], form: '双调九十五字', rhyme: '平韵', note: '风格', example: '明月几时有' }] } }
+  const ciRes = { status: 'ready', data: { items: [{ id: 'ci-1', author: '苏轼', rhythmic: '水调歌头', title: '水调歌头·明月几时有', lines: ['明月几时有，'], quote: '' }] } }
+  const api = {
+    knowledgeRes: knowledge,
+    ciRes,
+    ciBankRes: { status: 'ready', data: ciBank },
+    reloadKnowledge: async () => {},
+    reloadCi: async () => {},
+    openCiSelectedForRhythmic: (name) => selectedJumps.push(name),
+    openCiBankForRhythmic: (name) => fullJumps.push(name),
+  }
+  let tree = renderFresh(react, debug.CiTab, { api })
+  const rows = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  rows[0].props.onClick()
+  tree = rerender(react, debug.CiTab, { api })
+  const selectedLink = findAll(tree, (node) => node.type === 'button' && textOf(node).includes('同词牌精选'))[0]
+  assert.ok(selectedLink, '名篇词应有「同词牌精选」入口')
+  assert.match(textOf(selectedLink), /（1 首）/)
+  selectedLink.props.onClick()
+  assertDeep(selectedJumps, ['水调歌头'])
+  const fullLink = findAll(tree, (node) => node.type === 'button' && textOf(node).includes('全库'))[0]
+  assert.ok(fullLink, '名篇词应有次级「全库」入口')
+  assert.match(textOf(fullLink), /（2 首）/)
+  fullLink.props.onClick()
+  assertDeep(fullJumps, ['水调歌头'])
+
+  const segButtons = findButtonsByClass(tree, 'dshp-seg-btn')
+  segButtons.find((button) => textOf(button) === '词牌卡').props.onClick()
+  tree = rerender(react, debug.CiTab, { api })
+  const cardSelectedLink = findAll(tree, (node) => node.type === 'button' && textOf(node).includes('同词牌精选'))[0]
+  assert.ok(cardSelectedLink)
+  cardSelectedLink.props.onClick()
+  assertDeep(selectedJumps, ['水调歌头', '水调歌头'])
+
+  const noFullApi = Object.assign({}, api, { ciBankRes: { status: 'idle', data: null } })
+  let noFullTree = renderFresh(react, debug.CiTab, { api: noFullApi })
+  const rows2 = findAll(noFullTree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-row')
+  rows2[0].props.onClick()
+  noFullTree = rerender(react, debug.CiTab, { api: noFullApi })
+  const fullLink2 = findAll(noFullTree, (node) => node.type === 'button' && textOf(node).includes('全库'))[0]
+  assert.ok(fullLink2)
+  fullLink2.props.onClick()
+  assertDeep(fullJumps, ['水调歌头', '水调歌头'])
+})
+test('飞花令句库并入宋词全库：分片合并 = 全量构建（去重），完成前提示可降级', () => {
+  const { react, debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const ciBank = makeCiBankFixture()
+  const poems = { items: [{ id: 'p1', title: '静夜思', author: '李白', lines: ['床前明月光，', '疑是地上霜。'] }] }
+  const ci = { items: [{ id: 'c1', author: '苏轼', rhythmic: '水调歌头', lines: ['明月几时有，'] }] }
+
+  const full = debug.buildFeihuaIndex(poems, ci, anthology, bank, ciBank)
+  const chunked = debug.buildFeihuaIndex(poems, ci, anthology, bank)
+  assertDeep(chunked.candidates, [])
+  debug.mergeFeihuaItems(chunked, [ciBank.items[0]])
+  debug.mergeFeihuaItems(chunked, [ciBank.items[1], ciBank.items[2]])
+  debug.finishFeihuaIndex(chunked)
+  assert.equal(chunked.entries.length, full.entries.length, '分片合并后句数与全量一致')
+  assertDeep(chunked.candidates, JSON.parse(JSON.stringify(full.candidates)), '候选令字与句数一致')
+  for (const char of ['花', '月', '风', '春', '楼']) {
+    assert.equal(chunked.counts[char], full.counts[char])
+  }
+  // 去重：跨诗/词/全库重复句只保留一次
+  const dup = { items: [{ id: 'dup', author: '甲', title: '重', lines: ['明月几时有，', '把酒问青天。'] }] }
+  const deduped = debug.buildFeihuaIndex(poems, ci, null, null, dup)
+  assert.equal(deduped.entries.filter((entry) => entry.text === '明月几时有，把酒问青天。').length, 1)
+  assert.equal(debug.feihuaSourceOf({ author: '苏轼', rhythmic: '水调歌头' }), '苏轼《水调歌头》')
+
+  // 构建提示与失败降级
+  const baseApi = {
+    poemsRes: { status: 'ready', data: poems },
+    ciRes: { status: 'ready', data: ci },
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    ciBankRes: { status: 'loading', data: null },
+    feihuaIndex: debug.buildFeihuaIndex(poems, ci, anthology, bank),
+    feihuaBuilding: true,
+    poem: poems.items[0],
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    reloadKnowledge: async () => {},
+    reloadYun: async () => {},
+    reloadCiBank: async () => {},
+    pulseMascot() {},
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.FeihuaTab, { api: baseApi })
+  assert.ok(textOf(tree).includes('正在并入宋词全库'))
+  const failedTree = renderFresh(react, debug.FeihuaTab, {
+    api: Object.assign({}, baseApi, { ciBankRes: { status: 'error', error: { status: 404 } }, feihuaBuilding: false }),
+  })
+  assert.ok(textOf(failedTree).includes('宋词全库加载失败'))
+})
+
+test('天气/彩蛋池：ci-bank 仅最后优先级且只在已加载时参与', () => {
+  const { debug } = loadClient()
+  const ciBank = makeCiBankFixture()
+  const tags = ['月', '酒', '如']
+  const bankExtra = { items: [{ id: 'b1', author: '甲', title: '月', lines: ['明月照高楼，'] }] }
+  const ciBankExtra = { items: [{ id: 'cb1', author: '苏轼', rhythmic: '水调歌头', title: '明月', lines: ['明月几时有，'] }] }
+  const pool = debug.buildWeatherPoemPool({ items: [] }, null, tags, 5, { bank: bankExtra, ciBank: ciBankExtra })
+  assertDeep(pool.map((entry) => entry.kind), ['bank', 'ci-bank'], 'bank 优先于 ci-bank')
+  const onlyCiBank = debug.buildWeatherPoemPool({ items: [] }, null, tags, 5, { ciBank: ciBankExtra })
+  assertDeep(onlyCiBank.map((entry) => entry.kind), ['ci-bank'])
+  const noCiBank = debug.buildWeatherPoemPool({ items: [] }, null, tags, 5, {})
+  assert.equal(noCiBank.length, 0, '未加载 ci-bank 时不主动参与')
+
+  const picked = debug.pickSpontaneousPoem({
+    moodKey: 'calm', poemsData: { items: [] }, ciData: { items: [] }, anthologyData: { items: [] }, bankData: { items: [] }, ciBankData: ciBank, seenIds: [], random: () => 0,
+  })
+  assert.ok(picked)
+  assert.equal(picked.kind, 'ci-bank')
+  assert.match(picked.line, /[。！？]$/)
+})
+
+test('ci-bank 资产懒加载：URL 带 dataVersion 且版本失效', async () => {
+  const { context, debug } = loadClient()
+  const calls = []
+  context.fetch = async (url) => {
+    calls.push(String(url))
+    return { ok: true, json: async () => ({ ok: true, dataVersion: 'v', count: 1, items: [] }) }
+  }
+  debug.setAssetDataVersion('2026-10-21.4')
+  await debug.loadResource('ciBank')
+  assert.ok(calls[0].includes('f=data/ci-bank.json'))
+  assert.ok(calls[0].includes('&v=2026-10-21.4'))
+  await debug.loadResource('ciBank')
+  assert.equal(calls.length, 1, '同版本命中缓存')
+  debug.setAssetDataVersion('2026-10-22.1')
+  await debug.loadResource('ciBank')
+  assert.equal(calls.length, 2)
+})
+
+const CI_BANK_FILE = path.join(M9_DATA_DIR, 'ci-bank.json')
+const HAS_CI_BANK = existsSync(CI_BANK_FILE)
+
+test('真实宋词全库冒烟：2 万首 / 891 词牌 / 句库约 19 万 / 诗库联动', {
+  skip: HAS_CI_BANK ? false : 'assets/data/ci-bank.json 尚未生成',
+}, () => {
+  const readM9 = (name) => JSON.parse(readFileSync(path.join(M9_DATA_DIR, name), 'utf8'))
+  const ciBank = readM9('ci-bank.json')
+  const anthology = readM9('anthology.json')
+  const bank = readM9('poems-bank.json')
+  const manifest = readM9('manifest.json')
+  const poems = JSON.parse(readFileSync(path.join(DATA_DIR, 'poems.json'), 'utf8'))
+  const ci = JSON.parse(readFileSync(path.join(DATA_DIR, 'ci.json'), 'utf8'))
+  const { debug } = loadClient()
+
+  assert.equal(ciBank.dataVersion, manifest.dataVersion)
+  assert.ok(ciBank.items.length >= 20000, '全库应有 2 万首左右')
+  assert.equal(ciBank.count, ciBank.items.length)
+  const totalLines = ciBank.items.reduce((sum, item) => sum + (Array.isArray(item.lines) ? item.lines.length : 0), 0)
+  assert.ok(totalLines >= 140000, '宋词全库行数应达 14 万+')
+  assert.ok(ciBank.items[0].author && ciBank.items[0].rhythmic && Array.isArray(ciBank.items[0].lines))
+
+  const libraryItems = debug.buildLibraryItems(anthology, bank, ciBank)
+  assert.equal(libraryItems.length, anthology.items.length + bank.items.length + ciBank.items.length)
+  assert.ok(libraryItems.some((item) => item.categoryId === 'ci-bank'))
+
+  // 宋词精选（data/ci.json 283 首）默认映射
+  const ciData = JSON.parse(readFileSync(path.join(DATA_DIR, 'ci.json'), 'utf8'))
+  const selectedItems = debug.buildLibraryItems(anthology, bank, null, ciData)
+  assert.equal(selectedItems.filter((item) => item.categoryId === 'ci-selected').length, 283)
+  assert.equal(selectedItems.length, anthology.items.length + bank.items.length + 283)
+  const firstSelected = selectedItems.filter((item) => item.categoryId === 'ci-selected')[0]
+  assert.match(firstSelected.title, /·/)
+  assert.ok(firstSelected.rhythmic)
+  assert.ok(debug.ciSelectedRhythmics(ciData).length >= 100)
+
+  const rhythms = debug.ciBankRhythmics(ciBank)
+  assert.ok(rhythms.length >= 500, '词牌数量应充足')
+  const huanxisha = rhythms.find((entry) => entry.name === '浣溪沙')
+  assert.ok(huanxisha && huanxisha.count > 500)
+  assert.ok(rhythms.find((entry) => entry.name === '水调歌头').count > 500)
+  assert.equal(debug.filterLibraryItems(libraryItems, 'ci-bank', '', '浣溪沙').length, huanxisha.count)
+
+  const startedAt = Date.now()
+  const index = debug.buildFeihuaIndex(poems, ci, anthology, bank, ciBank)
+  const buildMs = Date.now() - startedAt
+  assert.ok(index.entries.length >= 150000, '并入全库后句数应达 15 万+，实际 ' + index.entries.length)
+  assert.ok(index.counts['花'] > 10000)
+  assert.equal(index.candidates.length, 12)
+  assert.ok(buildMs < 5000, '全量索引构建应在 5s 内（性能保护），实际 ' + buildMs + 'ms')
+
+  const picked = debug.pickSpontaneousPoem({
+    moodKey: 'calm', poemsData: poems, ciData: ci, anthologyData: anthology, bankData: bank, ciBankData: ciBank, seenIds: [], random: () => 0.88,
+  })
+  assert.ok(picked)
+  assert.match(picked.line, /[。！？]$/)
+})
+
+test('诗库搜索范围：默认只搜宋词精选，切「全部宋词」才纳入全库并提示', async () => {
+  const { react, debug } = loadClient()
+  const { anthology, bank, pingshui } = makeM9Fixtures()
+  const ciSelected = makeCiSelectedFixture()
+  const ciBank = makeCiBankFixture()
+  const baseApi = {
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    pingshuiRes: { status: 'ready', data: pingshui },
+    ciRes: { status: 'ready', data: ciSelected },
+    ciBankRes: { status: 'ready', data: ciBank },
+    reloadAnthology: async () => {},
+    reloadBank: async () => {},
+    reloadPingshui: async () => {},
+    reloadCi: async () => {},
+    reloadCiBank: async () => {},
+    requestCiBank: () => {},
+    showToast() {},
+    libraryFocus: null,
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.LibraryTab, { api: baseApi })
+  const ciChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('宋词精选'))
+  ciChip.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  const searchInput = findAll(tree, (node) => node.type === 'input' && node.props.type === 'search')[0]
+  searchInput.props.onChange({ target: { value: '明月' } })
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  react._runEffects()
+  await sleep(330)
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  assert.match(textOf(tree), /共 1 首/, '默认范围应只搜宋词精选')
+  const scopeButtons = findButtonsByClass(tree, 'dshp-seg-btn').map((button) => textOf(button))
+  assert.ok(scopeButtons.includes('精选'))
+  assert.ok(scopeButtons.includes('全部宋词'))
+  const allCiScope = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '全部宋词')
+  allCiScope.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: baseApi })
+  assert.match(textOf(tree), /共 2 首/, '「全部宋词」范围应纳入 ci-bank')
+
+  const requested = []
+  const noBankApi = Object.assign({}, baseApi, {
+    ciBankRes: { status: 'idle', data: null },
+    requestCiBank: () => requested.push(true),
+  })
+  let noBankTree = renderFresh(react, debug.LibraryTab, { api: noBankApi })
+  const ciChip2 = findButtonsByClass(noBankTree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('宋词精选'))
+  ciChip2.props.onClick()
+  noBankTree = rerender(react, debug.LibraryTab, { api: noBankApi })
+  const searchInput2 = findAll(noBankTree, (node) => node.type === 'input' && node.props.type === 'search')[0]
+  searchInput2.props.onChange({ target: { value: '明月' } })
+  noBankTree = rerender(react, debug.LibraryTab, { api: noBankApi })
+  react._runEffects()
+  await sleep(330)
+  noBankTree = rerender(react, debug.LibraryTab, { api: noBankApi })
+  const allCiScope2 = findButtonsByClass(noBankTree, 'dshp-seg-btn').find((button) => textOf(button) === '全部宋词')
+  allCiScope2.props.onClick()
+  noBankTree = rerender(react, debug.LibraryTab, { api: noBankApi })
+  react._runEffects()
+  react._cleanup()
+  assert.match(textOf(noBankTree), /宋词全库未加载|宋词全库加载中/)
+  assert.equal(requested.length, 1, '选全部宋词应触发 ci-bank 加载')
+})
+
+
+test('宋词精选 helpers：283 映射、词牌·首句 title、默认不含全库', () => {
+  const { debug } = loadClient()
+  const { anthology, bank } = makeM9Fixtures()
+  const ciSelected = makeCiSelectedFixture()
+  const selected = debug.ciSelectedLibraryItems(ciSelected)
+  assert.equal(selected.length, 2)
+  assert.ok(selected.every((item) => item.categoryId === 'ci-selected'))
+  assert.equal(selected[0].title, '水调歌头·明月几时有')
+  assert.equal(selected[1].title, '如梦令·常记溪亭日暮')
+  const selectedRhythmics = debug.ciSelectedRhythmics(ciSelected)
+  assert.equal(selectedRhythmics.length, 2)
+  assert.equal(selectedRhythmics.find((entry) => entry.name === '水调歌头').count, 1)
+  assert.equal(selectedRhythmics.find((entry) => entry.name === '如梦令').count, 1)
+
+  const withSelected = debug.buildLibraryItems(anthology, bank, null, ciSelected)
+  assert.equal(withSelected.length, 6 + 2)
+  assert.equal(withSelected.filter((item) => item.categoryId === 'ci-bank').length, 0, '默认不含全库')
+  assert.equal(withSelected.filter((item) => item.categoryId === 'ci-selected').length, 2)
+
+  const withFull = debug.buildLibraryItems(anthology, bank, makeCiBankFixture(), ciSelected)
+  assert.equal(withFull.length, 6 + 3 + 2)
+  assert.equal(withFull.filter((item) => item.categoryId === 'ci-bank').length, 3)
+})
+
+test('诗库宋词降级：精选加载失败可重试；全部宋词失败可回退精选', () => {
+  const { react, debug } = loadClient()
+  const { anthology, bank, pingshui } = makeM9Fixtures()
+  const ciSelected = makeCiSelectedFixture()
+  const errorApi = {
+    anthologyRes: { status: 'ready', data: anthology },
+    bankRes: { status: 'ready', data: bank },
+    pingshuiRes: { status: 'ready', data: pingshui },
+    ciRes: { status: 'error', error: { status: 500 } },
+    ciBankRes: { status: 'error', error: { status: 404 } },
+    reloadAnthology: async () => {},
+    reloadBank: async () => {},
+    reloadPingshui: async () => {},
+    reloadCi: async () => {},
+    reloadCiBank: async () => {},
+    requestCiBank: () => {},
+    showToast() {},
+    libraryFocus: null,
+    settings: debug.normalizeSettings({}),
+  }
+  let tree = renderFresh(react, debug.LibraryTab, { api: errorApi })
+  const ciChip = findButtonsByClass(tree, 'dshp-fh-chip').find((chip) => textOf(chip).includes('宋词精选'))
+  ciChip.props.onClick()
+  tree = rerender(react, debug.LibraryTab, { api: errorApi })
+  assert.match(textOf(tree), /宋词精选暂时不可用|重试/)
+  // 切到全部宋词失败态，再切回精选仍能回退列表（ciRes 正常时）
+  const selectedApi = Object.assign({}, errorApi, {
+    ciRes: { status: 'ready', data: ciSelected },
+    ciBankRes: { status: 'error', error: { status: 404 } },
+  })
+  let tree2 = renderFresh(react, debug.LibraryTab, { api: selectedApi })
+  const ciChip2 = findButtonsByClass(tree2, 'dshp-fh-chip').find((chip) => textOf(chip).includes('宋词精选'))
+  ciChip2.props.onClick()
+  tree2 = rerender(react, debug.LibraryTab, { api: selectedApi })
+  const fullEntry = findButtonsByClass(tree2, 'dshp-seg-btn').find((button) => textOf(button).includes('全部宋词'))
+  assert.ok(fullEntry)
+  fullEntry.props.onClick()
+  tree2 = rerender(react, debug.LibraryTab, { api: selectedApi })
+  assert.match(textOf(tree2), /全部宋词暂时不可用|重试/)
+  const backSelected = findButtonsByClass(tree2, 'dshp-seg-btn').find((button) => textOf(button).includes('宋词精选'))
+  assert.ok(backSelected)
+  backSelected.props.onClick()
+  tree2 = rerender(react, debug.LibraryTab, { api: selectedApi })
+  assert.match(textOf(tree2), /共 2 首/)
+})
+
+test('飞花令完整句：先合句再入库，选项/图鉴/计数全用完整句', () => {
+  const { react, debug } = loadClient()
+  assertDeep(debug.completeSentencesFromLines(['白日依山尽，', '黄河入海流。']), ['白日依山尽，黄河入海流。'])
+  assertDeep(debug.completeSentencesFromLines(['欲穷千里目，', '更上一层楼。', '空山。', '孤舟蓑笠翁，']), ['欲穷千里目，更上一层楼。'])
+  assertDeep(debug.completeSentencesFromLines([]), [])
+
+  const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+  assert.ok(index.entries.length > 0)
+  for (const entry of index.entries) {
+    assert.match(entry.text, /[。！？]$/, '句库必须是完整句：' + entry.text)
+    assert.ok(!/[，；、：]$/.test(entry.text), '不得以逗号/分号/顿号/冒号结尾：' + entry.text)
+    assert.ok(!/…/.test(entry.text), '不得加省略号')
+  }
+  // 所有 entry 都来自「合句集合」
+  const expected = new Set()
+  for (const item of fixture.poems.items.concat(fixture.ci.items)) {
+    for (const sentence of debug.completeSentencesFromLines(item.lines)) expected.add(sentence)
+  }
+  for (const entry of index.entries) assert.ok(expected.has(entry.text), '句不在合句集合中：' + entry.text)
+  // 计数按完整句重算
+  for (const char of debug.FEIHUA_CANDIDATE_CHARS) {
+    assert.equal(index.counts[char], index.byChar[char].length, '令字计数须与完整句集合一致：' + char)
+  }
+
+  // 选项 / 系统出句都是完整句
+  const round = debug.generateFeihuaOptions(index, '花', new Set(), () => 0.31)
+  assert.ok(round)
+  for (const option of round.options) {
+    assert.match(option.text, /[。！？]$/)
+    assert.ok(index.entries.some((entry) => entry.text === option.text))
+  }
+  const state = debug.feihuaStart(index, '花', () => 0.2)
+  assert.match(state.system.text, /[。！？]$/)
+
+  // 图鉴：完整显示，无逗号截断、无省略号
+  const api = {
+    poemsRes: { status: 'ready', data: fixture.poems },
+    ciRes: { status: 'ready', data: fixture.ci },
+    feihuaIndex: index,
+    poem: fixture.poems.items[0],
+    reloadPoems: async () => {},
+    reloadCi: async () => {},
+    reloadKnowledge: async () => {},
+    reloadYun: async () => {},
+    reloadCiBank: async () => {},
+    feihuaLaunch: 0,
+  }
+  let tree = renderFresh(react, debug.FeihuaTab, { api })
+  findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴').props.onClick()
+  tree = rerender(react, debug.FeihuaTab, { api })
+  const lineTexts = findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className === 'dshp-fh-line-text')
+  assert.ok(lineTexts.length > 0, '图鉴应有完整句')
+  for (const node of lineTexts) {
+    const value = textOf(node)
+    assert.match(value, /[。！？]$/, '图鉴不得显示半句：' + value)
+    assert.ok(!value.includes('…'), '图鉴不得加省略号')
+    assert.ok(index.entries.some((entry) => entry.text === value), '图鉴须展示完整原句')
+  }
+})
+
+test('真实数据完整句：登鹳雀楼半句合为完整句，基础/全库句库均无半句', {
+  skip: HAS_REAL_DATA ? false : 'data/ 产物尚未就绪',
+}, () => {
+  const readJson = (name) => JSON.parse(readFileSync(path.join(DATA_DIR, name), 'utf8'))
+  const poems = readJson('poems.json')
+  const ci = readJson('ci.json')
+  const { debug } = loadClient()
+
+  const poem = poems.items.find((item) => item && item.title === '登鹳雀楼')
+  assert.ok(poem, '真实数据应含登鹳雀楼')
+  assertDeep(debug.completeSentencesFromLines(poem.lines), ['白日依山尽，黄河入海流。', '欲穷千里目，更上一层楼。'])
+
+  const base = debug.buildFeihuaIndex(poems, ci)
+  assert.ok(base.entries.some((entry) => entry.text === '白日依山尽，黄河入海流。'), '真实半句应合为完整句')
+  assert.ok(base.entries.length > 3000, '基础完整句句库应 3000+，实际 ' + base.entries.length)
+  assert.equal(base.entries.filter((entry) => !/[。！？]$/.test(entry.text)).length, 0, '基础句库不得有半句')
+  assert.equal(base.entries.filter((entry) => /[，；、：]$/.test(entry.text)).length, 0)
+  assert.ok(base.counts['花'] >= 250, '完整句口径花计数下限，实际 ' + base.counts['花'])
+  for (const char of debug.FEIHUA_CANDIDATE_CHARS) assert.equal(base.counts[char], base.byChar[char].length)
+
+  const bankFile = path.join(ROOT, 'assets', 'data', 'poems-bank.json')
+  if (existsSync(bankFile)) {
+    const bank = JSON.parse(readFileSync(bankFile, 'utf8'))
+    const withBank = debug.buildFeihuaIndex(poems, ci, null, bank)
+    assert.ok(withBank.entries.length > 15000, '含全唐诗库完整句应 1.5 万+，实际 ' + withBank.entries.length)
+    assert.equal(withBank.entries.filter((entry) => !/[。！？]$/.test(entry.text)).length, 0, '全库句库不得有半句')
+    assert.ok(withBank.entries.some((entry) => entry.text === '白日依山尽，黄河入海流。'))
+  }
+})

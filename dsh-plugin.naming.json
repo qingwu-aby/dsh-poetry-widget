@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "policy": "dsh-plugin-naming/v1",
+  "plugin": {
+    "namespace": "qingwu-aby",
+    "name": "poetry-widget",
+    "coordinate": "qingwu-aby/poetry-widget",
+    "packageName": "dsh-poetry-widget"
+  },
+  "names": {
+    "pluginNames": [
+      "dsh-poetry-widget"
+    ],
+    "loaderIds": [
+      "dsh-poetry-widget"
+    ],
+    "services": [],
+    "tools": [],
+    "commands": [],
+    "skills": [],
+    "skillProviders": [],
+    "events": [],
+    "settingsNamespaces": [],
+    "routes": [
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/assets"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/health.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/bootstrap.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/poems.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/ci.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/yun.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/knowledge.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/settings.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/about.json"
+      }
+    ]
+  }
+}
