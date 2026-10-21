@@ -52,8 +52,6 @@ window.__ModuleLoader__.load({
   const FEIHUA_CANDIDATE_CHARS = Array.from('花月风春山水人天云雨夜秋江酒白红舟愁梦心柳雪霜日星海玉金长何不无')
   const FEIHUA_MIN_ENTRIES = 8
   const FEIHUA_CANDIDATE_LIMIT = 12
-  const FEIHUA_MAX_LIVES = 3
-  const FEIHUA_DECOY_COUNT = 3
   const FEIHUA_ATLAS_LIMIT = 200
   const FEIHUA_ATLAS_PAGE = 60
   const MASCOT_DIR = 'generated/'
@@ -672,6 +670,41 @@ window.__ModuleLoader__.load({
   return out
   }
 
+  /** 去空白与各种标点，用于自由输入的宽松匹配。 */
+  function feihuaPlainOf(text) {
+  return String(text == null ? '' : text)
+   .replace(/[，。！？；、：,.!?;:\s"'“”‘’「」『』《》〈〉（）()\[\]【】·—…～~]/g, '')
+  }
+
+  function registerFeihuaLookup(index, entry) {
+  if (!index || !entry) return
+  const plain = feihuaPlainOf(entry.text)
+  if (!plain) return
+  entry.plain = plain
+  if (!index.byPlain[plain]) index.byPlain[plain] = entry
+  const clauses = String(entry.text).split(/[，、；：,;:]/)
+  for (const clause of clauses) {
+   const clausePlain = feihuaPlainOf(clause)
+   if (clausePlain.length < 2 || index.clauseMap[clausePlain]) continue
+   index.clauseMap[clausePlain] = entry
+  }
+  }
+
+  /** 自由输入校验：先小句精确，再整句精确，最后长度≥5 时包含扫描。 */
+  function feihuaLookup(index, input) {
+  if (!index || !index.entries) return null
+  const plain = feihuaPlainOf(input)
+  if (!plain) return null
+  if (index.clauseMap && index.clauseMap[plain]) return { entry: index.clauseMap[plain], match: 'clause' }
+  if (index.byPlain && index.byPlain[plain]) return { entry: index.byPlain[plain], match: 'sentence' }
+  if (plain.length < 5) return null
+  for (const entry of index.entries) {
+   const entryPlain = entry.plain || feihuaPlainOf(entry.text)
+   if (entryPlain.indexOf(plain) >= 0) return { entry, match: 'contains' }
+  }
+  return null
+  }
+
   function buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
   const entries = []
   const seen = new Set()
@@ -730,7 +763,8 @@ window.__ModuleLoader__.load({
   for (const char of FEIHUA_CANDIDATE_CHARS) {
    if (counts[char] >= FEIHUA_MIN_ENTRIES) candidates.push({ char, count: counts[char] })
   }
-  const index = { entries, byChar, counts }
+  const index = { entries, byChar, counts, clauseMap: {}, byPlain: {} }
+  for (const entry of entries) registerFeihuaLookup(index, entry)
   if (ciBankData) mergeFeihuaItems(index, ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : (Array.isArray(ciBankData) ? ciBankData : []))
   return finishFeihuaIndex(index)
   }
@@ -755,6 +789,7 @@ window.__ModuleLoader__.load({
     index.__seen.add(text)
     const entry = { text, source }
     index.entries.push(entry)
+    registerFeihuaLookup(index, entry)
     for (const char of FEIHUA_CANDIDATE_CHARS) {
      if (text.indexOf(char) >= 0) {
       index.byChar[char].push(entry)
@@ -839,112 +874,93 @@ window.__ModuleLoader__.load({
   return out
   }
 
-  /**
-
-  */
-  function generateFeihuaOptions(index, char, usedTexts, random) {
+  function feihuaPickSystem(index, char, usedPlains, random) {
   if (!index || !index.byChar) return null
-  const used = usedTexts && typeof usedTexts.has === 'function'
-   ? usedTexts
-   : new Set(Array.isArray(usedTexts) ? usedTexts : [])
-  const correctPool = (index.byChar[char] || []).filter((entry) => !used.has(entry.text))
-  if (!correctPool.length) return null
-  const correct = correctPool[feihuaRandomIndex(correctPool.length, random)]
-  const decoyPool = index.entries.filter((entry) => entry.text.indexOf(char) < 0 && !used.has(entry.text))
-  const decoys = feihuaSampleUnique(decoyPool, FEIHUA_DECOY_COUNT, random)
-  const options = feihuaShuffle([correct].concat(decoys), random)
-  return { options, correctIndex: options.indexOf(correct) }
+  const used = usedPlains instanceof Set ? usedPlains : new Set(Array.isArray(usedPlains) ? usedPlains : [])
+  const pool = (index.byChar[char] || []).filter((entry) => !used.has(entry.plain || feihuaPlainOf(entry.text)))
+  if (!pool.length) return null
+  return pool[feihuaRandomIndex(pool.length, random)]
   }
 
-  /** 开始新一轮：系统先出未用含令字句，然后再生成给玩家的 4 个选项。 */
-  function feihuaBeginRound(state, index, random) {
-  const used = new Set(Array.isArray(state.used) ? state.used : [])
-  const char = state.char
-  const pool = ((index && index.byChar && index.byChar[char]) || []).filter((entry) => !used.has(entry.text))
-  if (!pool.length) {
-   return Object.assign({}, state, {
+  /** 开局：系统先出一句含令字的诗，player 自由输入对句。 */
+  function feihuaStart(index, char, random) {
+  const charValue = String(char || '花')
+  const system = feihuaPickSystem(index, charValue, new Set(), random)
+  if (!system) {
+   return {
+    char: charValue,
     phase: 'cleared',
+    score: 0,
+    used: [],
     system: null,
-    round: null,
-    lastChoice: null,
-    used: Array.from(used),
-    message: '这一字被你说完了，通关！',
-    feedback: { kind: 'good', text: '这一字被你说完了，通关！' },
+    feedback: null,
+    message: '这一字暂时没有句子，换一个令字吧',
+   }
+  }
+  return {
+   char: charValue,
+   phase: 'playing',
+   score: 0,
+   used: [system],
+   system,
+   feedback: null,
+   message: '请接一句含「' + charValue + '」的诗句',
+  }
+  }
+
+  /** 自由输入提交：校验出处（本地句库）、含令字、本局未重复。 */
+  function feihuaSubmit(state, index, input, random) {
+  if (!state || state.phase !== 'playing') return state
+  const raw = String(input == null ? '' : input).trim()
+  const plain = feihuaPlainOf(raw)
+  if (plain.length < 2) {
+   return Object.assign({}, state, { feedback: { kind: 'bad', text: '请输入一句完整的诗/词' } })
+  }
+  if (plain.indexOf(state.char) < 0) {
+   return Object.assign({}, state, { feedback: { kind: 'bad', text: '这句里没有「' + state.char + '」哦' } })
+  }
+  const used = Array.isArray(state.used) ? state.used : []
+  const usedPlains = new Set(used.map((entry) => entry.plain || feihuaPlainOf(entry.text)))
+  if (usedPlains.has(plain)) {
+   return Object.assign({}, state, { feedback: { kind: 'bad', text: '这句本局已经用过了' } })
+  }
+  const lookup = feihuaLookup(index, raw)
+  if (lookup && usedPlains.has(lookup.entry.plain || feihuaPlainOf(lookup.entry.text))) {
+   return Object.assign({}, state, { feedback: { kind: 'bad', text: '这句本局已经用过了' } })
+  }
+  if (!lookup) {
+   return Object.assign({}, state, {
+    feedback: { kind: 'bad', text: '本地诗库没查到这句的出处，可能是记错了，或还没收录' },
    })
   }
-  const system = pool[feihuaRandomIndex(pool.length, random)]
-  used.add(system.text)
-  const round = generateFeihuaOptions(index, char, used, random)
-  if (!round) {
+  const entry = lookup.entry
+  const nextUsed = used.concat([entry])
+  const nextPlains = new Set(nextUsed.map((item) => item.plain || feihuaPlainOf(item.text)))
+  const system = feihuaPickSystem(index, state.char, nextPlains, random)
+  const score = state.score + 1
+  const feedback = {
+   kind: 'good',
+   text: '接上了：' + entry.text + (entry.source ? ' —— ' + entry.source : ''),
+  }
+  if (!system) {
    return Object.assign({}, state, {
     phase: 'cleared',
-    system,
-    round: null,
-    lastChoice: null,
-    used: Array.from(used),
-    message: '这一字被你说完了，通关！',
-    feedback: { kind: 'good', text: '这一字被你说完了，通关！' },
+    score,
+    used: nextUsed,
+    system: null,
+    feedback,
+    message: '这一字的句子被接完了，换一个令字吧',
    })
   }
   return Object.assign({}, state, {
    phase: 'playing',
+   score,
+   used: nextUsed,
    system,
-   round,
-   lastChoice: null,
-   used: Array.from(used),
-   message: '请接一句含「' + char + '」的诗句',
-   feedback: state.feedback || null,
+   feedback,
+   message: '请接一句含「' + state.char + '」的诗句',
   })
   }
-
-  function feihuaStart(index, char, random) {
-  const base = {
-   char: String(char || '花'),
-   lives: FEIHUA_MAX_LIVES,
-   score: 0,
-   used: [],
-   system: null,
-   round: null,
-   phase: 'playing',
-   message: '',
-   feedback: null,
-   lastChoice: null,
-  }
-  return feihuaBeginRound(base, index, random)
-  }
-
-  /**
-
-  */
-  function feihuaAnswer(state, index, choiceIndex, random) {
-  if (!state || state.phase !== 'playing' || !state.round) return state
-  const options = Array.isArray(state.round.options) ? state.round.options : []
-  const chosen = options[choiceIndex]
-  if (!chosen) return state
-  const isCorrect = choiceIndex === state.round.correctIndex
-  if (isCorrect) {
-   const next = Object.assign({}, state, {
-    score: state.score + 1,
-    used: (state.used || []).concat([chosen.text]),
-    lastChoice: null,
-    feedback: { kind: 'good', text: '接上了：' + chosen.text + '（' + chosen.source + '）' },
-   })
-   return feihuaBeginRound(next, index, random)
-  }
-  const lives = Math.max(0, state.lives - 1)
-  const feedback = { kind: 'bad', text: '这句没有「' + state.char + '」哦（或已经说过）' }
-  if (lives <= 0) {
-   return Object.assign({}, state, {
-    lives: 0,
-    phase: 'over',
-    lastChoice: choiceIndex,
-    feedback,
-    message: '三条命用完了，本局得分 ' + state.score + '。',
-   })
-  }
-  return Object.assign({}, state, { lives, lastChoice: choiceIndex, feedback })
-  }
-
   function normalizeFeihuaBest(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
   const chars = {}
@@ -2571,18 +2587,10 @@ window.__ModuleLoader__.load({
   '.dshp-fh-meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:12px;',
   'color:var(--dshp-label-2);margin:2px 0 8px}',
   '.dshp-fh-meta b{color:var(--dshp-label);font-weight:600;font-size:13px}',
-  '.dshp-fh-hearts{letter-spacing:2px;color:#e0245e}',
   '.dshp-fh-system{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:12px;',
   'padding:8px 10px;margin:6px 0;font-family:"Noto Serif SC","Songti SC",serif;font-size:13px;line-height:1.6}',
   '.dshp-fh-system small{display:block;color:var(--dshp-label-2);font-family:inherit;font-size:11px;margin-top:2px}',
   '.dshp-fh-prompt{font-size:12.5px;color:var(--dshp-label-2);margin:4px 0 6px}',
-  '.dshp-fh-options{display:flex;flex-direction:column;gap:6px;margin-top:4px}',
-  '.dshp-fh-option{appearance:none;text-align:left;background:var(--dshp-bg);border:1px solid var(--dshp-border-3);',
-  'border-radius:10px;padding:8px 10px;font:inherit;font-size:12.5px;line-height:1.55;color:inherit;',
-  'cursor:pointer;transition:background 120ms ease,border-color 120ms ease}',
-  '.dshp-fh-option:hover:not(:disabled){background:var(--dshp-hover);border-color:var(--dshp-accent)}',
-  '.dshp-fh-option:disabled{cursor:default;opacity:.85}',
-  '.dshp-fh-option.dshp-is-wrong{border-color:var(--dshp-danger);background:rgba(220,38,38,.08)}',
   '.dshp-fh-feedback{min-height:18px;font-size:12px;line-height:1.5;margin-top:8px;color:var(--dshp-label-2)}',
   '.dshp-fh-feedback.dshp-is-good{color:#16a34a}',
   '.dshp-fh-feedback.dshp-is-bad{color:var(--dshp-danger)}',
@@ -2667,17 +2675,15 @@ window.__ModuleLoader__.load({
   FEIHUA_BEST_KEY,
   FEIHUA_CANDIDATE_CHARS,
   FEIHUA_MIN_ENTRIES,
-  FEIHUA_MAX_LIVES,
+
   FEIHUA_ATLAS_LIMIT,
   FEIHUA_ATLAS_PAGE,
   buildFeihuaIndex,
   getFeihuaIndex,
   clearFeihuaIndexCache,
   pickDefaultFeihuaChar,
-  generateFeihuaOptions,
   feihuaStart,
-  feihuaBeginRound,
-  feihuaAnswer,
+  feihuaSubmit, feihuaLookup, feihuaPlainOf,
   normalizeFeihuaBest,
   feihuaBestUpdate,
   readFeihuaBest,
@@ -4335,7 +4341,7 @@ window.__ModuleLoader__.load({
    return h(
     'div',
     { className: 'dshp-card' },
-    h('div', { className: 'dshp-card-summary' }, '飞花令 · 边玩边记'),
+    h('div', { className: 'dshp-card-summary' }, '飞花令 · 对句'),
     h(
     'div',
     { className: 'dshp-fh-meta' },
@@ -4343,7 +4349,7 @@ window.__ModuleLoader__.load({
     h('span', null, '句库 ', h('b', null, String(count)), ' 句'),
     h('span', null, '历史最佳 ', h('b', null, String(best.overall)), ' 分'),
     ),
-    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你从四个选项里接一句。答对 +1 分，答错扣 1 条命，共 3 条命。'),
+    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你输入一句：有出处、含令字、本局不重复就算接上。'),
     feihuaBuilding || (ciBankRes.status === 'loading') ? h('div', { className: 'dshp-lib-note' }, '正在并入宋词全库…') : null,
     ciBankRes.status === 'error' ? h('div', { className: 'dshp-lib-note' }, '宋词全库加载失败，已回退原句库') : null,
     count
@@ -5523,6 +5529,7 @@ window.__ModuleLoader__.load({
   const [char, setChar] = React.useState(null)
   const [mode, setMode] = React.useState('chain')
   const [game, setGame] = React.useState(null)
+  const [inputText, setInputText] = React.useState('')
   const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE)
   const [best, setBest] = React.useState(() => readFeihuaBest())
   const bestRef = React.useRef(best)
@@ -5571,6 +5578,7 @@ window.__ModuleLoader__.load({
    const use = target || activeChar
    if (!index || !use) return
    setChar(use)
+   setInputText('')
    setGame(feihuaStart(index, use))
    setMode('chain')
    setAtlasLimit(FEIHUA_ATLAS_PAGE)
@@ -5581,9 +5589,11 @@ window.__ModuleLoader__.load({
    if (!next) return
    if (next === activeChar) {
     setGame(null)
+    setInputText('')
     return
    }
    setChar(next)
+   setInputText('')
    setGame(null)
    setAtlasLimit(FEIHUA_ATLAS_PAGE)
   }
@@ -5595,10 +5605,12 @@ window.__ModuleLoader__.load({
    chooseChar(picked.char)
   }
 
-  function answer(choiceIndex) {
+  function submitAnswer() {
    if (!game || game.phase !== 'playing') return
-   const next = feihuaAnswer(game, index, choiceIndex)
+   const next = feihuaSubmit(game, index, inputText)
+   if (!next || next === game) return
    setGame(next)
+   if (next.feedback && next.feedback.kind === 'good') setInputText('')
    if (next.feedback && typeof api.pulseMascot === 'function') {
     api.pulseMascot(next.feedback.kind === 'good' ? 'gameWin' : 'gameLose')
    }
@@ -5610,14 +5622,22 @@ window.__ModuleLoader__.load({
    }
   }
 
+  function handleInputKey(event) {
+   if (event && event.key === 'Enter') {
+    event.preventDefault()
+    submitAnswer()
+   }
+  }
+
   function renderChain() {
+   const playing = game && game.phase === 'playing'
    if (!game) {
     return h(
     'div',
     { className: 'dshp-card' },
-    h('div', { className: 'dshp-card-title' }, '飞花令 · 接龙赛'),
-    h('div', { className: 'dshp-card-summary' }, '令字「' + activeChar + '」· ' + charEntries.length + ' 句可接'),
-    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你从 4 个选项里接一句；答对 +1 分，答错扣 1 条命（共 3 条命）。'),
+    h('div', { className: 'dshp-card-title' }, '飞花令 · 对句'),
+    h('div', { className: 'dshp-card-summary' }, '令字「' + activeChar + '」· ' + charEntries.length + ' 句可查'),
+    h('div', { className: 'dshp-block' }, '对方先出一句含令字的诗，你输入一句：有出处、含令字、本局不重复就算接上。不扣命，不计错。'),
     charEntries.length
      ? h(
       'div',
@@ -5630,17 +5650,16 @@ window.__ModuleLoader__.load({
        startGame(activeChar)
       },
       }, '来一局'),
-      h('span', { className: 'dshp-pager-label' }, '本字最佳 ' + bestForChar + ' 分'),
+      h('span', { className: 'dshp-pager-label' }, '本字最佳 ' + bestForChar + ' 局'),
      )
      : h('div', { className: 'dshp-empty-msg' }, '这一字暂时没有句子，换一个令字试试。'),
     )
    }
-   const options = game.round && Array.isArray(game.round.options) ? game.round.options : []
-   const playing = game.phase === 'playing'
-   const finished = game.phase === 'over' || game.phase === 'cleared'
    return h(
     'div',
     { className: 'dshp-card' },
+    h('div', { className: 'dshp-card-title' }, '飞花令 · 对句'),
+    h('div', { className: 'dshp-card-summary' }, '令字「' + game.char + '」· 本局已接 ' + game.score + ' 句 · 本字最佳 ' + Math.max(bestForChar, game.score) + ' 局'),
     game.system
     ? h(
      'div',
@@ -5649,23 +5668,31 @@ window.__ModuleLoader__.load({
      game.system.source ? h('small', null, game.system.source) : null,
     )
     : null,
-    h('div', { className: 'dshp-fh-prompt' }, game.message || '请接一句含「' + activeChar + '」的诗句'),
-    options.length
-    ? h(
+    h('div', { className: 'dshp-fh-prompt' }, game.message || '请接一句含「' + game.char + '」的诗句'),
+    h(
      'div',
-     { className: 'dshp-fh-options' },
-     options.map((option, choiceIndex) => h('button', {
-      key: choiceIndex,
-      type: 'button',
-      className: cx('dshp-fh-option', game.lastChoice === choiceIndex && 'dshp-is-wrong'),
+     { className: 'dshp-fh-actions' },
+     h('input', {
+      className: 'dshp-input',
+      type: 'text',
+      value: inputText,
+      maxLength: 60,
+      placeholder: '输入一句含「' + game.char + '」的诗/词，回车提交',
+      'aria-label': '输入飞花令对句',
+      onChange: (event) => setInputText(event.target.value),
+      onKeyDown: handleInputKey,
       disabled: !playing,
+     }),
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn dshp-btn-primary',
       onClick: (event) => {
-      event.stopPropagation()
-      answer(choiceIndex)
+       event.stopPropagation()
+       submitAnswer()
       },
-     }, option.text)),
-    )
-    : null,
+      disabled: !playing,
+     }, '接一句'),
+    ),
     h('div', {
     className: cx(
      'dshp-fh-feedback',
@@ -5675,52 +5702,37 @@ window.__ModuleLoader__.load({
     role: 'status',
     'aria-live': 'polite',
     }, game.feedback ? game.feedback.text : ''),
-    finished
+    game.phase === 'cleared'
     ? h(
      'div',
      { className: 'dshp-fh-result' },
-     h('b', null, game.phase === 'cleared' ? '通关！' : '本局结束'),
-     h('span', null, '得分 ' + game.score + ' · 本字最佳 ' + Math.max(bestForChar, game.score) + ' · 历史最佳 ' + Math.max(best.overall, game.score)),
-     h('span', null, game.phase === 'cleared' ? '这一字的句子都被接过了，换个令字再战。' : '三条命用完了，再来一局练练手。'),
-     h(
-      'div',
-      { className: 'dshp-fh-actions' },
-      h('button', {
-      type: 'button',
-      className: 'dshp-btn dshp-btn-primary',
-      onClick: (event) => {
-       event.stopPropagation()
-       startGame(activeChar)
-      },
-      }, '再来一局'),
-      h('button', {
-      type: 'button',
-      className: 'dshp-btn',
-      onClick: (event) => {
-       event.stopPropagation()
-       randomChar()
-      },
-      }, '换个令字'),
-     ),
+     h('b', null, '这一字接完了'),
+     h('span', null, '本局接上 ' + game.score + ' 句 · 本字最佳 ' + Math.max(bestForChar, game.score) + ' 局 · 历史最佳 ' + Math.max(best.overall, game.score) + ' 局'),
+     h('span', null, '这一字的句子都被接过了，换个令字继续。'),
     )
     : null,
-    playing
-    ? h(
+    h(
      'div',
      { className: 'dshp-fh-actions' },
      h('button', {
       type: 'button',
       className: 'dshp-btn',
       onClick: (event) => {
-      event.stopPropagation()
-      startGame(activeChar)
+       event.stopPropagation()
+       randomChar()
+      },
+     }, '换个令字'),
+     h('button', {
+      type: 'button',
+      className: 'dshp-btn',
+      onClick: (event) => {
+       event.stopPropagation()
+       startGame(activeChar)
       },
      }, '重新开局'),
-    )
-    : null,
+    ),
    )
   }
-
   function renderAtlas() {
    const total = charEntries.length
    const limit = Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit)
@@ -5792,11 +5804,7 @@ window.__ModuleLoader__.load({
     h('span', null, '令字 ', h('b', null, '「' + activeChar + '」')),
     h('span', null, '句库 ', h('b', null, String(charEntries.length)), ' 句'),
     h('span', null, '历史最佳 ', h('b', null, String(best.overall)), ' 分'),
-    game
-    ? h('span', { className: 'dshp-fh-hearts', title: '剩余生命' },
-     '♥'.repeat(game.lives) + '♡'.repeat(Math.max(0, FEIHUA_MAX_LIVES - game.lives)))
-    : null,
-    game ? h('span', null, '本局 ', h('b', null, String(game.score)), ' 分') : null,
+    game ? h('span', null, '本局接上 ', h('b', null, String(game.score)), ' 句') : null,
    ),
    h(
     'div',
@@ -5805,7 +5813,7 @@ window.__ModuleLoader__.load({
     type: 'button',
     className: cx('dshp-seg-btn', mode === 'chain' && 'dshp-is-active'),
     onClick: () => setMode('chain'),
-    }, '接龙赛'),
+    }, '对句'),
     h('button', {
     type: 'button',
     className: cx('dshp-seg-btn', mode === 'atlas' && 'dshp-is-active'),

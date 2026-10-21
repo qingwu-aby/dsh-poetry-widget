@@ -1227,74 +1227,110 @@ test('飞花令 buildFeihuaIndex：诗+词行入库、按字计数、去重、�
   assert.equal(debug.pickDefaultFeihuaChar(index, { lines: ['一二三四五，'] }), '花')
 })
 
-test('飞花令 generateFeihuaOptions：恰 1 正确、3 诱饵不含令字、无重复', () => {
+test('飞花令校验索引：plain / clauseMap / byPlain / 包含扫描 / merge 同步', () => {
   const { debug } = loadClient()
   const fixture = makeFeihuaFixture()
   const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
-  const used = ['花字第1句。']
-  const round = debug.generateFeihuaOptions(index, '花', used, () => 0.37)
-  assert.ok(round, '应能生成选项')
-  assert.equal(round.options.length, 4)
-  const correct = round.options[round.correctIndex]
-  assert.ok(correct.text.includes('花'), '正确项必须含令字')
-  assert.ok(!used.includes(correct.text), '正确项不能是已用句')
-  assert.equal(round.options.filter((option) => option.text.includes('花')).length, 1, '只能有 1 个正确项')
-  for (let i = 0; i < round.options.length; i += 1) {
-    if (i !== round.correctIndex) assert.ok(!round.options[i].text.includes('花'), '诱饵不含令字')
-    assert.equal(typeof round.options[i].source, 'string')
-  }
-  assert.equal(new Set(round.options.map((option) => option.text)).size, 4, '选项文本不重复')
-  // 正确池耗尽 → null
-  const exhausted = debug.generateFeihuaOptions(index, '花', index.byChar['花'].map((entry) => entry.text), () => 0.5)
-  assert.equal(exhausted, null)
-})
+  assert.equal(debug.feihuaPlainOf(' 花字第1句。 '), '花字第1句')
+  assert.equal(debug.feihuaPlainOf('明月几时有，把酒问青天！'), '明月几时有把酒问青天')
 
-test('飞花令对局：答对加分 / used 生效 / 系统接句不重复；答错扣命到结束', () => {
+  const sentence = debug.feihuaLookup(index, '明月几时有，把酒问青天。')
+  assert.ok(sentence)
+  assert.equal(sentence.match, 'sentence', '整句命中 byPlain')
+  assert.equal(sentence.entry.text, '明月几时有，把酒问青天。')
+  const clause = debug.feihuaLookup(index, '花字第1句')
+  assert.ok(clause)
+  assert.equal(clause.match, 'clause')
+  assert.equal(clause.entry.text, '花字第1句。')
+  // 标点/空格仍可命中
+  assert.equal(debug.feihuaLookup(index, '“花 字 第 1 句。”').entry.text, '花字第1句。')
+
+  const custom = debug.buildFeihuaIndex({ items: [{ id: 'x', author: '甲', title: '长句', lines: ['春风又绿江南岸，明月何时照我还。'] }] }, { items: [] })
+  assert.equal(debug.feihuaLookup(custom, '明月何时照我还').match, 'clause')
+  const contains = debug.feihuaLookup(custom, '春风又绿江南')
+  assert.ok(contains, '长度≥5 的包含扫描应命中')
+  assert.equal(contains.match, 'contains')
+  assert.equal(debug.feihuaLookup(custom, '江南'), null, '过短输入不做包含扫描')
+  assert.equal(debug.feihuaLookup(index, '完全不存在的句子'), null)
+
+  // merge 宋词全库时同步补 lookup
+  debug.mergeFeihuaItems(index, [{ author: '测试', title: '新词', lines: ['新句含花又一枝。'] }])
+  debug.finishFeihuaIndex(index)
+  const merged = debug.feihuaLookup(index, '新句含花又一枝')
+  assert.ok(merged)
+  assert.equal(merged.match, 'clause')
+  assert.equal(merged.entry.source, '测试《新词》')
+})
+test('飞花令自由输入：校验出处/含令字/重复，非法不扣分可继续；系统接句与 cleared', () => {
   const { debug } = loadClient()
   const fixture = makeFeihuaFixture()
   const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
+  const plainOf = (entry) => debug.feihuaPlainOf(entry.text)
+  const unusedEntry = (state) => {
+    const used = new Set((state.used || []).map(plainOf))
+    return (index.byChar['花'] || []).find((entry) => !used.has(plainOf(entry)))
+  }
 
   let state = debug.feihuaStart(index, '花', () => 0.1)
-  assert.equal(state.lives, debug.FEIHUA_MAX_LIVES)
-  assert.equal(state.score, 0)
   assert.equal(state.phase, 'playing')
+  assert.equal(state.score, 0)
   assert.ok(state.system && state.system.text.includes('花'), '系统先出含令字的句子')
-  assert.ok(state.used.includes(state.system.text), '系统出句也要计入 used')
-  assert.equal(state.round.options.length, 4)
+  assertDeep(state.used.map(plainOf), [plainOf(state.system)], '系统句计入 used')
+  assert.equal(state.lives, undefined, '不再有生命值')
+  assert.equal(state.round, undefined, '不再有选项')
 
-  const chosen = state.round.options[state.round.correctIndex]
-  const firstSystem = state.system.text
-  state = debug.feihuaAnswer(state, index, state.round.correctIndex, () => 0.2)
-  assert.equal(state.score, 1)
-  assert.ok(state.used.includes(chosen.text), '答对的句子应记入 used')
-  assert.ok(state.feedback.text.includes('接上了'))
-  assert.ok(state.feedback.text.includes(chosen.source), '反馈应显示来源')
-  assert.ok(state.system && state.system.text !== firstSystem, '系统应接新句')
-  assert.ok(!state.used.slice(0, -1).includes(state.system.text), '系统接句不能与已用句重复')
-  assert.equal(new Set(state.used).size, state.used.length, 'used 不重复')
+  // 空 / 太短
+  let next = debug.feihuaSubmit(state, index, '   ')
+  assert.match(next.feedback.text, /完整的诗/)
+  assert.equal(next.score, 0)
+  next = debug.feihuaSubmit(state, index, '花')
+  assert.match(next.feedback.text, /完整的诗/)
 
-  // 一路答对直到池尽通关
+  // 不含令字
+  next = debug.feihuaSubmit(state, index, '空山不见人，但闻人语响。')
+  assert.match(next.feedback.text, /没有「花」/)
+  assert.equal(next.score, 0)
+  assert.equal(next.phase, 'playing')
+
+  // 查无出处：提示未收录，不扣分、可继续
+  next = debug.feihuaSubmit(state, index, '这句诗本地肯定没有收录过花')
+  assert.match(next.feedback.text, /没查到|未收录/)
+  assert.equal(next.score, 0)
+  assert.equal(next.phase, 'playing')
+
+  // 合法（带空格/标点）→ +1、used 增加、系统自动接下一句
+  const firstEntry = unusedEntry(state)
+  assert.ok(firstEntry)
+  const firstInput = '  ' + firstEntry.text.replace('。', '') + '  '
+  next = debug.feihuaSubmit(state, index, firstInput)
+  assert.equal(next.phase, 'playing')
+  assert.equal(next.score, 1)
+  assert.match(next.feedback.text, /接上了/)
+  assert.ok(next.feedback.text.includes(firstEntry.source))
+  assert.ok(next.used.map(plainOf).includes(plainOf(firstEntry)))
+  assert.ok(next.system && plainOf(next.system) !== plainOf(firstEntry), '系统接下一句')
+  assert.ok(!next.used.map(plainOf).includes(plainOf(next.system)), '系统接句不在 used')
+
+  // 重复（同一句/同句不同标点）
+  const dup = debug.feihuaSubmit(next, index, firstEntry.text)
+  assert.match(dup.feedback.text, /已经用过/)
+  assert.equal(dup.score, 1)
+  const dupClause = debug.feihuaSubmit(next, index, firstEntry.text.replace('。', ''))
+  assert.match(dupClause.feedback.text, /已经用过/)
+
+  // 继续接到 cleared
   let guard = 0
-  while (state.phase === 'playing' && guard < 20) {
-    state = debug.feihuaAnswer(state, index, state.round.correctIndex, () => 0.3)
+  while (next.phase === 'playing' && guard < 30) {
+    const entry = unusedEntry(next)
+    if (!entry) break
+    next = debug.feihuaSubmit(next, index, entry.text, () => 0.3)
     guard += 1
   }
-  assert.equal(state.phase, 'cleared', '正确池耗尽应通关')
-  assert.match(state.message, /通关/)
-  assert.equal(state.score, 5, '「花」共 10 句，每轮消耗 2 句 → 5 轮通关')
-
-  // 答错扣命，扣完 3 条结束
-  let bad = debug.feihuaStart(index, '花', () => 0.6)
-  for (let expectedLives = 2; expectedLives >= 0; expectedLives -= 1) {
-    const wrongIndex = (bad.round.correctIndex + 1) % bad.round.options.length
-    bad = debug.feihuaAnswer(bad, index, wrongIndex)
-    assert.equal(bad.lives, expectedLives)
-    assert.match(bad.feedback.text, /没有「花」哦/)
-  }
-  assert.equal(bad.phase, 'over')
-  assert.match(bad.message, /得分 0/)
+  assert.equal(next.phase, 'cleared', '句子被接完应进入 cleared')
+  assert.match(next.message, /换一个令字/)
+  assert.ok(next.score > 0)
+  assert.equal(next.system, null)
 })
-
 test('飞花令 best：localStorage 读写 / 损坏降级 / 逐字与总最佳', () => {
   const { debug, storage } = loadClient()
   assertDeep(debug.normalizeFeihuaBest(null), { overall: 0, chars: {} })
@@ -1320,9 +1356,10 @@ test('飞花令 best：localStorage 读写 / 损坏降级 / 逐字与总最佳',
   assert.equal(debug.readFeihuaBest().overall, 0, '损坏 best 应安全降级')
 })
 
-test('飞花 tab：chips 切换 / 来一局 / 接龙答题 / 图鉴列表', () => {
-  const { react, debug } = loadClient()
+test('飞花 tab：自由输入对句（chips/来一局/输入/回车/反馈/图鉴）', () => {
+  const { react, debug, storage } = loadClient()
   const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
   const api = {
     poemsRes: { status: 'ready', data: fixture.poems },
     ciRes: { status: 'ready', data: fixture.ci },
@@ -1331,62 +1368,87 @@ test('飞花 tab：chips 切换 / 来一局 / 接龙答题 / 图鉴列表', () =
     reloadCi: async () => {},
     feihuaLaunch: 0,
   }
+  const cardText = (tree) => {
+    const node = findAll(tree, (item) => item.type === 'div'
+      && typeof item.props.className === 'string'
+      && item.props.className === 'dshp-card')[0]
+    return node ? textOf(node) : ''
+  }
+  const pickUnused = (currentText) => (index.byChar['花'] || []).find((entry) => !currentText.includes(entry.text))
+  const findInput = (tree) => findAll(tree, (node) => node.type === 'input'
+    && node.props['aria-label'] === '输入飞花令对句')[0]
 
   let tree = renderFresh(react, debug.FeihuaTab, { api })
   let text = textOf(tree)
-  assert.match(text, /接龙赛/)
+  assert.match(text, /飞花令 · 对句/)
+  assert.match(text, /对句/)
   assert.match(text, /图鉴/)
   assert.match(text, /来一局/)
-  assert.match(text, /「月」/, '默认令字应取今日诗中出现且句数最多的「月」')
+  assert.match(text, /有出处、含令字、本局不重复/)
+  assert.equal(findButtonsByClass(tree, 'dshp-fh-option').length, 0, '不应再有四选项')
   const chips = findButtonsByClass(tree, 'dshp-fh-chip')
-  assert.ok(chips.length >= 13, '12 个候选字 chips + 随机')
+  assert.ok(chips.length >= 13)
 
-  // 切到「花」
-  const huaChip = chips.find((chip) => textOf(chip) === '花9' || textOf(chip).indexOf('花') === 0)
-  assert.ok(huaChip)
+  const huaChip = chips.find((chip) => textOf(chip).indexOf('花') === 0)
   huaChip.props.onClick({ stopPropagation() {} })
   tree = rerender(react, debug.FeihuaTab, { api })
-  text = textOf(tree)
-  assert.match(text, /「花」/)
-  assert.match(text, /句库 10 句/)
+  assert.match(textOf(tree), /句库 10 句/)
 
-  // 来一局 → 出现「对方」+ 4 个选项 + aria-live 反馈
   const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
-  assert.ok(startButton)
   startButton.props.onClick({ stopPropagation() {} })
   tree = rerender(react, debug.FeihuaTab, { api })
   text = textOf(tree)
   assert.match(text, /对方：/)
   assert.match(text, /请接一句含「花」的诗句/)
-  let options = findButtonsByClass(tree, 'dshp-fh-option')
-  assert.equal(options.length, 4)
-  const live = findAll(tree, (node) => node.props && node.props['aria-live'] === 'polite')
-  assert.ok(live.length >= 1, '反馈区需要 aria-live')
-
-  // 点含「花」的选项（唯一正确项）→ 得分 +1、反馈显示来源
-  const correctOption = options.find((option) => textOf(option).includes('花'))
-  assert.ok(correctOption)
-  correctOption.props.onClick({ stopPropagation() {} })
+  assert.equal(findButtonsByClass(tree, 'dshp-fh-option').length, 0)
+  assert.equal(findAll(tree, (node) => node.props && node.props['aria-live'] === 'polite').length >= 1, true)
+  let input = findInput(tree)
+  assert.ok(input, '应有自由输入框')
+  const firstEntry = pickUnused(cardText(tree))
+  assert.ok(firstEntry)
+  input.props.onChange({ target: { value: ' ' + firstEntry.text.replace('。', '') + ' ' } })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
   tree = rerender(react, debug.FeihuaTab, { api })
   text = textOf(tree)
-  assert.match(text, /本局 1 分/)
+  assert.match(text, /本局已接 1 句/)
   assert.match(text, /接上了：/)
-  assert.match(text, /测试诗人《测试诗/)
+  assert.ok(text.includes(firstEntry.source))
+  assert.equal(findInput(tree).props.value, '', '答对后输入框清空')
+  assert.ok(debug.readFeihuaBest().chars['花'] >= 1, '接上后应更新本字最佳')
 
-  // 图鉴：显示当前令字句子 + 来源
-  const atlasButton = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴')
-  assert.ok(atlasButton)
-  atlasButton.props.onClick()
+  // 重新开局后回车提交
+  findAll(tree, (node) => node.type === 'button' && textOf(node) === '重新开局')[0].props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  input = findInput(tree)
+  const enterEntry = pickUnused(cardText(tree))
+  assert.ok(enterEntry)
+  input.props.onChange({ target: { value: enterEntry.text } })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  findInput(tree).props.onKeyDown({ key: 'Enter', preventDefault() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assert.match(textOf(tree), /本局已接 1 句/, '回车应提交')
+
+  // 查无出处：bad 反馈、分数不变、输入保留
+  input = findInput(tree)
+  input.props.onChange({ target: { value: '这句肯定没有出处的花' } })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  text = textOf(tree)
+  assert.match(text, /没查到|未收录/)
+  assert.match(text, /本局已接 1 句/)
+  assert.equal(findInput(tree).props.value, '这句肯定没有出处的花', '答错保留输入方便修改')
+
+  // 图鉴
+  findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴').props.onClick()
   tree = rerender(react, debug.FeihuaTab, { api })
   text = textOf(tree)
   assert.match(text, /共 10 句/)
-  const lines = findAll(tree, (node) => node.type === 'div'
+  assert.equal(findAll(tree, (node) => node.type === 'div'
     && typeof node.props.className === 'string'
-    && node.props.className === 'dshp-fh-line')
-  assert.equal(lines.length, 10)
-  assert.match(text, /测试诗人《测试诗1》/)
+    && node.props.className === 'dshp-fh-line').length, 10)
 })
-
 test('飞花令入口：面板第 6 个 tab 进入飞花页；气泡第 6 张卡 + 圆点直切', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
@@ -1446,11 +1508,16 @@ test('真实数据飞花令：完整句口径下限 / 候选 12 / 图鉴分页',
   assert.equal(index.candidates.length, 12)
   assert.ok(index.candidates.every((item) => item.count >= debug.FEIHUA_MIN_ENTRIES))
 
-  // 真实数据下开局：4 个选项、正确项含令字且来自真实来源
-  const round = debug.generateFeihuaOptions(index, '花', new Set(), () => 0.42)
-  assert.equal(round.options.length, 4)
-  assert.ok(round.options[round.correctIndex].text.includes('花'))
-  assert.ok(round.options[round.correctIndex].source.length > 0)
+  // 真实数据下开局：系统句含令字、自由输入可校验出处
+  const state = debug.feihuaStart(index, '花', () => 0.42)
+  assert.equal(state.phase, 'playing')
+  assert.ok(state.system.text.includes('花'))
+  assert.ok(state.system.source.length > 0)
+  const candidate = index.byChar['花'].find((entry) => entry !== state.system)
+  const submitted = debug.feihuaSubmit(state, index, candidate.text)
+  assert.equal(submitted.score, 1)
+  assert.equal(submitted.phase, 'playing')
+  assert.ok(submitted.feedback.text.includes(candidate.source))
 
   // FeihuaTab 用真实数据渲染：chips / 来一局 / 图鉴默认 60 条加载更多
   const api = {
@@ -1463,7 +1530,7 @@ test('真实数据飞花令：完整句口径下限 / 候选 12 / 图鉴分页',
   }
   let tree = renderFresh(react, debug.FeihuaTab, { api })
   let text = textOf(tree)
-  assert.match(text, /接龙赛/)
+  assert.match(text, /对句/)
   const defaultChar = debug.pickDefaultFeihuaChar(index, poems.items[0])
   assert.ok(text.includes('「' + defaultChar + '」'))
   const atlasButton = findButtonsByClass(tree, 'dshp-seg-btn').find((button) => textOf(button) === '图鉴')
@@ -1819,9 +1886,10 @@ test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 c
   }
 })
 
-test('飞花令 pulseMascot：来一局→gameThink、答对→gameWin、答错→gameLose', () => {
+test('飞花令 pulseMascot：来一局→gameThink、接上→gameWin、查无出处→gameLose', () => {
   const { react, debug } = loadClient()
   const fixture = makeFeihuaFixture()
+  const index = debug.buildFeihuaIndex(fixture.poems, fixture.ci)
   const pulses = []
   const api = {
     poemsRes: { status: 'ready', data: fixture.poems },
@@ -1832,6 +1900,16 @@ test('飞花令 pulseMascot：来一局→gameThink、答对→gameWin、答错�
     feihuaLaunch: 0,
     pulseMascot: (key) => pulses.push(key),
   }
+  const findInput = (tree) => findAll(tree, (node) => node.type === 'input'
+    && node.props['aria-label'] === '输入飞花令对句')[0]
+  const cardText = (tree) => {
+    const node = findAll(tree, (item) => item.type === 'div'
+      && typeof item.props.className === 'string'
+      && item.props.className === 'dshp-card')[0]
+    return node ? textOf(node) : ''
+  }
+  const pickUnused = (currentText) => (index.byChar['月'] || []).find((entry) => !currentText.includes(entry.text))
+
   let tree = renderFresh(react, debug.FeihuaTab, { api })
   const startButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '来一局')[0]
   assert.ok(startButton)
@@ -1839,22 +1917,23 @@ test('飞花令 pulseMascot：来一局→gameThink、答对→gameWin、答错�
   tree = rerender(react, debug.FeihuaTab, { api })
   assertDeep(pulses, ['gameThink'])
 
-  let options = findButtonsByClass(tree, 'dshp-fh-option')
-  const correct = options.find((option) => textOf(option).includes('月'))
-  assert.ok(correct, '应有含「月」的正确选项')
-  correct.props.onClick({ stopPropagation() {} })
+  const entry = pickUnused(cardText(tree))
+  assert.ok(entry)
+  let input = findInput(tree)
+  input.props.onChange({ target: { value: entry.text } })
   tree = rerender(react, debug.FeihuaTab, { api })
-  assert.ok(pulses.includes('gameWin'), '答对应触发 gameWin 立绘')
+  findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assert.ok(pulses.includes('gameWin'), '接上应触发 gameWin 立绘')
   assertDeep(pulses.slice(0, 2), ['gameThink', 'gameWin'])
 
-  options = findButtonsByClass(tree, 'dshp-fh-option')
-  const wrong = options.find((option) => !textOf(option).includes('月'))
-  assert.ok(wrong, '应有不含「月」的诱饵选项')
-  wrong.props.onClick({ stopPropagation() {} })
+  input = findInput(tree)
+  input.props.onChange({ target: { value: '这句没有出处但含月' } })
   tree = rerender(react, debug.FeihuaTab, { api })
-  assert.ok(pulses.includes('gameLose'), '答错应触发 gameLose 立绘')
+  findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
+  tree = rerender(react, debug.FeihuaTab, { api })
+  assert.ok(pulses.includes('gameLose'), '查无出处/未接上应触发 gameLose 立绘')
 })
-
 /* ------------------------------------------------------------------ */
 /* 11. 心情系统 + 低频「想读的诗」彩蛋                                    */
 /* ------------------------------------------------------------------ */
@@ -3236,15 +3315,14 @@ test('飞花令完整句：先合句再入库，选项/图鉴/计数全用完整
     assert.equal(index.counts[char], index.byChar[char].length, '令字计数须与完整句集合一致：' + char)
   }
 
-  // 选项 / 系统出句都是完整句
-  const round = debug.generateFeihuaOptions(index, '花', new Set(), () => 0.31)
-  assert.ok(round)
-  for (const option of round.options) {
-    assert.match(option.text, /[。！？]$/)
-    assert.ok(index.entries.some((entry) => entry.text === option.text))
-  }
+  // 系统出句 / 自由输入校验都基于完整句
   const state = debug.feihuaStart(index, '花', () => 0.2)
   assert.match(state.system.text, /[。！？]$/)
+  assert.equal(debug.feihuaLookup(index, debug.feihuaPlainOf(state.system.text)).entry.text, state.system.text)
+  const candidate = index.byChar['花'].find((entry) => entry !== state.system)
+  const submitted = debug.feihuaSubmit(state, index, candidate.text)
+  assert.match(submitted.feedback.text, /接上了/)
+  assert.ok(submitted.feedback.text.includes(candidate.source))
 
   // 图鉴：完整显示，无逗号截断、无省略号
   const api = {

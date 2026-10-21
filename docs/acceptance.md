@@ -12,7 +12,7 @@
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
 | A3 | `node --test tests/host.test.mjs` | ✅ | 81 pass / 0 fail（天气 10 + 心情 9 + self-talk 18 + 模型心情 11） |
 | A4 | `node --test tests/client.test.mjs` | ✅ | 88 pass / 0 fail（+自言自语随时触发） |
-| A5 | 三套合计 | ✅ | **221 tests / 221 pass / 0 fail** |
+| A5 | 三套合计 | ✅ | **221 tests / 221 pass / 0 fail**（data 42 / host 91 / client 88） |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |
 | A7 | `node tests/integration/verify.mjs` | ✅ | **64/64 passed, 0 failed, 10 warnings（栅栏 401 属预期；含 4 份 assets/data 资产）** |
 | A8 | 数据构建可复现 | ✅ | 连续两次构建 4 个数据文件 sha256 一致 |
@@ -42,7 +42,7 @@
 | C8 | 空态/接口失败不白屏 | ✅ | client 单测覆盖 `{ok:false}`/500/超时；ErrorBoundary |
 | C9 | 暗色/主题变量 | ⚠️ 代码级验证 | 全部颜色走 `--dsw-alias-*` + fallback；未做暗色实机目测（可由用户切主题确认） |
 | C10 | 飞花令入口（面板第 6 tab + 气泡第 6 卡） | ✅ | 用户确认「入口正常（面板 6 tab + 气泡第 6 张）」 |
-| C11 | 接龙赛（4 选 1 / 3 命 / 计分 / 最佳记录）与图鉴 | ✅ | 用户确认「接龙赛能正常玩」「图鉴正常」；7 条新单测覆盖索引/选项/计分/扣命/通关/best |
+| C11 | 飞花令自由输入对句（系统出句→玩家输入→校验出处/令字/本局重复→系统接句；不扣命；本字最佳；图鉴保留） | ✅ | 用户要求改版；client 测试覆盖 lookup（小句/整句/包含）、合法接句、重复、无出处、不含令字、cleared、带标点、UI 输入框 |
 | C12 | 天气 chip + 按天气选的今日诗 | ✅ | 用户确认「有 chip，诗也是天气主题」；host 真实 Open-Meteo 冒烟 + client 端到端用例 |
 | C13 | 形象随天气切换（晴/云/雨/雪/雷/冷/夜） | ✅ | 用户确认「形象随天气切换正常」；92 张本地立绘（12.69MB，MIT） |
 | C14 | 设置城市/按天气选诗开关/刷新天气 | ✅ | 用户确认「城市/开关/刷新正常」；设置持久化到 settings.json |
