@@ -2,7 +2,7 @@
 
 > 执行人：Lead · 目标宿主：DSH 0.2.1-rc.2 / desktop profile / GUI http://127.0.0.1:57623
 > 数据版本：`2026-10-21.4`（诗 320 / 词 283 / 韵部 30 / 知识卡 12 / 词牌卡 15）
-> 最后更新：2026-10-21 M12c（自言自语改为纯模型随想，不背诗；用户重载后已验收）
+> 最后更新：2026-10-21 M13（模型自主心情 + 92 张立绘全部可用；待用户重载验收）
 
 ## A. 静态与数据
 
@@ -10,9 +10,9 @@
 |---|---|---|---|
 | A1 | `node --check` 全部 JS | ✅ | index.js / lib/*.mjs / client.js（含飞花令）/ scripts / tests 全过 |
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
-| A3 | `node --test tests/host.test.mjs` | ✅ | 70 pass / 0 fail（天气 10 + 心情 9 + 实时自言自语 18） |
-| A4 | `node --test tests/client.test.mjs` | ✅ | 78 pass / 0 fail（模型随想/回退/无诗句） |
-| A5 | 三套合计 | ✅ | **190 tests / 190 pass / 0 fail** |
+| A3 | `node --test tests/host.test.mjs` | ✅ | 81 pass / 0 fail（天气 10 + 心情 9 + self-talk 18 + 模型心情 11） |
+| A4 | `node --test tests/client.test.mjs` | ✅ | 87 pass / 0 fail（+模型心情/92 图/面板探头） |
+| A5 | 三套合计 | ✅ | **210 tests / 210 pass / 0 fail** |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |
 | A7 | `node tests/integration/verify.mjs` | ✅ | **64/64 passed, 0 failed, 10 warnings（栅栏 401 属预期；含 4 份 assets/data 资产）** |
 | A8 | 数据构建可复现 | ✅ | 连续两次构建 4 个数据文件 sha256 一致 |
@@ -47,8 +47,8 @@
 | C13 | 形象随天气切换（晴/云/雨/雪/雷/冷/夜） | ✅ | 用户确认「形象随天气切换正常」；92 张本地立绘（12.69MB，MIT） |
 | C14 | 设置城市/按天气选诗开关/刷新天气 | ✅ | 用户确认「城市/开关/刷新正常」；设置持久化到 settings.json |
 | C15 | 飞花令输赢/思考立绘反馈 | ✅ | 用户确认「飞花令立绘反馈正常」（2.5s 后回天气/默认） |
-| C16 | 心情 chip + 心情依据/刷新心情 | ✅ | 用户验收；host mood 统计（session/event 计数，隐私仅存会话哈希）+ client 心情引擎；138 项测试覆盖 |
-| C17 | 心情立绘切换（限频 ≥20min，strong 即时） | ✅ | 用户验收；92 张本地立绘中 9 种心情状态映射 |
+| C16 | 心情 chip + 心情理由/刷新心情 | ✅ | 模型自主决定心情（label/reason/image），失败回退启发式；设置显示来源与刷新 |
+| C17 | 92 张立绘全部可用：89 张心情图由模型任选 + 3 张 panel 探头按 tab 切换；切换限频 ≥20min、force 刷新 | ✅ | 图鉴 `assets/data/mood-catalog.json` 92 条与 `assets/generated` 92 文件 0 缺失；client/host 测试覆盖 |
 | C18 | 自言自语（**纯模型随想**，不背诗/不引诗；8–15min、idle 7–12min、硬底 5min、无每日上限；失败回退本地随想池；25s 自动关；可关/预览） | ✅ | 用户两轮反馈后收敛：先改模型实时生成，再去掉诗句/混合；用户已重载宿主并确认「预览是模型随想」；Host prompt 禁止引诗且不发送今日诗上下文；190 项单测覆盖 |
 | C19 | 诗库 tab（7 tab；分类/搜索/分页/详情，5,224 首） | ✅ | 用户验收；data 41 项 + client 59 项测试覆盖真实数据渲染 |
 | C20 | 格律检测器（选中诗 + 自定义输入；106 韵部/诗体/韵部/粘对/拗字） | ✅ | 用户验收；真实示例「登鹳雀楼」输出五绝/仄起/十一尤/0 拗字 |

@@ -30,6 +30,7 @@ const ROUTES = [
   '/api/dsh-poetry/weather.json',
   '/api/dsh-poetry/mood.json',
   '/api/dsh-poetry/self-talk.json',
+  '/api/dsh-poetry/mood-ai.json',
   '/api/dsh-poetry/about.json',
 ]
 
@@ -163,6 +164,7 @@ const assetData = {
   'assets/data/poems-bank.json': 8 * 1024 * 1024,
   'assets/data/pingshui.json': 400 * 1024,
   'assets/data/ci-bank.json': 12 * 1024 * 1024,
+  'assets/data/mood-catalog.json': 64 * 1024,
   'assets/data/manifest.json': 64 * 1024,
 }
 for (const [rel, budget] of Object.entries(assetData)) {
@@ -196,7 +198,7 @@ const probe = async (route) => {
   }
 }
 // M9 扩展资产路由（assets 静态路由，无栅栏）
-for (const route of ['/api/dsh-poetry/assets?f=data/anthology.json', '/api/dsh-poetry/assets?f=data/poems-bank.json', '/api/dsh-poetry/assets?f=data/pingshui.json', '/api/dsh-poetry/assets?f=data/ci-bank.json']) {
+for (const route of ['/api/dsh-poetry/assets?f=data/anthology.json', '/api/dsh-poetry/assets?f=data/poems-bank.json', '/api/dsh-poetry/assets?f=data/pingshui.json', '/api/dsh-poetry/assets?f=data/ci-bank.json', '/api/dsh-poetry/assets?f=data/mood-catalog.json']) {
   const r = await probe(route)
   if (r.status === 200) {
     let ok = false, detail = ''
@@ -216,7 +218,12 @@ for (const route of ROUTES) {
       let ok = true, detail = ''
       try {
         const j = JSON.parse(r.text)
-        if (route.endsWith('/self-talk.json')) {
+        if (route.endsWith('/mood-ai.json')) {
+          let catalogImages = []
+          try { catalogImages = (readJson('assets/data/mood-catalog.json').moodImages || []).map((x) => x.file) } catch {}
+          ok = j.ok === true ? Boolean(j.mood && typeof j.mood.label === 'string' && typeof j.mood.reason === 'string' && catalogImages.includes(j.mood.image)) : (j.error && ['MOOD_AI_UNAVAILABLE','MOOD_AI_RATE_LIMITED'].includes(j.error.code))
+          detail = j.ok === true ? `${j.mood.label} → ${j.mood.image}` : `降级：${j.error && j.error.code}`
+        } else if (route.endsWith('/self-talk.json')) {
           ok = j.ok === true ? Array.isArray(j.lines) && j.lines.length >= 1 && typeof j.lines[0].text === 'string' : (j.error && ['SELF_TALK_UNAVAILABLE','SELF_TALK_BUSY','SELF_TALK_RATE_LIMITED'].includes(j.error.code))
           detail = j.ok === true ? `lines=${j.lines.length} model=${j.model && (j.model.provider + '/' + j.model.model)}` : `降级：${j.error && j.error.code}`
         } else if (route.endsWith('/mood.json')) {

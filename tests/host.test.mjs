@@ -41,6 +41,17 @@ import {
   zeroMoodResponse,
 } from '../lib/mood.mjs'
 import {
+  MOOD_AI_CACHE_TTL_MS,
+  MOOD_AI_SYSTEM_PROMPT,
+  buildMoodPrompt,
+  createMoodAiService,
+  isWhenActive,
+  loadMoodCatalog,
+  normalizeMoodCatalog,
+  parseMoodResult,
+  resolveFestivalAvailability,
+} from '../lib/mood-ai.mjs'
+import {
   SELF_TALK_SYSTEM_PROMPT,
   buildSelfTalkPrompt,
   createSelfTalkService,
@@ -186,6 +197,16 @@ function createHarness(overrides = {}) {
       now: () => FIXED_NOW.getTime(),
       minIntervalMs: 0,
     })
+  const moodAiService =
+    overrides.moodAiService ??
+    createMoodAiService({
+      llm: null,
+      getSelection: () => null,
+      catalog: realMoodCatalog(),
+      now: () => FIXED_NOW.getTime(),
+      cacheTtlMs: 0,
+      minIntervalMs: 0,
+    })
   const handlers = new Map(
     createRouteTable({
       dataStore,
@@ -196,6 +217,7 @@ function createHarness(overrides = {}) {
       weatherService,
       moodTracker,
       selfTalkService,
+      moodAiService,
       env,
       home,
       now,
@@ -211,7 +233,7 @@ function createHarness(overrides = {}) {
     return response
   }
 
-  return { dataDir, settingsFile, home, env, dataStore, settingsStore, weatherService, moodTracker, selfTalkService, handlers, call }
+  return { dataDir, settingsFile, home, env, dataStore, settingsStore, weatherService, moodTracker, selfTalkService, moodAiService, handlers, call }
 }
 
 /** 构造一个假的 Open-Meteo fetch：calls 记录请求 URL；failFrom 指定第几次请求起抛错。 */
@@ -292,6 +314,58 @@ function makeSelfTalkHarness(overrides = {}) {
     logger: { warn() {} },
   })
   return { llm, service, state }
+}
+
+let cachedRealMoodCatalog = null
+/** 真实心情图鉴（懒加载一次；缺失返回 null）。 */
+function realMoodCatalog() {
+  if (cachedRealMoodCatalog === null) {
+    const loaded = loadMoodCatalog()
+    cachedRealMoodCatalog = loaded.ok === true ? loaded.catalog : { missing: true }
+  }
+  return cachedRealMoodCatalog.missing === true ? null : cachedRealMoodCatalog
+}
+
+/** 小型测试图鉴（含节日 when），用于 prompt/parse 的确定性断言。 */
+function makeMoodCatalogFixture() {
+  return normalizeMoodCatalog({
+    ok: true,
+    version: 'test.1',
+    images: [
+      { file: 'dsh-whale-state-happy.webp', label: '开心', tags: ['happy', 'celebrate'] },
+      { file: 'dsh-whale-state-achievement.webp', label: '有成就感', tags: ['proud', 'success'] },
+      { file: 'dsh-whale-state-sad.webp', label: '失落', tags: ['sad'] },
+      { file: 'dsh-whale-state-tired.webp', label: '累到融化', tags: ['tired', 'melt'] },
+      { file: 'dsh-whale-state-xmas.webp', label: '圣诞', tags: ['festival', 'christmas'], when: '12-24..12-26' },
+      { file: 'dsh-whale-state-halloween.webp', label: '万圣节', tags: ['festival', 'halloween'], when: '10-31' },
+      { file: 'dsh-whale-state-midautumn.webp', label: '中秋', tags: ['festival', 'midautumn'], when: '中秋' },
+      { file: 'dsh-whale-state-valentine.webp', label: '情人节', tags: ['festival', 'valentine'], when: '02-14' },
+    ],
+    panelImages: [{ file: 'dsh-whale-home-peek.webp', label: '探头', scope: 'panel' }],
+  })
+}
+
+/** 构造一个注入 mock llm 的 mood-ai 服务 + 可控时钟。 */
+function makeMoodAiHarness(overrides = {}) {
+  const state = { clock: FIXED_NOW.getTime() }
+  const catalog = overrides.catalog === undefined ? makeMoodCatalogFixture() : overrides.catalog
+  const llm = overrides.llm ?? makeMockLlm(overrides.responder ?? (() => JSON.stringify({
+    label: '开心',
+    image: 'dsh-whale-state-happy.webp',
+    reason: '今天聊得很开心',
+    energy: 82,
+  })))
+  const service = createMoodAiService({
+    llm,
+    getSelection: overrides.getSelection ?? (() => SELF_TALK_SELECTION),
+    catalog,
+    now: () => state.clock,
+    timeoutMs: overrides.timeoutMs ?? 300,
+    cacheTtlMs: overrides.cacheTtlMs ?? MOOD_AI_CACHE_TTL_MS,
+    minIntervalMs: overrides.minIntervalMs ?? 0,
+    logger: { warn() {} },
+  })
+  return { llm, service, state, catalog }
 }
 
 function expectedPoemId(date, dataVersion, ids) {
@@ -1529,11 +1603,24 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 12, 'assets + 11 条 JSON 路由')
+    assert.equal(routes.length, 13, 'assets + 12 条 JSON 路由')
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
       '注册了 self-talk.json 路由',
     )
+    assert.ok(
+      routes.some((route) => route.path === '/api/dsh-poetry/mood-ai.json'),
+      '注册了 mood-ai.json 路由',
+    )
+
+    // 假 ctx 里没有 llm/agentDefaultModel → mood-ai 路由必须安全降级（200 + ok:false）
+    const moodAiRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood-ai.json')
+    const moodAiResponse = new MockResponse()
+    await moodAiRoute.handler(mockRequest({ url: '/api/dsh-poetry/mood-ai.json' }), moodAiResponse)
+    await moodAiResponse.finished()
+    assert.equal(moodAiResponse.statusCode, 200)
+    assert.equal(moodAiResponse.json().ok, false)
+    assert.equal(moodAiResponse.json().error.code, 'MOOD_AI_UNAVAILABLE')
 
     // 假 ctx 里没有 llm/agentDefaultModel → self-talk 路由必须安全降级（200 + ok:false）
     const selfTalkRoute = routes.find((route) => route.path === '/api/dsh-poetry/self-talk.json')
@@ -1968,6 +2055,436 @@ test('self-talk 路由：llm 缺失时 200 + SELF_TALK_UNAVAILABLE（不抛）',
   const body = response.json()
   assert.equal(body.ok, false)
   assert.equal(body.error.code, 'SELF_TALK_UNAVAILABLE')
+})
+
+// ---------------------------------------------------------------------------
+// 模型心情（契约 v1.9 §2.12）与 92 张心情图鉴
+// ---------------------------------------------------------------------------
+
+test('mood-ai：loadMoodCatalog 读真实 92 张图鉴（89 mood + 3 panel），缺失降级不抛', () => {
+  const loaded = loadMoodCatalog()
+  assert.equal(loaded.ok, true, loaded.ok === false ? loaded.message : '')
+  assert.equal(loaded.catalog.moodImages.length, 89, '89 张 mood 图全部可用')
+  assert.equal(loaded.catalog.panelImages.length, 3, '3 张 panel 图')
+  assert.equal(loaded.catalog.files.size, 89)
+  for (const file of ['dsh-whale-state-celebrate.webp', 'dsh-whale-state-festival-christmas.webp']) {
+    assert.equal(loaded.catalog.files.has(file), true, `图鉴应包含 ${file}`)
+  }
+  for (const image of loaded.catalog.moodImages) assert.match(image.file, /^dsh-whale-[^/]+\.webp$/)
+  // 图鉴里的 5 张节日图都有 when
+  const festival = loaded.catalog.moodImages.filter((image) => typeof image.when === 'string')
+  assert.equal(festival.length, 5)
+
+  const missing = loadMoodCatalog({ file: '/nonexistent/mood-catalog.json' })
+  assert.equal(missing.ok, false)
+  assert.equal(typeof missing.message, 'string')
+})
+
+test('mood-ai：节日 when 解析（单日/区间/跨年/农历不开放）', () => {
+  assert.equal(isWhenActive('10-31', '2026-10-31'), true)
+  assert.equal(isWhenActive('10-31', '2026-11-01'), false)
+  assert.equal(isWhenActive('12-24..12-26', '2026-12-25'), true)
+  assert.equal(isWhenActive('12-24..12-26', '2026-12-27'), false)
+  assert.equal(isWhenActive('12-31..01-02', '2027-01-01'), true, '跨年区间')
+  assert.equal(isWhenActive('中秋', '2026-10-21'), false, '农历节日无法按公历判断 → 不开放')
+  assert.equal(isWhenActive('', '2026-10-21'), false)
+
+  const catalog = makeMoodCatalogFixture()
+  const christmas = resolveFestivalAvailability(catalog, '2026-12-25')
+  assert.deepEqual(christmas.available.map((image) => image.file), ['dsh-whale-state-xmas.webp'])
+  assert.deepEqual(christmas.unavailable.map((image) => image.file).sort(), [
+    'dsh-whale-state-halloween.webp',
+    'dsh-whale-state-midautumn.webp',
+    'dsh-whale-state-valentine.webp',
+  ])
+  assert.equal(resolveFestivalAvailability(catalog, '2026-10-21').available.length, 0)
+})
+
+test('mood-ai：buildMoodPrompt 含图鉴清单+当天情境，无会话原文/诗上下文', () => {
+  const catalog = makeMoodCatalogFixture()
+  const prompt = buildMoodPrompt(
+    {
+      now: Date.UTC(2026, 9, 21, 2, 0, 0), // 2026-10-21 10:00 Asia/Shanghai
+      weather: 'rain',
+      moodKey: 'busy',
+      stats: {
+        userMessages: 12,
+        assistantMessages: 20,
+        toolCalls: 45,
+        toolErrors: 3,
+        turns: 6,
+        turnsCompleted: 5,
+        turnsErrored: 1,
+        activeMs: 33 * 60000,
+        sessions: 2,
+      },
+      idleMinutes: 8,
+      recent: ['刚刚在发呆', '看到窗外下雨了'],
+      recentImages: ['dsh-whale-state-tired.webp', 'dsh-whale-state-sad.webp'],
+      // 误传/注入的敏感内容必须被白名单丢弃：
+      messages: [{ role: 'user', content: [{ type: 'text', text: '绝密会话原文' }] }],
+      sessionMessages: ['绝密会话原文'],
+      sessionText: '绝密会话原文',
+      poem: { title: '静夜思', author: '李白' },
+    },
+    catalog,
+  )
+  assert.match(prompt, /2026-10-21/)
+  assert.match(prompt, /当前天气：rain/)
+  assert.match(prompt, /busy（忙碌）/)
+  assert.match(prompt, /用户消息 12 条/)
+  assert.match(prompt, /工具调用 45 次（其中报错 3 次）/)
+  assert.match(prompt, /回合 6 个（完成 5 \/ 出错 1）/)
+  assert.match(prompt, /活跃约 33 分钟/)
+  assert.match(prompt, /8 分钟/)
+  assert.match(prompt, /刚刚在发呆/)
+  assert.match(prompt, /最近用过的图片/)
+  assert.match(prompt, /dsh-whale-state-happy\.webp｜开心｜happy,celebrate/)
+  assert.match(prompt, /今天没有可用的节日图/)
+  assert.match(prompt, /今天不可用的节日图/)
+  assert.match(prompt, /不是随机抽图/)
+  assert.match(prompt, /只输出一个 JSON 对象/)
+  assert.equal(prompt.includes('绝密会话原文'), false, '会话原文绝不允许进入 prompt')
+  assert.equal(prompt.includes('静夜思'), false, '不发送诗上下文')
+  assert.equal(prompt.includes('李白'), false)
+
+  // 节日日期：圣诞图进入「今天可用」
+  const xmasPrompt = buildMoodPrompt({ now: Date.UTC(2026, 11, 25, 2, 0, 0) }, catalog)
+  assert.match(xmasPrompt, /今天可用的节日图/)
+  assert.match(xmasPrompt, /dsh-whale-state-xmas\.webp｜圣诞/)
+})
+
+test('mood-ai：parseMoodResult 合法/fenced/非法/超长/节日 when 校验', () => {
+  const catalog = makeMoodCatalogFixture()
+  const dateKey = '2026-10-21'
+  const valid = parseMoodResult(
+    '{"label":"有点累","image":"dsh-whale-state-tired.webp","reason":"忙了很久，想歇一会","energy":25}',
+    catalog,
+    { dateKey },
+  )
+  assert.equal(valid.ok, true)
+  assert.deepEqual(valid.mood, { label: '有点累', image: 'dsh-whale-state-tired.webp', reason: '忙了很久，想歇一会', energy: 25 })
+
+  const fenced = parseMoodResult(
+    '```json\n{"label":"开心","image":"dsh-whale-state-happy.webp","reason":"聊得很开心","energy":80}\n```',
+    catalog,
+    { dateKey },
+  )
+  assert.equal(fenced.ok, true)
+  assert.equal(fenced.mood.label, '开心')
+
+  const withChatter = parseMoodResult(
+    '好的，结果如下：{"label":"开心","image":"dsh-whale-state-happy.webp","reason":"聊得很开心","energy":80} 希望你喜欢',
+    catalog,
+    { dateKey },
+  )
+  assert.equal(withChatter.ok, true, '容忍 JSON 前后废话')
+
+  const trimmed = parseMoodResult(
+    '{"label":"  开心  ","image":"dsh-whale-state-happy.webp","reason":"  聊得很开心  ","energy":80}',
+    catalog,
+    { dateKey },
+  )
+  assert.equal(trimmed.mood.label, '开心', 'label 去空白')
+  assert.equal(trimmed.mood.reason, '聊得很开心', 'reason 去空白')
+
+  assert.equal(parseMoodResult('这不是 JSON', catalog, { dateKey }).ok, false)
+  assert.equal(parseMoodResult('{"label":"开心"}', catalog, { dateKey }).ok, false, '缺 image')
+  assert.equal(
+    parseMoodResult('{"label":"开心","image":"dsh-whale-state-not-exist.webp","reason":"理由","energy":50}', catalog, { dateKey }).ok,
+    false,
+    '未知图片',
+  )
+  assert.equal(
+    parseMoodResult(`{"label":"${'心'.repeat(13)}","image":"dsh-whale-state-happy.webp","reason":"理由","energy":50}`, catalog, { dateKey }).ok,
+    false,
+    'label 超 12 字',
+  )
+  assert.equal(
+    parseMoodResult(`{"label":"开心","image":"dsh-whale-state-happy.webp","reason":"${'理'.repeat(41)}","energy":50}`, catalog, { dateKey }).ok,
+    false,
+    'reason 超 40 字',
+  )
+  assert.equal(
+    parseMoodResult('{"label":"开心","image":"dsh-whale-state-happy.webp","reason":"理由","energy":101}', catalog, { dateKey }).ok,
+    false,
+    'energy 超范围',
+  )
+  // 节日图：日期不符 → 失败；日期匹配 → 成功
+  const festivalJson = JSON.stringify({ label: '圣诞快乐', image: 'dsh-whale-state-xmas.webp', reason: '今天圣诞节', energy: 90 })
+  assert.equal(parseMoodResult(festivalJson, catalog, { dateKey: '2026-10-21' }).ok, false, '圣诞图非圣诞日不可用')
+  assert.equal(parseMoodResult(festivalJson, catalog, { dateKey: '2026-12-25' }).ok, true, '圣诞日可用')
+  const halloweenJson = JSON.stringify({ label: '万圣节', image: 'dsh-whale-state-halloween.webp', reason: '今天万圣节', energy: 60 })
+  assert.equal(parseMoodResult(halloweenJson, catalog, { dateKey: '2026-10-31' }).ok, true)
+  assert.equal(parseMoodResult(halloweenJson, catalog, { dateKey: '2026-10-30' }).ok, false)
+  const midautumnJson = JSON.stringify({ label: '中秋', image: 'dsh-whale-state-midautumn.webp', reason: '今天中秋', energy: 60 })
+  assert.equal(parseMoodResult(midautumnJson, catalog, { dateKey: '2026-10-21' }).ok, false, '农历节日图不开放')
+})
+
+test('mood-ai 服务：成功生成心情并透传模型参数', async () => {
+  const { llm, service } = makeMoodAiHarness()
+  const result = await service.generate({
+    moodKey: 'busy',
+    weather: 'rain',
+    stats: { userMessages: 3, toolCalls: 9, activeMs: 60000 },
+    idleMinutes: 5,
+    recent: ['刚刚在发呆'],
+    recentImages: ['dsh-whale-state-sad.webp'],
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.cached, false)
+  assert.deepEqual(result.mood, {
+    label: '开心',
+    image: 'dsh-whale-state-happy.webp',
+    reason: '今天聊得很开心',
+    energy: 82,
+  })
+  assert.deepEqual(result.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.equal(typeof result.generatedAt, 'number')
+  assert.equal(llm.calls.length, 1)
+
+  const options = llm.calls[0]
+  assert.equal(options.provider, 'deepseek-account')
+  assert.equal(options.model, 'deepseek-flash')
+  assert.equal(options.system, MOOD_AI_SYSTEM_PROMPT)
+  assert.equal(options.maxTokens, 220)
+  assert.equal(options.temperature, 0.7)
+  assert.equal(options.reasoningEffort, undefined)
+  assert.ok(options.signal instanceof AbortSignal)
+  const userText = options.messages[0].content[0].text
+  assert.match(userText, /心情图鉴/)
+  assert.match(userText, /dsh-whale-state-happy\.webp/)
+  assert.match(userText, /busy（忙碌）/)
+  assert.match(userText, /当前天气：rain/)
+  assert.match(userText, /最近用过的图片/)
+  assert.match(userText, /dsh-whale-state-sad\.webp/)
+  assert.match(userText, /只输出一个 JSON 对象/)
+})
+
+test('mood-ai 服务：10 分钟缓存命中 / force 绕过 / 过期重取', async () => {
+  let call = 0
+  const responder = () => {
+    call += 1
+    const tired = call > 1
+    return JSON.stringify({
+      label: tired ? '有点累' : '开心',
+      image: tired ? 'dsh-whale-state-tired.webp' : 'dsh-whale-state-happy.webp',
+      reason: tired ? '忙了一天有点累' : '今天聊得很开心',
+      energy: tired ? 25 : 82,
+    })
+  }
+  const { llm, service, state } = makeMoodAiHarness({ responder })
+  const first = await service.generate({ moodKey: 'calm' })
+  assert.equal(first.ok, true)
+  assert.equal(first.cached, false)
+  assert.equal(llm.calls.length, 1)
+
+  state.clock += 60 * 1000 // 1 分钟后命中缓存
+  const hit = await service.generate({ moodKey: 'calm' })
+  assert.equal(hit.ok, true)
+  assert.equal(hit.cached, true)
+  assert.deepEqual(hit.mood, first.mood)
+  assert.equal(llm.calls.length, 1)
+
+  state.clock += 5 * 60 * 1000 // force 绕过缓存
+  const forced = await service.generate({ moodKey: 'calm' }, { force: true })
+  assert.equal(forced.ok, true)
+  assert.equal(forced.cached, false)
+  assert.equal(forced.mood.label, '有点累')
+  assert.equal(llm.calls.length, 2)
+
+  state.clock += 11 * 60 * 1000 // 10 分钟 TTL 过期 → 重新生成
+  const expired = await service.generate({ moodKey: 'calm' })
+  assert.equal(expired.ok, true)
+  assert.equal(expired.cached, false)
+  assert.equal(llm.calls.length, 3)
+})
+
+test('mood-ai 服务：并发 in-flight 去重复用同一次模型调用', async () => {
+  const { llm, service } = makeMoodAiHarness({
+    responder: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      return JSON.stringify({
+        label: '开心',
+        image: 'dsh-whale-state-happy.webp',
+        reason: '今天聊得很开心',
+        energy: 82,
+      })
+    },
+  })
+  const [a, b] = await Promise.all([service.generate({}), service.generate({})])
+  assert.equal(a.ok, true)
+  assert.equal(b.ok, true)
+  assert.equal(llm.calls.length, 1, '并发只调用一次模型')
+  assert.deepEqual([a.cached, b.cached].sort(), [false, true])
+})
+
+test('mood-ai 服务：3s 限频（无缓存时 RATE_LIMITED，之后恢复）', async () => {
+  let first = true
+  const { service, state } = makeMoodAiHarness({
+    cacheTtlMs: 0,
+    minIntervalMs: 3000,
+    responder: () => {
+      if (first) {
+        first = false
+        throw new Error('offline')
+      }
+      return JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '缓过来了', energy: 70 })
+    },
+  })
+  const failed = await service.generate({})
+  assert.equal(failed.ok, false)
+  assert.equal(failed.error.code, 'MOOD_AI_UNAVAILABLE')
+
+  state.clock += 100
+  const limited = await service.generate({})
+  assert.equal(limited.ok, false)
+  assert.equal(limited.error.code, 'MOOD_AI_RATE_LIMITED')
+
+  state.clock += 3000
+  const recovered = await service.generate({})
+  assert.equal(recovered.ok, true)
+})
+
+test('mood-ai：失败/空输出/非法 JSON/超时/llm 缺失/图鉴缺失 → ok:false 不抛', async () => {
+  const invalid = makeMoodAiHarness({ responder: () => '这不是 JSON' })
+  const invalidResult = await invalid.service.generate({})
+  assert.equal(invalidResult.ok, false)
+  assert.equal(invalidResult.error.code, 'MOOD_AI_UNAVAILABLE')
+
+  const empty = makeMoodAiHarness({ responder: () => '' })
+  assert.equal((await empty.service.generate({})).ok, false)
+
+  const boom = makeMoodAiHarness({ responder: () => new Error('boom') })
+  assert.equal((await boom.service.generate({})).ok, false)
+
+  const unknownImage = makeMoodAiHarness({
+    responder: () => JSON.stringify({ label: '开心', image: 'nope.webp', reason: '理由', energy: 50 }),
+  })
+  assert.equal((await unknownImage.service.generate({})).ok, false)
+
+  const hanging = makeMoodAiHarness({ responder: () => ({ hang: true }), timeoutMs: 40 })
+  const startedAt = Date.now()
+  const timeoutResult = await hanging.service.generate({})
+  assert.equal(timeoutResult.ok, false)
+  assert.match(timeoutResult.error.message, /超时/)
+  assert.ok(Date.now() - startedAt < 2000, '超时被及时收敛')
+
+  const noCatalog = createMoodAiService({
+    llm: makeMockLlm(() => '{}'),
+    getSelection: () => SELF_TALK_SELECTION,
+    catalog: null,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+  })
+  assert.equal((await noCatalog.generate({})).ok, false)
+  assert.equal((await noCatalog.generate({})).error.code, 'MOOD_AI_UNAVAILABLE')
+
+  const noLlm = createMoodAiService({ llm: null, getSelection: () => SELF_TALK_SELECTION, catalog: makeMoodCatalogFixture() })
+  assert.equal((await noLlm.generate({})).ok, false)
+
+  const noSelection = createMoodAiService({
+    llm: makeMockLlm(() => '{}'),
+    getSelection: () => null,
+    catalog: makeMoodCatalogFixture(),
+  })
+  const selectionResult = await noSelection.generate({})
+  assert.equal(selectionResult.ok, false)
+  assert.equal(selectionResult.error.code, 'MOOD_AI_UNAVAILABLE')
+})
+
+test('mood-ai 路由：成功形状 + query 解析 + 隐私白名单 + force + 栅栏', async () => {
+  const { llm, service } = makeMoodAiHarness({
+    responder: () =>
+      JSON.stringify({
+        label: '有成就感',
+        image: 'dsh-whale-state-achievement.webp',
+        reason: '今天完成了不少事',
+        energy: 70,
+      }),
+  })
+  const harness = createHarness({ moodAiService: service })
+  const base = FIXED_NOW.getTime()
+  harness.moodTracker.record({ id: 's1' }, moodEvent('user/message', base))
+  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/call', base + 1000))
+
+  const recent = encodeURIComponent('刚刚在发呆|看到窗外下雨了')
+  const recentImages = encodeURIComponent('dsh-whale-state-tired.webp|dsh-whale-state-sad.webp')
+  const url =
+    `/api/dsh-poetry/mood-ai.json?mood=busy&weather=rain&idleMinutes=12&recent=${recent}&recentImages=${recentImages}` +
+    `&sessionMessages=${encodeURIComponent('超级机密对话内容')}`
+  const response = await harness.call('mood-ai.json', mockRequest({ url }))
+  assert.equal(response.statusCode, 200)
+  const body = response.json()
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.mood, {
+    label: '有成就感',
+    image: 'dsh-whale-state-achievement.webp',
+    reason: '今天完成了不少事',
+    energy: 70,
+  })
+  assert.deepEqual(body.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.equal(typeof body.generatedAt, 'number')
+  assert.equal(body.cached, false)
+
+  const userText = llm.calls[0].messages[0].content[0].text
+  assert.match(userText, /busy（忙碌）/)
+  assert.match(userText, /当前天气：rain/)
+  assert.match(userText, /12 分钟/)
+  assert.match(userText, /刚刚在发呆/)
+  assert.match(userText, /dsh-whale-state-tired\.webp/)
+  assert.match(userText, /不是随机抽图/)
+  assert.equal(JSON.stringify(llm.calls[0]).includes('超级机密'), false, '未知 query 参数不会进入 prompt')
+
+  // 普通再次请求 → 10min 缓存命中，不再调模型
+  const cachedBody = (await harness.call('mood-ai.json', mockRequest({ url }))).json()
+  assert.equal(cachedBody.ok, true)
+  assert.equal(cachedBody.cached, true)
+  assert.equal(llm.calls.length, 1)
+
+  // force=1 绕过缓存
+  const forcedBody = (await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))).json()
+  assert.equal(forcedBody.ok, true)
+  assert.equal(forcedBody.cached, false)
+  assert.equal(llm.calls.length, 2)
+
+  const crossed = await harness.call(
+    'mood-ai.json',
+    mockRequest({ url, headers: { host: '127.0.0.1:57623', 'sec-fetch-site': 'cross-site' } }),
+  )
+  assert.equal(crossed.statusCode, 403)
+  assert.equal(crossed.json().error.code, 'FORBIDDEN')
+})
+
+test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一/截断', async () => {
+  const seen = []
+  const stubService = {
+    async generate(context, options) {
+      seen.push({ context, options })
+      return { ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: '模型不可用' } }
+    },
+  }
+  const harness = createHarness({ moodAiService: stubService })
+  const manyRecent = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `第${index}句最近自述`).join('|'))
+  const manyImages = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `dsh-whale-state-${index}.webp`).join('|'))
+  const url = `/api/dsh-poetry/mood-ai.json?idleMinutes=abc&recent=${manyRecent}&recentImages=${manyImages}&force=1`
+  const response = await harness.call('mood-ai.json', mockRequest({ url }))
+  assert.equal(response.statusCode, 200)
+  const body = response.json()
+  assert.equal(body.ok, false)
+  assert.equal(body.error.code, 'MOOD_AI_UNAVAILABLE')
+
+  const captured = seen[0]
+  assert.equal(captured.context.recent.length, 3, 'recent 最多 3 条')
+  assert.equal(captured.context.recentImages.length, 5, 'recentImages 最多 5 条')
+  assert.equal(captured.context.idleMinutes, null, '非法 idleMinutes 忽略')
+  assert.deepEqual(captured.options, { force: true })
+
+  const noService = createHarness({ moodAiService: undefined })
+  // overrides.moodAiService=undefined 会走默认（无 llm）→ 同样安全降级
+  const fallback = (await noService.call('mood-ai.json', mockRequest({ url }))).json()
+  assert.equal(fallback.ok, false)
+  assert.equal(fallback.error.code, 'MOOD_AI_UNAVAILABLE')
 })
 
 // ---------------------------------------------------------------------------

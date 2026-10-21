@@ -1,0 +1,1506 @@
+{
+  "ok": true,
+  "version": "2026-10-21.1",
+  "generatedAt": "2026-10-21T12:11:13.324Z",
+  "source": "dsh-whale-musume/assets/generated",
+  "images": [
+    {
+      "file": "dsh-whale-home-peek.webp",
+      "label": "探头看你（今日面板）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "home"
+      ]
+    },
+    {
+      "file": "dsh-whale-settings-peek.webp",
+      "label": "探头看你（设置面板）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "settings"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-abstract.webp",
+      "label": "发呆出神",
+      "tags": [
+        "idle",
+        "abstract"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-achievement.webp",
+      "label": "有成就感",
+      "tags": [
+        "proud",
+        "success"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-afk.webp",
+      "label": "暂时离开",
+      "tags": [
+        "idle",
+        "away"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-angry.webp",
+      "label": "生气",
+      "tags": [
+        "angry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-balance-low.webp",
+      "label": "钱包见底/有点沮丧",
+      "tags": [
+        "sad",
+        "money"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-blush.webp",
+      "label": "脸红害羞",
+      "tags": [
+        "shy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-bold.webp",
+      "label": "大胆/有底气",
+      "tags": [
+        "bold",
+        "confident"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-celebrate.webp",
+      "label": "开心庆祝",
+      "tags": [
+        "happy",
+        "celebrate"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-cool-shades.webp",
+      "label": "戴墨镜耍酷",
+      "tags": [
+        "cool",
+        "smug"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-curious.webp",
+      "label": "好奇",
+      "tags": [
+        "curious"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-coffee.webp",
+      "label": "喝咖啡",
+      "tags": [
+        "coffee",
+        "calm"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-cooking.webp",
+      "label": "做饭",
+      "tags": [
+        "cooking",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-done.webp",
+      "label": "今日事毕",
+      "tags": [
+        "done",
+        "content"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-eat.webp",
+      "label": "干饭",
+      "tags": [
+        "eat",
+        "hungry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-fishing.webp",
+      "label": "摸鱼",
+      "tags": [
+        "idle",
+        "fish"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-gaming.webp",
+      "label": "打游戏",
+      "tags": [
+        "game",
+        "play"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-melt.webp",
+      "label": "累到融化",
+      "tags": [
+        "tired",
+        "melt"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-painting.webp",
+      "label": "画画",
+      "tags": [
+        "paint",
+        "art"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-pajama.webp",
+      "label": "穿睡衣/居家",
+      "tags": [
+        "cozy",
+        "pajama"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-picnic.webp",
+      "label": "野餐",
+      "tags": [
+        "picnic",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-shower.webp",
+      "label": "洗澡",
+      "tags": [
+        "shower",
+        "cozy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-stretch.webp",
+      "label": "伸懒腰",
+      "tags": [
+        "stretch",
+        "refresh"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-eat.webp",
+      "label": "吃东西",
+      "tags": [
+        "eat",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-failure.webp",
+      "label": "失败/受挫",
+      "tags": [
+        "failure",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-festival-christmas.webp",
+      "label": "圣诞",
+      "tags": [
+        "festival",
+        "christmas"
+      ],
+      "when": "12-24..12-26"
+    },
+    {
+      "file": "dsh-whale-state-festival-halloween.webp",
+      "label": "万圣节",
+      "tags": [
+        "festival",
+        "halloween"
+      ],
+      "when": "10-31"
+    },
+    {
+      "file": "dsh-whale-state-festival-mid-autumn.webp",
+      "label": "中秋",
+      "tags": [
+        "festival",
+        "midautumn"
+      ],
+      "when": "中秋"
+    },
+    {
+      "file": "dsh-whale-state-festival-spring.webp",
+      "label": "春节",
+      "tags": [
+        "festival",
+        "spring"
+      ],
+      "when": "春节"
+    },
+    {
+      "file": "dsh-whale-state-game-cheat.webp",
+      "label": "游戏作弊偷笑",
+      "tags": [
+        "game",
+        "sneaky"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-happy.webp",
+      "label": "游戏里开心",
+      "tags": [
+        "game",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-lose.webp",
+      "label": "游戏输了",
+      "tags": [
+        "game",
+        "lose",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-think.webp",
+      "label": "游戏里思考",
+      "tags": [
+        "game",
+        "think"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-win.webp",
+      "label": "游戏胜利",
+      "tags": [
+        "game",
+        "win",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-greet.webp",
+      "label": "打招呼",
+      "tags": [
+        "greet"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-idle-cute.webp",
+      "label": "安静待机",
+      "tags": [
+        "calm",
+        "idle"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-levelup.webp",
+      "label": "升级",
+      "tags": [
+        "proud",
+        "levelup"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-broke.webp",
+      "label": "破产/哭穷",
+      "tags": [
+        "broke",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-cry.webp",
+      "label": "哭",
+      "tags": [
+        "cry",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-doge.webp",
+      "label": "狗头/调侃",
+      "tags": [
+        "meme",
+        "teasing"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-doubt.webp",
+      "label": "疑惑",
+      "tags": [
+        "doubt",
+        "confused"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-heart.webp",
+      "label": "爱心/喜欢",
+      "tags": [
+        "love",
+        "heart"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-kyun.webp",
+      "label": "心动",
+      "tags": [
+        "love",
+        "kyun"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-music.webp",
+      "label": "听音乐",
+      "tags": [
+        "music",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-no.webp",
+      "label": "拒绝",
+      "tags": [
+        "no",
+        "angry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-ojisan.webp",
+      "label": "大叔/沧桑",
+      "tags": [
+        "meme",
+        "tired"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-omg.webp",
+      "label": "OMG/震惊",
+      "tags": [
+        "shock",
+        "omg"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-peace.webp",
+      "label": "比耶/开心",
+      "tags": [
+        "happy",
+        "peace"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-shock.webp",
+      "label": "震惊",
+      "tags": [
+        "shock"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-sike.webp",
+      "label": "骗你的/调皮",
+      "tags": [
+        "playful",
+        "sike"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-smile-pain.webp",
+      "label": "苦笑",
+      "tags": [
+        "smile-pain",
+        "bittersweet"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-smug.webp",
+      "label": "得意",
+      "tags": [
+        "smug",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-wakuwaku.webp",
+      "label": "期待兴奋",
+      "tags": [
+        "excited",
+        "wakuwaku"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-worship.webp",
+      "label": "膜拜/佩服",
+      "tags": [
+        "worship",
+        "awe"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-yes.webp",
+      "label": "好的/点头",
+      "tags": [
+        "yes",
+        "ok"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-night.webp",
+      "label": "夜里/安静",
+      "tags": [
+        "night",
+        "calm"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-pick-up.webp",
+      "label": "捡起来/振作",
+      "tags": [
+        "pickup",
+        "determined"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-belly.webp",
+      "label": "拍肚子/吃饱",
+      "tags": [
+        "belly",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-head.webp",
+      "label": "摸摸头/被安抚",
+      "tags": [
+        "pat",
+        "comfort"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-tail.webp",
+      "label": "摸尾巴/害羞",
+      "tags": [
+        "tail",
+        "shy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-running.webp",
+      "label": "跑/忙",
+      "tags": [
+        "running",
+        "busy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-sleep.webp",
+      "label": "睡着了",
+      "tags": [
+        "sleep",
+        "tired"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-star.webp",
+      "label": "眼里有星星/期待",
+      "tags": [
+        "star",
+        "excited"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-success.webp",
+      "label": "成功",
+      "tags": [
+        "success",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-sweep.webp",
+      "label": "打扫/整理",
+      "tags": [
+        "sweep",
+        "chore"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-tail-swing.webp",
+      "label": "摇尾巴/开心",
+      "tags": [
+        "happy",
+        "tail"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-teasing.webp",
+      "label": "调戏/逗你",
+      "tags": [
+        "teasing",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-thinking.webp",
+      "label": "思考",
+      "tags": [
+        "thinking"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-tool.webp",
+      "label": "忙工作/工具",
+      "tags": [
+        "work",
+        "busy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-valentine.webp",
+      "label": "情人节",
+      "tags": [
+        "festival",
+        "valentine"
+      ],
+      "when": "02-14"
+    },
+    {
+      "file": "dsh-whale-state-waiting.webp",
+      "label": "等你/无聊",
+      "tags": [
+        "waiting",
+        "lonely"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-cold.webp",
+      "label": "好冷",
+      "tags": [
+        "weather",
+        "cold"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-rain-happy.webp",
+      "label": "雨天开心",
+      "tags": [
+        "weather",
+        "rain",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-snow.webp",
+      "label": "下雪",
+      "tags": [
+        "weather",
+        "snow"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-thunder.webp",
+      "label": "打雷害怕",
+      "tags": [
+        "weather",
+        "thunder",
+        "scared"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-umbrella.webp",
+      "label": "雨天打伞",
+      "tags": [
+        "weather",
+        "rain"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-wink.webp",
+      "label": "眨眼/调皮",
+      "tags": [
+        "wink",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-boss.webp",
+      "label": "老板来了/紧张",
+      "tags": [
+        "work",
+        "boss"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-celebrate.webp",
+      "label": "工作完成庆祝",
+      "tags": [
+        "work",
+        "celebrate"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-deadline.webp",
+      "label": "赶死线/焦虑",
+      "tags": [
+        "work",
+        "deadline",
+        "anxious"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-debug.webp",
+      "label": "调试",
+      "tags": [
+        "work",
+        "debug"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-deploy.webp",
+      "label": "部署/紧张",
+      "tags": [
+        "work",
+        "deploy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-idea.webp",
+      "label": "灵光一现",
+      "tags": [
+        "work",
+        "idea"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-meeting.webp",
+      "label": "开会",
+      "tags": [
+        "work",
+        "meeting"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-pat.webp",
+      "label": "拍拍/鼓励",
+      "tags": [
+        "pat",
+        "encourage"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-ram.webp",
+      "label": "内存爆了/崩溃",
+      "tags": [
+        "work",
+        "ram",
+        "shock"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-review.webp",
+      "label": "评审/认真",
+      "tags": [
+        "work",
+        "review"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-slack-phone.webp",
+      "label": "偷玩手机",
+      "tags": [
+        "work",
+        "phone",
+        "sneaky"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-slack.webp",
+      "label": "摸鱼聊天",
+      "tags": [
+        "work",
+        "slack",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-sleep.webp",
+      "label": "工位睡着",
+      "tags": [
+        "work",
+        "sleep",
+        "tired"
+      ]
+    },
+    {
+      "file": "dsh-whale-workbench-peek.webp",
+      "label": "探头看你（工作台/诗库）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "workbench"
+      ]
+    }
+  ],
+  "panelImages": [
+    {
+      "file": "dsh-whale-home-peek.webp",
+      "label": "探头看你（今日面板）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "home"
+      ]
+    },
+    {
+      "file": "dsh-whale-settings-peek.webp",
+      "label": "探头看你（设置面板）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "settings"
+      ]
+    },
+    {
+      "file": "dsh-whale-workbench-peek.webp",
+      "label": "探头看你（工作台/诗库）",
+      "scope": "panel",
+      "tags": [
+        "panel",
+        "workbench"
+      ]
+    }
+  ],
+  "moodImages": [
+    {
+      "file": "dsh-whale-state-abstract.webp",
+      "label": "发呆出神",
+      "tags": [
+        "idle",
+        "abstract"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-achievement.webp",
+      "label": "有成就感",
+      "tags": [
+        "proud",
+        "success"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-afk.webp",
+      "label": "暂时离开",
+      "tags": [
+        "idle",
+        "away"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-angry.webp",
+      "label": "生气",
+      "tags": [
+        "angry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-balance-low.webp",
+      "label": "钱包见底/有点沮丧",
+      "tags": [
+        "sad",
+        "money"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-blush.webp",
+      "label": "脸红害羞",
+      "tags": [
+        "shy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-bold.webp",
+      "label": "大胆/有底气",
+      "tags": [
+        "bold",
+        "confident"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-celebrate.webp",
+      "label": "开心庆祝",
+      "tags": [
+        "happy",
+        "celebrate"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-cool-shades.webp",
+      "label": "戴墨镜耍酷",
+      "tags": [
+        "cool",
+        "smug"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-curious.webp",
+      "label": "好奇",
+      "tags": [
+        "curious"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-coffee.webp",
+      "label": "喝咖啡",
+      "tags": [
+        "coffee",
+        "calm"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-cooking.webp",
+      "label": "做饭",
+      "tags": [
+        "cooking",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-done.webp",
+      "label": "今日事毕",
+      "tags": [
+        "done",
+        "content"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-eat.webp",
+      "label": "干饭",
+      "tags": [
+        "eat",
+        "hungry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-fishing.webp",
+      "label": "摸鱼",
+      "tags": [
+        "idle",
+        "fish"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-gaming.webp",
+      "label": "打游戏",
+      "tags": [
+        "game",
+        "play"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-melt.webp",
+      "label": "累到融化",
+      "tags": [
+        "tired",
+        "melt"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-painting.webp",
+      "label": "画画",
+      "tags": [
+        "paint",
+        "art"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-pajama.webp",
+      "label": "穿睡衣/居家",
+      "tags": [
+        "cozy",
+        "pajama"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-picnic.webp",
+      "label": "野餐",
+      "tags": [
+        "picnic",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-shower.webp",
+      "label": "洗澡",
+      "tags": [
+        "shower",
+        "cozy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-daily-stretch.webp",
+      "label": "伸懒腰",
+      "tags": [
+        "stretch",
+        "refresh"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-eat.webp",
+      "label": "吃东西",
+      "tags": [
+        "eat",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-failure.webp",
+      "label": "失败/受挫",
+      "tags": [
+        "failure",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-festival-christmas.webp",
+      "label": "圣诞",
+      "tags": [
+        "festival",
+        "christmas"
+      ],
+      "when": "12-24..12-26"
+    },
+    {
+      "file": "dsh-whale-state-festival-halloween.webp",
+      "label": "万圣节",
+      "tags": [
+        "festival",
+        "halloween"
+      ],
+      "when": "10-31"
+    },
+    {
+      "file": "dsh-whale-state-festival-mid-autumn.webp",
+      "label": "中秋",
+      "tags": [
+        "festival",
+        "midautumn"
+      ],
+      "when": "中秋"
+    },
+    {
+      "file": "dsh-whale-state-festival-spring.webp",
+      "label": "春节",
+      "tags": [
+        "festival",
+        "spring"
+      ],
+      "when": "春节"
+    },
+    {
+      "file": "dsh-whale-state-game-cheat.webp",
+      "label": "游戏作弊偷笑",
+      "tags": [
+        "game",
+        "sneaky"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-happy.webp",
+      "label": "游戏里开心",
+      "tags": [
+        "game",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-lose.webp",
+      "label": "游戏输了",
+      "tags": [
+        "game",
+        "lose",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-think.webp",
+      "label": "游戏里思考",
+      "tags": [
+        "game",
+        "think"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-game-win.webp",
+      "label": "游戏胜利",
+      "tags": [
+        "game",
+        "win",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-greet.webp",
+      "label": "打招呼",
+      "tags": [
+        "greet"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-idle-cute.webp",
+      "label": "安静待机",
+      "tags": [
+        "calm",
+        "idle"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-levelup.webp",
+      "label": "升级",
+      "tags": [
+        "proud",
+        "levelup"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-broke.webp",
+      "label": "破产/哭穷",
+      "tags": [
+        "broke",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-cry.webp",
+      "label": "哭",
+      "tags": [
+        "cry",
+        "sad"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-doge.webp",
+      "label": "狗头/调侃",
+      "tags": [
+        "meme",
+        "teasing"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-doubt.webp",
+      "label": "疑惑",
+      "tags": [
+        "doubt",
+        "confused"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-heart.webp",
+      "label": "爱心/喜欢",
+      "tags": [
+        "love",
+        "heart"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-kyun.webp",
+      "label": "心动",
+      "tags": [
+        "love",
+        "kyun"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-music.webp",
+      "label": "听音乐",
+      "tags": [
+        "music",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-no.webp",
+      "label": "拒绝",
+      "tags": [
+        "no",
+        "angry"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-ojisan.webp",
+      "label": "大叔/沧桑",
+      "tags": [
+        "meme",
+        "tired"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-omg.webp",
+      "label": "OMG/震惊",
+      "tags": [
+        "shock",
+        "omg"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-peace.webp",
+      "label": "比耶/开心",
+      "tags": [
+        "happy",
+        "peace"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-shock.webp",
+      "label": "震惊",
+      "tags": [
+        "shock"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-sike.webp",
+      "label": "骗你的/调皮",
+      "tags": [
+        "playful",
+        "sike"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-smile-pain.webp",
+      "label": "苦笑",
+      "tags": [
+        "smile-pain",
+        "bittersweet"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-smug.webp",
+      "label": "得意",
+      "tags": [
+        "smug",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-wakuwaku.webp",
+      "label": "期待兴奋",
+      "tags": [
+        "excited",
+        "wakuwaku"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-worship.webp",
+      "label": "膜拜/佩服",
+      "tags": [
+        "worship",
+        "awe"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-meme-yes.webp",
+      "label": "好的/点头",
+      "tags": [
+        "yes",
+        "ok"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-night.webp",
+      "label": "夜里/安静",
+      "tags": [
+        "night",
+        "calm"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-pick-up.webp",
+      "label": "捡起来/振作",
+      "tags": [
+        "pickup",
+        "determined"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-belly.webp",
+      "label": "拍肚子/吃饱",
+      "tags": [
+        "belly",
+        "food"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-head.webp",
+      "label": "摸摸头/被安抚",
+      "tags": [
+        "pat",
+        "comfort"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-react-tail.webp",
+      "label": "摸尾巴/害羞",
+      "tags": [
+        "tail",
+        "shy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-running.webp",
+      "label": "跑/忙",
+      "tags": [
+        "running",
+        "busy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-sleep.webp",
+      "label": "睡着了",
+      "tags": [
+        "sleep",
+        "tired"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-star.webp",
+      "label": "眼里有星星/期待",
+      "tags": [
+        "star",
+        "excited"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-success.webp",
+      "label": "成功",
+      "tags": [
+        "success",
+        "proud"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-sweep.webp",
+      "label": "打扫/整理",
+      "tags": [
+        "sweep",
+        "chore"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-tail-swing.webp",
+      "label": "摇尾巴/开心",
+      "tags": [
+        "happy",
+        "tail"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-teasing.webp",
+      "label": "调戏/逗你",
+      "tags": [
+        "teasing",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-thinking.webp",
+      "label": "思考",
+      "tags": [
+        "thinking"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-tool.webp",
+      "label": "忙工作/工具",
+      "tags": [
+        "work",
+        "busy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-valentine.webp",
+      "label": "情人节",
+      "tags": [
+        "festival",
+        "valentine"
+      ],
+      "when": "02-14"
+    },
+    {
+      "file": "dsh-whale-state-waiting.webp",
+      "label": "等你/无聊",
+      "tags": [
+        "waiting",
+        "lonely"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-cold.webp",
+      "label": "好冷",
+      "tags": [
+        "weather",
+        "cold"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-rain-happy.webp",
+      "label": "雨天开心",
+      "tags": [
+        "weather",
+        "rain",
+        "happy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-snow.webp",
+      "label": "下雪",
+      "tags": [
+        "weather",
+        "snow"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-thunder.webp",
+      "label": "打雷害怕",
+      "tags": [
+        "weather",
+        "thunder",
+        "scared"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-weather-umbrella.webp",
+      "label": "雨天打伞",
+      "tags": [
+        "weather",
+        "rain"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-wink.webp",
+      "label": "眨眼/调皮",
+      "tags": [
+        "wink",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-boss.webp",
+      "label": "老板来了/紧张",
+      "tags": [
+        "work",
+        "boss"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-celebrate.webp",
+      "label": "工作完成庆祝",
+      "tags": [
+        "work",
+        "celebrate"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-deadline.webp",
+      "label": "赶死线/焦虑",
+      "tags": [
+        "work",
+        "deadline",
+        "anxious"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-debug.webp",
+      "label": "调试",
+      "tags": [
+        "work",
+        "debug"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-deploy.webp",
+      "label": "部署/紧张",
+      "tags": [
+        "work",
+        "deploy"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-idea.webp",
+      "label": "灵光一现",
+      "tags": [
+        "work",
+        "idea"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-meeting.webp",
+      "label": "开会",
+      "tags": [
+        "work",
+        "meeting"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-pat.webp",
+      "label": "拍拍/鼓励",
+      "tags": [
+        "pat",
+        "encourage"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-ram.webp",
+      "label": "内存爆了/崩溃",
+      "tags": [
+        "work",
+        "ram",
+        "shock"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-review.webp",
+      "label": "评审/认真",
+      "tags": [
+        "work",
+        "review"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-slack-phone.webp",
+      "label": "偷玩手机",
+      "tags": [
+        "work",
+        "phone",
+        "sneaky"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-slack.webp",
+      "label": "摸鱼聊天",
+      "tags": [
+        "work",
+        "slack",
+        "playful"
+      ]
+    },
+    {
+      "file": "dsh-whale-state-work-sleep.webp",
+      "label": "工位睡着",
+      "tags": [
+        "work",
+        "sleep",
+        "tired"
+      ]
+    }
+  ]
+}

@@ -2292,8 +2292,17 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(
+      String(mascot.props.src).includes('dsh-whale-settings-peek.webp'),
+      '面板打开时应显示设置页探头图，实际：' + mascot.props.src,
+    )
+    const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
+    assert.ok(closePanelButton)
+    closePanelButton.props.onClick()
+    tree = renderMain()
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(
       String(mascot.props.src).includes('dsh-whale-state-celebrate.webp'),
-      '关闭心情后应回默认立绘，实际：' + mascot.props.src,
+      '关闭心情+关闭面板后应回默认立绘，实际：' + mascot.props.src,
     )
   } finally {
     react._cleanup()
@@ -3668,5 +3677,442 @@ test('自言自语不再念诗：本地诗句/hybrid 能力已移除，只保留
   for (const entry of debug.MURMUR_POOL) {
     assert.match(entry.text, /[。！？]$/)
     assert.ok(!entry.text.includes('《') && !entry.text.includes('——'), '本地随想池不得像诗句/带出处')
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* 14. M13：模型心情 + 92 张图鉴 + 面板探头图                            */
+/* ------------------------------------------------------------------ */
+
+function makeMoodCatalogFixture() {
+  return {
+    ok: true,
+    version: 'test.mood.1',
+    images: [
+      { file: 'dsh-whale-home-peek.webp', label: '探头看你（今日面板）', scope: 'panel', tags: ['panel', 'home'] },
+      { file: 'dsh-whale-settings-peek.webp', label: '探头看你（设置面板）', scope: 'panel', tags: ['panel', 'settings'] },
+      { file: 'dsh-whale-workbench-peek.webp', label: '探头看你（工作台）', scope: 'panel', tags: ['panel', 'workbench'] },
+    ],
+    panelImages: [
+      { file: 'dsh-whale-home-peek.webp', label: '探头看你（今日面板）', tags: ['panel', 'home'] },
+      { file: 'dsh-whale-settings-peek.webp', label: '探头看你（设置面板）', tags: ['panel', 'settings'] },
+      { file: 'dsh-whale-workbench-peek.webp', label: '探头看你（工作台）', tags: ['panel', 'workbench'] },
+    ],
+    moodImages: [
+      { file: 'dsh-whale-state-abstract.webp', label: '发呆出神', tags: ['idle', 'abstract'] },
+      { file: 'dsh-whale-state-afk.webp', label: '暂时离开', tags: ['idle', 'away'] },
+      { file: 'dsh-whale-state-rare-42.webp', label: '少见的第 42 张', tags: ['mood', 'rare'] },
+    ],
+  }
+}
+
+test('心情图鉴 helpers：92 张口径、任意 moodImages 可接受、3 张 panel 探头映射', () => {
+  const { debug } = loadClient()
+  const catalog = debug.normalizeMoodCatalog(makeMoodCatalogFixture())
+  assert.ok(catalog)
+  assertDeep(catalog.moodFiles, ['dsh-whale-state-abstract.webp', 'dsh-whale-state-afk.webp', 'dsh-whale-state-rare-42.webp'])
+  assert.equal(debug.panelPeekFile(catalog, 'today'), 'dsh-whale-home-peek.webp')
+  assert.equal(debug.panelPeekFile(catalog, 'settings'), 'dsh-whale-settings-peek.webp')
+  assert.equal(debug.panelPeekFile(catalog, 'library'), 'dsh-whale-workbench-peek.webp')
+  assert.equal(debug.panelPeekFile(catalog, 'ci'), 'dsh-whale-workbench-peek.webp')
+  assert.equal(debug.panelPeekFile(null, 'today'), 'dsh-whale-home-peek.webp')
+  assert.equal(debug.moodCatalogAllows(catalog, 'dsh-whale-state-rare-42.webp'), true, '模型选中任意 moodImages 都接受')
+  assert.equal(debug.moodCatalogAllows(catalog, 'dsh-whale-home-peek.webp'), false, 'panel 图不能当心情图')
+  assert.equal(debug.moodCatalogAllows(catalog, 'unknown.webp'), false)
+  assert.equal(debug.normalizeMoodCatalog({ ok: true, moodImages: [] }), null)
+  assert.equal(debug.normalizeMoodCatalog(null), null)
+})
+
+test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentImages≤5，不含会话内容', () => {
+  const { debug } = loadClient()
+  const query = debug.moodAiQuery({
+    force: true,
+    moodKey: 'tired',
+    weather: 'rain',
+    idleMinutes: 23,
+    recent: ['一', '二', '三', '四'],
+    recentImages: ['a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp', 'f.webp'],
+  })
+  assert.ok(query.indexOf('mood-ai.json?') === 0)
+  const params = new URLSearchParams(query.slice(query.indexOf('?') + 1))
+  assert.equal(params.get('force'), '1')
+  assert.equal(params.get('mood'), 'tired')
+  assert.equal(params.get('weather'), 'rain')
+  assert.equal(params.get('idleMinutes'), '23')
+  assert.equal(params.get('recent').split('|').length, 3)
+  assertDeep(params.get('recentImages').split('|'), ['b.webp', 'c.webp', 'd.webp', 'e.webp', 'f.webp'])
+  const names = Array.from(params.keys()).sort()
+  assertDeep(names, ['force', 'idleMinutes', 'mood', 'recent', 'recentImages', 'weather'], '只允许聚合上下文参数')
+  const noForce = debug.moodAiQuery({ moodKey: 'calm' })
+  assert.ok(!noForce.includes('force='))
+
+  const catalog = debug.normalizeMoodCatalog(makeMoodCatalogFixture())
+  const parsed = debug.parseMoodAiResponse({ ok: true, mood: { label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆' } }, catalog)
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.mood.label, '发呆出神')
+  assert.equal(parsed.mood.image, 'dsh-whale-state-abstract.webp')
+  assert.equal(parsed.mood.reason, '想发会儿呆')
+  assert.equal(parsed.mood.source, 'model')
+  assert.equal(debug.parseMoodAiResponse({ ok: true, mood: { label: 'x', image: 'unknown.webp', reason: '' } }, catalog).ok, false, '未知图必须拒绝')
+  assert.equal(debug.parseMoodAiResponse({ ok: true, mood: { label: 'x', image: 'dsh-whale-home-peek.webp', reason: '' } }, catalog).ok, false, 'panel 图不能当心情图')
+  assert.equal(debug.parseMoodAiResponse({ ok: false }, catalog).ok, false)
+  assert.equal(debug.parseMoodAiResponse({ ok: true, mood: null }, catalog).ok, false)
+})
+
+test('mood-ai 限频/显著事件纯函数：10min 最小间隔、force 绕过、消息+3/工具+50/报错/天气/飞花触发', () => {
+  const { debug } = loadClient()
+  const now = shanghaiTs(2026, 10, 21, 15, 0)
+  assert.equal(debug.canRequestMoodAi(0, now, false), true)
+  assert.equal(debug.canRequestMoodAi(now - 9 * 60 * 1000, now, false), false)
+  assert.equal(debug.canRequestMoodAi(now - 10 * 60 * 1000, now, false), true)
+  assert.equal(debug.canRequestMoodAi(now - 60 * 1000, now, true), true, 'force 绕过最小间隔')
+  assert.equal(debug.MOOD_AI_MIN_INTERVAL_MS, 10 * 60 * 1000)
+  assert.equal(debug.MOOD_AI_REFRESH_MS, 30 * 60 * 1000)
+
+  const base = debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)
+  assert.equal(debug.isMoodAiSignificant(null, base), false)
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 4, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)), false, '消息+2 不触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 5, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)), true, '消息+3 触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 60, toolErrors: 0 }, { category: 'clear' }, 0, 0)), true, '工具+50 触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 59, toolErrors: 0 }, { category: 'clear' }, 0, 0)), false)
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 1 }, { category: 'clear' }, 0, 0)), true, '报错增加触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'rain' }, 0, 0)), true, '天气变化触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 1, 0)), true, '飞花令胜利触发')
+  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 1)), true, '飞花令失败触发')
+})
+
+test('mood-ai 请求：成功/未知图/404/401/ok:false/非法 JSON/超时全部静默回退', async () => {
+  const catalog = makeMoodCatalogFixture()
+  const normalized = (loadClient().debug.normalizeMoodCatalog(catalog))
+  const success = loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: true, mood: { label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆' } }) }) })
+  const okResult = await success.debug.requestMoodAi({ catalog: normalized, moodKey: 'calm' })
+  assert.equal(okResult.ok, true)
+  assert.equal(okResult.mood.image, 'dsh-whale-state-abstract.webp')
+
+  const unknown = loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: true, mood: { label: 'x', image: 'unknown.webp', reason: 'x' } }) }) })
+  assert.equal((await unknown.debug.requestMoodAi({ catalog: normalized })).ok, false, '未知图片静默失败')
+
+  for (const status of [404, 401, 500]) {
+    const client = loadClient({ fetch: async () => ({ ok: false, status, json: async () => ({}) }) })
+    assert.equal((await client.debug.requestMoodAi({ catalog: normalized })).ok, false)
+  }
+  const okFalse = loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: false, error: { code: 'MOOD_AI_UNAVAILABLE' } }) }) })
+  assert.equal((await okFalse.debug.requestMoodAi({ catalog: normalized })).ok, false)
+  const badJson = loadClient({ fetch: async () => ({ ok: true, json: async () => { throw new Error('bad') } }) })
+  assert.equal((await badJson.debug.requestMoodAi({ catalog: normalized })).ok, false)
+  const network = loadClient({ fetch: async () => { throw new Error('network') } })
+  assert.equal((await network.debug.requestMoodAi({ catalog: normalized })).ok, false)
+
+  const timeoutClient = loadClient({ fetch: () => new Promise(() => {}) })
+  const timers = []
+  timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
+  timeoutClient.context.clearTimeout = () => {}
+  const pending = timeoutClient.debug.requestMoodAi({ catalog: normalized })
+  const timer = timers.find((entry) => entry.ms === 9000)
+  assert.ok(timer, '应有 9s 超时')
+  timer.fn()
+  assert.equal((await pending).ok, false)
+})
+
+test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip label/reason/来源、面板 3 探头图、force 与未知图回退', async () => {
+  const dataVersion = 'test.moodai.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'ma-1', title: '鹿柴', author: '王维', lines: ['空山不见人，', '但闻人语响。'], tones: ['平平仄仄平，', '仄平平仄仄。'] }]
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: 'ma-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'rain', label: '小雨', tempC: 18, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const catalog = makeMoodCatalogFixture()
+  let moodAiCalls = []
+  let moodAiMode = 'model'
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      moodAiCalls.push(raw)
+      if (moodAiMode === 'unknown') return { ok: true, json: async () => ({ ok: true, mood: { label: '假心情', image: 'unknown.webp', reason: '不该用' } }) }
+      if (moodAiMode === '404') return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆' }, model: { provider: 'test', model: 'test' } }) }
+    }
+    if (raw.indexOf('assets') >= 0 && raw.indexOf('mood-catalog') >= 0) {
+      return { ok: true, json: async () => catalog }
+    }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 10; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(50)
+    tree = renderMain()
+    assert.ok(moodAiCalls.length >= 1, '图鉴加载后应请求 mood-ai')
+    const firstUrl = moodAiCalls[0]
+    const params = new URLSearchParams(firstUrl.slice(firstUrl.indexOf('?') + 1))
+    const allowedKeys = ['force', 'mood', 'weather', 'idleMinutes', 'recent', 'recentImages']
+    for (const key of Array.from(params.keys())) assert.ok(allowedKeys.includes(key), 'mood-ai 请求不得带额外/会话参数：' + key)
+    assert.equal(params.get('weather'), 'rain')
+
+    let mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(String(mascot.props.src).includes('dsh-whale-state-abstract.webp'), '模型返回的任意图应直接用于立绘，实际：' + mascot.props.src)
+
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const bubbleText = textOf(findBubble(tree))
+    assert.match(bubbleText, /心情：发呆出神/)
+    const chip = findAll(tree, (node) => node.type === 'span'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-mood-chip'))[0]
+    assert.ok(chip)
+    assert.match(String(chip.props.title || ''), /想发会儿呆/, '心情 chip 应带 reason')
+
+    // 面板探头图：今日→home、设置→settings、其他→workbench；关闭恢复模型心情图
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(String(mascot.props.src).includes('dsh-whale-home-peek.webp'), '今日面板应显示 home-peek，实际 ' + mascot.props.src)
+    const settingsTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    assert.ok(settingsTab)
+    settingsTab.props.onClick()
+    tree = renderMain()
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(String(mascot.props.src).includes('dsh-whale-settings-peek.webp'), '设置面板应显示 settings-peek，实际 ' + mascot.props.src)
+    const classTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '课堂')[0]
+    classTab.props.onClick()
+    tree = renderMain()
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'), '其他 tab 应显示 workbench-peek，实际 ' + mascot.props.src)
+
+    // 设置显示 label/reason/来源（模型）
+    const settingsTabAgain = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    settingsTabAgain.props.onClick()
+    tree = renderMain()
+    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsElement)
+    assert.equal(settingsElement.props.api.moodSource, 'model')
+    assert.equal(settingsElement.props.api.moodView.label, '发呆出神')
+    assert.match(settingsElement.props.api.moodView.reason, /想发会儿呆/)
+
+    // force=1 刷新：未知图片 → 回退启发式、设置提示本地面部表情
+    moodAiMode = 'unknown'
+    const mainApi = settingsElement.props.api
+    await mainApi.refreshMoodNow()
+    await sleep(50)
+    tree = renderMain()
+    const forceCall = moodAiCalls[moodAiCalls.length - 1]
+    assert.match(forceCall, /[?&]force=1(&|$)/, '刷新心情应带 force=1')
+    const forceParams = new URLSearchParams(forceCall.slice(forceCall.indexOf('?') + 1))
+    assert.equal(forceParams.get('force'), '1')
+    const recentImages = forceParams.get('recentImages') || ''
+    assert.ok(recentImages.includes('dsh-whale-state-abstract.webp'), '应把最近用过的图片传给 mood-ai：' + recentImages)
+    mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(!String(mascot.props.src).includes('unknown.webp'), '未知图片不能用于立绘')
+    const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
+    assert.ok(closePanelButton)
+    closePanelButton.props.onClick()
+    tree = renderMain()
+    const settingsAfter = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')
+    // 面板关闭后重新打开设置以读回退状态
+    const stage2 = findStage(tree)
+    if (stage2) {
+      stage2.props.onPointerDown(pointerEvent(1))
+      stage2.props.onPointerUp(pointerEvent(1))
+      tree = renderMain()
+      const panelButton2 = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+      if (panelButton2) panelButton2.props.onClick()
+      tree = renderMain()
+      const settingsTab2 = findAll(tree, (node) => node.type === 'button'
+        && typeof node.props.className === 'string'
+        && node.props.className.includes('dshp-tab')
+        && textOf(node) === '设置')[0]
+      if (settingsTab2) settingsTab2.props.onClick()
+      tree = renderMain()
+    }
+    const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsEl)
+    assert.equal(settingsEl.props.api.moodAiFallback, true, '未知图片应回退启发式并提示')
+    assert.equal(settingsEl.props.api.moodSource, 'heuristic')
+  } finally {
+    react._cleanup()
+  }
+})
+
+const MOOD_CATALOG_FILE = path.join(ROOT, 'assets', 'data', 'mood-catalog.json')
+const HAS_MOOD_CATALOG = existsSync(MOOD_CATALOG_FILE)
+
+test('真实心情图鉴：89 张 mood + 3 张 panel 全部可用且文件存在', {
+  skip: HAS_MOOD_CATALOG ? false : 'mood-catalog.json 尚未生成',
+}, () => {
+  const raw = JSON.parse(readFileSync(MOOD_CATALOG_FILE, 'utf8'))
+  const { debug } = loadClient()
+  const catalog = debug.normalizeMoodCatalog(raw)
+  assert.ok(catalog)
+  assert.equal(catalog.moodFiles.length, 89, '心情图应为 89 张')
+  assert.equal(debug.panelPeekFile(catalog, 'today'), 'dsh-whale-home-peek.webp')
+  assert.equal(debug.panelPeekFile(catalog, 'settings'), 'dsh-whale-settings-peek.webp')
+  assert.equal(debug.panelPeekFile(catalog, 'library'), 'dsh-whale-workbench-peek.webp')
+  for (const file of catalog.moodFiles) {
+    assert.ok(existsSync(path.join(ROOT, 'assets', 'generated', file)), '缺少心情图：' + file)
+    assert.equal(debug.moodCatalogAllows(catalog, file), true, '每张 mood 图都应被接受：' + file)
+  }
+  assert.equal(debug.moodCatalogAllows(catalog, 'dsh-whale-home-peek.webp'), false, 'panel 图不能作为心情图')
+  const parsed = debug.parseMoodAiResponse({
+    ok: true,
+    mood: { label: '任意心情', image: catalog.moodFiles[88], reason: '模型选到的第 89 张' },
+  }, catalog)
+  assert.equal(parsed.ok, true, '模型选中的任意一张 mood 图都必须接受')
+  assert.equal(parsed.mood.image, catalog.moodFiles[88])
+})
+
+test('mood-catalog 资产懒加载：URL 带 dataVersion、版本变化失效、失败不抛错', async () => {
+  const { context, debug } = loadClient()
+  const calls = []
+  context.fetch = async (url) => {
+    calls.push(String(url))
+    return { ok: true, json: async () => makeMoodCatalogFixture() }
+  }
+  debug.setAssetDataVersion('test.mood.1')
+  await debug.loadResource('moodCatalog')
+  assert.ok(calls[0].includes('f=data/mood-catalog.json'))
+  assert.ok(calls[0].includes('&v=test.mood.1'))
+  await debug.loadResource('moodCatalog')
+  assert.equal(calls.length, 1, '同版本命中模块缓存')
+  debug.setAssetDataVersion('test.mood.2')
+  await debug.loadResource('moodCatalog')
+  assert.equal(calls.length, 2)
+  assert.ok(calls[1].includes('&v=test.mood.2'))
+  context.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) })
+  debug.clearResourceCache('moodCatalog')
+  await assert.rejects(() => debug.loadResource('moodCatalog'), (error) => error.status === 404)
+})
+
+test('设置心情展示：label + reason + 来源（模型/启发式）与本地回退状态', () => {
+  const { react, debug } = loadClient()
+  const baseApi = {
+    settings: debug.normalizeSettings({}),
+    updateSettings() {},
+    hideWidget() {},
+    resetSettings() {},
+    moodStats: debug.normalizeMoodStats({}),
+    moodView: { key: 'ai', label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆', source: 'model' },
+    moodSource: 'model',
+    moodAiFallback: false,
+    weatherRes: { status: 'idle' },
+    weatherData: null,
+    moodRes: { status: 'ready', at: 1 },
+    refreshWeather() {},
+    refreshMoodNow() {},
+    previewSpontaneousPoem() {},
+    boot: { data: { version: '0.1.0' } },
+  }
+  let text = textOf(renderFresh(react, debug.SettingsTab, { api: baseApi }))
+  assert.match(text, /发呆出神/)
+  assert.match(text, /想发会儿呆/)
+  assert.match(text, /来源：模型/)
+  const fallbackText = textOf(renderFresh(react, debug.SettingsTab, {
+    api: Object.assign({}, baseApi, {
+      moodSource: 'heuristic',
+      moodAiFallback: true,
+      moodView: { key: 'tired', label: '有点累', image: 'dsh-whale-state-work-sleep.webp', reason: '工具调用 128 次' },
+    }),
+  }))
+  assert.match(fallbackText, /来源：启发式/)
+  assert.match(fallbackText, /当前使用本地面部表情/)
+})
+
+test('模型心情图鉴加载失败：不请求 mood-ai、回退启发式心情且不报错', async () => {
+  const dataVersion = 'test.moodfail.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'mf-1', title: '鹿柴', author: '王维', lines: ['空山不见人，', '但闻人语响。'], tones: ['平平仄仄平，', '仄平平仄仄。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: 'mf-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 100 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  let moodAiCalls = 0
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      moodAiCalls += 1
+      return { ok: true, json: async () => ({ ok: true, mood: { label: 'x', image: 'dsh-whale-state-abstract.webp', reason: 'x' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 8; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    assert.equal(moodAiCalls, 0, '图鉴不可用时不应请求 mood-ai')
+    const mascot = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(mascot)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-state-work-sleep.webp'), '应回退启发式心情立绘（tired），实际 ' + mascot.props.src)
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    assert.match(textOf(tree), /心情：有点累/)
+  } finally {
+    react._cleanup()
   }
 })

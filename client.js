@@ -100,6 +100,17 @@ window.__ModuleLoader__.load({
   const MOOD_SWITCH_MIN_MS = 20 * 60 * 1000
   const MOOD_REFRESH_MS = 5 * 60 * 1000
   const MOOD_TICK_MS = 60 * 1000
+  const MOOD_AI_PATH = 'mood-ai.json'
+  const MOOD_AI_TIMEOUT_MS = 9000
+  const MOOD_AI_MIN_INTERVAL_MS = 10 * 60 * 1000
+  const MOOD_AI_REFRESH_MS = 30 * 60 * 1000
+  const MOOD_AI_RECENT_MAX = 3
+  const MOOD_AI_RECENT_IMAGES_MAX = 5
+  const MOOD_PANEL_PEEK_FILES = {
+  today: 'dsh-whale-home-peek.webp',
+  settings: 'dsh-whale-settings-peek.webp',
+  other: 'dsh-whale-workbench-peek.webp',
+  }
   const MOOD_STRONG = ['tired', 'sleepy', 'proud']
   const MOOD_LABELS = Object.freeze({
   happy: '开心', proud: '得意', tired: '有点累', sleepy: '困了', hungry: '有点饿',
@@ -254,7 +265,7 @@ window.__ModuleLoader__.load({
   { id: 'tpl-water', tags: ['encourage', 'time'], when: () => true, text: (ctx) => '记得喝口水，' + ctx.period + '也要照顾好自己。' },
   ]
   /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
-  const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json' }
+  const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json', moodCatalog: 'data/mood-catalog.json' }
   const LIBRARY_CATEGORIES = [
    { id: 'shijing', label: '诗经' },
    { id: 'chuci', label: '楚辞' },
@@ -1221,6 +1232,9 @@ window.__ModuleLoader__.load({
   const weatherOn = opts.weatherEnabled === true
   const moodOn = opts.moodEnabled === true
   const mood = opts.mood && typeof opts.mood === 'object' ? opts.mood : null
+  if (moodOn && mood && mood.image && (mood.source === 'model' || mood.ai === true)) {
+   return { stateKey: 'mood:ai', file: mood.image, source: 'mood' }
+  }
   if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
    return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: 'weather' }
   }
@@ -1233,6 +1247,148 @@ window.__ModuleLoader__.load({
   const normalized = normalizeMoodStats(stats)
   const label = weather && weather.label ? weather.label : '未知'
   return '今天聊了 ' + normalized.userMessages + ' 句 · 工具调用 ' + normalized.toolCalls + ' 次 · 天气 ' + label
+  }
+
+  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
+  function normalizeMoodCatalog(data) {
+  if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null
+  const moodImages = []
+  const seen = {}
+  for (const item of data.moodImages) {
+   const file = item && typeof item.file === 'string' ? item.file.trim() : ''
+   if (!file || seen[file]) continue
+   seen[file] = true
+   moodImages.push({ file, label: String(item.label || ''), tags: Array.isArray(item.tags) ? item.tags : [] })
+  }
+  if (!moodImages.length) return null
+  const panel = Object.assign({}, MOOD_PANEL_PEEK_FILES)
+  const applyPanel = (item) => {
+   const file = item && typeof item.file === 'string' ? item.file.trim() : ''
+   if (!file) return
+   const tags = Array.isArray(item.tags) ? item.tags.join('|') : ''
+   if (tags.indexOf('home') >= 0) panel.today = file
+   else if (tags.indexOf('settings') >= 0) panel.settings = file
+   else if (tags.indexOf('workbench') >= 0 || tags.indexOf('poetry') >= 0) panel.other = file
+  }
+  for (const item of Array.isArray(data.panelImages) ? data.panelImages : []) applyPanel(item)
+  for (const item of Array.isArray(data.images) ? data.images : []) {
+   if (item && item.scope === 'panel') applyPanel(item)
+  }
+  return {
+   version: String(data.version || data.dataVersion || ''),
+   moodImages,
+   moodFiles: moodImages.map((item) => item.file),
+   panel,
+  }
+  }
+
+  function panelPeekFile(catalog, tabId) {
+  const panel = catalog && catalog.panel ? catalog.panel : MOOD_PANEL_PEEK_FILES
+  if (tabId === 'today') return panel.today || MOOD_PANEL_PEEK_FILES.today
+  if (tabId === 'settings') return panel.settings || MOOD_PANEL_PEEK_FILES.settings
+  return panel.other || MOOD_PANEL_PEEK_FILES.other
+  }
+
+  function moodCatalogAllows(catalog, image) {
+  if (!catalog || !Array.isArray(catalog.moodFiles) || typeof image !== 'string' || !image) return false
+  return catalog.moodFiles.indexOf(image) >= 0
+  }
+
+  /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤5)，不含会话内容。 */
+  function moodAiQuery(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const params = []
+  const add = (key, value) => {
+   if (value == null || value === '') return
+   params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))
+  }
+  if (opts.force === true) add('force', '1')
+  add('mood', opts.moodKey)
+  add('weather', opts.weather)
+  add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
+  const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX)
+  if (recent.length) add('recent', recent.join('|'))
+  const recentImages = (Array.isArray(opts.recentImages) ? opts.recentImages : []).map((file) => String(file == null ? '' : file).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_IMAGES_MAX)
+  if (recentImages.length) add('recentImages', recentImages.join('|'))
+  return MOOD_AI_PATH + (params.length ? '?' + params.join('&') : '')
+  }
+
+  function parseMoodAiResponse(data, catalog) {
+  if (!data || data.ok === false || !data.mood || typeof data.mood !== 'object') return { ok: false, reason: 'invalid' }
+  const raw = data.mood
+  const label = String(raw.label == null ? '' : raw.label).trim()
+  const reason = String(raw.reason == null ? '' : raw.reason).trim()
+  const image = String(raw.image == null ? '' : raw.image).trim()
+  if (!label || !moodCatalogAllows(catalog, image)) return { ok: false, reason: 'image' }
+  return {
+   ok: true,
+   mood: {
+    key: 'ai',
+    label: label.slice(0, 24),
+    image,
+    reason: reason.slice(0, 80),
+    energy: num(raw.energy, 0),
+    source: 'model',
+    ai: true,
+   },
+  }
+  }
+
+  /** 请求 host 模型心情；9s 超时；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */
+  function requestMoodAi(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let timer = null
+  const timeout = new Promise((resolve) => {
+   timer = setTimeout(() => {
+    try {
+     if (controller) controller.abort()
+    } catch (error) {
+    }
+    resolve({ ok: false, reason: 'timeout' })
+   }, MOOD_AI_TIMEOUT_MS)
+  })
+  const request = Promise.resolve()
+   .then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : undefined))
+   .then((response) => {
+    if (!response || typeof response.ok !== 'boolean' || !response.ok) return { ok: false, reason: 'http', status: response ? response.status : 0 }
+    return Promise.resolve(response.json()).then((data) => parseMoodAiResponse(data, opts.catalog)).catch(() => ({ ok: false, reason: 'json' }))
+   })
+   .catch(() => ({ ok: false, reason: 'network' }))
+  return Promise.race([request, timeout]).then((result) => {
+   if (timer) clearTimeout(timer)
+   return result
+  })
+  }
+
+  function canRequestMoodAi(lastRequestAt, now, force) {
+  if (force === true) return true
+  const last = num(lastRequestAt, 0)
+  if (last <= 0) return true
+  return num(now, Date.now()) - last >= MOOD_AI_MIN_INTERVAL_MS
+  }
+
+  function moodAiSnapshot(stats, weather, feihuaWins, feihuaLosses) {
+  const normalized = normalizeMoodStats(stats)
+  return {
+   userMessages: normalized.userMessages,
+   toolCalls: normalized.toolCalls,
+   toolErrors: normalized.toolErrors,
+   weatherCategory: weather && typeof weather.category === 'string' ? weather.category : '',
+   feihuaWins: Math.max(0, Math.floor(num(feihuaWins, 0))),
+   feihuaLosses: Math.max(0, Math.floor(num(feihuaLosses, 0))),
+  }
+  }
+
+  function isMoodAiSignificant(previous, current) {
+  if (!previous || !current) return false
+  if (current.userMessages - previous.userMessages >= 3) return true
+  if (current.toolCalls - previous.toolCalls >= 50) return true
+  if (current.toolErrors > previous.toolErrors) return true
+  if (current.weatherCategory !== previous.weatherCategory) return true
+  if (current.feihuaWins > previous.feihuaWins || current.feihuaLosses > previous.feihuaLosses) return true
+  return false
   }
 
   function requestMood() {
@@ -2048,15 +2204,15 @@ window.__ModuleLoader__.load({
   }
 
   let bootstrapCache = null
-  const RESOURCE_CACHE_KEYS = ['poems', 'ci', 'yun', 'knowledge', 'anthology', 'bank', 'pingshui', 'ciBank']
-  const resourceCache = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null }
-  const resourceInflight = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null }
+  const RESOURCE_CACHE_KEYS = ['poems', 'ci', 'yun', 'knowledge', 'anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']
+  const resourceCache = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null }
+  const resourceInflight = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null }
   let assetDataVersion = ''
   function setAssetDataVersion(version) {
   const next = version == null ? '' : String(version)
   if (next === assetDataVersion) return
   assetDataVersion = next
-  for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank']) {
+  for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']) {
    resourceCache[kind] = null
    resourceInflight[kind] = null
   }
@@ -2543,11 +2699,11 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
-  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG,
+  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_MIN_INTERVAL_MS, MOOD_AI_REFRESH_MS, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_BASE_MIN_MS, SPONT_BASE_MAX_MS, SPONT_IDLE_AFTER_MS, SPONT_IDLE_MIN_MS, SPONT_IDLE_MAX_MS, SPONT_HARD_MIN_MS, SPONT_QUIET_MS, SPONT_BACKGROUND_RESUME_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
   buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, isSpontIdle, selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
-  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
+  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, canRequestMoodAi, moodAiSnapshot, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
   TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
@@ -2803,6 +2959,8 @@ window.__ModuleLoader__.load({
   const [spontPreview, setSpontPreview] = React.useState(false)
   const [mascotExpression, setMascotExpression] = React.useState('')
   const [selfTalkFallback, setSelfTalkFallback] = React.useState(false)
+  const [moodSource, setMoodSource] = React.useState('')
+  const [moodAiFallback, setMoodAiFallback] = React.useState(false)
   const [libraryFocus, setLibraryFocus] = React.useState(null)
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
@@ -2828,8 +2986,15 @@ window.__ModuleLoader__.load({
   const panelOpensRef = React.useRef(0)
   const lastInteractionRef = React.useRef(0)
   const feihuaWinsRef = React.useRef(0)
+  const feihuaLossesRef = React.useRef(0)
   const moodStatsRef = React.useRef(emptyMoodStats())
   const moodForceRef = React.useRef(false)
+  const moodSourceRef = React.useRef('')
+  const moodAiRef = React.useRef({ at: 0, lastRequestAt: 0, image: '' })
+  const moodAiSnapshotRef = React.useRef(null)
+  const moodAiTokenRef = React.useRef(0)
+  const recentImagesRef = React.useRef([])
+  const moodCatalogRef = React.useRef(null)
   const weatherRef = React.useRef(null)
   const spontPoemRef = React.useRef(null)
   const uiRef = React.useRef({})
@@ -2904,6 +3069,7 @@ window.__ModuleLoader__.load({
   const pulseMascot = React.useCallback((key) => {
    if (!MASCOT_FILES[key]) return
    if (key === 'gameWin') feihuaWinsRef.current += 1
+   if (key === 'gameLose') feihuaLossesRef.current += 1
    lastInteractionRef.current = Date.now()
    setMascotPulse(key)
    if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
@@ -2967,14 +3133,83 @@ window.__ModuleLoader__.load({
    return selected
   }, [])
 
+  const applyModelMood = React.useCallback((mood) => {
+   if (!mood || !mood.image) return null
+   const view = Object.assign({}, mood, { changed: true, switchedAt: Date.now() })
+   moodSourceRef.current = 'model'
+   moodViewRef.current = view
+   setMoodSource('model')
+   setMoodAiFallback(false)
+   setMoodView(view)
+   moodAiRef.current = Object.assign({}, moodAiRef.current, { at: Date.now(), image: mood.image })
+   const images = recentImagesRef.current.filter((file) => file !== mood.image)
+   images.push(mood.image)
+   recentImagesRef.current = images.slice(-MOOD_AI_RECENT_IMAGES_MAX)
+   return view
+  }, [])
+
+  const fallbackHeuristicMood = React.useCallback((force) => {
+   moodSourceRef.current = 'heuristic'
+   setMoodSource('heuristic')
+   setMoodAiFallback(true)
+   return applyMood(force === true)
+  }, [applyMood])
+
+  const requestModelMood = React.useCallback((force) => {
+   const current = settingsRef.current
+   if (!current.mood) return Promise.resolve({ ok: false, reason: 'disabled' })
+   const catalog = moodCatalogRef.current
+   if (!catalog) {
+    setMoodAiFallback(true)
+    return Promise.resolve({ ok: false, reason: 'catalog' })
+   }
+   const now = Date.now()
+   if (!canRequestMoodAi(moodAiRef.current.lastRequestAt, now, force === true)) return Promise.resolve({ ok: false, reason: 'throttled' })
+   const token = moodAiTokenRef.current + 1
+   moodAiTokenRef.current = token
+   const stats = moodStatsRef.current
+   const weather = weatherRef.current || null
+   const currentMoodKey = moodViewRef.current && moodViewRef.current.key && moodViewRef.current.key !== 'ai'
+    ? moodViewRef.current.key
+    : 'calm'
+   const recent = recentSpokenRef.current.slice(-MOOD_AI_RECENT_MAX)
+   const recentImages = recentImagesRef.current.slice(-MOOD_AI_RECENT_IMAGES_MAX)
+   const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now - lastInteractionRef.current) / 60000)) : 0
+   moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now })
+   moodAiSnapshotRef.current = moodAiSnapshot(stats, weather, feihuaWinsRef.current, feihuaLossesRef.current)
+   return requestMoodAi({
+    force: force === true,
+    moodKey: currentMoodKey,
+    weather: weather ? String(weather.category || weather.label || '') : '',
+    idleMinutes,
+    recent,
+    recentImages,
+    catalog,
+   }).then((result) => {
+    if (token !== moodAiTokenRef.current) return result
+    if (!settingsRef.current.mood) return result
+    if (result && result.ok && result.mood) {
+     applyModelMood(result.mood)
+     return result
+    }
+    fallbackHeuristicMood(true)
+    return result
+   }).catch(() => {
+    if (token !== moodAiTokenRef.current) return { ok: false }
+    if (settingsRef.current.mood) fallbackHeuristicMood(true)
+    return { ok: false }
+   })
+  }, [applyModelMood, fallbackHeuristicMood])
+
   const refreshMoodNow = React.useCallback(() => {
    moodForceRef.current = true
+   requestModelMood(true)
    return requestMood().then((data) => {
     moodStatsRef.current = data.stats
     setMoodRes({ status: data.ok ? 'ready' : 'error', data, at: Date.now() })
     return data
    })
-  }, [])
+  }, [requestModelMood])
 
   function showMascotExpression(file) {
    if (!file) return
@@ -3092,6 +3327,7 @@ window.__ModuleLoader__.load({
   const [anthologyRes, reloadAnthology] = useResource('anthology', extraPoolActive)
   const [bankRes, reloadBank] = useResource('bank', extraPoolActive)
   const [pingshuiRes, reloadPingshui] = useResource('pingshui', libraryActive)
+  const [moodCatalogRes, reloadMoodCatalog] = useResource('moodCatalog', settings.mood)
   const [ciBankRes, reloadCiBank] = useResource('ciBank', ciBankWanted || feihuaOpen)
 
   const poemItems = poemsRes.data && Array.isArray(poemsRes.data.items) ? poemsRes.data.items : []
@@ -3119,7 +3355,10 @@ window.__ModuleLoader__.load({
   const weatherNote = weatherActive ? weatherExplainText(weather) : ''
   weatherRef.current = weather
   const moodStats = moodRes.data ? moodRes.data.stats : emptyMoodStats()
+  const moodCatalog = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data])
+  moodCatalogRef.current = moodCatalog
   const moodChip = settings.mood && moodView ? '心情：' + moodView.label : ''
+  const moodChipTitle = settings.mood && moodView ? String(moodView.reason || '') : ''
   const moodBasis = moodBasisText(moodStats, weather)
   uiRef.current = {
    settings: settingsRef.current,
@@ -3182,14 +3421,72 @@ window.__ModuleLoader__.load({
   }, [])
   React.useEffect(() => {
    if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
+    moodAiTokenRef.current += 1
+    moodSourceRef.current = ''
     moodViewRef.current = null
+    setMoodSource('')
+    setMoodAiFallback(false)
     setMoodView(null)
     return
    }
+   if (moodSourceRef.current === 'model') return
+   moodSourceRef.current = 'heuristic'
+   setMoodSource('heuristic')
    const force = moodForceRef.current
    moodForceRef.current = false
    applyMood(force)
   }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood])
+
+  // 模型心情：初次加载（图鉴就绪后）
+  React.useEffect(() => {
+   if (!settings.mood || !moodCatalog) return
+   if (moodAiRef.current.at > 0) return
+   requestModelMood(false)
+  }, [settings.mood, moodCatalog, requestModelMood])
+
+  // 模型心情：每 30 分钟刷新（后台不请求）
+  React.useEffect(() => {
+   if (!settings.mood || settings.hidden) return undefined
+   const timer = setInterval(() => {
+    if (!settingsRef.current.hidden) requestModelMood(false)
+   }, MOOD_AI_REFRESH_MS)
+   return () => clearInterval(timer)
+  }, [settings.mood, settings.hidden, requestModelMood])
+
+  // 模型心情：显著事件（消息+3 / 工具+50 / 报错增加 / 天气变化 / 飞花胜负）触发，受 10min 最小间隔限制
+  React.useEffect(() => {
+   if (!settings.mood || !moodCatalogRef.current) return
+   const next = moodAiSnapshot(moodStatsRef.current, weatherRef.current, feihuaWinsRef.current, feihuaLossesRef.current)
+   if (!moodAiSnapshotRef.current) {
+    moodAiSnapshotRef.current = next
+    return
+   }
+   if (isMoodAiSignificant(moodAiSnapshotRef.current, next)) requestModelMood(false)
+  }, [moodTick, weather, moodRes, settings.mood, requestModelMood])
+
+  // 图鉴加载失败：直接使用启发式并提示本地表情
+  React.useEffect(() => {
+   if (settings.mood && moodCatalogRes.status === 'error') setMoodAiFallback(true)
+  }, [settings.mood, moodCatalogRes.status])
+
+  // 图鉴就绪后预加载 3 张探头图 + 少量心情图
+  React.useEffect(() => {
+   if (!moodCatalog) return
+   if (typeof window === 'undefined' || typeof window.Image !== 'function') return
+   const files = [
+    panelPeekFile(moodCatalog, 'today'),
+    panelPeekFile(moodCatalog, 'settings'),
+    panelPeekFile(moodCatalog, 'other'),
+   ].concat(moodCatalog.moodFiles.slice(0, 4))
+   for (const file of files) {
+    if (!file) continue
+    try {
+     const image = new window.Image()
+     image.src = mascotUrl(file)
+    } catch (error) {
+    }
+   }
+  }, [moodCatalog])
   React.useEffect(() => {
    if (!settings.spontaneousPoem || settings.hidden) {
     spontReqRef.current += 1
@@ -3625,7 +3922,7 @@ window.__ModuleLoader__.load({
    const ui = uiRef.current
    const now = Date.now()
    const state = readSpontState(now)
-   const moodKey = ui.moodView ? ui.moodView.key : 'calm'
+   const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== 'ai' ? ui.moodView.key : 'calm'
    const preview = opts.preview === true
    const record = opts.record === true
    const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX)
@@ -3781,7 +4078,7 @@ window.__ModuleLoader__.load({
       'div',
       { className: 'dshp-chip-row' },
       weatherChip ? h('span', { className: 'dshp-weather-chip' }, weatherChip) : null,
-      moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip' }, moodChip) : null,
+      moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip', title: moodChipTitle }, moodChip) : null,
       ),
       weatherNote ? h('div', { className: 'dshp-weather-note' }, weatherNote) : null,
      )
@@ -4205,8 +4502,9 @@ window.__ModuleLoader__.load({
    })
    const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
    const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
-   const stateKey = pulseFile ? mascotPulse : expressionFile ? 'egg:' + expressionFile : imageInfo.stateKey
-   const desiredFile = pulseFile || expressionFile || imageInfo.file
+   const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab) : ''
+   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : expressionFile ? 'egg:' + expressionFile : imageInfo.stateKey
+   const desiredFile = pulseFile || panelFile || expressionFile || imageInfo.file
    const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
    return h(
     'div',
@@ -4319,7 +4617,10 @@ window.__ModuleLoader__.load({
     moodRes,
     moodStats,
     moodChip,
+    moodChipTitle,
     moodBasis,
+    moodSource,
+    moodAiFallback,
     refreshMoodNow,
     previewSpontaneousPoem,
     anthologyRes,
@@ -4480,7 +4781,7 @@ window.__ModuleLoader__.load({
      'div',
      { className: 'dshp-chip-row' },
      api.weatherChip ? h('span', { className: 'dshp-weather-chip' }, String(api.weatherChip)) : null,
-     api.moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip' }, String(api.moodChip)) : null,
+     api.moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip', title: api.moodChipTitle || '' }, String(api.moodChip)) : null,
     ),
     api.weatherNote ? h('div', { className: 'dshp-weather-note' }, String(api.weatherNote)) : null,
     )
@@ -4881,8 +5182,10 @@ window.__ModuleLoader__.load({
   const moodStats = api.moodStats || emptyMoodStats()
   const currentMood = api.moodView || null
   const moodAt = (api.moodRes && (api.moodRes.at || (api.moodRes.data && api.moodRes.data.updatedAt))) || 0
+  const moodSourceLabel = api.moodSource === 'model' ? '模型' : api.moodSource === 'heuristic' ? '启发式' : ''
   const moodStatusText = (api.moodBasis || moodBasisText(moodStats, api.weather))
    + (currentMood ? '；当前：' + currentMood.label + '（' + currentMood.reason + '）' : '')
+   + (moodSourceLabel ? ' · 来源：' + moodSourceLabel : '')
    + (moodAt ? ' · 更新于 ' + weatherUpdatedLabel(moodAt) : '')
 
   function seg(options, current, onPick) {
@@ -5054,6 +5357,7 @@ window.__ModuleLoader__.load({
     'div',
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
+    api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
     h(
     'div',
     { className: 'dshp-field-control' },

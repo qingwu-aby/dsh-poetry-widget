@@ -41,6 +41,7 @@
 | `/api/dsh-poetry/knowledge.json` | GET | 12 张格律卡 + 15 张词牌卡（见 §2.5） |
 | `/api/dsh-poetry/settings.json` | GET | `{ok:true, settings:{...完整 §2.6...}}` |
 | `/api/dsh-poetry/settings.json` | PUT | 部分设置合并写入；仅回环来源；`{ok:true, settings:{...合并后完整...}}` |
+| `/api/dsh-poetry/mood-ai.json` | GET | 让模型根据当天情境（活跃统计/天气/时段/自述/最近用过图）从 92 张本地立绘图鉴里**自主决定心情与配图**（非随机）；返回心情标签/理由/图片文件名；失败 `MOOD_AI_UNAVAILABLE`（200+JSON，永不 5xx） |
 | `/api/dsh-poetry/self-talk.json` | GET | 让挂件用当前默认模型实时生成一句「自言自语」（诗句/随想/引出句）；宿主侧 `ctx.llm.stream` + `agentDefaultModel.currentSelection()`，2 句/批、20s 超时、失败返回 `SELF_TALK_UNAVAILABLE`（200+JSON，永不 5xx）；只使用聚合统计/天气/时间/今日诗元数据，不读会话内容 |
 | `/api/dsh-poetry/mood.json` | GET | 当日会话活跃统计（用户/助手消息数、工具调用、回合、活跃时长、最后活动时间），用于挂件心情系统；`$DSH_HOME/.dsh-poetry/mood.json` 持久化、按本地日滚动，失败返回零值，永不 5xx |
 | `/api/dsh-poetry/weather.json` | GET | 按 `settings.weatherCity` 取当前天气（Open-Meteo 地理编码+forecast；20 分钟缓存；`?refresh=1` 强制绕过缓存；失败返回 `{ok:false,error:{code:"WEATHER_UNAVAILABLE"}}`，永不 5xx） |
@@ -279,7 +280,17 @@
 - 其余 → unknown；`isDay=0` 时客户端优先「月/夜」诗池。
 缓存：地理编码按城市 24h、天气 20min；刷新按钮/城市变更可主动失效。请求超时 6s，失败保留上次结果并标 `stale:true`。
 
-### 2.11 实时自言自语 `SELF-TALK`（M12，`/api/dsh-poetry/self-talk.json`）
+### 2.12 模型心情 `MOOD-AI`（M13，`/api/dsh-poetry/mood-ai.json`）
+
+心情不再由伪随机/固定规则换图：模型读取**本地心情图鉴**（`assets/data/mood-catalog.json`，92 张，含中文标签/tags/节日 when）与当天真实情境，自主决定此刻心情与配图。
+GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片文件名，`|` 分隔，≤5）。
+成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
+失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
+约束：prompt 只含日期时间/天气/聚合统计/idle/最近自述/最近图片 + 图鉴（文件+标签），**不读会话内容**；模型必须从图鉴的 89 张 mood 图里选，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名），节日图仅在对应日期可用；避免 recentImages；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
+
+图鉴静态资产：`GET /api/dsh-poetry/assets?f=data/mood-catalog.json` → `{ok,version,images:[{file,label,tags,scope,when?}],moodImages:[...],panelImages:[...]}`（89 心情图 + 3 panel 图）。
+
+## 3. 客户端组件契约（client-widget 使用）（M12，`/api/dsh-poetry/self-talk.json`）
 
 挂件「自言自语」的**随想 murmur 由当前默认模型实时生成**（只说自己此刻的想法，不引用/背诵/化用古诗文；生成失败时客户端回退本地随想池）。GET query（均可选，客户端只传非敏感上下文）：
 
@@ -354,7 +365,7 @@
 | `data/ci.json` | ≤ 220 KB |
 | `data/yun.json` | ≤ 80 KB |
 | `data/knowledge.json` | ≤ 90 KB |
-| `client.js`（含内联样式，M6–M12 全部功能） | ≤ 285 KB |
+| `client.js`（含内联样式，M6–M13 全部功能） | ≤ 300 KB |
 | 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
 | 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
 
@@ -396,6 +407,7 @@
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.9（2026-10-21，M13）**：新增模型心情路由 `GET /api/dsh-poetry/mood-ai.json` 与本地心情图鉴 `assets/data/mood-catalog.json`（92 张全部纳入：89 心情 + 3 探头）；Client 由模型决定心情标签/理由/配图（失败回退现有启发式），面板打开时使用 3 张 peek 图。
 - **v1.8b（2026-10-21，M12c）**：self-talk 收敛为**纯随想**（不念诗/不引诗、不发送今日诗上下文；客户端不再有 poem/hybrid 自言自语类型，兜底改用随想池）。
 - **v1.8（2026-10-21，M12）**：自言自语 murmur/intro 改为**当前默认模型实时生成**（新 Host 路由 `GET /api/dsh-poetry/self-talk.json`）；诗句卡片仍用本地诗词；失败回退本地静态池。不新增 settings 字段、不改 data/。
 - **v1.7（2026-10-21，M11）**：原「偶尔读诗」升级为「自言自语」——支持诗句 / 原创随想 / 混合三种内容，基础间隔 8–15min、≥30min 无交互的自言自语态 7–12min、硬底 5min、取消每日次数上限；沿用 `settings.spontaneousPoem`，不新增 Host 路由/字段；client 预算 260→280KB。

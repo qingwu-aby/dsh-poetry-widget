@@ -7,6 +7,7 @@
 //   · 天气接口：GET weather.json（Open-Meteo 地理编码 + forecast，20min 缓存，失败降级永 200）；
 //   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
+//   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
 //   · 所有新增路由接入宿主信任栅栏（lib/trust.mjs，委托 connection.requestRejection）。
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
@@ -17,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { createAssetHandler } from './lib/assets.mjs'
 import { createDataStore } from './lib/data-store.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
+import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
 import { createRouteTable } from './lib/routes.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
@@ -105,24 +107,33 @@ export async function apply(ctx) {
       const weatherService = createWeatherService({
         fetchImpl: typeof globalThis.fetch === 'function' ? (url, init) => globalThis.fetch(url, init) : null,
       })
-      // 实时自言自语：llm / agentDefaultModel 是 optional 服务（用 get 取，不放进 inject 硬依赖）。
-      // llm 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
-      const selfTalkService = createSelfTalkService({
-        getLlm: () => {
-          try {
-            return hostCtx.get('llm')
-          } catch {
-            return undefined
-          }
-        },
-        getSelection: () => {
-          try {
-            const agentDefaultModel = hostCtx.get('agentDefaultModel')
-            return typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : null
-          } catch {
-            return null
-          }
-        },
+      // 模型调用：llm / agentDefaultModel 是 optional 服务（用 get 取，不放进 inject 硬依赖）。
+      // 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
+      const getLlm = () => {
+        try {
+          return hostCtx.get('llm')
+        } catch {
+          return undefined
+        }
+      }
+      const getSelection = () => {
+        try {
+          const agentDefaultModel = hostCtx.get('agentDefaultModel')
+          return typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : null
+        } catch {
+          return null
+        }
+      }
+      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger })
+      // 模型心情：启动时读包内 92 张心情图鉴（缺失 → 服务降级为 MOOD_AI_UNAVAILABLE，不抛）。
+      const moodCatalog = loadMoodCatalog()
+      if (moodCatalog.ok !== true) {
+        logger?.warn?.(`[dsh-poetry-widget] 心情图鉴不可用：${moodCatalog.message}`)
+      }
+      const moodAiService = createMoodAiService({
+        getLlm,
+        getSelection,
+        catalog: moodCatalog.ok === true ? moodCatalog.catalog : null,
         logger,
       })
       const routes = createRouteTable({
@@ -134,6 +145,7 @@ export async function apply(ctx) {
         weatherService,
         moodTracker,
         selfTalkService,
+        moodAiService,
         env,
         home,
       })
