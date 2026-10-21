@@ -1966,33 +1966,29 @@ test('天气 + 心情合成立绘：恶劣天气优先，其次心情，最后�
   assert.equal(debug.mascotImageFor({ weatherStateKey: 'celebrate', weatherEnabled: false, moodEnabled: false, mood: moodHappy }).source, 'default')
 })
 
-test('彩蛋触发条件 canShowSpontaneous：开关/可见/面板/气泡/30s 闲置/45min/每日 3 次', () => {
+test('自言自语触发条件 canShowSpontaneous：开关/可见/面板/气泡/20s 安静/硬底 5min/无每日上限', () => {
   const { debug } = loadClient()
   const now = shanghaiTs(2026, 10, 21, 15, 0)
   const base = {
-    enabled: true, moodEnabled: true, hidden: false, panelOpen: false, bubbleOpen: false,
-    visible: true, now, lastInteractionAt: now - 31 * 1000, todayCount: 0, lastShownAt: 0, moodKey: 'happy',
+    enabled: true, hidden: false, panelOpen: false, bubbleOpen: false,
+    visible: true, now, lastInteractionAt: now - 21 * 1000, lastShownAt: 0,
   }
   assert.equal(debug.canShowSpontaneous(base), true)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { enabled: false })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodEnabled: false })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodEnabled: false })), true, '不依赖 mood 开关')
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { hidden: true })), false)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { panelOpen: true })), false)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { bubbleOpen: true })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { visible: false })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodKey: '' })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 10 * 1000 })), false, '30s 内有交互不弹')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { todayCount: 3 })), false, '每日最多 3 次')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 10 * 60 * 1000 })), false, '距上次 <45min 不弹')
-  assert.equal(
-    debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 46 * 60 * 1000 })),
-    true,
-    '距上次 ≥45min 可弹',
-  )
-  assert.equal(debug.canShowSpontaneous(base), true, '无交互记录视为已闲置')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { visible: false })), false, '页面后台不弹')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 10 * 1000 })), false, '20s 内有交互不弹')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 19 * 1000 })), false)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 21 * 1000 })), true)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { todayCount: 999 })), true, '取消每日次数上限')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 4 * 60 * 1000 })), false, '硬底 5 分钟')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 6 * 60 * 1000 })), true)
+  assert.equal(debug.canShowSpontaneous(base), true)
 })
-
-test('彩蛋记录：每日重置 / 7 天去重 / 最多 200 条 / localStorage 读写', () => {
+test('自言自语记录：每日重置 / 7 天去重 / 最多 300 条 / lastType+lastTag / localStorage', () => {
   const { debug, storage } = loadClient()
   const now = shanghaiTs(2026, 10, 21, 15, 0)
   const old = debug.normalizeSpontState(
@@ -2004,7 +2000,7 @@ test('彩蛋记录：每日重置 / 7 天去重 / 最多 200 条 / localStorage 
     },
     now,
   )
-  assert.equal(old.todayCount, 0, '新的一天每日次数归零')
+  assert.equal(old.todayCount, 0)
   assert.equal(old.lastShownAt, 0)
   assert.equal(old.date, '2026-10-21')
 
@@ -2012,41 +2008,62 @@ test('彩蛋记录：每日重置 / 7 天去重 / 最多 200 条 / localStorage 
     { date: '2026-10-21', todayCount: 1, lastShownAt: now, seenIds: [
       { id: 'recent', at: now - 6 * 24 * 3600 * 1000 },
       { id: 'stale', at: now - 8 * 24 * 3600 * 1000 },
-    ] },
+    ], lastType: 'murmur', lastTag: 'tired' },
     now,
   )
-  assertDeep(pruned.seenIds.map((entry) => entry.id), ['recent'], '7 天以前的句子不再去重')
+  assertDeep(pruned.seenIds.map((entry) => entry.id), ['recent'])
   assert.equal(pruned.todayCount, 1)
+  assert.equal(pruned.lastType, 'murmur')
+  assert.equal(pruned.lastTag, 'tired')
 
-  const many = Array.from({ length: 250 }, (_, index) => ({ id: 'p' + index, at: now }))
+  const many = Array.from({ length: 350 }, (_, index) => ({ id: 'p' + index, at: now }))
   const capped = debug.normalizeSpontState({ date: '2026-10-21', seenIds: many }, now)
   assert.equal(capped.seenIds.length, debug.SPONT_MAX_SEEN)
+  assert.equal(debug.SPONT_MAX_SEEN, 300)
 
-  const recorded = debug.recordSpontShown(capped, 'p999', now)
+  const recorded = debug.recordSpontShown(capped, 'p999', now, 'hybrid', 'weather')
   assert.equal(recorded.todayCount, 1)
   assert.equal(recorded.lastShownAt, now)
+  assert.equal(recorded.lastType, 'hybrid')
+  assert.equal(recorded.lastTag, 'weather')
   assert.equal(recorded.seenIds[recorded.seenIds.length - 1].id, 'p999')
-  assert.equal(debug.recordSpontShown(recorded, 'p1000', now + 1000).todayCount, 2)
+  assert.equal(debug.recordSpontShown(recorded, 'p1000', now + 1000, 'murmur', 'night').todayCount, 2)
 
   debug.writeSpontState(recorded)
   const readBack = debug.readSpontState(now)
   assert.equal(readBack.todayCount, 1)
+  assert.equal(readBack.lastType, 'hybrid')
   assert.ok(readBack.seenIds.some((entry) => entry.id === 'p999'))
   storage.setItem(debug.SPONT_KEY, '{bad json')
   assert.equal(debug.readSpontState(now).todayCount, 0, '损坏记录安全降级')
 })
-
-test('彩蛋间隔 nextSpontDelay：45–90 分钟随机', () => {
+test('自言自语间隔 nextSpontDelay：基础 8–15min / idle 7–12min / 硬底 5min', () => {
   const { debug } = loadClient()
+  assert.equal(debug.SPONT_BASE_MIN_MS, 8 * 60 * 1000)
+  assert.equal(debug.SPONT_BASE_MAX_MS, 15 * 60 * 1000)
+  assert.equal(debug.SPONT_IDLE_MIN_MS, 7 * 60 * 1000)
+  assert.equal(debug.SPONT_IDLE_MAX_MS, 12 * 60 * 1000)
+  assert.equal(debug.SPONT_HARD_MIN_MS, 5 * 60 * 1000)
   const low = debug.nextSpontDelay(() => 0)
   const high = debug.nextSpontDelay(() => 0.999999)
   const mid = debug.nextSpontDelay(() => 0.5)
-  assert.equal(low, debug.SPONT_MIN_INTERVAL_MS)
-  assert.ok(high <= debug.SPONT_MAX_INTERVAL_MS)
-  assert.ok(high >= debug.SPONT_MAX_INTERVAL_MS - 1000)
+  assert.equal(low, debug.SPONT_BASE_MIN_MS)
+  assert.ok(high <= debug.SPONT_BASE_MAX_MS)
+  assert.ok(high >= debug.SPONT_BASE_MAX_MS - 1000)
   assert.ok(mid > low && mid < high)
+  const idleLow = debug.nextSpontDelay({ idle: true, random: () => 0 })
+  const idleHigh = debug.nextSpontDelay({ idle: true, random: () => 0.999999 })
+  assert.equal(idleLow, debug.SPONT_IDLE_MIN_MS)
+  assert.ok(idleHigh <= debug.SPONT_IDLE_MAX_MS)
+  assert.ok(idleHigh >= debug.SPONT_IDLE_MAX_MS - 1000)
+  for (const delay of [low, high, mid, idleLow, idleHigh]) {
+    assert.ok(delay >= debug.SPONT_HARD_MIN_MS, '任何间隔都不能低于硬底 5 分钟')
+  }
+  const now = shanghaiTs(2026, 10, 21, 15, 0)
+  assert.equal(debug.isSpontIdle(now, 0), true, '从未交互视为 idle')
+  assert.equal(debug.isSpontIdle(now, now - 29 * 60 * 1000), false)
+  assert.equal(debug.isSpontIdle(now, now - 31 * 60 * 1000), true)
 })
-
 test('彩蛋选诗 pickSpontaneousPoem：心情作者+tag、先诗后词、排除已见、行/来源', () => {
   const { debug } = loadClient()
   const poemsData = {
@@ -2155,7 +2172,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   }
   const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
   const text = textOf(tree)
-  for (const label of ['心情换装', '偶尔读诗', '刷新心情', '预览一首', '45–90 分钟一次']) {
+  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '每隔几分钟可能说一句']) {
     assert.ok(text.includes(label), '设置缺少：' + label)
   }
   assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
@@ -2165,7 +2182,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   assert.ok(moodSwitch)
   moodSwitch.props.onClick()
   assertDeep(updates[0], { mood: false })
-  const readSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '偶尔读诗开关')[0]
+  const readSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '自言自语开关')[0]
   assert.ok(readSwitch)
   readSwitch.props.onClick()
   assertDeep(updates[1], { spontaneousPoem: false })
@@ -2174,7 +2191,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   assert.ok(refreshButton)
   refreshButton.props.onClick()
   assertDeep(refreshed, [true])
-  const previewButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '预览一首')[0]
+  const previewButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '预览一句')[0]
   assert.ok(previewButton)
   previewButton.props.onClick()
   assertDeep(previews, [true])
@@ -2268,7 +2285,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
-    mainApi.previewSpontaneousPoem()
+    mainApi.previewSpontaneousPoem('poem')
     tree = renderMain()
     const spontCards = findAll(tree, (node) => node.type === 'div'
       && typeof node.props.className === 'string'
@@ -2291,8 +2308,41 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
       && node.props.className === 'dshp-spont-line').length, 0, '不应再渲染整首各行')
     assert.equal(storage.getItem(debug.SPONT_KEY), null, '预览不写 localStorage（不计次数/不写 lastShownAt）')
 
+    // 自言自语三种卡片：murmur 标题/无出处；hybrid 前缀+诗句
+    mainApi.previewSpontaneousPoem('murmur')
+    tree = renderMain()
+    let typedCard = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    assert.ok(typedCard, 'murmur 预览应显示卡片')
+    const murmurText = textOf(typedCard)
+    assert.ok(debug.MURMUR_TITLES.some((title) => murmurText.includes(title)), 'murmur 应有小声嘀咕类标题')
+    assert.equal(findAll(typedCard, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-source').length, 0, 'murmur 不显示出处')
+    assert.ok(murmurText.includes('再说一句'), '按钮文案改为再说一句')
+    mainApi.previewSpontaneousPoem('hybrid')
+    tree = renderMain()
+    typedCard = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    assert.ok(typedCard, 'hybrid 预览应显示卡片')
+    assert.equal(findAll(typedCard, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-prefix').length, 1, 'hybrid 应有天气/心情前缀')
+    assert.equal(findAll(typedCard, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont-source').length, 1, 'hybrid 保留诗句出处')
+    // 恢复 poem 卡片后继续验证点击跳转
+    mainApi.previewSpontaneousPoem('poem')
+    tree = renderMain()
+    const restoredCard = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    assert.ok(restoredCard)
+
     // 点击诗句 → 打开面板「今日」并选中该诗
-    const linesNode = findAll(spontCards[0], (node) => node.type === 'div'
+    const linesNode = findAll(restoredCard, (node) => node.type === 'div'
       && typeof node.props.className === 'string'
       && node.props.className === 'dshp-spont-sentence')[0]
     assert.ok(linesNode)
@@ -3353,4 +3403,124 @@ test('真实数据完整句：登鹳雀楼半句合为完整句，基础/全库�
     assert.equal(withBank.entries.filter((entry) => !/[。！？]$/.test(entry.text)).length, 0, '全库句库不得有半句')
     assert.ok(withBank.entries.some((entry) => entry.text === '白日依山尽，黄河入海流。'))
   }
+})
+
+test('自言自语 murmur 池：≥100 条、6–40 字、无重复、tag 合法、不发半句', () => {
+  const { debug } = loadClient()
+  const allowedTags = ['greeting', 'night', 'rain', 'snow', 'sunny', 'hot', 'cold', 'hungry', 'tired', 'busy', 'idle', 'lonely', 'happy', 'poem-love', 'work', 'food', 'weather', 'time', 'self-talk', 'encourage']
+  assert.ok(debug.MURMUR_POOL.length >= 100, 'murmur 文案池应 ≥100 条，实际 ' + debug.MURMUR_POOL.length)
+  assert.ok(debug.MURMUR_TEMPLATES.length >= 5)
+  const texts = new Set()
+  for (const entry of debug.MURMUR_POOL) {
+    assert.equal(typeof entry.text, 'string')
+    const length = Array.from(entry.text).length
+    assert.ok(length >= 6 && length <= 40, 'murmur 长度应 6–40 字：' + entry.text + '（' + length + '）')
+    assert.match(entry.text, /[。！？]$/, 'murmur 必须是完整的一句话：' + entry.text)
+    assert.ok(!texts.has(entry.text), 'murmur 不可重复：' + entry.text)
+    texts.add(entry.text)
+    assert.ok(Array.isArray(entry.tags) && entry.tags.length > 0)
+    for (const tag of entry.tags) assert.ok(allowedTags.indexOf(tag) >= 0, '非法 tag：' + tag)
+  }
+  const now = shanghaiTs(2026, 10, 21, 22, 30)
+  const candidates = debug.buildMurmurCandidates({
+    now,
+    moodKey: 'tired',
+    weather: { category: 'rain', label: '小雨', isDay: true },
+    stats: { toolCalls: 12, userMessages: 3, activeMs: 25 * 60 * 1000 },
+  })
+  assert.ok(candidates.length >= debug.MURMUR_POOL.length, '应包含静态池 + 满足条件的模板')
+  for (const candidate of candidates) {
+    const length = Array.from(candidate.text).length
+    assert.ok(length >= 6 && length <= 40)
+    assert.match(candidate.text, /[。！？]$/)
+  }
+  const templateIds = candidates.filter((candidate) => candidate.id.indexOf('tpl-') === 0)
+  assert.ok(templateIds.length >= 3, '状态模板应参与候选')
+  assert.ok(candidates.some((candidate) => candidate.text.includes('12 次工具')), '模板可用聚合数字且不读消息内容')
+})
+
+test('自言自语 murmur 选择：tag 匹配、3 天去重、避免连续同 tag', () => {
+  const { debug } = loadClient()
+  const now = shanghaiTs(2026, 10, 21, 23, 30)
+  const options = {
+    moodKey: 'tired',
+    weather: { category: 'rain', label: '小雨', isDay: true },
+    stats: { toolCalls: 9, userMessages: 4, activeMs: 20 * 60 * 1000 },
+    now,
+    seenEntries: [],
+    random: () => 0,
+  }
+  const first = debug.pickMurmur(options)
+  assert.ok(first)
+  assert.equal(first.type, 'murmur')
+  assert.equal(first.line, first.text)
+  assert.match(first.text, /[。！？]$/)
+  assert.ok(debug.MURMUR_TITLES.includes(first.title))
+  const context = debug.buildMurmurContext(options)
+  const preferred = debug.murmurTagsForContext(context, 'tired')
+  assert.ok(first.tags.some((tag) => preferred.indexOf(tag) >= 0), 'tag 应匹配心情/天气/时段')
+  assert.ok(preferred.includes('tired') && preferred.includes('rain') && preferred.includes('night'))
+
+  const recent = debug.pickMurmur(Object.assign({}, options, { seenEntries: [{ id: first.id, at: now - 24 * 3600 * 1000 }] }))
+  assert.notEqual(recent.id, first.id, '3 天内同句不重复')
+  const stale = debug.pickMurmur(Object.assign({}, options, { seenEntries: [{ id: first.id, at: now - 4 * 24 * 3600 * 1000 }] }))
+  assert.equal(stale.id, first.id, '3 天以前的句子可再次出现')
+
+  const avoid = debug.pickMurmur(Object.assign({}, options, { lastTag: first.tags[0] }))
+  assert.ok(avoid.tags.indexOf(first.tags[0]) < 0 || avoid.id !== first.id, '避免连续同 tag')
+})
+
+test('自言自语类型：约 40/40/20、心情调整、avoidType、卡片字段完整', () => {
+  const { debug } = loadClient()
+  const now = shanghaiTs(2026, 10, 21, 21, 0)
+  const gen = (seed) => {
+    let value = seed || 0.1234567
+    return () => {
+      value = (value * 9301 + 49297) % 233280
+      return value / 233280
+    }
+  }
+  const count = (moodKey) => {
+    const random = gen(0.42)
+    const tally = { poem: 0, murmur: 0, hybrid: 0 }
+    for (let i = 0; i < 3000; i += 1) tally[debug.chooseSpontType({ moodKey, random })] += 1
+    return tally
+  }
+  const calm = count('calm')
+  assert.ok(Math.abs(calm.poem / 3000 - 0.4) < 0.06, '诗约 40%，实际 ' + JSON.stringify(calm))
+  assert.ok(Math.abs(calm.murmur / 3000 - 0.4) < 0.06, '随想约 40%，实际 ' + JSON.stringify(calm))
+  assert.ok(Math.abs(calm.hybrid / 3000 - 0.2) < 0.06, '混合约 20%，实际 ' + JSON.stringify(calm))
+  const tired = count('tired')
+  const happy = count('happy')
+  assert.ok(tired.murmur > tired.poem, 'tired 偏 murmur')
+  assert.ok(happy.poem > happy.murmur, 'happy 偏 poem')
+  const avoidRandom = gen(0.5)
+  for (let i = 0; i < 200; i += 1) {
+    assert.notEqual(debug.chooseSpontType({ moodKey: 'calm', avoidType: 'poem', random: avoidRandom }), 'poem')
+  }
+
+  const poemsData = {
+    items: [
+      { id: 'p1', author: '李白', title: '将进酒', lines: ['君不见黄河之水天上来，', '莫使金樽空对月。'] },
+      { id: 'p2', author: '苏轼', title: '水调歌头', lines: ['明月几时有，', '把酒问青天。'] },
+    ],
+  }
+  const ciData = { items: [{ id: 'c1', author: '李清照', rhythmic: '如梦令', lines: ['常记溪亭日暮，', '沉醉不知归路。'] }] }
+  const base = { moodKey: 'happy', now, weather: { category: 'rain', label: '小雨', isDay: true }, stats: {}, poemsData, ciData, random: () => 0 }
+  const poemCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'poem' }))
+  assert.equal(poemCard.type, 'poem')
+  assert.equal(poemCard.title, '它想读一句：')
+  assert.match(poemCard.line, /[。！？]$/)
+  assert.ok(poemCard.label.includes('《'))
+  const murmurCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'murmur' }))
+  assert.equal(murmurCard.type, 'murmur')
+  assert.match(murmurCard.text, /[。！？]$/)
+  assert.ok(debug.MURMUR_TITLES.includes(murmurCard.title))
+  const hybridCard = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'hybrid' }))
+  assert.equal(hybridCard.type, 'hybrid')
+  assert.match(hybridCard.prefix, /，$/)
+  assert.match(hybridCard.line, /[。！？]$/)
+  assert.ok(hybridCard.label.includes('《'))
+  const fallback = debug.pickSpontaneousCard(Object.assign({}, base, { forceType: 'poem', poemsData: { items: [] }, ciData: { items: [] } }))
+  assert.ok(fallback && fallback.type === 'murmur', '诗句池为空时回退到 murmur')
 })
