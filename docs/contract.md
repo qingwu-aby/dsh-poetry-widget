@@ -374,7 +374,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 | `data/ci.json` | ≤ 220 KB |
 | `data/yun.json` | ≤ 80 KB |
 | `data/knowledge.json` | ≤ 90 KB |
-| `client.js`（含内联样式，M6–M13 全部功能） | ≤ 300 KB |
+| `client.js`（含内联样式，M6–M15 全部功能） | ≤ 305 KB |
 | 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
 | 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
 

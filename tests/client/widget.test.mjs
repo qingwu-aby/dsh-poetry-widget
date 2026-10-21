@@ -1967,27 +1967,26 @@ test('天气 + 心情合成立绘：恶劣天气优先，其次心情，最后�
   assert.equal(debug.mascotImageFor({ weatherStateKey: 'celebrate', weatherEnabled: false, moodEnabled: false, mood: moodHappy }).source, 'default')
 })
 
-test('自言自语触发条件 canShowSpontaneous：开关/可见/面板/气泡/20s 安静/硬底 5min/无每日上限', () => {
+test('自言自语触发条件：开关/可见/面板/气泡/3s 安静，无硬底/无每日上限', () => {
   const { debug } = loadClient()
   const now = shanghaiTs(2026, 10, 21, 15, 0)
   const base = {
     enabled: true, hidden: false, panelOpen: false, bubbleOpen: false,
-    visible: true, now, lastInteractionAt: now - 21 * 1000, lastShownAt: 0,
+    visible: true, now, lastInteractionAt: now - 4 * 1000, lastShownAt: 0,
   }
   assert.equal(debug.canShowSpontaneous(base), true)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { enabled: false })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodEnabled: false })), true, '不依赖 mood 开关')
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { hidden: true })), false)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { panelOpen: true })), false)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { bubbleOpen: true })), false)
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { visible: false })), false, '页面后台不弹')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 10 * 1000 })), false, '20s 内有交互不弹')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 19 * 1000 })), false)
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 21 * 1000 })), true)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 2 * 1000 })), false, '最近 3 秒有交互不弹')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: now - 3 * 1000 })), true)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastInteractionAt: 0 })), true, '无交互记录视为可用')
   assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { todayCount: 999 })), true, '取消每日次数上限')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 4 * 60 * 1000 })), false, '硬底 5 分钟')
-  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 6 * 60 * 1000 })), true)
-  assert.equal(debug.canShowSpontaneous(base), true)
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { lastShownAt: now - 1000 })), true, '不再有最小间隔/硬底限制')
+  assert.equal(debug.canShowSpontaneous(Object.assign({}, base, { moodKey: '' })), true, '不依赖心情 key')
+  assert.equal(debug.SPONT_QUIET_MS, 3000)
 })
 test('自言自语记录：每日重置 / 7 天去重 / 最多 300 条 / lastType+lastTag / localStorage', () => {
   const { debug, storage } = loadClient()
@@ -2038,32 +2037,27 @@ test('自言自语记录：每日重置 / 7 天去重 / 最多 300 条 / lastTyp
   storage.setItem(debug.SPONT_KEY, '{bad json')
   assert.equal(debug.readSpontState(now).todayCount, 0, '损坏记录安全降级')
 })
-test('自言自语间隔 nextSpontDelay：基础 8–15min / idle 7–12min / 硬底 5min', () => {
+test('自言自语轮询：20–40s 随机、事件唤醒 2–5s、失败重试 10s、卡片关闭 3s', () => {
   const { debug } = loadClient()
-  assert.equal(debug.SPONT_BASE_MIN_MS, 8 * 60 * 1000)
-  assert.equal(debug.SPONT_BASE_MAX_MS, 15 * 60 * 1000)
-  assert.equal(debug.SPONT_IDLE_MIN_MS, 7 * 60 * 1000)
-  assert.equal(debug.SPONT_IDLE_MAX_MS, 12 * 60 * 1000)
-  assert.equal(debug.SPONT_HARD_MIN_MS, 5 * 60 * 1000)
-  const low = debug.nextSpontDelay(() => 0)
-  const high = debug.nextSpontDelay(() => 0.999999)
-  const mid = debug.nextSpontDelay(() => 0.5)
-  assert.equal(low, debug.SPONT_BASE_MIN_MS)
-  assert.ok(high <= debug.SPONT_BASE_MAX_MS)
-  assert.ok(high >= debug.SPONT_BASE_MAX_MS - 1000)
+  assert.equal(debug.SPONT_POLL_MIN_MS, 20 * 1000)
+  assert.equal(debug.SPONT_POLL_MAX_MS, 40 * 1000)
+  assert.equal(debug.SPONT_RETRY_MS, 10 * 1000)
+  assert.equal(debug.SPONT_EVENT_MIN_MS, 2000)
+  assert.equal(debug.SPONT_EVENT_MAX_MS, 5000)
+  assert.equal(debug.SPONT_CLOSE_RECHECK_MS, 3000)
+  const low = debug.nextSpontPollDelay(() => 0)
+  const high = debug.nextSpontPollDelay(() => 0.999999)
+  const mid = debug.nextSpontPollDelay(() => 0.5)
+  assert.equal(low, 20000)
+  assert.ok(high <= 40000 && high >= 39000)
   assert.ok(mid > low && mid < high)
-  const idleLow = debug.nextSpontDelay({ idle: true, random: () => 0 })
-  const idleHigh = debug.nextSpontDelay({ idle: true, random: () => 0.999999 })
-  assert.equal(idleLow, debug.SPONT_IDLE_MIN_MS)
-  assert.ok(idleHigh <= debug.SPONT_IDLE_MAX_MS)
-  assert.ok(idleHigh >= debug.SPONT_IDLE_MAX_MS - 1000)
-  for (const delay of [low, high, mid, idleLow, idleHigh]) {
-    assert.ok(delay >= debug.SPONT_HARD_MIN_MS, '任何间隔都不能低于硬底 5 分钟')
+  const eventLow = debug.nextSpontEventDelay(() => 0)
+  const eventHigh = debug.nextSpontEventDelay(() => 0.999999)
+  assert.equal(eventLow, 2000)
+  assert.ok(eventHigh <= 5000 && eventHigh >= 4900)
+  for (const name of ['SPONT_BASE_MIN_MS', 'SPONT_BASE_MAX_MS', 'SPONT_IDLE_AFTER_MS', 'SPONT_IDLE_MIN_MS', 'SPONT_IDLE_MAX_MS', 'SPONT_HARD_MIN_MS', 'SPONT_DAILY_LIMIT', 'nextSpontDelay', 'isSpontIdle']) {
+    assert.equal(typeof debug[name], 'undefined', '旧时间闸门应删除：' + name)
   }
-  const now = shanghaiTs(2026, 10, 21, 15, 0)
-  assert.equal(debug.isSpontIdle(now, 0), true, '从未交互视为 idle')
-  assert.equal(debug.isSpontIdle(now, now - 29 * 60 * 1000), false)
-  assert.equal(debug.isSpontIdle(now, now - 31 * 60 * 1000), true)
 })
 test('settings mood/spontaneousPoem：归一化与 PUT 序列化', () => {
   const { debug } = loadClient()
@@ -2127,7 +2121,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   }
   const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
   const text = textOf(tree)
-  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '由当前配置的模型实时生成']) {
+  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '随时随地可能说一句']) {
     assert.ok(text.includes(label), '设置缺少：' + label)
   }
   assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
@@ -3657,7 +3651,7 @@ test('设置页显示「当前使用本地句子池」回退状态', () => {
     boot: { data: { version: '0.1.0' } },
   }
   const tree = renderFresh(react, debug.SettingsTab, { api })
-  assert.match(textOf(tree), /由当前配置的模型实时生成/)
+  assert.match(textOf(tree), /随时随地可能说一句/)
   assert.match(textOf(tree), /当前使用本地句子池/)
 })
 
@@ -4112,6 +4106,137 @@ test('模型心情图鉴加载失败：不请求 mood-ai、回退启发式心情
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
     assert.match(textOf(tree), /心情：有点累/)
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('自言自语随时触发/一卡制/关闭后 3s 再检查（假定时器集成）', async () => {
+  const dataVersion = 'test.anytime.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: true, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true,
+    version: '0.1.0',
+    dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-21', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: [] },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: false, error: { code: 'WEATHER_UNAVAILABLE' } },
+    'mood.json': { ok: true, date: '2026-10-21', stats: {}, updatedAt: 0 },
+    'settings.json': { ok: true, settings },
+  }
+  let selfTalkCalls = 0
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self-talk.json') >= 0) {
+      selfTalkCalls += 1
+      return { ok: true, json: async () => ({ ok: true, lines: [{ text: '随时想到一句，就说出来啦。' }] }) }
+    }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  // 假定时器：不自动执行，只记录，由测试手动触发目标轮询
+  const timers = []
+  context.setTimeout = (fn, ms) => {
+    const id = timers.length + 1
+    timers.push({ id, fn, ms })
+    return id
+  }
+  context.clearTimeout = () => {}
+  const findTimer = (minMs, maxMs) => {
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      if (timers[i].ms >= minMs && timers[i].ms <= maxMs) return timers[i]
+    }
+    return null
+  }
+  const invoke = (entry) => {
+    if (!entry) return false
+    entry.fn()
+    return true
+  }
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 5; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    // 初始就安排 20–40s 轮询（不再有 8–15min/5min 硬底）
+    const initialPoll = findTimer(debug.SPONT_POLL_MIN_MS, debug.SPONT_POLL_MAX_MS)
+    assert.ok(initialPoll, '应安排 20–40s 轮询，实际定时器：' + JSON.stringify(timers.map((item) => item.ms)))
+    assert.equal(timers.some((item) => item.ms >= 8 * 60 * 1000 && item.ms <= 15 * 60 * 1000), false, '不应再有 8–15min 旧间隔')
+
+    // 触发一次轮询：条件满足立即触发（不等待任何时间闸门）
+    invoke(initialPoll)
+    await sleep(30)
+    tree = renderMain()
+    let card = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    assert.ok(card, '轮询到期应直接显示自言自语卡片')
+    assert.equal(selfTalkCalls, 1)
+
+    // 一卡制：有卡时再轮询不应请求新卡
+    const pollWhileCard = findTimer(debug.SPONT_POLL_MIN_MS, debug.SPONT_POLL_MAX_MS)
+    assert.ok(pollWhileCard)
+    invoke(pollWhileCard)
+    await sleep(20)
+    tree = renderMain()
+    assert.equal(selfTalkCalls, 1, '当前有卡时不得弹新卡/请求模型')
+    const recheck = findTimer(debug.SPONT_CLOSE_RECHECK_MS, debug.SPONT_CLOSE_RECHECK_MS)
+    assert.ok(recheck, '有卡时应安排关闭后 3s 再检查')
+
+    // 关闭卡片 → 3s 后再检查（关闭后唤醒）
+    card = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    const closeButton = findAll(card, (node) => node.type === 'button' && textOf(node) === '关闭')[0]
+    assert.ok(closeButton)
+    closeButton.props.onClick({ stopPropagation() {} })
+    tree = renderMain()
+    assert.equal(findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont').length, 0)
+    const afterClose = findTimer(debug.SPONT_CLOSE_RECHECK_MS, debug.SPONT_CLOSE_RECHECK_MS)
+    assert.ok(afterClose, '关闭卡片后应安排 3s 再检查')
+    invoke(afterClose)
+    await sleep(30)
+    tree = renderMain()
+    card = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className === 'dshp-spont')[0]
+    assert.ok(card, '关闭 3s 后应能再次随时说一句')
+    assert.equal(selfTalkCalls, 2, '关闭后应能再次请求模型，不受每日/时间限制')
+
+    // 面板关闭事件唤醒：应在 2–5s 内安排一次尝试
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
+    assert.ok(closePanelButton)
+    closePanelButton.props.onClick()
+    tree = renderMain()
+    assert.ok(findTimer(debug.SPONT_EVENT_MIN_MS, debug.SPONT_EVENT_MAX_MS), '关闭面板后应安排 2–5s 事件唤醒')
   } finally {
     react._cleanup()
   }

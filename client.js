@@ -129,14 +129,13 @@ window.__ModuleLoader__.load({
   })
   const WEATHER_OVERLAY_STATES = ['rain', 'snow', 'thunder', 'cold', 'night']
   const SPONT_KEY = 'dshp-mood-spont-v1'
-  const SPONT_BASE_MIN_MS = 8 * 60 * 1000
-  const SPONT_BASE_MAX_MS = 15 * 60 * 1000
-  const SPONT_IDLE_AFTER_MS = 30 * 60 * 1000
-  const SPONT_IDLE_MIN_MS = 7 * 60 * 1000
-  const SPONT_IDLE_MAX_MS = 12 * 60 * 1000
-  const SPONT_HARD_MIN_MS = 5 * 60 * 1000
-  const SPONT_QUIET_MS = 20 * 1000
-  const SPONT_BACKGROUND_RESUME_MS = 30 * 1000
+  const SPONT_POLL_MIN_MS = 20 * 1000
+  const SPONT_POLL_MAX_MS = 40 * 1000
+  const SPONT_RETRY_MS = 10 * 1000
+  const SPONT_EVENT_MIN_MS = 2 * 1000
+  const SPONT_EVENT_MAX_MS = 5 * 1000
+  const SPONT_CLOSE_RECHECK_MS = 3 * 1000
+  const SPONT_QUIET_MS = 3 * 1000
   const SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1000
   const SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1000
   const SPONT_MAX_SEEN = 300
@@ -1518,7 +1517,7 @@ window.__ModuleLoader__.load({
   return pool[index].sentence
   }
 
-  /** 触发条件（纯函数）：开关/可见/隐藏/面板/气泡/20s 安静；硬底 5 分钟；不再限制每日次数。 */
+  /** 触发条件（纯函数）：开关/可见/隐藏/面板/气泡/最近 3s 无交互；不再有任何时间/次数闸门。 */
   function canShowSpontaneous(options) {
   const opts = options && typeof options === 'object' ? options : {}
   if (opts.enabled !== true) return false
@@ -1528,30 +1527,26 @@ window.__ModuleLoader__.load({
   const quietMs = num(opts.quietMs, SPONT_QUIET_MS)
   const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY
   if (idleMs < quietMs) return false
-  const lastShownAt = num(opts.lastShownAt, 0)
-  if (lastShownAt > 0 && now - lastShownAt < SPONT_HARD_MIN_MS) return false
   return true
   }
 
-  /** 是否进入「长时间没人理」的自言自语态（≥30 分钟无用户交互；从未交互也视为 idle）。 */
-  function isSpontIdle(now, lastInteractionAt) {
-  const last = num(lastInteractionAt, 0)
-  if (last <= 0) return true
-  return num(now, Date.now()) - last >= SPONT_IDLE_AFTER_MS
-  }
-
-  /** 下一次说话间隔：基础 8–15 分钟；idle 态 7–12 分钟；硬底 5 分钟。 */
-  function nextSpontDelay(options) {
+  /** 轮询间隔 20–40 秒（每次重新随机）。 */
+  function nextSpontPollDelay(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
   const random = typeof opts.random === 'function' ? opts.random : Math.random
   const value = Number(random())
   const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  const idle = opts.idle === true
-  const min = idle ? SPONT_IDLE_MIN_MS : SPONT_BASE_MIN_MS
-  const max = idle ? SPONT_IDLE_MAX_MS : SPONT_BASE_MAX_MS
-  return Math.max(SPONT_HARD_MIN_MS, Math.round(min + ratio * (max - min)))
+  return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS))
   }
 
+  /** 事件唤醒后的尝试延迟 2–5 秒。 */
+  function nextSpontEventDelay(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS))
+  }
   function murmurPeriod(hour) {
   if (hour >= 5 && hour < 9) return '早上'
   if (hour >= 9 && hour < 11) return '上午'
@@ -1623,7 +1618,7 @@ window.__ModuleLoader__.load({
    if (!template || typeof template.when !== 'function' || !template.when(ctx)) continue
    const text = String(template.text(ctx))
    if (text.length < 6 || text.length > 40) continue
-   list.push({ id: template.id, text: text, tags: template.tags || [] })
+   list.push({ id: template.id, text, tags: template.tags || [] })
   }
   return list
   }
@@ -2700,11 +2695,11 @@ window.__ModuleLoader__.load({
   weatherUpdatedLabel,
   requestWeather,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_MIN_INTERVAL_MS, MOOD_AI_REFRESH_MS, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
-  SPONT_KEY, SPONT_BASE_MIN_MS, SPONT_BASE_MAX_MS, SPONT_IDLE_AFTER_MS, SPONT_IDLE_MIN_MS, SPONT_IDLE_MAX_MS, SPONT_HARD_MIN_MS, SPONT_QUIET_MS, SPONT_BACKGROUND_RESUME_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
+  SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
-  buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, isSpontIdle, selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
+  buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, canRequestMoodAi, moodAiSnapshot, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
-  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
+  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
   TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
   assetUrlFor, buildLibraryItems, filterLibraryItems, libraryPage, libraryItemLabel, ciBankRhythmics, ciSelectedLibraryItems, ciSelectedRhythmics, mergeFeihuaItems, finishFeihuaIndex, feihuaSourceOf, completeSentencesFromLines,
@@ -2966,6 +2961,7 @@ window.__ModuleLoader__.load({
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
   const [feihuaBuilding, setFeihuaBuilding] = React.useState(false)
   const [moodTick, setMoodTick] = React.useState(0)
+  const [spontWake, setSpontWake] = React.useState(0)
 
   const [pos, setPos] = React.useState(() => {
    const stored = readStoredPosition()
@@ -2995,6 +2991,12 @@ window.__ModuleLoader__.load({
   const moodAiTokenRef = React.useRef(0)
   const recentImagesRef = React.useRef([])
   const moodCatalogRef = React.useRef(null)
+  const spontWakeDelayRef = React.useRef(0)
+  const prevPanelOpenRef = React.useRef(false)
+  const prevStepRef = React.useRef(-1)
+  const prevCardRef = React.useRef(null)
+  const moodWakeSigRef = React.useRef('')
+  const weatherWakeSigRef = React.useRef('')
   const weatherRef = React.useRef(null)
   const spontPoemRef = React.useRef(null)
   const uiRef = React.useRef({})
@@ -3004,6 +3006,11 @@ window.__ModuleLoader__.load({
   const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
   const recentSpokenRef = React.useRef([])
   spontPoemRef.current = spontPoem
+
+  const wakeSpontaneous = React.useCallback((delay) => {
+   spontWakeDelayRef.current = Math.max(1000, num(delay, nextSpontEventDelay()))
+   setSpontWake((tick) => tick + 1)
+  }, [])
 
   const showToast = React.useCallback((text, kind) => {
    setToast({ text: String(text == null ? '' : text), kind: kind === 'error' ? 'error' : 'info' })
@@ -3062,6 +3069,7 @@ window.__ModuleLoader__.load({
     }
     if (Object.keys(changed).length) saverRef.current.save(changed)
    }
+   wakeSpontaneous(nextSpontEventDelay())
    return next
   }, [])
 
@@ -3070,6 +3078,7 @@ window.__ModuleLoader__.load({
    if (!MASCOT_FILES[key]) return
    if (key === 'gameWin') feihuaWinsRef.current += 1
    if (key === 'gameLose') feihuaLossesRef.current += 1
+   if (key === 'gameWin' || key === 'gameLose') wakeSpontaneous(nextSpontEventDelay())
    lastInteractionRef.current = Date.now()
    setMascotPulse(key)
    if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
@@ -3502,37 +3511,94 @@ window.__ModuleLoader__.load({
    const run = () => {
     if (cancelled) return
     const ui = uiRef.current
-    const now = Date.now()
-    const state = readSpontState(now)
+    // 一卡制：有卡时等它关闭，3 秒后再检查
+    if (spontPoemRef.current) {
+     schedule(SPONT_CLOSE_RECHECK_MS)
+     return
+    }
     const ok = canShowSpontaneous({
      enabled: ui.settings.spontaneousPoem === true,
      hidden: ui.settings.hidden === true,
      panelOpen: ui.panelOpen === true,
      bubbleOpen: ui.step >= 0,
      visible: typeof document === 'undefined' ? true : document.visibilityState !== 'hidden',
-     now,
+     now: Date.now(),
      lastInteractionAt: lastInteractionRef.current,
-     lastShownAt: state.lastShownAt,
      quietMs: SPONT_QUIET_MS,
     })
     if (ok) {
      startSpontaneousCard({ record: true })
+     schedule(nextSpontPollDelay())
+    } else {
+     schedule(SPONT_RETRY_MS)
     }
-    const nextNow = Date.now()
-    schedule(nextSpontDelay({ idle: isSpontIdle(nextNow, lastInteractionRef.current), random: Math.random }))
    }
-   const onVisible = () => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') schedule(SPONT_BACKGROUND_RESUME_MS)
+   const onWake = () => wakeSpontaneous(nextSpontEventDelay())
+   const onVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') onWake()
    }
-   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
-   schedule(nextSpontDelay({ idle: isSpontIdle(Date.now(), lastInteractionRef.current), random: Math.random }))
+   const onFocus = () => onWake()
+   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
+   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('focus', onFocus)
+   const initialDelay = spontWake > 0 ? num(spontWakeDelayRef.current, nextSpontEventDelay()) : nextSpontPollDelay()
+   schedule(initialDelay)
    return () => {
     cancelled = true
-    spontReqRef.current += 1
     if (timer) clearTimeout(timer)
-    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility)
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener('focus', onFocus)
    }
-  }, [settings.spontaneousPoem, settings.hidden])
+  }, [settings.spontaneousPoem, settings.hidden, spontWake, wakeSpontaneous])
+
+  // 事件唤醒：关闭面板 / 气泡结束 / 卡片关闭 / 心情或天气更新
+  React.useEffect(() => {
+   if (panelOpen) {
+    prevPanelOpenRef.current = true
+    return
+   }
+   if (prevPanelOpenRef.current) {
+    prevPanelOpenRef.current = false
+    wakeSpontaneous(nextSpontEventDelay())
+   }
+  }, [panelOpen, wakeSpontaneous])
+
+  React.useEffect(() => {
+   if (step >= 0) {
+    prevStepRef.current = true
+    return
+   }
+   if (prevStepRef.current) {
+    prevStepRef.current = false
+    wakeSpontaneous(nextSpontEventDelay())
+   }
+  }, [step, wakeSpontaneous])
+
+  React.useEffect(() => {
+   if (!settings.spontaneousPoem) return
+   if (spontPoem) {
+    prevCardRef.current = true
+    return
+   }
+   if (prevCardRef.current) {
+    prevCardRef.current = false
+    wakeSpontaneous(SPONT_CLOSE_RECHECK_MS)
+   }
+  }, [spontPoem, settings.spontaneousPoem, wakeSpontaneous])
+
+  React.useEffect(() => {
+   if (!settings.spontaneousPoem || !moodView) return
+   const signature = [moodView.key, moodView.label, moodView.reason, moodView.source].join('|')
+   if (moodWakeSigRef.current && moodWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay())
+   moodWakeSigRef.current = signature
+  }, [moodView, settings.spontaneousPoem, wakeSpontaneous])
+
+  React.useEffect(() => {
+   if (!settings.spontaneousPoem || !weather) return
+   const signature = [weather.category, weather.label, weather.tempC].join('|')
+   if (weatherWakeSigRef.current && weatherWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay())
+   weatherWakeSigRef.current = signature
+  }, [weather, settings.spontaneousPoem, wakeSpontaneous])
+
   React.useEffect(() => {
    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
    const markActivity = () => noteInteraction()
@@ -3665,6 +3731,7 @@ window.__ModuleLoader__.load({
 
   function advanceStep() {
    setStep((current) => (current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1))
+   wakeSpontaneous(nextSpontEventDelay())
   }
 
   function handleMascotTap() {
@@ -3869,7 +3936,6 @@ window.__ModuleLoader__.load({
   function fallbackSpontCard(moodKey, state) {
    const murmur = pickMurmur({
     moodKey,
-    idle: isSpontIdle(Date.now(), lastInteractionRef.current),
     weather: weatherRef.current,
     stats: moodStatsRef.current,
     now: Date.now(),
@@ -5349,7 +5415,7 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '由当前配置的模型实时生成（说它自己此刻的想法，不背诗）；不可用时回退本地随想池')),
+    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '随时随地可能说一句（不打扰操作时）；不设每日次数，模型实时生成')),
     switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '自言自语开关'),
     api.selfTalkFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地句子池') : null,
    ),
