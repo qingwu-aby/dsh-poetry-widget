@@ -1635,7 +1635,7 @@ window.__ModuleLoader__.load({
   return catalog.moodFiles.indexOf(image) >= 0
   }
 
-  /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤5)，不含会话内容。 */
+  /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤20)，不含会话内容。 */
   function moodAiQuery(options) {
   const opts = options && typeof options === 'object' ? options : {}
   const params = []

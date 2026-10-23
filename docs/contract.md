@@ -316,7 +316,7 @@
 ### 2.12 模型心情 `MOOD-AI`（M13，`/api/dsh-poetry/mood-ai.json`）
 
 心情不再由伪随机/固定规则换图：模型读取**本地心情图鉴**（`assets/data/mood-catalog.json`，92 张，含中文标签/tags/节日 when）与当天真实情境，自主决定此刻心情与配图。
-GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片文件名，`|` 分隔，≤5）。
+GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片/动画文件名，`|` 分隔，**≤20**，宿主会剔除它们强制轮换）。
 成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
 失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
 约束：prompt 只含日期时间/天气/聚合统计/idle/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以强制轮换；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
