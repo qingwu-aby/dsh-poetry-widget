@@ -6203,7 +6203,7 @@ test('voice-memory：start 缺失或 >24h 刷新，<24h 不刷新', async () => 
   const llm = makeMockLlm(() => JSON.stringify({ profile, exemplars: ['a', 'b', 'c'] }))
 
   // 缺失 → start 后自动刷新
-  const missing = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300 })
+  const missing = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300, initialDelayMs: 10 })
   missing.start()
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(fs.existsSync(voicePath), true)
@@ -6220,6 +6220,7 @@ test('voice-memory：start 缺失或 >24h 刷新，<24h 不刷新', async () => 
     logger: { warn() {} },
     now: () => Date.now(),
     timeoutMs: 300,
+    initialDelayMs: 10,
   })
   fresh.start()
   await new Promise((resolve) => setTimeout(resolve, 30))
@@ -6235,7 +6236,7 @@ test('voice-memory：start 缺失或 >24h 刷新，<24h 不刷新', async () => 
     exemplars: ['a'],
     sourceEntries: 3,
   })
-  const stale = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300 })
+  const stale = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300, initialDelayMs: 10 })
   stale.start()
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(llm.calls.length, 2, '>24h 刷新')
@@ -6288,6 +6289,178 @@ test('self-talk M44：service voice getter 注入 prompt；getter 异常安全�
   const brokenResult = await broken.generate({})
   assert.equal(brokenResult.ok, true, 'voice getter 异常不影响生成')
   assert.equal(brokenLlm.calls[0].messages[0].content[0].text.includes('这是你自己从旧记忆里总结出来的声音'), false)
+})
+
+// ---------------------------------------------------------------------------
+// M45：voice 刷新失败退避修复（启动延迟 + 5min 重试 + self-talk 兜底触发）
+// ---------------------------------------------------------------------------
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function makeVoiceSchedulerHarness(overrides = {}) {
+  const dir = makeTmpDir('dshp-voice-schedule')
+  const journalPath = writeRecallJournal(path.join(dir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句自己的话。' },
+    { kind: 'murmur', text: '第二句自己的话。' },
+    { kind: 'thought', text: '第三句自己的话。' },
+  ])
+  const voicePath = path.join(dir, 'voice.json')
+  const profile = makeLongVoiceProfile()
+  const calls = { count: 0 }
+  const valid = JSON.stringify({ profile, exemplars: ['a', 'b', 'c'] })
+  const llm = {
+    calls: [],
+    stream(options) {
+      this.calls.push(options)
+      calls.count += 1
+      const text = typeof overrides.responder === 'function' ? overrides.responder(calls.count) : valid
+      const delay = typeof overrides.delayMs === 'number' ? overrides.delayMs : 0
+      return (async function* () {
+        if (delay > 0) await sleepMs(delay)
+        yield { type: 'text-delta', index: 0, text }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  const service = createVoiceService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    journalPath,
+    voicePath,
+    logger: { warn() {}, info() {} },
+    timeoutMs: overrides.timeoutMs ?? 300,
+    initialDelayMs: overrides.initialDelayMs ?? 10,
+    retryBaseMs: overrides.retryBaseMs ?? 30,
+    retryMaxMs: overrides.retryMaxMs ?? 60,
+    refreshIntervalMs: overrides.refreshIntervalMs ?? 24 * 60 * 60 * 1000,
+  })
+  return { dir, journalPath, voicePath, profile, llm, service, calls }
+}
+
+test('voice-memory M45：start 首次刷新延迟 initialDelayMs（不会在初始化瞬间调用 llm）', async () => {
+  const { service, llm, voicePath } = makeVoiceSchedulerHarness({ initialDelayMs: 40 })
+  service.start()
+  await sleepMs(10)
+  assert.equal(llm.calls.length, 0, 'initialDelay 内不调用模型')
+  assert.equal(fs.existsSync(voicePath), false)
+  await sleepMs(70)
+  assert.equal(llm.calls.length, 1, 'initialDelay 后刷新一次')
+  assert.equal(fs.existsSync(voicePath), true)
+  service.dispose()
+})
+
+test('voice-memory M45：刷新失败后按 5min 起指数退避重试（测试缩短间隔），成功恢复 24h', async () => {
+  // 前两次失败（非法 JSON），第三次成功
+  const { service, llm, voicePath } = makeVoiceSchedulerHarness({
+    initialDelayMs: 0,
+    retryBaseMs: 25,
+    retryMaxMs: 60,
+    responder: (count) => {
+      if (count <= 2) return 'not json'
+      return JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] })
+    },
+  })
+  service.start()
+  await sleepMs(15)
+  assert.equal(llm.calls.length, 1, '首次刷新')
+  assert.equal(fs.existsSync(voicePath), false)
+  const firstRetryDelay = service.scheduler().retryDelayMs
+  assert.equal(firstRetryDelay, 50, '失败后下一次延迟 25ms→退避值翻倍为 50')
+
+  await sleepMs(40) // 25ms 后重试（第 2 次失败）
+  assert.ok(llm.calls.length >= 2, '失败后 5min（测试 25ms）重试')
+  await sleepMs(80) // 50ms 后重试（第 3 次成功）
+  assert.ok(llm.calls.length >= 3, '继续退避重试')
+  assert.equal(fs.existsSync(voicePath), true, '成功后写入 voice.json')
+  const afterSuccess = service.scheduler().retryDelayMs
+  assert.equal(afterSuccess, 25, '成功后重试延迟恢复 base')
+  const callsAfterSuccess = llm.calls.length
+  await sleepMs(100)
+  assert.equal(llm.calls.length, callsAfterSuccess, '成功后按 24h 调度（测试窗口内不再刷新）')
+  service.dispose()
+})
+
+test('voice-memory M45：stop/dispose 清理所有 timer；refresh 不并发', async () => {
+  const { service, llm } = makeVoiceSchedulerHarness({ initialDelayMs: 30 })
+  service.start()
+  service.stop()
+  await sleepMs(60)
+  assert.equal(llm.calls.length, 0, 'stop 后 initialDelay 定时器不再触发')
+
+  // 失败重试也已排期 → stop 后不再触发
+  const retrying = makeVoiceSchedulerHarness({
+    initialDelayMs: 0,
+    retryBaseMs: 20,
+    retryMaxMs: 40,
+    responder: () => 'not json',
+  })
+  retrying.service.start()
+  await sleepMs(15)
+  assert.equal(retrying.llm.calls.length, 1)
+  retrying.service.stop()
+  const stoppedAt = retrying.llm.calls.length
+  await sleepMs(80)
+  assert.equal(retrying.llm.calls.length, stoppedAt, 'stop 清理失败重试 timer')
+  retrying.service.dispose()
+
+  // 不并发：一次刷新在途时，手动 refreshNow 返回 busy 且不发起第二次模型调用
+  const slow = makeVoiceSchedulerHarness({ initialDelayMs: 0, delayMs: 60 })
+  slow.service.start()
+  await sleepMs(15)
+  assert.equal(slow.llm.calls.length, 1, '首次刷新在途')
+  const busy = await slow.service.refreshNow()
+  assert.equal(busy.ok, false)
+  assert.equal(busy.reason, 'busy')
+  assert.equal(slow.llm.calls.length, 1, '不并发、不重复调用模型')
+  await sleepMs(80)
+  assert.equal(fs.existsSync(slow.voicePath), true)
+  slow.service.dispose()
+})
+
+test('self-talk M45：voice 为空时兜底触发 refreshVoice（≥5min 节流、不阻塞响应、异常安全）', async () => {
+  let refreshed = 0
+  let reply = SELF_TALK_LINES_A.join('\n')
+  const firstLlm = makeMockLlm(() => reply)
+  const service = createSelfTalkService({
+    llm: firstLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    voice: () => null,
+    // 永不 resolve：验证 fire-and-forget 不阻塞响应
+    refreshVoice: () => {
+      refreshed += 1
+      return new Promise(() => {})
+    },
+  })
+  const startedAt = Date.now()
+  const first = await service.generate({})
+  const elapsed = Date.now() - startedAt
+  assert.equal(first.ok, true, '兜底刷新不阻塞 self-talk 响应')
+  assert.ok(elapsed < 500, `响应不被 hung 的 refreshVoice 阻塞（${elapsed}ms）`)
+  assert.equal(refreshed, 1, 'voice 为空时触发一次刷新')
+
+  // 同一 now（5min 节流内）再次生成 → 不重复触发
+  reply = SELF_TALK_LINES_B.join('\n')
+  const second = await service.generate({})
+  assert.equal(second.ok, true)
+  assert.equal(refreshed, 1, '≥5min 节流内不重复触发')
+
+  // refreshVoice 抛同步异常也不影响生成
+  const throwing = createSelfTalkService({
+    llm: makeMockLlm(() => SELF_TALK_LINES_B.join('\n')),
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    voice: () => null,
+    refreshVoice: () => {
+      throw new Error('refresh boom')
+    },
+  })
+  const ok = await throwing.generate({})
+  assert.equal(ok.ok, true, 'refreshVoice 抛异常不影响生成')
 })
 
 // ---------------------------------------------------------------------------

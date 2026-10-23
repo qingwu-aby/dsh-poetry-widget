@@ -661,3 +661,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户：语言风格要自己生成，按记忆来。
 - Host `voice-memory`：从 journal 白名单 thought/murmur 均匀抽样 ≤40 条，让模型提炼自己的句长/节奏/意象/语气/开头收尾，写 `agent-memory/voice.json`（profile ≤400 字 + 3 条不同风格示例）；每 24h 自更新；self-talk prompt 注入 voice 作为语气参照（不照抄），移除硬编码「温柔/调皮」人设；memory-hub 纳入第 9 个可选文件。
 - 三套单测 344/344（data 42 / host 187 / client 115）。
+
+## 51. voice 首次生成修复（M45，2026-10-23）
+
+- 线上重载后 voice.json 未生成：voiceService.start() 在插件初始化瞬间刷新，llm 未就绪，失败后等 24h。
+- 修：start 延迟 15s；失败 5min 重试（指数退避到 30min，成功恢复 24h）；self-talk 在 voice 为空时 fire-and-forget 兜底（5min 节流，不阻塞响应）；stop 清理 timer。
+- 三套单测 348/348（data 42 / host 191 / client 115）。

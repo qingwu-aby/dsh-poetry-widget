@@ -199,6 +199,7 @@ export async function apply(ctx) {
         topics: topicBank,
         recall: memoryRecall,
         voice: () => voiceService.get(),
+        refreshVoice: () => voiceService.refreshNow(),
       })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
