@@ -643,3 +643,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host `memory-hub`：登记 8 个记忆文件；health（缺失/JSON 损坏/大小骤减）、startup+6h 自动备份（保留 20 份+manifest sha256）、只恢复缺失文件、`GET memory.json` + fenced `POST memory/backup.json`；路由 16→18。
 - Client：Settings 删除心情块；GrowthTab 增加完整心情区（来源/失败/换装开关/刷新）+ 记忆中枢卡（健康、计数、上次备份、恢复提示、立即备份）。
 - 三套单测 327/327（data 42 / host 170 / client 115）。
+
+## 48. 记忆中枢路径修正（M41 修正，2026-10-23）
+
+- 自学引擎写 `agent-memory/learning-log.md` / `topics-candidates.json`，但记忆中枢原按 `.dsh-poetry/` 查找 → 误报 error。
+- 已统一到 `agent-memory/`；可选文件缺失降为 warn，核心 journal/topics 缺失才 error；对应 tests 适配。host 170 / client 115 / data 42 全绿。

@@ -5481,14 +5481,14 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   // 路径脱敏（home 下显示 ~/）
   assert.match(byId['journal.md'].path, /^~\//)
 
-  // 缺失文件 → health error + missing
+  // 可选文件缺失 → health warn + missing（journal/topics 等核心文件缺失才 error）
   fs.rmSync(path.join(paths.memoryDir, 'README.md'))
   const missing = hub.snapshot()
-  assert.equal(missing.health, 'error')
+  assert.equal(missing.health, 'warn')
   assert.equal(missing.files.find((file) => file.id === 'README.md').health, 'missing')
 
   // 坏 JSON → invalid；坏 JSONL 行 → corrupt
-  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), 'not json')
+  writeHubFile(path.join(paths.memoryDir, 'topics-candidates.json'), 'not json')
   writeHubFile(path.join(paths.memoryDir, 'journal.jsonl'), '{"ok":1}\nnot-json-line\n')
   const broken = hub.snapshot()
   assert.equal(broken.health, 'error')
@@ -5557,20 +5557,20 @@ test('memory-hub：recover 只恢复缺失文件、不覆盖存在/坏文件；s
   // 另一个文件在备份后被修改：recover 不得覆盖
   writeHubFile(path.join(paths.memoryDir, 'README.md'), '# 后来改的\n')
   // 坏文件（存在但内容坏）：只标记，不自动覆盖
-  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), 'broken json')
+  writeHubFile(path.join(paths.memoryDir, 'topics-candidates.json'), 'broken json')
 
   const recovered = hub.recover()
   assert.equal(recovered.ok, true)
   assert.deepEqual(recovered.recovered, ['journal.md'])
   assert.equal(fs.readFileSync(journalPath, 'utf8'), original, '缺失文件从备份恢复')
   assert.equal(fs.readFileSync(path.join(paths.memoryDir, 'README.md'), 'utf8'), '# 后来改的\n', '不覆盖已存在文件')
-  assert.equal(fs.readFileSync(path.join(paths.stateDir, 'topics-candidates.json'), 'utf8'), 'broken json', '坏文件不自动覆盖')
+  assert.equal(fs.readFileSync(path.join(paths.memoryDir, 'topics-candidates.json'), 'utf8'), 'broken json', '坏文件不自动覆盖')
   const snapshot = hub.snapshot()
   assert.deepEqual(snapshot.recovered, ['journal.md'])
   assert.equal(snapshot.files.find((file) => file.id === 'topics-candidates.json').health, 'invalid')
 
   // 修复坏 JSON，单独验证 size-drop → warn
-  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), JSON.stringify({ ok: true, v: 1, topics: [] }))
+  writeHubFile(path.join(paths.memoryDir, 'topics-candidates.json'), JSON.stringify({ ok: true, v: 1, topics: [] }))
   // size-drop：备份后把 journal.md 大幅截短 → warn
   const truncated = '# 只有一点\n'
   writeHubFile(journalPath, truncated)
