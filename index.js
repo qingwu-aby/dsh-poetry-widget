@@ -42,6 +42,7 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import { createSelfActions } from './lib/self-actions.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
 import {
@@ -293,6 +294,26 @@ export async function apply(ctx) {
         'dsh-poetry-widget: 记忆中枢',
       )
 
+      // M46：自主行为循环（60s tick；按 state 自己决定吃喝玩乐睡/醒，动作环形写 self-actions.json）。
+      const selfActions = createSelfActions({ state: selfState, logger })
+      selfActions.start()
+      const actionSnapshot = selfActions.snapshot()
+      logger?.info?.(
+        `[dsh-poetry-widget] 自主行为循环已启动（${selfActions.actionsPath}${
+          actionSnapshot.latest !== null ? `；上次：${actionSnapshot.latest.text}` : ''
+        }）`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            selfActions.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 自主行为清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 自主行为',
+      )
+
       const routes = createRouteTable({
         dataStore,
         settingsStore,
@@ -346,6 +367,7 @@ export async function apply(ctx) {
             tick: () => selfState.tick(),
             getSnapshot: () => selfState.snapshot(),
             getGrowth: () => growth.snapshot(),
+            getActions: () => selfActions.snapshot(),
           }),
         }),
       )

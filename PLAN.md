@@ -667,3 +667,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 线上重载后 voice.json 未生成：voiceService.start() 在插件初始化瞬间刷新，llm 未就绪，失败后等 24h。
 - 修：start 延迟 15s；失败 5min 重试（指数退避到 30min，成功恢复 24h）；self-talk 在 voice 为空时 fire-and-forget 兜底（5min 节流，不阻塞响应）；stop 清理 timer。
 - 三套单测 348/348（data 42 / host 191 / client 115）。
+
+## 52. 自主行为循环（M46/M47，2026-10-23）
+
+- 用户：行为不需要额外定义，应自己驱动吃喝玩乐睡觉起床。
+- Host：self-state 加 thirst/sleeping/sleepSince 与睡眠恢复；self-actions 按阈值自驱 eat/drink/play/socialize/sleep/wake（≥3min 间隔，环形 50 条 self-actions.json，纳入记忆中枢第 10 文件）；self.json 暴露 thirst/sleeping/actions。
+- Client：App 级 60s 轮询 self.json，新 action 用自己的气泡显示一次（同 id 不重复，隐藏暂存）；成长页五行状态/睡眠中/最近 5 条自主行为。
+- 三套单测 356/356（data 42 / host 196 / client 118）。

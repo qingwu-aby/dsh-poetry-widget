@@ -5901,7 +5901,7 @@ test('成长状态：normalize/摘要/缺失或 404 隐藏', () => {
   assert.equal(debug.selfStatusSummary(null), '')
 })
 
-test('设置页成长状态：四行指标+摘要渲染，无数据整块隐藏', () => {
+test('设置页成长状态：五行指标+摘要渲染，无数据整块隐藏', () => {
   const { react, debug } = loadClient()
   const baseApi = {
     settings: debug.normalizeSettings({}),
@@ -5918,21 +5918,21 @@ test('设置页成长状态：四行指标+摘要渲染，无数据整块隐藏'
   const tree = renderFresh(react, debug.SettingsTab, { api: Object.assign({}, baseApi, { selfStatus: status }) })
   const text = textOf(tree)
   assert.match(text, /成长状态/)
-  for (const label of ['精力', '好奇', '社交', '饥饿']) assert.ok(text.includes(label), '缺少指标：' + label)
+  for (const label of ['精力', '好奇', '社交', '饥饿', '口渴']) assert.ok(text.includes(label), '缺少指标：' + label)
   assert.match(text, /自学 5 条/)
   assert.match(text, /自省 4 次/)
   assert.match(text, /35/)
   assert.match(text, /66/)
   const rows = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-self-row')
-  assert.equal(rows.length, 4, '四行指标')
+  assert.equal(rows.length, 5, '五行指标')
   const fills = findAll(tree, (node) => node.type === 'span' && node.props.className === 'dshp-self-fill')
-  assert.equal(fills.length, 4)
+  assert.equal(fills.length, 5)
   assert.equal(fills[0].props.style.width, '35%')
   const hidden = renderFresh(react, debug.SettingsTab, { api: baseApi })
   assert.ok(!textOf(hidden).includes('成长状态'), '无数据时整块隐藏')
 })
 
-test('成长状态轮询：仅面板打开时请求 self.json、页面隐藏跳过、404 静默隐藏', async () => {
+test('成长状态轮询：App 级请求 self.json、页面隐藏跳过、404 静默隐藏', async () => {
   const dataVersion = 'test.selfstatus.1'
   const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
   const bootstrap = {
@@ -5981,23 +5981,8 @@ test('成长状态轮询：仅面板打开时请求 self.json、页面隐藏跳�
       await sleep(20)
       tree = renderMain()
     }
-    assert.equal(selfCalls, 0, '面板未打开时不应请求 self.json')
-    // 打开面板
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
-    tree = renderMain()
-    for (let round = 0; round < 2; round += 1) {
-      react._runEffects()
-      await sleep(20)
-      tree = renderMain()
-    }
-    assert.ok(selfCalls >= 1, '面板打开后应请求 self.json')
-    assert.ok(fiftyIntervals().length >= 1, '面板打开后应有 60s 轮询')
+    assert.ok(selfCalls >= 1, 'App 挂载后应全局请求 self.json')
+    assert.ok(fiftyIntervals().length >= 1, '应有 60s 全局轮询')
     const beforeHidden = selfCalls
     context.document.visibilityState = 'hidden'
     tree = await runFifty()
@@ -6005,11 +5990,10 @@ test('成长状态轮询：仅面板打开时请求 self.json、页面隐藏跳�
     context.document.visibilityState = 'visible'
     tree = await runFifty()
     assert.ok(selfCalls > beforeHidden, '回到可见后轮询应继续')
-    // 404：静默、整块隐藏
+    // 404：静默，不报错
     selfMode = '404'
     tree = await runFifty()
-    assert.ok(!textOf(tree).includes('成长状态'), '404 时成长块应隐藏')
-    assert.ok(!textOf(tree).includes('失败'), '404 不得显示错误')
+    assert.ok(!textOf(tree).includes('失败'), '404 不得显示错误 toast')
   } finally {
     react._cleanup()
   }
@@ -6276,6 +6260,218 @@ test('记忆中枢：仅成长 tab 轮询、隐藏跳过、POST 备份成功/失
     const growthEl3 = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
     assert.ok(growthEl3)
     assert.ok(!textOf(debug.GrowthTab({ api: growthEl3.props.api })).includes('记忆中枢'), 'memory 404 时整卡隐藏')
+  } finally {
+    react._cleanup()
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* 25. M63 自主行为可见：self.json actions + 口渴/睡眠                     */
+/* ------------------------------------------------------------------ */
+
+test('自主行为：self.json actions/thirst/sleeping 解析、lastSeen 持久化、成长页列表与空状态', () => {
+  const { debug, storage } = loadClient()
+  const at1 = shanghaiTs(2026, 10, 23, 22, 0)
+  const at2 = shanghaiTs(2026, 10, 23, 22, 5)
+  const status = debug.normalizeSelfStatus({
+    ok: true,
+    state: { energy: 20, curiosity: 30, social: 40, hunger: 50, thirst: 60, sleeping: true, sleepSince: at1, updatedAt: 1 },
+    actions: {
+      latest: { id: 'a2', label: '喝水', text: '我去喝口水。', at: at2 },
+      recent: [
+        { id: 'a2', label: '喝水', text: '我去喝口水。', at: at2 },
+        { id: 'a1', label: '散步', text: '出去走两步。', at: at1 },
+        { id: 'a0', label: '发呆', text: '发会儿呆。', at: at1 },
+        { id: 'x1', label: 'x', text: 'x', at: at1 },
+        { id: 'x2', label: 'y', text: 'y', at: at1 },
+        { id: 'x3', label: 'z', text: 'z', at: at1 },
+      ],
+    },
+  })
+  assert.equal(status.thirst, 60)
+  assert.equal(status.sleeping, true)
+  assert.equal(status.sleepSince, at1)
+  assert.equal(status.actions.latest.id, 'a2')
+  assert.equal(status.actions.latest.text, '我去喝口水。')
+  assert.equal(status.actions.recent.length, 5, 'recent 最多 5 条')
+  const noActions = debug.normalizeSelfStatus({ ok: true, state: { energy: 1 } })
+  assert.equal(noActions.actions.latest, null)
+  assertDeep(noActions.actions.recent, [])
+  assert.equal(debug.readSeenActionId(), '')
+  debug.writeSeenActionId('a2')
+  assert.equal(debug.readSeenActionId(), 'a2')
+  assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), 'a2')
+  storage.setItem(debug.ACTION_SEEN_KEY, '')
+  assert.equal(debug.readSeenActionId(), '')
+
+  const { react } = loadClient()
+  const growthApi = { settings: debug.normalizeSettings({}), selfStatus: status, updateSettings() {} }
+  const tree = renderFresh(react, debug.GrowthTab, { api: growthApi })
+  const text = textOf(tree)
+  assert.match(text, /口渴/)
+  assert.match(text, /睡眠中/)
+  assert.match(text, /自主行为/)
+  assert.match(text, /喝水 · 我去喝口水。/)
+  assert.match(text, /22:05/)
+  assert.match(text, /散步 · 出去走两步。/)
+  const emptyTree = renderFresh(react, debug.GrowthTab, { api: { settings: debug.normalizeSettings({}) } })
+  assert.match(textOf(emptyTree), /还没有自己行动/)
+})
+
+test('自主行为 App 轮询：新 action 用气泡显示一次（标题「自己」），隐藏跳过、404 静默', async () => {
+  const dataVersion = 'test.actions.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  let action = { id: 'act-1', label: '伸懒腰', text: '伸个懒腰。', at: shanghaiTs(2026, 10, 23, 22, 0) }
+  let selfMode = 'ok'
+  let selfCalls = 0
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self.json') >= 0) {
+      selfCalls += 1
+      if (selfMode === '404') return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => ({ ok: true, state: { energy: 30, thirst: 20 }, actions: { latest: action, recent: [action] } }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const { react, context, debug, storage } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const intervals = []
+  const listeners = []
+  context.setInterval = (fn, ms) => { const item = { fn, ms, cleared: false }; intervals.push(item); return item }
+  context.clearInterval = (item) => { if (item) item.cleared = true }
+  context.document.addEventListener = (type, fn) => { listeners.push({ type, fn, removed: false }) }
+  context.document.removeEventListener = (type, fn) => {
+    const item = listeners.find((entry) => entry.type === type && entry.fn === fn)
+    if (item) item.removed = true
+  }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const sixty = () => intervals.filter((item) => !item.cleared && item.ms === debug.SELF_POLL_MS)
+  const runSixty = async () => {
+    for (const item of sixty()) item.fn()
+    await sleep(20)
+    react._runEffects()
+    await sleep(20)
+    react._runEffects()
+    await sleep(20)
+    let tree = renderMain()
+    react._runEffects()
+    await sleep(20)
+    return renderMain()
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 4; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    assert.ok(selfCalls >= 1, 'App 挂载后应请求 self.json')
+    assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), 'act-1', '显示后应记录 lastSeenActionId')
+    tree = renderMain()
+    let card = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-spont'))[0]
+    assert.ok(card, 'spont not found; hasText=' + textOf(tree).includes('伸个懒腰') + '; classes=' + JSON.stringify(findAll(tree, (n) => typeof n.props.className === 'string' && n.props.className.indexOf('dshp-spont') >= 0).map((n) => n.props.className)))
+    assert.match(textOf(card), /自己/)
+    assert.match(textOf(card), /伸个懒腰。/)
+    tree = await runSixty()
+    assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), 'act-1')
+    action = { id: 'act-2', label: '看窗外', text: '看看窗外。', at: shanghaiTs(2026, 10, 23, 22, 5) }
+    tree = await runSixty()
+    card = findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-spont'))[0]
+    assert.ok(card)
+    assert.match(textOf(card), /看看窗外。/)
+    assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), 'act-2')
+    const beforeHidden = selfCalls
+    context.document.visibilityState = 'hidden'
+    tree = await runSixty()
+    assert.equal(selfCalls, beforeHidden, '页面隐藏时 self.json 轮询跳过')
+    context.document.visibilityState = 'visible'
+    selfMode = '404'
+    tree = await runSixty()
+    assert.ok(!textOf(tree).includes('失败'))
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('自主行为：页面隐藏时暂存最新 action，回可见后只显示最新 1 条', async () => {
+  const dataVersion = 'test.actions.hidden.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const action = { id: 'hidden-1', label: '打哈欠', text: '悄悄打个哈欠。', at: shanghaiTs(2026, 10, 23, 22, 30) }
+  let firstResolve = null
+  let first = true
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self.json') >= 0) {
+      const payload = { ok: true, state: { energy: 10 }, actions: { latest: action, recent: [action] } }
+      if (first) {
+        first = false
+        return new Promise((resolve) => { firstResolve = () => resolve({ ok: true, json: async () => payload }) })
+      }
+      return { ok: true, json: async () => payload }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const { react, context, debug, storage } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const listeners = []
+  context.document.addEventListener = (type, fn) => { listeners.push({ type, fn }) }
+  context.document.removeEventListener = () => {}
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const hasActionCard = (tree) => Boolean(findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-spont'))[0])
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    react._runEffects()
+    await sleep(20)
+    context.document.visibilityState = 'hidden'
+    assert.ok(firstResolve)
+    firstResolve()
+    await sleep(20)
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.equal(hasActionCard(tree), false, '隐藏时不应显示 action 气泡')
+    assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), null, '隐藏时不应标记已读')
+    context.document.visibilityState = 'visible'
+    for (const item of listeners.filter((entry) => entry.type === 'visibilitychange')) item.fn()
+    await sleep(20)
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.ok(hasActionCard(tree), '回可见后应显示暂存的最新 action')
+    assert.match(textOf(findAll(tree, (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-spont'))[0]), /悄悄打个哈欠。/)
+    assert.equal(storage.getItem(debug.ACTION_SEEN_KEY), 'hidden-1')
   } finally {
     react._cleanup()
   }

@@ -133,6 +133,17 @@ import {
   parseReflectResult,
 } from '../lib/self-growth.mjs'
 import {
+  SELF_ACTION_LABELS,
+  SELF_ACTION_TEXTS,
+  SELF_ACTIONS_MAX_ENTRIES,
+  SELF_ACTIONS_MIN_GAP_MS,
+  chooseSelfAction,
+  createSelfActions,
+  normalizeSelfAction,
+  normalizeSelfActionsFile,
+  resolveSelfActionsPath,
+} from '../lib/self-actions.mjs'
+import {
   SELF_STATE_DEFAULTS,
   SELF_STATE_MAX_TICK_MINUTES,
   SELF_STATE_ROUTE,
@@ -5435,6 +5446,7 @@ function seedMemoryFiles(paths, overrides = {}) {
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
     'experience.json': JSON.stringify({ title: '海上钢琴师', kind: 'video', emotion: 'touched', at: 1700000000000 }),
     'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
+    'self-actions.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, actions: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 1700000000000 }] }),
   }
   for (const [id, content] of Object.entries(files)) {
     const entry = paths.files.find((file) => file.id === id)
@@ -5475,15 +5487,16 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 9 个核心文件（含可选 voice.json）', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 10 个核心文件（含可选 voice.json/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json', 'self-actions.json'],
   )
+  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
   assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
   assert.equal(paths.files[3].optional, true)
@@ -5496,7 +5509,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 9)
+  assert.equal(healthy.files.length, 10)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
@@ -5529,7 +5542,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 8, '只复制存在的 8 个文件（README 缺失）')
+  assert.equal(first.backup.files, 9, '只复制存在的 9 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -5660,7 +5673,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 9)
+  assert.equal(get.json().files.length, 10)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)
@@ -6461,6 +6474,272 @@ test('self-talk M45：voice 为空时兜底触发 refreshVoice（≥5min 节流�
   })
   const ok = await throwing.generate({})
   assert.equal(ok.ok, true, 'refreshVoice 抛异常不影响生成')
+})
+
+// ---------------------------------------------------------------------------
+// M46：自主行为循环（需求阈值 → 吃喝玩乐睡/醒 → 动作记忆）
+// ---------------------------------------------------------------------------
+
+function makeActionState(initial = {}) {
+  let snapshot = {
+    energy: 50,
+    curiosity: 0,
+    social: 0,
+    hunger: 0,
+    thirst: 0,
+    moodValence: 0,
+    moodArousal: 45,
+    sleeping: false,
+    sleepSince: null,
+    lastActionAt: null,
+    ...initial,
+  }
+  const applied = []
+  return {
+    state: {
+      snapshot: () => ({ ...snapshot }),
+      applyEvent(kind, at) {
+        applied.push(kind)
+        snapshot = { ...snapshot, lastActionAt: at }
+      },
+    },
+    applied,
+    update(patch) {
+      snapshot = { ...snapshot, ...patch }
+    },
+    get current() {
+      return snapshot
+    },
+  }
+}
+
+function writeActionsFile(file, actions) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify({ ok: true, v: 1, updatedAt: Date.now(), actions }), 'utf8')
+  return file
+}
+
+test('self-state M46：thirst/sleeping 新字段、睡眠恢复、drink/sleep/wake 事件', () => {
+  const now = 1700000000000
+  const base = defaultSelfState(now)
+  assert.equal(base.thirst, SELF_STATE_DEFAULTS.thirst)
+  assert.equal(SELF_STATE_DEFAULTS.thirst, 40)
+  assert.equal(base.sleeping, false)
+  assert.equal(base.sleepSince, null)
+  assert.equal(base.lastDrinkAt, null)
+  assert.equal(base.lastWakeAt, null)
+  assert.equal(base.lastActionAt, null)
+
+  // 醒着：thirst +0.2/min
+  const awake = advanceSelfState(base, now + 10 * 60 * 1000)
+  assert.equal(awake.thirst, 42)
+  assert.equal(awake.energy, 68) // 70 - 2
+
+  // 睡眠中：energy +0.6/min、hunger/thirst 增速减半
+  const sleepingState = { ...base, sleeping: true, energy: 50, hunger: 35, thirst: 40 }
+  const slept = advanceSelfState(sleepingState, now + 10 * 60 * 1000)
+  assert.equal(slept.energy, 56)
+  assert.equal(slept.hunger, 36.3) // 35 + 0.25*0.5*10 = 36.25，clamp 保留 1 位小数
+  assert.equal(slept.thirst, 41) // 40 + 0.2*0.5*10
+  assert.equal(slept.sleeping, true, 'tick 不清醒睡眠标记')
+
+  const drink = applySelfEvent({ ...base, thirst: 70 }, 'drink', now)
+  assert.equal(drink.thirst, 0)
+  assert.equal(drink.lastDrinkAt, now)
+  assert.equal(drink.lastActionAt, now)
+
+  const sleep = applySelfEvent(base, 'sleep', now)
+  assert.equal(sleep.sleeping, true)
+  assert.equal(sleep.sleepSince, now)
+  assert.equal(sleep.lastActionAt, now)
+
+  const wake = applySelfEvent({ ...base, sleeping: true }, 'wake', now)
+  assert.equal(wake.sleeping, false)
+  assert.equal(wake.lastWakeAt, now)
+
+  const eat = applySelfEvent({ ...base, hunger: 80 }, 'eat', now)
+  assert.equal(eat.hunger, 50)
+  assert.equal(eat.energy, 80) // 默认 70 + 10
+  assert.equal(eat.lastMealAt, now)
+
+  const play = applySelfEvent({ ...base, curiosity: 90 }, 'actPlay', now)
+  assert.equal(play.curiosity, 60)
+  assert.equal(play.moodValence, 15)
+
+  const socialize = applySelfEvent({ ...base, social: 90 }, 'socialize', now)
+  assert.equal(socialize.social, 65)
+  assert.equal(socialize.moodValence, 10)
+
+  // snapshot 含新字段
+  const snapshot = applySelfEvent({ ...base, thirst: 55, sleeping: true, sleepSince: now }, 'drink', now)
+  assert.equal(snapshot.thirst, 0)
+  const service = createSelfState({ file: path.join(makeTmpDir('dshp-state-m46'), 'self-state.json'), now: () => now })
+  assert.equal(service.snapshot().sleeping, false)
+  assert.equal(service.snapshot().thirst, 40)
+  service.dispose()
+})
+
+test('self-actions M46：chooseSelfAction 阈值与优先级（睡觉优先，然后 吃→喝→玩→冒泡）', () => {
+  assert.equal(chooseSelfAction({ sleeping: true, energy: 80 }), 'wake')
+  assert.equal(chooseSelfAction({ sleeping: true, energy: 74 }), null)
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 20, hunger: 90 }), 'sleep', '低精力优先睡觉')
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 50, hunger: 75 }), 'eat')
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 50, hunger: 74, thirst: 70 }), 'drink')
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 50, hunger: 74, thirst: 69, curiosity: 80 }), 'play')
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 50, curiosity: 79, social: 80 }), 'socialize')
+  assert.equal(chooseSelfAction({ sleeping: false, energy: 50, curiosity: 79, social: 79 }), null)
+  // 同时超阈值时按优先级
+  const all = { sleeping: false, energy: 50, hunger: 90, thirst: 90, curiosity: 90, social: 90 }
+  assert.equal(chooseSelfAction(all), 'eat')
+})
+
+test('self-actions M46：tick 触发吃/喝/玩/冒泡/睡/醒，文案与落盘结构', async () => {
+  const dir = makeTmpDir('dshp-actions')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  const now = 1700000000000
+
+  // 吃
+  const eating = makeActionState({ hunger: 90 })
+  const eatService = createSelfActions({ state: eating.state, actionsPath, logger: { warn() {}, info() {} }, now: () => now })
+  const eatResult = eatService.tick(now)
+  assert.equal(eatResult.ok, true)
+  assert.equal(eatResult.action.kind, 'eat')
+  assert.equal(eatResult.action.label, SELF_ACTION_LABELS.eat)
+  assert.equal(eatResult.action.text, SELF_ACTION_TEXTS.eat)
+  assert.equal(eatResult.action.at, now)
+  assert.equal(eatResult.action.id.startsWith(`act-${now}-`), true)
+  assert.deepEqual(eating.applied, ['eat'], 'eat 对应 applyEvent eat')
+  const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8'))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.v, 1)
+  assert.equal(saved.actions.length, 1)
+  assert.deepEqual(saved.actions[0], eatResult.action)
+
+  // minGap：3min 内不再动作
+  const gap = eatService.tick(now + 60 * 1000)
+  assert.equal(gap.ok, true)
+  assert.equal(gap.skipped, true)
+  assert.equal(gap.reason, 'min-gap')
+  // 满 3min 且需求仍在 → 再吃
+  const afterGap = eatService.tick(now + SELF_ACTIONS_MIN_GAP_MS)
+  assert.equal(afterGap.ok, true)
+  assert.equal(afterGap.action.kind, 'eat')
+
+  // 喝 / 玩 / 冒泡
+  const drinking = makeActionState({ thirst: 80 })
+  const drinkService = createSelfActions({ state: drinking.state, actionsPath: path.join(dir, 'a-drink.json'), logger: { warn() {} }, now: () => now })
+  assert.equal(drinkService.tick(now).action.kind, 'drink')
+  assert.deepEqual(drinking.applied, ['drink'])
+
+  const playing = makeActionState({ curiosity: 90 })
+  const playService = createSelfActions({ state: playing.state, actionsPath: path.join(dir, 'a-play.json'), logger: { warn() {} }, now: () => now })
+  assert.equal(playService.tick(now).action.kind, 'play')
+  assert.deepEqual(playing.applied, ['actPlay'])
+
+  const social = makeActionState({ social: 95 })
+  const socialService = createSelfActions({ state: social.state, actionsPath: path.join(dir, 'a-social.json'), logger: { warn() {} }, now: () => now })
+  const socialAction = socialService.tick(now).action
+  assert.equal(socialAction.kind, 'socialize')
+  assert.equal(socialAction.text, SELF_ACTION_TEXTS.socialize)
+  assert.match(socialAction.text, /冒个泡/)
+  assert.deepEqual(social.applied, ['socialize'])
+
+  // 睡觉 / 醒来（睡眠动作也受 minGap 约束）
+  const sleepy = makeActionState({ energy: 15 })
+  const sleepService = createSelfActions({ state: sleepy.state, actionsPath: path.join(dir, 'a-sleep.json'), logger: { warn() {} }, now: () => now })
+  assert.equal(sleepService.tick(now).action.kind, 'sleep')
+  assert.deepEqual(sleepy.applied, ['sleep'])
+  sleepy.update({ sleeping: true, energy: 80, lastActionAt: now })
+  assert.equal(sleepService.tick(now + SELF_ACTIONS_MIN_GAP_MS).action.kind, 'wake')
+  assert.deepEqual(sleepy.applied, ['sleep', 'wake'])
+
+  // 无需求 → skipped no-need，不写文件
+  const idle = makeActionState({})
+  const idleService = createSelfActions({ state: idle.state, actionsPath: path.join(dir, 'a-idle.json'), logger: { warn() {} }, now: () => now })
+  const idleResult = idleService.tick(now)
+  assert.equal(idleResult.skipped, true)
+  assert.equal(idleResult.reason, 'no-need')
+  assert.equal(fs.existsSync(path.join(dir, 'a-idle.json')), false)
+})
+
+test('self-actions M46：环形 50 条/load 已有动作/坏文件/快照 latest+recent5', () => {
+  const dir = makeTmpDir('dshp-actions-ring')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  const now = 1700000000000
+
+  // 环形保留：maxEntries=3，连续 4 个动作
+  const stub = makeActionState({ hunger: 90 })
+  const service = createSelfActions({
+    state: stub.state,
+    actionsPath,
+    logger: { warn() {} },
+    now: () => now,
+    maxEntries: 3,
+  })
+  for (let index = 0; index < 4; index += 1) {
+    const at = now + index * SELF_ACTIONS_MIN_GAP_MS
+    const result = service.tick(at)
+    assert.equal(result.ok, true)
+    stub.update({ hunger: 90, lastActionAt: at })
+  }
+  const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8'))
+  assert.equal(saved.actions.length, 3, '环形保留 maxEntries')
+  const snapshot = service.snapshot()
+  assert.equal(snapshot.latest.at, now + 3 * SELF_ACTIONS_MIN_GAP_MS)
+  assert.equal(snapshot.recent.length, 3)
+  assert.equal(snapshot.recent[0].at, saved.actions[2].at, 'recent 最新在前')
+
+  // load 已有动作
+  const restored = createSelfActions({ state: makeActionState({}).state, actionsPath, logger: { warn() {} }, now: () => now })
+  const loadResult = restored.load()
+  assert.equal(loadResult.ok, true)
+  assert.equal(loadResult.count, 3)
+  assert.equal(restored.snapshot().recent.length, 3)
+
+  // 坏文件/缺失 → 空、不抛
+  fs.writeFileSync(actionsPath, 'not json', 'utf8')
+  assert.equal(restored.load().ok, false)
+  assert.equal(restored.snapshot().latest, null)
+  const missing = createSelfActions({ state: makeActionState({}).state, actionsPath: path.join(dir, 'none.json'), logger: { warn() {} } })
+  assert.equal(missing.load().ok, false)
+  assert.deepEqual(missing.snapshot(), { latest: null, recent: [] })
+
+  // 校验函数
+  assert.equal(normalizeSelfAction({ id: 'x', kind: 'eat', label: '吃', text: 'x', at: 1 }).id, 'x')
+  assert.equal(normalizeSelfAction({ id: '', kind: 'eat', at: 1 }), null)
+  assert.equal(normalizeSelfAction({ id: 'x', kind: 'dance', at: 1 }), null)
+  assert.equal(normalizeSelfActionsFile({ ok: true, v: 1, actions: [{ id: 'a', kind: 'eat', at: 1 }, { bad: true }] }).length, 1)
+  assert.deepEqual(normalizeSelfActionsFile({ ok: false, v: 1, actions: [] }), [])
+  assert.equal(SELF_ACTIONS_MAX_ENTRIES, 50)
+})
+
+test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,recent}', async () => {
+  const actions = {
+    latest: { id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 123 },
+    recent: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 123 }],
+  }
+  const handler = createSelfStateHandler({
+    tick: () => {},
+    getSnapshot: () => ({ energy: 50, thirst: 41, sleeping: false, sleepSince: null }),
+    getGrowth: () => ({ learnings: 1, reflections: 2, lastLearnAt: null, lastReflectAt: null }),
+    getActions: () => actions,
+  })
+  const response = new MockResponse()
+  await handler(mockRequest({ url: SELF_STATE_ROUTE }), response)
+  await response.finished()
+  assert.equal(response.json().ok, true)
+  assert.equal(response.json().state.thirst, 41)
+  assert.equal(response.json().state.sleeping, false)
+  assert.equal(response.json().state.sleepSince, null)
+  assert.deepEqual(response.json().actions.latest, actions.latest)
+  assert.equal(response.json().actions.recent.length, 1)
+
+  // 没有 getActions 时仍有空结构
+  const bare = createSelfStateHandler({ tick: () => {}, getSnapshot: () => ({}) })
+  const bareResponse = new MockResponse()
+  await bare(mockRequest({ url: SELF_STATE_ROUTE }), bareResponse)
+  await bareResponse.finished()
+  assert.deepEqual(bareResponse.json().actions, { latest: null, recent: [] })
 })
 
 // ---------------------------------------------------------------------------

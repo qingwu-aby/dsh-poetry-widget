@@ -29,6 +29,7 @@ window.__ModuleLoader__.load({
   const ROUTE = '/api/dsh-poetry/'
   const SELF_PATH = 'self.json'
   const SELF_POLL_MS = 60 * 1000
+  const ACTION_SEEN_KEY = 'dshp-action-seen-v1'
   const MEMORY_PATH = 'memory.json'
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
   const MEMORY_POLL_MS = 60 * 1000
@@ -1893,13 +1894,17 @@ window.__ModuleLoader__.load({
    const value = num(growth[key], 0)
    return value > 0 ? value : 0
   }
+  const rawActions = data.actions && typeof data.actions === 'object' ? data.actions : {}
   return {
    energy: clampMetric('energy'),
    curiosity: clampMetric('curiosity'),
    social: clampMetric('social'),
    hunger: clampMetric('hunger'),
+   thirst: clampMetric('thirst'),
    moodValence: clampMetric('moodValence'),
    moodArousal: clampMetric('moodArousal'),
+   sleeping: state.sleeping === true,
+   sleepSince: num(state.sleepSince, 0),
    updatedAt: num(state.updatedAt, 0),
    growth: {
     learnings: count('learnings'),
@@ -1907,6 +1912,39 @@ window.__ModuleLoader__.load({
     lastLearnAt: at('lastLearnAt'),
     lastReflectAt: at('lastReflectAt'),
    },
+   actions: {
+    latest: normalizeSelfAction(rawActions.latest),
+    recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5),
+   },
+  }
+  }
+
+  function normalizeSelfAction(item) {
+  if (!item || typeof item !== 'object' || item.id == null || item.id === '') return null
+  return {
+   id: String(item.id),
+   label: String(item.label == null ? '' : item.label).slice(0, 40),
+   text: String(item.text == null ? '' : item.text).slice(0, 200),
+   at: num(item.at, 0),
+  }
+  }
+
+  function readSeenActionId() {
+  const storage = getStorage()
+  if (!storage) return ''
+  try {
+   return String(storage.getItem(ACTION_SEEN_KEY) || '')
+  } catch (error) {
+   return ''
+  }
+  }
+
+  function writeSeenActionId(id) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(ACTION_SEEN_KEY, String(id == null ? '' : id))
+  } catch (error) {
   }
   }
 
@@ -1978,6 +2016,7 @@ window.__ModuleLoader__.load({
    ['curiosity', '好奇'],
    ['social', '社交'],
    ['hunger', '饥饿'],
+   ['thirst', '口渴'],
   ]
   return h(
    'div',
@@ -3273,6 +3312,11 @@ window.__ModuleLoader__.load({
   '.dshp-growth-quote{font-family:"Noto Serif SC","Songti SC",serif;font-size:13px;line-height:1.6;color:var(--dshp-label);padding:4px 0;border-bottom:1px dashed var(--dshp-border)}',
   '.dshp-growth-quote:last-child{border-bottom:0}',
   '.dshp-growth-empty{font-size:12px;color:var(--dshp-label-2)}',
+  '.dshp-growth-sleep{font-size:12px;color:var(--dshp-accent);margin-bottom:2px}',
+  '.dshp-growth-action{display:flex;gap:8px;font-size:12px;line-height:1.55;padding:3px 0;border-bottom:1px dashed var(--dshp-border)}',
+  '.dshp-growth-action:last-child{border-bottom:0}',
+  '.dshp-growth-action-time{flex:none;color:var(--dshp-label-2);font-variant-numeric:tabular-nums}',
+  '.dshp-growth-action-text{color:var(--dshp-label);min-width:0;word-break:break-word}',
   '.dshp-growth-actions{display:flex;gap:6px;flex-wrap:wrap;padding-top:2px}',
   '.dshp-growth-mood-controls{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:7px;border-top:1px solid var(--dshp-border)}',
   '.dshp-growth-mood-control-label{font-size:12px;color:var(--dshp-label-2)}',
@@ -3451,7 +3495,7 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
-  SELF_PATH, SELF_POLL_MS, MEMORY_PATH, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, normalizeMemoryStatus, normalizeSelfStatus, selfStatusSummary,
+  SELF_PATH, SELF_POLL_MS, ACTION_SEEN_KEY, readSeenActionId, writeSeenActionId, normalizeSelfAction, MEMORY_PATH, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, normalizeMemoryStatus, normalizeSelfStatus, selfStatusSummary,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
@@ -3802,6 +3846,8 @@ window.__ModuleLoader__.load({
   const spontReqRef = React.useRef(0)
   const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
   const recentSpokenRef = React.useRef([])
+  const pendingActionRef = React.useRef(null)
+  const lastSeenActionIdRef = React.useRef(readSeenActionId())
   spontPoemRef.current = spontPoem
   mascotPulseRef.current = mascotPulse
   mascotExpressionRef.current = mascotExpression
@@ -4483,9 +4529,14 @@ window.__ModuleLoader__.load({
    }
   }, [moodCatalog])
   React.useEffect(() => {
-   if (!settings.spontaneousPoem || settings.hidden) {
+   if (settings.hidden) {
     spontReqRef.current += 1
     setSpontPoem(null)
+    return undefined
+   }
+   if (!settings.spontaneousPoem) {
+    spontReqRef.current += 1
+    setSpontPoem((current) => (current && current.tag === 'action' ? current : null))
     return undefined
    }
    let cancelled = false
@@ -5050,7 +5101,7 @@ window.__ModuleLoader__.load({
    if (opts.record === true && opts.state) {
     writeSpontState(recordSpontShown(opts.state, card.id, Date.now(), card.type, card.tag || card.kind || ''))
    }
-   rememberSpoken(card)
+   if (opts.remember !== false) rememberSpoken(card)
    setSpontPreview(opts.preview === true)
    setSpontPoem(card)
    return card
@@ -5812,12 +5863,8 @@ window.__ModuleLoader__.load({
    if (mealTimerRef.current) clearTimeout(mealTimerRef.current)
   }, [])
 
-  // 成长状态：仅设置面板打开时轮询 self.json（隐藏跳过、失败静默、不阻塞其它资源）
+  // 成长状态 + 自主行为：App 级 60s 轮询 self.json（页面隐藏跳过、失败静默）
   React.useEffect(() => {
-   if (!panelOpen || settings.hidden) {
-    setSelfStatus(null)
-    return undefined
-   }
    let alive = true
    const load = () => {
     if (!alive) return
@@ -5840,7 +5887,41 @@ window.__ModuleLoader__.load({
     clearInterval(timer)
     if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
    }
-  }, [panelOpen, settings.hidden])
+  }, [])
+
+  function showSelfAction(action) {
+   if (!action || !action.id) return
+   lastSeenActionIdRef.current = action.id
+   writeSeenActionId(action.id)
+   showSpontCard(
+    { id: 'action:' + action.id, type: 'murmur', title: '自己', line: String(action.text || action.label || ''), tag: 'action' },
+    { preview: true, record: false, remember: false },
+   )
+  }
+
+  React.useEffect(() => {
+   const latest = selfStatus && selfStatus.actions ? selfStatus.actions.latest : null
+   if (!latest || !latest.id) return
+   if (lastSeenActionIdRef.current === latest.id) return
+   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    pendingActionRef.current = latest
+    return
+   }
+   showSelfAction(latest)
+  }, [selfStatus])
+
+  React.useEffect(() => {
+   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+   const onVisibility = () => {
+    if (document.visibilityState === 'hidden') return
+    const pending = pendingActionRef.current
+    if (!pending) return
+    pendingActionRef.current = null
+    showSelfAction(pending)
+   }
+   document.addEventListener('visibilitychange', onVisibility)
+   return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
 
   // 记忆中枢：仅面板打开且停在成长 tab 时轮询 memory.json（隐藏跳过、失败静默）
   React.useEffect(() => {
@@ -6941,6 +7022,7 @@ window.__ModuleLoader__.load({
     ? moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : '')
     : ''
    const memoryLabels = { ok: '健康', warn: '注意', error: '异常' }
+   const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : []
    return h(
     'div',
     { className: 'dshp-growth' },
@@ -6966,7 +7048,23 @@ window.__ModuleLoader__.load({
      'div',
      { className: 'dshp-growth-section' },
      h('div', { className: 'dshp-growth-section-head' }, '内在状态'),
+     status && status.sleeping
+      ? h('div', { className: 'dshp-growth-sleep' }, '睡眠中' + (status.sleepSince ? ' · 自 ' + weatherUpdatedLabel(status.sleepSince) : ''))
+      : null,
      growthMetricsTree(status),
+    ),
+    h(
+     'div',
+     { className: 'dshp-growth-section' },
+     h('div', { className: 'dshp-growth-section-head' }, '自主行为'),
+     recentActions.length
+      ? recentActions.map((item, index) => h(
+       'div',
+       { className: 'dshp-growth-action', key: 'action-' + (item.id || index) },
+       h('span', { className: 'dshp-growth-action-time' }, weatherUpdatedLabel(item.at) || '--:--'),
+       h('span', { className: 'dshp-growth-action-text' }, (item.label ? item.label + ' · ' : '') + String(item.text || '')),
+      ))
+      : h('div', { className: 'dshp-growth-empty' }, '还没有自己行动'),
     ),
     memory
      ? h(
