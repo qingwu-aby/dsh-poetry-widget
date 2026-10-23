@@ -398,7 +398,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 | `data/ci.json` | ≤ 220 KB |
 | `data/yun.json` | ≤ 80 KB |
 | `data/knowledge.json` | ≤ 90 KB |
-| `client.js`（含内联样式，M6–M19 全部功能） | ≤ 335 KB |
+| `client.js`（含内联样式，M6–M20 全部功能） | ≤ 340 KB |
 | 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
 | 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
 
@@ -440,6 +440,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.14（2026-10-23，M20）**：心情实时化——Client 去掉 15min 定时与 10min 分钟级限频，改为**事件驱动**（消息/工具/报错/面板/self-talk/飞花/天气/回前台/时段饭点等，2–4s 防抖，in-flight pending 合并），请求固定 `force=1` 绕过宿主机 10min 缓存；失败静默回退启发式。宿主的 3s 最小生成间隔仍作为防抖兜底。
 - **v1.13（2026-10-23，M19）**：心情多样性——mood-ai 每次打乱图鉴、提示词优先选 video 动画、`recentImages` 上限 5→20 并从图鉴剔除；Client 心情刷新 30→15 分钟，新增「小动作」层：心情之间每 3–6 分钟按**轮转顺序**播放 106 个 webm 里的下一个（15–25s）后回心情图，优先级 `pulse > panel > expression > motion > mood`，面板/隐藏时暂停，保证全部动画都会露脸。
 - **v1.12（2026-10-23，M18）**：新增心情动画素材（dsh-pet 106 个 MIT webm，`_ref/pet-media/` 不随包）；Host 静态路由 `GET /api/dsh-poetry/pet-media` + 启动时把视频并入 mood-ai 图鉴；Client 支持 `<video>` 立绘渲染与失败回退。
 - **v1.11（2026-10-21，M17）**：飞花令判定出处扩到**全量诗词**（新增 `GET /api/dsh-poetry/feihua-full.json` 按令字分片路由 + `scripts/build-feihua-full.mjs`；数据位于 `_ref/` 不随包，缺失时回退本地句库）。

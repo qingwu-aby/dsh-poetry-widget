@@ -11,8 +11,8 @@
 | A1 | `node --check` 全部 JS | ✅ | index.js / lib/*.mjs / client.js（含飞花令）/ scripts / tests 全过 |
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
 | A3 | `node --test tests/host.test.mjs` | ✅ | 117 pass / 0 fail（+心情多样性 6） |
-| A4 | `node --test tests/client.test.mjs` | ✅ | 98 pass / 0 fail（+15min 刷新/小动作轮转） |
-| A5 | 三套合计 | ✅ | **257 tests / 257 pass / 0 fail**（data 42 / host 117 / client 98） |
+| A4 | `node --test tests/client.test.mjs` | ✅ | 99 pass / 0 fail（+实时事件驱动心情） |
+| A5 | 三套合计 | ✅ | **258 tests / 258 pass / 0 fail**（data 42 / host 117 / client 99） |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |
 | A7 | `node tests/integration/verify.mjs` | ✅ | **64/64 passed, 0 failed, 10 warnings（栅栏 401 属预期；含 4 份 assets/data 资产）** |
 | A8 | 数据构建可复现 | ✅ | 连续两次构建 4 个数据文件 sha256 一致 |
@@ -47,7 +47,7 @@
 | C13 | 形象随天气切换（晴/云/雨/雪/雷/冷/夜） | ✅ | 用户确认「形象随天气切换正常」；92 张本地立绘（12.69MB，MIT） |
 | C14 | 设置城市/按天气选诗开关/刷新天气 | ✅ | 用户确认「城市/开关/刷新正常」；设置持久化到 settings.json |
 | C15 | 飞花令输赢/思考立绘反馈 | ✅ | 用户确认「飞花令立绘反馈正常」（2.5s 后回天气/默认） |
-| C16 | 心情 chip + 心情理由/刷新心情 | ✅ | 用户确认模型生成心情与理由；失败回退启发式；设置显示来源与强制刷新 |
+| C16 | 心情 chip + 心情理由/刷新心情（**实时事件驱动**：聊天/工具/报错/面板/自语/飞花/天气/回前台/时段饭点，2–4s 防抖，无固定间隔，force=1） | ✅ | 用户要求「心情实时变化，不需要间隔」；client 99 测试覆盖事件/防抖/in-flight pending/失败回退 |
 | C17 | 心情立绘：92 静态 + 106 dsh-pet webm；mood-ai 优先动画且避开最近 20 张，15min 刷新；心情之间每 3–6min 轮转播放动画（15–25s） | ✅ | 用户反馈「图像没怎么更新/动图没用到」后修复；journal 统计 41 次心情仅 8 次视频且只有 2 个动画；client 98 / host 117 测试覆盖轮转与多样性 |
 | C18 | 自言自语（**纯模型随想**，不背诗/不引诗；**无时间闸门**：20–40s 轮询 + 事件唤醒、3s 安静、一卡制、25s 自动关、无每日次数；失败回退本地随想池；可关/预览） | ✅ | 用户要求「不限制时间、随时随地」；client 88 测试覆盖随时触发/一卡制/事件唤醒/后台不弹；Host prompt 禁止引诗 |
 | C19 | 诗库 tab（7 tab；分类/搜索/分页/详情，5,224 首） | ✅ | 用户验收；data 41 项 + client 59 项测试覆盖真实数据渲染 |

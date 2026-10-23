@@ -3831,28 +3831,27 @@ test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentIma
   assert.equal(debug.parseMoodAiResponse({ ok: true, mood: null }, catalog).ok, false)
 })
 
-test('mood-ai 限频/显著事件纯函数：10min 最小间隔、force 绕过、消息+3/工具+50/报错/天气/飞花触发', () => {
+test('实时心情：2–4s 防抖、无 15min/10min 定时常量、时段/饭点桶', () => {
   const { debug } = loadClient()
-  const now = shanghaiTs(2026, 10, 21, 15, 0)
-  assert.equal(debug.canRequestMoodAi(0, now, false), true)
-  assert.equal(debug.canRequestMoodAi(now - 9 * 60 * 1000, now, false), false)
-  assert.equal(debug.canRequestMoodAi(now - 10 * 60 * 1000, now, false), true)
-  assert.equal(debug.canRequestMoodAi(now - 60 * 1000, now, true), true, 'force 绕过最小间隔')
-  assert.equal(debug.MOOD_AI_MIN_INTERVAL_MS, 10 * 60 * 1000)
-  assert.equal(debug.MOOD_AI_REFRESH_MS, 15 * 60 * 1000)
-
+  assert.equal(debug.MOOD_AI_DEBOUNCE_MIN_MS, 2000)
+  assert.equal(debug.MOOD_AI_DEBOUNCE_MAX_MS, 4000)
+  const low = debug.nextMoodAiDebounceDelay(() => 0)
+  const high = debug.nextMoodAiDebounceDelay(() => 0.999999)
+  assert.equal(low, 2000)
+  assert.ok(high <= 4000 && high >= 3900)
+  for (const name of ['MOOD_AI_REFRESH_MS', 'MOOD_AI_MIN_INTERVAL_MS', 'canRequestMoodAi']) {
+    assert.equal(typeof debug[name], 'undefined', '定时/分钟限频应删除：' + name)
+  }
+  const morning = debug.moodTimeBucket(shanghaiTs(2026, 10, 21, 8, 0))
+  const noon = debug.moodTimeBucket(shanghaiTs(2026, 10, 21, 12, 0))
+  const night = debug.moodTimeBucket(shanghaiTs(2026, 10, 21, 23, 0))
+  assert.match(morning, /morning\|meal/)
+  assert.match(noon, /noon\|meal/)
+  assert.match(night, /night\|offmeal/)
+  assert.notEqual(morning, noon, '时段/饭点切换应可触发事件')
   const base = debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)
-  assert.equal(debug.isMoodAiSignificant(null, base), false)
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 4, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)), false, '消息+2 不触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 5, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)), true, '消息+3 触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 60, toolErrors: 0 }, { category: 'clear' }, 0, 0)), true, '工具+50 触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 59, toolErrors: 0 }, { category: 'clear' }, 0, 0)), false)
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 1 }, { category: 'clear' }, 0, 0)), true, '报错增加触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'rain' }, 0, 0)), true, '天气变化触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 1, 0)), true, '飞花令胜利触发')
-  assert.equal(debug.isMoodAiSignificant(base, debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 1)), true, '飞花令失败触发')
+  assert.equal(base.userMessages, 2)
 })
-
 test('mood-ai 请求：成功/未知图/404/401/ok:false/非法 JSON/超时全部静默回退', async () => {
   const catalog = makeMoodCatalogFixture()
   const normalized = (loadClient().debug.normalizeMoodCatalog(catalog))
@@ -3940,7 +3939,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
       await sleep(20)
       tree = renderMain()
     }
-    await sleep(50)
+    await sleep(4300) // 实时心情 2–4s 防抖
     tree = renderMain()
     assert.ok(moodAiCalls.length >= 1, '图鉴加载后应请求 mood-ai')
     const firstUrl = moodAiCalls[0]
@@ -4679,7 +4678,7 @@ test('pet-media 视频立绘：mood-ai 返回 webm → <video> 属性/URL 编码
       await sleep(20)
       tree = renderMain()
     }
-    await sleep(50)
+    await sleep(4300) // 实时心情 2–4s 防抖
     tree = renderMain()
     const video = findAll(tree, (node) => node.type === 'video')[0]
     assert.ok(video, '模型返回 webm 时应渲染 <video>')
@@ -4782,8 +4781,10 @@ test('pet-media 失败/旧宿主：mood-ai 返回 webm 时按未知图回退启�
 
 test('小动作：3–6min 随机、15–25s、轮转顺序覆盖全部 106 个、持久化、优先级', () => {
   const { debug, storage } = loadClient()
-  assert.equal(debug.MOOD_AI_REFRESH_MS, 15 * 60 * 1000, '心情刷新改为 15min')
+  assert.equal(typeof debug.MOOD_AI_REFRESH_MS, 'undefined', '定时刷新已删除')
   assert.equal(debug.MOOD_AI_RECENT_IMAGES_MAX, 20, 'recentImages 保留最近 20')
+  assert.equal(debug.MOOD_AI_DEBOUNCE_MIN_MS, 2000)
+  assert.equal(debug.MOOD_AI_DEBOUNCE_MAX_MS, 4000)
   assert.equal(debug.MOTION_MIN_DELAY_MS, 3 * 60 * 1000)
   assert.equal(debug.MOTION_MAX_DELAY_MS, 6 * 60 * 1000)
   assert.equal(debug.MOTION_PLAY_MIN_MS, 15 * 1000)
@@ -4925,7 +4926,7 @@ test('小动作集成：轮转到下一个 webm 播放 15–25s 后回心情图�
     video = videoNode(tree)
     assert.equal(video, undefined, '播放结束后回心情图')
     let img = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(img && String(img.props.src).includes('dsh-whale-state-abstract.webp'))
+    assert.ok(img, '动作结束应显示当前心情静态图')
 
     // 下一轮轮转 + onError 跳过动作
     delayTimer = findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS)
@@ -4958,6 +4959,164 @@ test('小动作集成：轮转到下一个 webm 播放 15–25s 后回心情图�
     assert.equal(videoNode(tree), undefined, '面板打开应结束动作')
     const panelImg = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(panelImg && String(panelImg.props.src).includes('dsh-whale-home-peek.webp'))
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-flight pending 补发、失败回退', async () => {
+  const dataVersion = 'test.realtime.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'rt-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'rt-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  let mode = 'ok'
+  let moodAiCalls = []
+  let deferredResolve = null
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      moodAiCalls.push(raw)
+      if (mode === 'deferred') return new Promise((resolve) => { deferredResolve = () => resolve({ ok: true, json: async () => ({ ok: true, mood: { label: '实时心情', image: 'dsh-whale-state-abstract.webp', reason: '刚更新' } }) }) })
+      if (mode === 'fail') return { ok: true, json: async () => ({ ok: false, error: { code: 'MOOD_AI_UNAVAILABLE' } }) }
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '实时心情', image: 'dsh-whale-state-abstract.webp', reason: '刚更新' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    if (raw.indexOf('pet-media') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const timers = []
+  context.setTimeout = (fn, ms) => {
+    const id = timers.length + 1
+    timers.push({ id, fn, ms, cancelled: false })
+    return id
+  }
+  context.clearTimeout = (id) => {
+    const timer = timers.find((item) => item.id === id)
+    if (timer) timer.cancelled = true
+  }
+  const findDebounceTimer = () => {
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      const timer = timers[i]
+      if (!timer.cancelled && timer.ms >= debug.MOOD_AI_DEBOUNCE_MIN_MS && timer.ms <= debug.MOOD_AI_DEBOUNCE_MAX_MS) return timer
+    }
+    return null
+  }
+  const fire = (timer) => {
+    assert.ok(timer, '应存在 2–4s 防抖计时器')
+    timer.cancelled = true
+    timer.fn()
+  }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 8; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(20)
+    tree = renderMain()
+    // 初次加载：2–4s 防抖后请求，固定 force=1
+    let debounce = findDebounceTimer()
+    assert.ok(debounce, '初次加载应安排实时心情防抖')
+    fire(debounce)
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(moodAiCalls.length, 1)
+    assert.match(moodAiCalls[0], /[?&]force=1(&|$)/, '实时心情必须带 force=1')
+    assert.ok(!/[?&](?:refresh|interval)=/.test(moodAiCalls[0]))
+
+    // 打开面板 + 切 tab 两个事件应合并成一次请求
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    const settingsTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    assert.ok(settingsTab)
+    settingsTab.props.onClick()
+    tree = renderMain()
+    debounce = findDebounceTimer()
+    assert.ok(debounce)
+    fire(debounce)
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(moodAiCalls.length, 2, '同时段多个事件应合并为一次请求')
+
+    // in-flight 时记 pending，完成后补发一次
+    let settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsElement)
+    const mainApi = settingsElement.props.api
+    mode = 'deferred'
+    await mainApi.refreshMoodNow()
+    let immediate = null
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      if (!timers[i].cancelled && timers[i].ms === 0) { immediate = timers[i]; break }
+    }
+    fire(immediate)
+    await sleep(20)
+    tree = renderMain()
+    assert.equal(moodAiCalls.length, 3, '进入 in-flight 请求')
+    // 请求未完成时再触发保存设置事件 → 只记 pending，不并发请求
+    mainApi.updateSettings({ showTones: true })
+    tree = renderMain()
+    debounce = findDebounceTimer()
+    fire(debounce)
+    await sleep(20)
+    assert.equal(moodAiCalls.length, 3, 'in-flight 时不应并发请求，应记 pending')
+    mode = 'ok'
+    deferredResolve()
+    await sleep(30)
+    tree = renderMain()
+    debounce = findDebounceTimer()
+    assert.ok(debounce, 'in-flight 完成后应为 pending 安排补发')
+    fire(debounce)
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(moodAiCalls.length, 4, 'pending 应补发一次')
+    for (const url of moodAiCalls) assert.match(url, /[?&]force=1(&|$)/, '所有实时心情请求都应 force=1')
+
+    // 失败静默回退启发式，不报错
+    mode = 'fail'
+    mainApi.updateSettings({ showTones: false })
+    tree = renderMain()
+    debounce = findDebounceTimer()
+    fire(debounce)
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(moodAiCalls.length, 5)
+    assert.ok(!textOf(tree).match(/失败|错误|不可用/), '心情失败不得弹错误')
+    settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    if (settingsElement.length) assert.equal(settingsElement[0].props.api.moodSource, 'heuristic')
   } finally {
     react._cleanup()
   }

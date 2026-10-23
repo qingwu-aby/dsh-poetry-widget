@@ -516,3 +516,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host mood-ai：每次打乱图鉴顺序、prompt 优先 media=video、recentImages 上限 5→20 并从图鉴剔除（强制轮换）、temperature 0.7→1.05。
 - Client：心情刷新 30→15min、recentImages 保留 20；新增「小动作」层——每 3–6min 按**轮转顺序**从 106 个 webm 取下一个播放 15–25s 后回心情图，位置持久化，面板/隐藏暂停，onError 跳过；优先级 pulse>panel>expression>motion>mood。
 - 三套单测 257/257（data 42 / host 117 / client 98）。
+
+## 31. 用户需求调整（M20，2026-10-23 完成）
+
+用户：「心情也是实时变化的，不需要一定的间隔时间」。
+- Client 删除 15min 定时刷新与 10min 分钟级限频；改为**事件驱动**：mood stats 增量（消息/工具/报错/活跃分钟）、面板开/关/切 tab/保存设置、self-talk 出现/关闭、飞花一局结束、天气刷新/变化、回前台/窗口可见、时段/饭点切换、idle 进入/恢复；2–4s 防抖合并，in-flight 记 pending 完成补发；请求固定 `force=1` 绕过 host 10min 缓存；失败静默回退启发式；同一图片不重启动画。
+- 设置说明改「心情会随聊天、工具、天气、时段等实时变化（由当前模型生成）」。
+- 三套单测 258/258（data 42 / host 117 / client 99）；client 仅需刷新，无 Host 改动。
