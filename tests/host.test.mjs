@@ -32,11 +32,16 @@ import {
 } from '../lib/weather.mjs'
 import {
   MAX_ACTIVE_GAP_MS,
+  MOOD_ACTIVITY_IDLE_MS,
+  MOOD_ACTIVITY_LABELS,
   MOOD_EVENT_TYPES,
+  MOOD_RECENT_TOOL_LIMIT,
   MOOD_STAT_KEYS,
   applySessionEvent,
+  classifyToolName,
   createEmptyMoodState,
   createMoodTracker,
+  describeRecentActivity,
   localDateKey,
   toMoodResponse,
   zeroMoodResponse,
@@ -3632,6 +3637,188 @@ test('mood-ai 路由：recentImages query 最多 20 条（解析同步上限）'
   const response = await harness.call('mood-ai.json', mockRequest({ url: `/api/dsh-poetry/mood-ai.json?recentImages=${many}` }))
   assert.equal(response.statusCode, 200)
   assert.equal(seen[0].recentImages.length, 20, 'recentImages 最多 20 条')
+})
+
+// ---------------------------------------------------------------------------
+// 最近活动感知（契约 v1.16，M22：工具名 → 看视频/学习/写代码/聊天/发呆）
+// ---------------------------------------------------------------------------
+
+test('mood 活动：classifyToolName 按工具名分类（不读参数）', () => {
+  const cases = [
+    ['bsk_click', 'watch'],
+    ['bsk_navigate', 'watch'],
+    ['browser_navigate', 'watch'],
+    ['chrome_open', 'watch'],
+    ['web_fetch', 'read'],
+    ['web_search', 'read'],
+    ['fetch_url', 'read'],
+    ['search', 'read'],
+    ['bash', 'code'],
+    ['shell_exec', 'code'],
+    ['exec', 'code'],
+    ['apply_patch', 'code'],
+    ['edit_file', 'code'],
+    ['write_file', 'code'],
+    ['git_diff', 'code'],
+    ['subagent', 'social'],
+    ['team_task_create', 'social'],
+    ['message_send', 'social'],
+    ['chat', 'social'],
+  ]
+  const now = 1_700_000_000_000
+  for (const [name, kind] of cases) {
+    assert.equal(classifyToolName(name), kind, name)
+    const activity = describeRecentActivity([{ name, at: now - 1000 }], now)
+    assert.equal(activity.kind, kind, name)
+    assert.equal(activity.label, MOOD_ACTIVITY_LABELS[kind], name)
+    assert.equal(activity.at, now - 1000)
+  }
+  for (const name of ['glob', 'grep', 'present', '', null, undefined, 42]) {
+    assert.equal(classifyToolName(name), null, String(name))
+  }
+  assert.equal(classifyToolName('WEB_SEARCH'), 'read', '大小写不敏感')
+})
+
+test('mood 活动：describeRecentActivity 的 idle/最近优先/最近 1–2 条规则', () => {
+  const now = 1_700_000_000_000
+  assert.deepEqual(describeRecentActivity([], now), { kind: 'idle', label: '发呆', at: null })
+  assert.deepEqual(describeRecentActivity(null, now), { kind: 'idle', label: '发呆', at: null })
+
+  // 60s 内仍算活跃；超过 60s → 发呆
+  assert.equal(describeRecentActivity([{ name: 'bash', at: now - 59_000 }], now).kind, 'code')
+  assert.equal(describeRecentActivity([{ name: 'bash', at: now - MOOD_ACTIVITY_IDLE_MS - 1_000 }], now).kind, 'idle')
+  assert.equal(describeRecentActivity([{ name: 'bash', at: now - MOOD_ACTIVITY_IDLE_MS - 1_000 }], now).at, now - MOOD_ACTIVITY_IDLE_MS - 1_000)
+
+  // 最近一条优先：老 bash + 新 web_fetch → read
+  const recentFirst = describeRecentActivity(
+    [
+      { name: 'bash', at: now - 10_000 },
+      { name: 'web_fetch', at: now - 2_000 },
+    ],
+    now,
+  )
+  assert.equal(recentFirst.kind, 'read')
+  assert.equal(recentFirst.at, now - 2_000)
+
+  // 最近一条无法分类时，看第二条（最近 1–2 条）
+  const secondFallback = describeRecentActivity(
+    [
+      { name: 'bash', at: now - 10_000 },
+      { name: 'glob', at: now - 2_000 },
+    ],
+    now,
+  )
+  assert.equal(secondFallback.kind, 'code')
+  assert.equal(secondFallback.at, now - 10_000)
+
+  // 两条都无法分类 → 发呆
+  const unknown = describeRecentActivity(
+    [
+      { name: 'glob', at: now - 10_000 },
+      { name: 'grep', at: now - 2_000 },
+    ],
+    now,
+  )
+  assert.equal(unknown.kind, 'idle')
+  assert.equal(unknown.at, now - 2_000)
+})
+
+test('mood 活动：ring buffer ≤12、只存名称+时间、绝不泄漏 arguments；stats 不受影响', () => {
+  const dir = makeTmpDir('dshp-mood-activity')
+  const base = new Date(2026, 9, 23, 12, 0, 0).getTime()
+  let clock = base
+  const tracker = createMoodTracker({
+    file: path.join(dir, 'mood.json'),
+    now: () => clock,
+    persistDebounceMs: 0,
+  })
+  const sensitive = 'SECRET_TOOL_ARGUMENT_abc123'
+  for (let index = 0; index < 15; index += 1) {
+    clock = base + index * 1000
+    tracker.record(
+      { id: 's1' },
+      {
+        type: 'tool/call',
+        time: clock,
+        data: {
+          name: index < 6 ? 'bash' : 'web_fetch',
+          callId: `call-${index}`,
+          arguments: { command: sensitive, url: `https://example.com/${sensitive}` },
+        },
+      },
+    )
+  }
+  const tools = tracker.recentTools()
+  assert.equal(tools.length, MOOD_RECENT_TOOL_LIMIT, 'ring buffer 最多 12 条')
+  for (const tool of tools) {
+    assert.deepEqual(Object.keys(tool).sort(), ['at', 'name'], '只保存名称+时间')
+  }
+  assert.equal(JSON.stringify(tools).includes(sensitive), false, '不保存/不泄漏工具参数')
+  assert.equal(tools[0].name, 'bash', '最早的 3 条已被挤出')
+
+  const activity = tracker.getRecentActivity(clock)
+  assert.equal(activity.kind, 'read', '最近工具是 web_fetch')
+  assert.equal(activity.label, '查资料/学习')
+  assert.equal(JSON.stringify(activity).includes(sensitive), false)
+
+  // 60s 无新调用 → 发呆
+  assert.equal(tracker.getRecentActivity(clock + MOOD_ACTIVITY_IDLE_MS + 1_000).kind, 'idle')
+
+  // 记忆日志/统计不受影响：toolCalls 仍按事件计数；mood.json 不含参数
+  assert.equal(tracker.getToday().stats.toolCalls, 15)
+  const persisted = fs.readFileSync(path.join(dir, 'mood.json'), 'utf8')
+  assert.equal(persisted.includes(sensitive), false, 'mood.json 不落盘工具参数')
+  assert.equal(persisted.includes('web_fetch'), false, '活动信号不落盘')
+  tracker.dispose()
+})
+
+test('mood-ai：prompt 含「你最近在做」与活动匹配指令，不含工具参数', () => {
+  const catalog = makeMoodCatalogFixture()
+  const now = Date.UTC(2026, 9, 23, 4, 0, 0)
+  const watchPrompt = buildMoodPrompt({ now, activity: { kind: 'watch', label: '看视频' } }, catalog, {
+    random: seededRandom(3),
+  })
+  assert.match(watchPrompt, /你最近在做：看视频\/逛网页（watch）/)
+  assert.match(watchPrompt, /选图时优先匹配你最近在做的事/)
+  assert.match(watchPrompt, /看视频\/逛网页 → 专注观看、东张西望、好奇类的动画/)
+  assert.match(watchPrompt, /查资料\/学习 → 专注、思考/)
+
+  const idlePrompt = buildMoodPrompt({ now }, catalog)
+  assert.match(idlePrompt, /你最近在做：发呆\/等待/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /如果提供了「你最近在做」的活动/)
+
+  const injected = buildMoodPrompt(
+    {
+      now,
+      activity: { kind: 'code', label: '写代码', arguments: { command: 'SECRET_ARG_VALUE' }, toolArguments: 'SECRET_ARG_VALUE' },
+    },
+    catalog,
+  )
+  assert.equal(injected.includes('SECRET_ARG_VALUE'), false, 'activity 只取白名单字段')
+})
+
+test('mood-ai 路由：最近活动来自工具名并写入 prompt，不泄漏参数', async () => {
+  const { llm, service } = makeMoodAiHarness({
+    responder: () =>
+      JSON.stringify({ label: '在查资料', image: 'dsh-whale-state-happy.webp', reason: '看到有用的东西', energy: 60 }),
+  })
+  const harness = createHarness({ moodAiService: service })
+  const sensitive = 'SECRET_URL_VALUE_xyz'
+  harness.moodTracker.record(
+    { id: 's1' },
+    {
+      type: 'tool/call',
+      time: FIXED_NOW.getTime(),
+      data: { name: 'web_fetch', callId: 'c1', arguments: { url: `https://secret.example/${sensitive}` } },
+    },
+  )
+  const response = await harness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().ok, true)
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /你最近在做：查资料\/学习/)
+  assert.equal(prompt.includes(sensitive), false)
+  assert.equal(JSON.stringify(llm.calls[0]).includes(sensitive), false, '工具参数不出现在模型请求里')
 })
 
 // ---------------------------------------------------------------------------

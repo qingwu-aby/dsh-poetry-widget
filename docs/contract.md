@@ -319,7 +319,7 @@
 GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片/动画文件名，`|` 分隔，**≤20**，宿主会剔除它们强制轮换）。
 成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
 失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
-约束：prompt 只含日期时间/天气/聚合统计/idle/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以强制轮换；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
+约束：prompt 只含日期时间/天气/聚合统计/idle/**最近活动（仅工具名归类，不含参数/命令/URL/页面内容）**/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以强制轮换；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
 
 图鉴静态资产：`GET /api/dsh-poetry/assets?f=data/mood-catalog.json` → `{ok,version,images:[{file,label,tags,scope,when?}],moodImages:[...],panelImages:[...]}`（89 心情图 + 3 panel 图）。
 
@@ -440,6 +440,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.16（2026-10-23，M22）**：Host 增加「最近活动」感知——从 `tool/call` **名称**（不读参数/内容）记录最近 ≤12 条工具，归类为 看视频/逛网页、查资料/学习、写代码/跑命令、聊天/思考、发呆（60s 无调用）；mood-ai prompt 带「你最近在做：<label>」并优先匹配对应动画，仍遵守 video 优先/避开最近 20 张/不连续重复。
 - **v1.15（2026-10-23，M21）**：Client 新增两套生活行为——**快速拖动晕眩**（拖拽速度 ≥1800px/s → 转圈 webm + 摇晃 + 💫 + 提示，1.5–2.5s 恢复）与**饭点吃饭**（早 07–09 / 午 11:30–13:30 / 晚 17:30–19:30，每天每餐一次，播吃饭动画 + 提醒气泡，25–40s 回心情图）；优先级 `pulse > panel > dizzy > meal > expression > motion > mood`。
 - **v1.14（2026-10-23，M20）**：心情实时化——Client 去掉 15min 定时与 10min 分钟级限频，改为**事件驱动**（消息/工具/报错/面板/self-talk/飞花/天气/回前台/时段饭点等，2–4s 防抖，in-flight pending 合并），请求固定 `force=1` 绕过宿主机 10min 缓存；失败静默回退启发式。宿主的 3s 最小生成间隔仍作为防抖兜底。
 - **v1.13（2026-10-23，M19）**：心情多样性——mood-ai 每次打乱图鉴、提示词优先选 video 动画、`recentImages` 上限 5→20 并从图鉴剔除；Client 心情刷新 30→15 分钟，新增「小动作」层：心情之间每 3–6 分钟按**轮转顺序**播放 106 个 webm 里的下一个（15–25s）后回心情图，优先级 `pulse > panel > expression > motion > mood`，面板/隐藏时暂停，保证全部动画都会露脸。

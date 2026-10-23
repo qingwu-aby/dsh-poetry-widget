@@ -530,3 +530,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Client 新增**晕眩反应**：`detectFastDrag`（≥1800px/s 或 120ms 内 >120px）→ 播转圈 webm（优先「小幅度原地360度旋转展示」）+ 摇晃 + 💫 + 「别甩啦，头好晕…」，1.5–2.5s 恢复；慢拖/点按不触发；无 catalog 也摇晃。
 - Client 新增**饭点吃饭**：早 07:00–09:00 / 午 11:30–13:30 / 晚 17:30–19:30，每天每餐一次（localStorage `dshp-meal-v1`，跨天重置）；播对应吃饭动画 + 提醒气泡（含 token 梗），25–40s 后回心情图；面板/隐藏推迟、过期不补；无 catalog 用静态 daily-eat。
 - 优先级：`pulse > panel > dizzy > meal > expression > motion > mood`；不写 mood/self-talk、不改 chip。三套单测 261/261。
+
+## 33. 用户需求（M22，2026-10-23 完成）
+
+用户：「你学习或者看视频这些的时候图像也可以换一下」。
+- Host 增加活动感知：从 `tool/call` 的**名称**（不读 arguments）记最近 ≤12 条工具，归类为 看视频/逛网页（bsk_/browser）、查资料/学习（web_fetch/search）、写代码/跑命令（bash/edit/git）、聊天/思考（subagent/message）、发呆（60s 无调用）。
+- mood-ai prompt 增加「你最近在做：<label>」并优先选匹配活动的动画/图片；仍遵守 video 优先、避开最近 20 张、不连续重复；隐私：零参数/内容。
+- 三套单测 266/266（data 42 / host 122 / client 102）；需宿主重载后生效。
