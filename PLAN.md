@@ -705,3 +705,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 原生 opencode-go 400；安装 dsh-opencode-go@0.1.24（新网关/会话头/协议转换），profile 配置 apiKeyEnv=OPENCODE_GO_API_KEY。
 - 插件候选：dsh-opencode-go → 原生 opencode-go → deepseek-account；dsh 不发 temperature、保留 effort；原生两者不发；失败写 model-errors.jsonl。
 - 三套单测 370/370（data 42 / host 211 / client 117）。
+
+## 58. dsh-opencode-go 空响应修复（M55，2026-10-23）
+
+- 现象：dsh-opencode-go 已注册并能生成（journal 有成功条目），但 mood/selfTalk 偶尔 `EMPTY_RESPONSE`，随后回落原生 opencode-go 仍 400。
+- 根因（用真实网关请求复现）：Go 网关的 deepseek-v4.1-flash 默认开启 thinking，catalog `thinkingLevelMap.off === null` 无法关闭；推理 token 与正文共享 `max_tokens`，心情 220 / 碎碎念 200 的预算偶尔被推理吃光 → 正文 0 字符。
+- 修 1：策略给 dsh 候选附 `maxTokensFloor`（mood/growth/voice 1600、selfTalk 1200），四服务用 `resolveCandidateMaxTokens(max(角色预算, floor))`；正文长度仍由提示词约束。
+- 修 2：原生 opencode-go（zen/go 网关已废弃、必然 400）只在 dsh-opencode-go 不可用时进候选链；dsh 可用时链为 dsh → deepseek-account。
+- 修 3：`scripts/patch-dsh-opencode-go.mjs` 复现安装版适配器的 `RemoteError` 兼容补丁（幂等、自动备份），用于插件重装/升级后恢复 provider 注册。
+- 三套单测 370/370（data 42 / host 211 / client 117）。

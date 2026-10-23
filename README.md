@@ -37,7 +37,7 @@ DeepSeek Harness（DSH）Web 界面的常驻诗词挂件（默认停在左下角
 - 🧠 **自主记忆**：模型自己生成的心情/碎碎念/自省/自学写入 `$DSH_HOME/agent-memory/`（只追加）；心情每条都保留，碎碎念 journal 3 分钟限频；记忆中枢负责备份/恢复，`journal.raw-2026-10-23.*` 保留整理前原始记录；不写入任何会话消息或用户原文。
 - 🎮 **飞花令**：诗词模块 → 飞花——**自由输入对句**：系统先出一句含令字的诗（带出处），你直接输入一句；校验「有没有出处 / 是否含令字 / 本局是否重复」——出处可在**全量诗词**里查（构建自全唐诗/全宋诗/全宋词/蒙学，按令字分片懒加载；数据在 `_ref/feihua-full/`，不随包，缺失时回退本地句库），接上后系统自动接下一句，能接多少看你的库存（句库 **155,504 句完整句**，含全量宋词；基础 3,244 句，按需并入扩展库）。不再四选一/扣命，只记本字最佳；另有「图鉴」按令字列句与出处。气泡第 6 张卡可直接进入。
 - ⚙️ **设置**：大小、平仄标注、每日/随机、自动轮播、吸附方向、简体/原文、恢复默认；心情/成长状态在成长页，设置持久化到 `$DSH_HOME/.dsh-poetry/settings.json`。
-- 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落原生 `opencode-go` / `deepseek-account/deepseek-flash`；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
+- 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落 `deepseek-account/deepseek-flash`；原生 `opencode-go` 只在 `dsh-opencode-go` 不可用时兜底；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
 
 ## 安装
 
@@ -139,6 +139,27 @@ content/           格律知识卡与词牌卡原始稿（构建期并入 data/k
 assets/            形象与图标
 tests/             node:test 单测 + 集成验收脚本
 ```
+
+## 兼容性说明：OpenCode Go 适配器（task-71）
+
+`dsh-opencode-go@0.1.24` 是按更新版 DSH 构建的：它的 `lib/index.js` 从
+`@deepseek-ai/dsh-typert-protocol` 导入 `RemoteError`，而 DSH `0.2.1-rc.2` 已移除该导出，
+插件会加载失败、provider `dsh-opencode-go` 不注册，插件模型调用只能回落原生 `opencode-go`
+（zen/go 网关已废弃，必然 400）。
+
+本仓库提供幂等补丁脚本（只改已安装包里的一个文件，首次修改前自动备份）：
+
+```
+node scripts/patch-dsh-opencode-go.mjs --dry-run   # 检查
+node scripts/patch-dsh-opencode-go.mjs             # 打补丁（默认 profile: desktop）
+```
+
+补丁把导入收窄为 `TypertRemoteService`，并内联等价的 `RemoteError` 类（`code`/`message`/`data`）。
+打完补丁重启 DSH（或重载 profile）后，`dsh-opencode-go` 才会注册。插件升级/重装后可能需要重跑。
+
+另一个已知行为：Go 网关上的 `deepseek-v4.1-flash` 默认开启 thinking，且 catalog 没有 `off`
+档无法关闭，推理 token 与正文共享 `max_tokens`。因此策略给该候选附 `maxTokensFloor`
+（心情/成长/声音 1600、碎碎念 1200），避免小预算被推理吃光后出现空响应；正文长度仍由提示词约束。
 
 ## 已知限制
 

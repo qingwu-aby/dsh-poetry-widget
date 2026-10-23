@@ -109,6 +109,7 @@ import {
 import {
   MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_OPENCODE_PROVIDER,
+  MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS,
   MODEL_POLICY_DEFAULTS,
   MODEL_POLICY_DEFAULT_EFFORTS,
   MODEL_POLICY_EFFORTS,
@@ -116,6 +117,7 @@ import {
   createModelPolicy,
   describeModelPolicy,
   normalizeEffort,
+  resolveCandidateMaxTokens,
 } from '../lib/model-policy.mjs'
 import {
   VOICE_EXEMPLAR_MAX_CHARS,
@@ -6964,24 +6966,18 @@ function makeFailoverLlm({ failProvider = 'opencode-go', partialProvider = null,
 
 test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', () => {
   const effortHigh = 'high'
-  // 无法探测 → 假定 opencode-go 存在，opencode-go → selection
+  // 无法探测 → 假定 dsh-opencode-go 存在；原生 opencode-go 不再叠加（避免必然 400）
   const unknown = makeCandidatePolicy()
   const moodCandidates = unknown.resolveCandidates('mood')
-  assert.equal(moodCandidates.length, 3)
+  assert.equal(moodCandidates.length, 2)
   assert.deepEqual(moodCandidates[0], {
     provider: MODEL_POLICY_DSH_OPENCODE_PROVIDER,
     model: MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
     reasoningEffort: 'low',
     omitTemperature: true,
+    maxTokensFloor: MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.mood,
   })
-  assert.deepEqual(moodCandidates[1], {
-    provider: MODEL_POLICY_OPENCODE_PROVIDER,
-    model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
-    reasoningEffort: 'low',
-    omitTemperature: true,
-    omitReasoningEffort: true,
-  })
-  assert.deepEqual(moodCandidates[2], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.deepEqual(moodCandidates[1], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
   assert.equal(unknown.resolve('selfTalk').reasoningEffort, effortHigh)
   assert.equal(MODEL_POLICY_OPENCODE_DEFAULT_MODEL, 'deepseek-v4.1-flash')
   assert.equal(MODEL_POLICY_OPENCODE_PROVIDER, 'opencode-go')
@@ -6995,7 +6991,8 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
     makeCandidatePolicy({ getProviders: () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account'] })
       .resolveCandidates('mood')
       .map((c) => c.provider),
-    ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+    ['dsh-opencode-go', 'deepseek-account'],
+    'dsh 可用时不再回退必然 400 的原生 opencode-go',
   )
   assert.deepEqual(
     makeCandidatePolicy({ getProviders: () => ['opencode-go', 'deepseek-account'] }).resolveCandidates('mood').map((c) => c.provider),
@@ -7031,11 +7028,14 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
       .map((c) => c.provider),
     ['deepseek-account'],
   )
-  // opencode 模型 env 覆盖
+  // 原生 opencode 模型 env 覆盖（仅 dsh 不可用、走原生回退时生效）
   assert.equal(
-    makeCandidatePolicy({ env: { DSH_POETRY_OPENCODE_MODEL: 'custom-opencode' } }).resolveCandidates('mood')[1].model,
+    makeCandidatePolicy({
+      env: { DSH_POETRY_OPENCODE_MODEL: 'custom-opencode' },
+      getProviders: () => ['opencode-go'],
+    }).resolveCandidates('mood')[0].model,
     'custom-opencode',
-    'DSH_POETRY_OPENCODE_MODEL 覆盖原生 opencode 候选（dsh 候选仍用默认）',
+    'DSH_POETRY_OPENCODE_MODEL 覆盖原生 opencode 候选',
   )
   // 去重：selection 与 opencode 候选相同
   const deduped = makeCandidatePolicy({
@@ -7044,6 +7044,18 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
   }).resolveCandidates('mood')
   assert.equal(deduped.length, 1)
   assert.equal(deduped[0].provider, 'opencode-go')
+  // v1.43：dsh 候选带 token 下限（四角色），deepseek 候选不带；helper 只抬上限
+  for (const role of MODEL_POLICY_ROLES) {
+    const first = unknown.resolveCandidates(role)[0]
+    assert.equal(first.provider, MODEL_POLICY_DSH_OPENCODE_PROVIDER)
+    assert.equal(first.maxTokensFloor, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS[role])
+    assert.equal('maxTokensFloor' in unknown.resolveCandidates(role)[1], false)
+  }
+  assert.equal(resolveCandidateMaxTokens(220, { maxTokensFloor: 1600 }), 1600)
+  assert.equal(resolveCandidateMaxTokens(220, { maxTokensFloor: 100 }), 220)
+  assert.equal(resolveCandidateMaxTokens(220, null), 220)
+  assert.equal(resolveCandidateMaxTokens(220, undefined), 220)
+
   // 非法 role / 全缺失
   assert.deepEqual(unknown.resolveCandidates('unknown'), [])
   const none = createModelPolicy({ env: {}, getSelection: () => null, getProviders: () => [] })
@@ -7583,7 +7595,7 @@ function makeChainLlm({ failProviders = [], successText }) {
   return llm
 }
 
-test('model-policy M54：候选顺序 dsh-opencode-go → opencode-go → deepseek-account（探测/关闭/覆盖/去重）', () => {
+test('model-policy M54：候选顺序 dsh-opencode-go → deepseek-account（原生 opencode 仅在 dsh 缺失时回退；探测/关闭/覆盖/去重）', () => {
   const allProviders = () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account']
   const policy = createModelPolicy({
     env: {},
@@ -7591,22 +7603,16 @@ test('model-policy M54：候选顺序 dsh-opencode-go → opencode-go → deepse
     getProviders: allProviders,
   })
   const candidates = policy.resolveCandidates('mood')
-  assert.equal(candidates.length, 3)
+  assert.equal(candidates.length, 2)
   assert.deepEqual(candidates[0], {
     provider: MODEL_POLICY_DSH_OPENCODE_PROVIDER,
     model: MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
     reasoningEffort: 'low',
     omitTemperature: true,
+    maxTokensFloor: MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.mood,
   })
   assert.equal('omitReasoningEffort' in candidates[0], false, 'dsh 适配器保留 reasoningEffort')
-  assert.deepEqual(candidates[1], {
-    provider: MODEL_POLICY_OPENCODE_PROVIDER,
-    model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
-    reasoningEffort: 'low',
-    omitTemperature: true,
-    omitReasoningEffort: true,
-  })
-  assert.deepEqual(candidates[2], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.deepEqual(candidates[1], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
   assert.equal(candidates[0].reasoningEffort, 'low')
   assert.equal(candidates[1].reasoningEffort, 'low')
   assert.equal(policy.resolve('selfTalk').reasoningEffort, 'high')
@@ -7652,12 +7658,12 @@ test('model-policy M54：候选顺序 dsh-opencode-go → opencode-go → deepse
       .map((c) => c.provider),
     ['deepseek-account'],
   )
-  // 无法探测 → 三候选
+  // 无法探测 → dsh + selection（不再叠加原生 opencode）
   assert.deepEqual(
     createModelPolicy({ env: {}, getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) })
       .resolveCandidates('mood')
       .map((c) => c.provider),
-    ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+    ['dsh-opencode-go', 'deepseek-account'],
   )
 
   // 关闭开关 → 只 selection
@@ -7693,7 +7699,7 @@ test('model-policy M54：候选顺序 dsh-opencode-go → opencode-go → deepse
 
   // describe 显示候选顺序
   const described = describeModelPolicy(policy)
-  assert.match(described, /心情=dsh-opencode-go\/deepseek-v4\.1-flash\(low\) → opencode-go\/deepseek-v4\.1-flash\(low\) → deepseek-account\/deepseek-flash\(low\)/)
+  assert.match(described, /心情=dsh-opencode-go\/deepseek-v4\.1-flash\(low\) → deepseek-account\/deepseek-flash\(low\)/)
 })
 
 test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningEffort；响应 model 为 dsh', async () => {
@@ -7710,6 +7716,7 @@ test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningE
   assert.deepEqual(moodResult.model, { provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' })
   assert.equal('temperature' in mood.llm.calls[0], false)
   assert.equal(mood.llm.calls[0].reasoningEffort, 'low')
+  assert.equal(mood.llm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.mood)
 
   // selfTalk
   const talk = makeSelfTalkHarness({ policy })
@@ -7718,6 +7725,7 @@ test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningE
   assert.deepEqual(talkResult.model, { provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' })
   assert.equal('temperature' in talk.llm.calls[0], false)
   assert.equal(talk.llm.calls[0].reasoningEffort, 'high')
+  assert.equal(talk.llm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.selfTalk)
 
   // growth
   const growthLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
@@ -7725,6 +7733,7 @@ test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningE
   assert.equal((await growthHarness.growth.reflectNow()).ok, true)
   assert.equal('temperature' in growthLlm.calls[0], false)
   assert.equal(growthLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(growthLlm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.growth)
 
   // voice
   const voiceDir = makeTmpDir('dshp-m54-voice')
@@ -7746,17 +7755,19 @@ test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningE
   assert.equal((await voice.refreshNow()).ok, true)
   assert.equal('temperature' in voiceLlm.calls[0], false)
   assert.equal(voiceLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(voiceLlm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.voice)
 })
 
-test('model-policy M54：dsh 失败（未产出文本）→ 原生 opencode → deepseek；参数差异正确', async () => {
+test('model-policy M54：dsh 失败（未产出文本）→ deepseek；原生 opencode 不参与，token 下限正确', async () => {
   const policy = createModelPolicy({
     env: {},
     getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
     getProviders: () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
   })
+  // 原生 opencode-go 在 dsh 可用时已不进候选链；即便它“失败”也不会被调用。
   const failProviders = ['dsh-opencode-go', 'opencode-go']
 
-  // mood：三候选链
+  // mood：dsh → deepseek
   const moodLlm = makeChainLlm({
     failProviders,
     successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: 'deepseek 回落', energy: 60 }),
@@ -7764,34 +7775,31 @@ test('model-policy M54：dsh 失败（未产出文本）→ 原生 opencode → 
   const mood = makeMoodAiHarness({ policy, llm: moodLlm })
   const moodResult = await mood.service.generate({}, { force: true })
   assert.equal(moodResult.ok, true)
-  assert.deepEqual(moodLlm.calls.map((call) => call.provider), [
-    'dsh-opencode-go',
-    'opencode-go',
-    'deepseek-account',
-  ])
+  assert.deepEqual(moodLlm.calls.map((call) => call.provider), ['dsh-opencode-go', 'deepseek-account'])
   assert.equal('temperature' in moodLlm.calls[0], false)
   assert.equal(moodLlm.calls[0].reasoningEffort, 'low', 'dsh 候选保留 effort')
-  assert.equal('temperature' in moodLlm.calls[1], false)
-  assert.equal('reasoningEffort' in moodLlm.calls[1], false, '原生 opencode 不发 effort')
-  assert.equal(moodLlm.calls[2].temperature, 1.05)
-  assert.equal(moodLlm.calls[2].reasoningEffort, 'low')
+  assert.equal(
+    moodLlm.calls[0].maxTokens,
+    MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.mood,
+    'dsh 候选抬 token 下限（thinking 常开，防 EMPTY_RESPONSE）',
+  )
+  assert.equal(moodLlm.calls[1].temperature, 1.05)
+  assert.equal(moodLlm.calls[1].reasoningEffort, 'low')
+  assert.equal(moodLlm.calls[1].maxTokens, 220, 'deepseek 候选保持角色预算')
   assert.deepEqual(moodResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 
-  // selfTalk：三候选链
+  // selfTalk：dsh → deepseek
   const talkLlm = makeChainLlm({ failProviders, successText: SELF_TALK_LINES_A.join('\n') })
   const talk = makeSelfTalkHarness({ policy, llm: talkLlm })
   const talkResult = await talk.service.generate({})
   assert.equal(talkResult.ok, true)
-  assert.deepEqual(talkLlm.calls.map((call) => call.provider), [
-    'dsh-opencode-go',
-    'opencode-go',
-    'deepseek-account',
-  ])
+  assert.deepEqual(talkLlm.calls.map((call) => call.provider), ['dsh-opencode-go', 'deepseek-account'])
   assert.equal(talkLlm.calls[0].reasoningEffort, 'high')
   assert.equal('temperature' in talkLlm.calls[0], false)
-  assert.equal('reasoningEffort' in talkLlm.calls[1], false)
-  assert.equal(talkLlm.calls[2].temperature, 1.0)
-  assert.equal(talkLlm.calls[2].reasoningEffort, 'high')
+  assert.equal(talkLlm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.selfTalk)
+  assert.equal(talkLlm.calls[1].temperature, 1.0)
+  assert.equal(talkLlm.calls[1].reasoningEffort, 'high')
+  assert.equal(talkLlm.calls[1].maxTokens, 200)
   assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 })
 

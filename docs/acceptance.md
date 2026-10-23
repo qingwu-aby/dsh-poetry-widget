@@ -2,7 +2,7 @@
 
 > 执行人：Lead · 目标宿主：DSH 0.2.1-rc.2 / desktop profile / GUI http://127.0.0.1:57623
 > 数据版本：`2026-10-21.4`（诗 320 / 词 283 / 韵部 30 / 知识卡 12 / 词牌卡 15）
-> 最后更新：2026-10-23 M48（v0.1.3 发布整理：自驱成长/记忆中枢/自主行为/声音档案；356 项单测全过）
+> 最后更新：2026-10-23 M55（OpenCode Go 空响应修复与候选链收敛；370 项单测全过）
 
 ## A. 静态与数据
 
@@ -85,3 +85,14 @@
 - 未在 `dsh web`（web profile）与 Windows/Linux 验证；天气数据依赖 Open-Meteo 可达性（失败静默回退普通选诗）。
 - 词牌不提供逐字词谱；押韵只在构建期用《平水韵》校验，界面不展示 106 韵部字表。
 - 卸载/重装回归未实际执行（命令与回滚方式已写入 README）。
+
+## G. M55 OpenCode Go 空响应与候选链（2026-10-23）
+
+| # | 检查 | 结果 | 证据 |
+|---|---|---|---|
+| G1 | dsh-opencode-go 注册并可用 | ✅ | `RemoteError` 兼容补丁后，journal 出现 `provider:"dsh-opencode-go"` 的 murmur/mood 成功条目 |
+| G2 | EMPTY_RESPONSE 根因复现 | ✅ | 真实网关请求：`thinking:{type:"enabled"}` + 小 `max_tokens` 时推理 token 与正文共享预算，推理吃光即 content=0 / finish=length；与 model-errors.jsonl 中 `EMPTY_RESPONSE` 一致 |
+| G3 | 候选链收敛 | ✅ | 策略单测：dsh 可用时 `dsh-opencode-go → deepseek-account`；原生 `opencode-go`（zen/go 已废弃、必然 400）仅在 dsh 缺失时兜底 |
+| G4 | token 下限 | ✅ | 四服务单测断言 dsh 候选 `maxTokens`：心情/成长/声音 1600、碎碎念 1200；deepseek 候选保持 220/200 |
+| G5 | 兼容补丁脚本 | ✅ | `scripts/patch-dsh-opencode-go.mjs --dry-run` 幂等；临时 profile 上打补丁 → 重跑（无需修改）→ 校验 RemoteError 类与导入均正确 |
+| G6 | 三套单测 | ✅ | data 42 / host 211 / client 117 = **370 / 370 pass** |
