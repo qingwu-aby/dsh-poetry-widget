@@ -92,6 +92,16 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  MEMORY_BACKUP_INTERVAL_MS,
+  MEMORY_BACKUP_MAX,
+  MEMORY_BACKUP_ROUTE,
+  MEMORY_ROUTE,
+  createMemoryBackupHandler,
+  createMemoryHub,
+  createMemorySnapshotHandler,
+  resolveMemoryHubPaths,
+} from '../lib/memory-hub.mjs'
+import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
   buildLearnPrompt,
@@ -1716,8 +1726,10 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 条 JSON 路由')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
+    assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
+    assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
       '注册了 self-talk.json 路由',
@@ -3511,7 +3523,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 条 JSON')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4761,7 +4773,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 JSON')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -5375,6 +5387,317 @@ test('路由：mood-ai/self-talk 的 generate 上下文带 selfState 快照', as
   assert.deepEqual(captured[0].selfState, selfState)
   assert.deepEqual(captured[1].selfState, selfState)
   assert.equal(SELF_STATE_ROUTE, '/api/dsh-poetry/self.json')
+})
+
+// ---------------------------------------------------------------------------
+// M41：记忆中枢（健康清单/备份/恢复/路由）
+// ---------------------------------------------------------------------------
+
+function writeHubFile(file, content) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, content, 'utf8')
+  return file
+}
+
+/** 在临时 DSH_HOME 下写一套完整记忆文件。 */
+function seedMemoryFiles(paths, overrides = {}) {
+  const files = {
+    'journal.md': '# 我的碎碎念与想法\n\n> 只追加。\n\n## 2026-10-21 10:00 · 碎碎念\n第一句\n\n## 2026-10-21 10:05 · 心情\n心情：开心\n',
+    'journal.jsonl': '{"ts":1,"kind":"murmur","text":"第一句"}\n{"ts":2,"kind":"mood","label":"开心"}\n',
+    'topics.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'a', title: 'A', fact: 'fa', tags: ['x'] }, { id: 'b', title: 'B', fact: 'fb', tags: ['y'] }] }),
+    'README.md': '# 记忆目录\n',
+    'learning-log.md': '## 2026-10-21 11:00 · 自学\nQ: 为什么？\n笔记\n',
+    'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
+    'experience.json': JSON.stringify({ title: '海上钢琴师', kind: 'video', emotion: 'touched', at: 1700000000000 }),
+    'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
+  }
+  for (const [id, content] of Object.entries(files)) {
+    const entry = paths.files.find((file) => file.id === id)
+    if (overrides[id] === null) continue // 故意缺失
+    if (typeof overrides[id] === 'string') {
+      writeHubFile(entry.path, overrides[id])
+      continue
+    }
+    writeHubFile(entry.path, content)
+  }
+  return files
+}
+
+function makeMemoryHubHarness(overrides = {}) {
+  const root = makeTmpDir('dshp-memory-hub')
+  const env = overrides.env ?? { DSH_HOME: root }
+  let clock = overrides.now ?? FIXED_NOW.getTime()
+  const hub = createMemoryHub({
+    env,
+    home: root,
+    logger: { warn() {}, info() {} },
+    now: () => clock,
+    backupIntervalMs: overrides.backupIntervalMs,
+    maxBackups: overrides.maxBackups,
+    backupDelayMs: overrides.backupDelayMs,
+  })
+  return {
+    root,
+    env,
+    hub,
+    paths: hub.paths,
+    setClock: (value) => {
+      clock = value
+    },
+    advance: (ms) => {
+      clock += ms
+    },
+  }
+}
+
+test('memory-hub：resolveMemoryHubPaths 登记 8 个核心文件', () => {
+  const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
+  assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
+  assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
+  assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
+  assert.deepEqual(
+    paths.files.map((file) => file.id),
+    ['journal.md', 'journal.jsonl', 'topics.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json'],
+  )
+  assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
+  assert.equal(paths.files[6].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
+})
+
+test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () => {
+  const { hub, paths } = makeMemoryHubHarness()
+  seedMemoryFiles(paths)
+  const healthy = hub.snapshot()
+  assert.equal(healthy.ok, true)
+  assert.equal(healthy.health, 'ok')
+  assert.equal(healthy.files.length, 8)
+  const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
+  assert.equal(byId['journal.md'].entries, 2)
+  assert.equal(byId['journal.jsonl'].entries, 2)
+  assert.equal(byId['topics.json'].entries, 2)
+  assert.equal(byId['learning-log.md'].entries, 1)
+  assert.equal(byId['topics-candidates.json'].entries, 1)
+  assert.deepEqual(healthy.backups, { count: 0, lastAt: null, latestId: null })
+  assert.deepEqual(healthy.recovered, [])
+  // 路径脱敏（home 下显示 ~/）
+  assert.match(byId['journal.md'].path, /^~\//)
+
+  // 缺失文件 → health error + missing
+  fs.rmSync(path.join(paths.memoryDir, 'README.md'))
+  const missing = hub.snapshot()
+  assert.equal(missing.health, 'error')
+  assert.equal(missing.files.find((file) => file.id === 'README.md').health, 'missing')
+
+  // 坏 JSON → invalid；坏 JSONL 行 → corrupt
+  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), 'not json')
+  writeHubFile(path.join(paths.memoryDir, 'journal.jsonl'), '{"ok":1}\nnot-json-line\n')
+  const broken = hub.snapshot()
+  assert.equal(broken.health, 'error')
+  assert.equal(broken.files.find((file) => file.id === 'topics-candidates.json').health, 'invalid')
+  assert.equal(broken.files.find((file) => file.id === 'journal.jsonl').health, 'corrupt')
+})
+
+test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
+  const { hub, paths, advance } = makeMemoryHubHarness()
+  seedMemoryFiles(paths, { 'README.md': null })
+  const first = await hub.backup({ reason: 'manual' })
+  assert.equal(first.ok, true)
+  assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
+  assert.equal(first.backup.files, 7, '只复制存在的 7 个文件')
+  const dir = path.join(paths.backupsDir, first.backup.name)
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
+  assert.equal(manifest.ok, true)
+  assert.equal(manifest.reason, 'manual')
+  const journalEntry = manifest.files.find((file) => file.id === 'journal.md')
+  assert.equal(journalEntry.exists, true)
+  assert.equal(typeof journalEntry.sha256, 'string')
+  assert.equal(journalEntry.sha256.length, 64)
+  assert.equal(typeof journalEntry.size, 'number')
+  assert.equal(typeof journalEntry.mtimeMs, 'number')
+  assert.equal(manifest.files.find((file) => file.id === 'README.md').exists, false)
+  assert.equal(fs.existsSync(path.join(dir, 'README.md')), false)
+  assert.equal(fs.readdirSync(dir).some((name) => name.endsWith('.tmp')), false, '无残留 tmp（原子写）')
+
+  // retention：maxBackups=3 时第 4 次备份会删最旧
+  const hub3 = createMemoryHub({
+    env: { DSH_HOME: paths.memoryDir.replace(/\/agent-memory$/, '') },
+    home: '/tmp',
+    logger: { warn() {}, info() {} },
+    now: () => advance(0),
+    maxBackups: 3,
+  })
+  // 用独立 hub 的 now 递增创建 4 份
+  let tick = FIXED_NOW.getTime()
+  const limited = createMemoryHub({
+    env: { DSH_HOME: paths.memoryDir.replace(/\/agent-memory$/, '') },
+    home: '/tmp',
+    logger: { warn() {}, info() {} },
+    now: () => tick,
+    maxBackups: 3,
+  })
+  for (let index = 0; index < 4; index += 1) {
+    tick += 1000
+    const result = await limited.backup({ reason: `r${index}` })
+    assert.equal(result.ok, true)
+  }
+  const dirs = fs.readdirSync(paths.backupsDir).filter((name) => fs.statSync(path.join(paths.backupsDir, name)).isDirectory())
+  assert.equal(dirs.length, 3, 'retention 保留最近 3 份')
+  assert.equal(dirs.some((name) => name.includes('-r0')), false, '最旧一份被删除')
+  assert.equal(MEMORY_BACKUP_MAX, 20)
+})
+
+test('memory-hub：recover 只恢复缺失文件、不覆盖存在/坏文件；size-drop 告警', async () => {
+  const { hub, paths } = makeMemoryHubHarness()
+  seedMemoryFiles(paths)
+  const backup = await hub.backup({ reason: 'pre' })
+  assert.equal(backup.ok, true)
+
+  const journalPath = path.join(paths.memoryDir, 'journal.md')
+  const original = fs.readFileSync(journalPath, 'utf8')
+  fs.rmSync(journalPath, { recursive: true, force: true }) // 模拟丢失
+  // 另一个文件在备份后被修改：recover 不得覆盖
+  writeHubFile(path.join(paths.memoryDir, 'README.md'), '# 后来改的\n')
+  // 坏文件（存在但内容坏）：只标记，不自动覆盖
+  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), 'broken json')
+
+  const recovered = hub.recover()
+  assert.equal(recovered.ok, true)
+  assert.deepEqual(recovered.recovered, ['journal.md'])
+  assert.equal(fs.readFileSync(journalPath, 'utf8'), original, '缺失文件从备份恢复')
+  assert.equal(fs.readFileSync(path.join(paths.memoryDir, 'README.md'), 'utf8'), '# 后来改的\n', '不覆盖已存在文件')
+  assert.equal(fs.readFileSync(path.join(paths.stateDir, 'topics-candidates.json'), 'utf8'), 'broken json', '坏文件不自动覆盖')
+  const snapshot = hub.snapshot()
+  assert.deepEqual(snapshot.recovered, ['journal.md'])
+  assert.equal(snapshot.files.find((file) => file.id === 'topics-candidates.json').health, 'invalid')
+
+  // 修复坏 JSON，单独验证 size-drop → warn
+  writeHubFile(path.join(paths.stateDir, 'topics-candidates.json'), JSON.stringify({ ok: true, v: 1, topics: [] }))
+  // size-drop：备份后把 journal.md 大幅截短 → warn
+  const truncated = '# 只有一点\n'
+  writeHubFile(journalPath, truncated)
+  const dropped = hub.snapshot()
+  assert.equal(dropped.health, 'warn')
+  assert.equal(dropped.files.find((file) => file.id === 'journal.md').health, 'warn')
+})
+
+test('memory-hub：maybeBackup 6h 调度/start 建目录/并发去重', async () => {
+  const { hub, paths, advance } = makeMemoryHubHarness({ backupDelayMs: 30 })
+  // 从未备份 → 立即备份（startup）
+  const first = await hub.maybeBackup()
+  assert.equal(first.ok, true)
+  assert.equal(first.skipped, undefined)
+  assert.match(first.backup.name, /-startup$/)
+  assert.equal(MEMORY_BACKUP_INTERVAL_MS, 6 * 60 * 60 * 1000)
+
+  // <6h → 跳过
+  advance(5 * 60 * 60 * 1000)
+  const skipped = await hub.maybeBackup()
+  assert.equal(skipped.ok, true)
+  assert.equal(skipped.skipped, true)
+
+  // >6h → 再备份
+  advance(2 * 60 * 60 * 1000)
+  const again = await hub.maybeBackup()
+  assert.equal(again.ok, true)
+  assert.equal(again.backup !== null && again.backup !== undefined, true)
+
+  // 并发去重：第一次未完成时第二次返回 busy
+  const running = hub.backup({ reason: 'manual' })
+  const busy = await hub.backup({ reason: 'manual' })
+  assert.equal(busy.ok, false)
+  assert.equal(busy.busy, true)
+  const finished = await running
+  assert.equal(finished.ok, true)
+  hub.dispose()
+
+  // start() 会建备份目录并触发 startup 备份；dispose 后 timer 清理
+  const harness2 = makeMemoryHubHarness()
+  harness2.hub.start()
+  assert.equal(fs.existsSync(harness2.paths.backupsDir), true, 'start 建备份目录')
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  harness2.hub.dispose()
+  const dirs = fs.readdirSync(harness2.paths.backupsDir)
+  assert.ok(dirs.length <= 1)
+})
+
+test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async () => {
+  const { hub } = makeMemoryHubHarness()
+  const handler = createMemorySnapshotHandler({ hub })
+  async function call({ method = 'GET', headers = { host: '127.0.0.1:57623' } } = {}) {
+    const response = new MockResponse()
+    await handler(mockRequest({ method, url: MEMORY_ROUTE, headers }), response)
+    await response.finished()
+    return response
+  }
+  const get = await call({ headers: {} }) // 无 cookie 也可（unfenced）
+  assert.equal(get.statusCode, 200)
+  assert.equal(get.headers['Cache-Control'], 'no-store')
+  assert.equal(get.json().ok, true)
+  assert.equal(get.json().files.length, 8)
+  assert.equal(typeof get.json().health, 'string')
+  const head = await call({ method: 'HEAD' })
+  assert.equal(head.statusCode, 200)
+  assert.equal(Buffer.concat(head.chunks).length, 0)
+  const post = await call({ method: 'POST' })
+  assert.equal(post.statusCode, 405)
+  assert.equal(post.headers.Allow, 'GET, HEAD')
+
+  const failing = createMemorySnapshotHandler({
+    hub: {
+      snapshot: () => {
+        throw new Error('boom')
+      },
+    },
+  })
+  const failed = new MockResponse()
+  await failing(mockRequest({ url: MEMORY_ROUTE }), failed)
+  await failed.finished()
+  assert.equal(failed.statusCode, 200)
+  assert.equal(failed.json().ok, false)
+  assert.equal(failed.json().error.code, 'MEMORY_UNAVAILABLE')
+})
+
+test('memory-hub：backup.json 路由 fenced/成功/并发 409/非 POST 405', async () => {
+  const { hub } = makeMemoryHubHarness({ backupDelayMs: 30 })
+  const fence = createTrustFence({ getConnection: () => undefined })
+  const handler = createMemoryBackupHandler({ hub, fence })
+  async function call({ method = 'POST', headers = { host: '127.0.0.1:57623' }, url = MEMORY_BACKUP_ROUTE } = {}) {
+    const response = new MockResponse()
+    await handler(mockRequest({ method, url, headers }), response)
+    await response.finished()
+    return response
+  }
+  const success = await call()
+  assert.equal(success.statusCode, 200)
+  assert.equal(success.json().ok, true)
+  assert.match(success.json().backup.id, /-manual$/)
+  assert.equal(typeof success.json().backup.files, 'number')
+  assert.equal(success.headers['Cache-Control'], 'no-store')
+
+  // 并发：两个同时 POST，一个 200 一个 409
+  const [first, second] = await Promise.all([call(), call()])
+  const statuses = [first.statusCode, second.statusCode].sort()
+  assert.deepEqual(statuses, [200, 409])
+  const busy = first.statusCode === 409 ? first : second
+  assert.equal(busy.json().error.code, 'BACKUP_IN_PROGRESS')
+
+  // 栅栏：跨站/异源拒绝
+  const crossed = await call({ headers: { host: '127.0.0.1:57623', 'sec-fetch-site': 'cross-site' } })
+  assert.equal(crossed.statusCode, 403)
+  const evilHost = await call({ headers: { host: 'evil.example' } })
+  assert.equal(evilHost.statusCode, 403)
+  // 非 POST → 405
+  const get = await call({ method: 'GET' })
+  assert.equal(get.statusCode, 405)
+  assert.equal(get.headers.Allow, 'POST')
+})
+
+test('index.js：记忆中枢路由注册（memory.json + backup 路由）', () => {
+  // 路由路径常量与创建函数已在 index 测试（路由数 18）中覆盖；这里断言常量契约
+  assert.equal(MEMORY_ROUTE, '/api/dsh-poetry/memory.json')
+  assert.equal(MEMORY_BACKUP_ROUTE, '/api/dsh-poetry/memory/backup.json')
+  assert.equal(typeof createMemoryHub, 'function')
+  assert.equal(typeof createMemorySnapshotHandler, 'function')
+  assert.equal(typeof createMemoryBackupHandler, 'function')
 })
 
 // ---------------------------------------------------------------------------

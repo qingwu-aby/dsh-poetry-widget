@@ -29,6 +29,9 @@ window.__ModuleLoader__.load({
   const ROUTE = '/api/dsh-poetry/'
   const SELF_PATH = 'self.json'
   const SELF_POLL_MS = 60 * 1000
+  const MEMORY_PATH = 'memory.json'
+  const MEMORY_BACKUP_PATH = 'memory/backup.json'
+  const MEMORY_POLL_MS = 60 * 1000
   const ASSET_BASE = ROUTE + 'assets?f='
   const SETTINGS_URL = ROUTE + 'settings.json'
   const WIDGET_ID = 'dsh-poetry-widget'
@@ -1922,6 +1925,52 @@ window.__ModuleLoader__.load({
   return parts.join(' · ')
   }
 
+  /** 记忆中枢状态规范化：health/files/backups/recovered；404/非法返回 null（整卡隐藏）。 */
+  function normalizeMemoryStatus(data) {
+  if (!data || data.ok === false || !Array.isArray(data.files)) return null
+  const files = data.files.filter((file) => file && typeof file === 'object')
+  const countBy = (patterns) => {
+   let sum = 0
+   for (const file of files) {
+    const id = String(file.id || '') + ' ' + String(file.path || '')
+    if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue
+    sum += Math.max(0, Math.floor(num(file.entries, 0)))
+   }
+   return sum
+  }
+  const health = data.health === 'warn' || data.health === 'error' ? data.health : data.health === 'ok' ? 'ok' : 'warn'
+  const backups = data.backups && typeof data.backups === 'object' ? data.backups : {}
+  const recovered = typeof data.recovered === 'number'
+   ? Math.max(0, Math.floor(data.recovered))
+   : data.recovered && typeof data.recovered === 'object' && typeof data.recovered.count === 'number'
+    ? Math.max(0, Math.floor(data.recovered.count))
+    : data.recovered === true ? 1 : 0
+  return {
+   health,
+   journal: countBy(['journal']),
+   topics: countBy(['topic']),
+   learnings: countBy(['learn', 'growth', 'self']),
+   backups: {
+    count: Math.max(0, Math.floor(num(backups.count, 0))),
+    lastAt: num(backups.lastAt, 0),
+    latestId: String(backups.latestId || ''),
+   },
+   recovered,
+   updatedAt: num(data.updatedAt, 0),
+  }
+  }
+
+  function switchNode(checked, onChange, label) {
+  return h('button', {
+   type: 'button',
+   role: 'switch',
+   'aria-checked': checked === true,
+   'aria-label': label,
+   className: cx('dshp-switch', checked === true && 'dshp-is-on'),
+   onClick: onChange,
+  })
+  }
+
   /** 成长指标四行（SettingsTab 与 GrowthTab 共用）。 */
   function growthMetricsTree(status) {
   const rows = [
@@ -3225,6 +3274,16 @@ window.__ModuleLoader__.load({
   '.dshp-growth-quote:last-child{border-bottom:0}',
   '.dshp-growth-empty{font-size:12px;color:var(--dshp-label-2)}',
   '.dshp-growth-actions{display:flex;gap:6px;flex-wrap:wrap;padding-top:2px}',
+  '.dshp-growth-mood-controls{display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:7px;border-top:1px solid var(--dshp-border)}',
+  '.dshp-growth-mood-control-label{font-size:12px;color:var(--dshp-label-2)}',
+  '.dshp-growth-mood-note{margin-top:5px;font-size:11.5px;line-height:1.5;color:var(--dshp-label-2)}',
+  '.dshp-memory-head{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+  '.dshp-memory-health{font-size:10.5px;border-radius:999px;padding:1px 8px;border:1px solid var(--dshp-border)}',
+  '.dshp-memory-ok{color:#16803c;border-color:rgba(22,128,60,.45);background:rgba(22,128,60,.08)}',
+  '.dshp-memory-warn{color:#9a6700;border-color:rgba(154,103,0,.45);background:rgba(154,103,0,.08)}',
+  '.dshp-memory-error{color:#c62828;border-color:rgba(198,40,40,.45);background:rgba(198,40,40,.08)}',
+  '.dshp-memory-line{font-size:12px;line-height:1.55;color:var(--dshp-label-2)}',
+  '.dshp-memory-recovered{color:var(--dshp-label)}',
   '.dshp-panel-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 18px}',
   '.dshp-list{display:flex;flex-direction:column;gap:2px}',
   '.dshp-row{display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-radius:9px;border:0;',
@@ -3392,7 +3451,7 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
-  SELF_PATH, SELF_POLL_MS, normalizeSelfStatus, selfStatusSummary,
+  SELF_PATH, SELF_POLL_MS, MEMORY_PATH, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, normalizeMemoryStatus, normalizeSelfStatus, selfStatusSummary,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
@@ -3662,6 +3721,8 @@ window.__ModuleLoader__.load({
   const [moodAiFailureCode, setMoodAiFailureCode] = React.useState('')
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
   const [selfStatus, setSelfStatus] = React.useState(null)
+  const [memoryStatus, setMemoryStatus] = React.useState(null)
+  const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
   const [mealActive, setMealActive] = React.useState(null)
@@ -5781,6 +5842,47 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, settings.hidden])
 
+  // 记忆中枢：仅面板打开且停在成长 tab 时轮询 memory.json（隐藏跳过、失败静默）
+  React.useEffect(() => {
+   if (!panelOpen || panelTab !== 'growth' || settings.hidden) {
+    setMemoryStatus(null)
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(MEMORY_PATH).then((data) => {
+     if (alive) setMemoryStatus(normalizeMemoryStatus(data))
+    }).catch(() => {
+     if (alive) setMemoryStatus(null)
+    })
+   }
+   load()
+   const timer = setInterval(load, MEMORY_POLL_MS)
+   const onVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    load()
+   }
+   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
+   return () => {
+    alive = false
+    clearInterval(timer)
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
+   }
+  }, [panelOpen, panelTab, settings.hidden, memoryTick])
+
+  function backupMemory() {
+   return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: 'POST' }).then((data) => {
+    showToastRef.current('已备份')
+    setMemoryTick((tick) => tick + 1)
+    return data
+   }).catch(() => {
+    showToastRef.current('备份失败', 'error')
+    return { ok: false }
+   })
+  }
+
   const syncMascotVideoPlayback = React.useCallback(() => {
    const video = mascotVideoRef.current
    if (!video) return
@@ -5988,6 +6090,8 @@ window.__ModuleLoader__.load({
     moodAiFailureCode,
     petVideoCount: petMediaRes.entries.length,
     selfStatus,
+    memoryStatus,
+    backupMemory,
     refreshMoodNow,
     previewSpontaneousPoem,
     readAnotherSpontaneous,
@@ -6599,17 +6703,6 @@ window.__ModuleLoader__.load({
    )
   }
 
-  function switchNode(checked, onChange, label) {
-   return h('button', {
-    type: 'button',
-    role: 'switch',
-    'aria-checked': checked === true,
-    'aria-label': label,
-    className: cx('dshp-switch', checked === true && 'dshp-is-on'),
-    onClick: onChange,
-   })
-  }
-
   const boot = api.boot || {}
   const data = boot.data || {}
   const version = data.version || '0.1.0'
@@ -6752,38 +6845,9 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '心情换装'), h('small', null, '心情会随聊天、工具、天气、时段等实时变化（由当前模型生成）')),
-    switchNode(settings.mood, () => update({ mood: !settings.mood }), '心情换装开关'),
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数')),
     switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '自言自语开关'),
     api.selfTalkFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地句子池') : null,
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' },
-    h('b', null, '心情'),
-    h('small', { className: 'dshp-ellipsis', title: moodStatusFull || moodStatusText }, moodStatusText),
-    ),
-    api.moodAiFallback ? moodLine('当前使用本地面部表情（模型心情不可用，回退启发式）', '', 'mood-fallback') : null,
-    api.moodAiStale ? moodLine('模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '，' + String(api.moodAiFailureCode).slice(0, 48) : '') + '），保留上一次，稍后重试', '', 'mood-stale') : null,
-    api.moodAiFailure ? moodLine('上次模型心情失败：' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : ''), '', 'mood-failure') : null,
-    api.petVideoCount ? moodLine('心情动画素材 ' + api.petVideoCount + ' 个；心情之间每 1–3 分钟会自己活动一下（播放动画）。', '', 'mood-video') : null,
-    h(
-    'div',
-    { className: 'dshp-field-control' },
-    h('button', {
-     type: 'button',
-     className: 'dshp-btn',
-     onClick: () => {
-      if (api.refreshMoodNow) api.refreshMoodNow()
-     },
-    }, '刷新心情'),
-    ),
    ),
    renderSelfStatus(),
    h(
@@ -6865,11 +6929,18 @@ window.__ModuleLoader__.load({
   }
   function GrowthTab(props) {
    const api = props.api || {}
+   const settings = api.settings && typeof api.settings === 'object' ? api.settings : {}
    const mood = api.moodView || null
    const status = api.selfStatus || null
+   const memory = api.memoryStatus || null
    const recent = (Array.isArray(api.recentSpoken) ? api.recentSpoken : []).slice(-5)
-   const moodSourceLabel = mood && mood.source === 'model' ? '模型生成' : mood && mood.source === 'heuristic' ? '启发式' : ''
+   const moodSource = (mood && mood.source) || api.moodSource || ''
+   const moodSourceLabel = moodSource === 'model' ? '模型生成' : moodSource === 'heuristic' ? '启发式' : ''
    const sayButton = api.previewSpontaneousPoem || api.readAnotherSpontaneous || function () {}
+   const moodFailureText = api.moodAiFailure
+    ? moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : '')
+    : ''
+   const memoryLabels = { ok: '健康', warn: '注意', error: '异常' }
    return h(
     'div',
     { className: 'dshp-growth' },
@@ -6880,6 +6951,16 @@ window.__ModuleLoader__.load({
      h('div', { className: 'dshp-growth-mood-label' }, mood && mood.label ? mood.label : '还没形成心情'),
      mood && mood.reason ? h('div', { className: 'dshp-growth-mood-reason' }, String(mood.reason)) : null,
      moodSourceLabel ? h('div', { className: 'dshp-growth-mood-source' }, '来源：' + moodSourceLabel) : null,
+     api.moodAiFallback ? h('div', { className: 'dshp-growth-mood-note' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
+     api.moodAiStale ? h('div', { className: 'dshp-growth-mood-note' }, '模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '，' + String(api.moodAiFailureCode).slice(0, 48) : '') + '），保留上一次，稍后重试') : null,
+     api.moodAiFailure ? h('div', { className: 'dshp-growth-mood-note' }, '上次模型心情失败：' + moodFailureText) : null,
+     h(
+      'div',
+      { className: 'dshp-growth-mood-controls' },
+      h('span', { className: 'dshp-growth-mood-control-label' }, '心情换装'),
+      switchNode(settings.mood === true, () => { if (api.updateSettings) api.updateSettings({ mood: !settings.mood }) }, '心情换装开关'),
+      h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.refreshMoodNow) api.refreshMoodNow() } }, '刷新心情'),
+     ),
     ),
     h(
      'div',
@@ -6887,6 +6968,30 @@ window.__ModuleLoader__.load({
      h('div', { className: 'dshp-growth-section-head' }, '内在状态'),
      growthMetricsTree(status),
     ),
+    memory
+     ? h(
+      'div',
+      { className: 'dshp-growth-section dshp-memory-card' },
+      h(
+       'div',
+       { className: 'dshp-memory-head' },
+       h('div', { className: 'dshp-growth-section-head' }, '记忆中枢'),
+       h('span', { className: cx('dshp-memory-health', 'dshp-memory-' + memory.health) }, memoryLabels[memory.health] || '注意'),
+      ),
+      h('div', { className: 'dshp-memory-line' }, 'journal ' + memory.journal + ' 条 · 话题 ' + memory.topics + ' 条 · 学习 ' + memory.learnings + ' 条'),
+      h('div', { className: 'dshp-memory-line' }, '上次备份 ' + (weatherUpdatedLabel(memory.backups.lastAt) || '—')),
+      memory.recovered ? h('div', { className: 'dshp-memory-line dshp-memory-recovered' }, '已从备份恢复 ' + memory.recovered + ' 个文件') : null,
+      h(
+       'div',
+       { className: 'dshp-growth-actions' },
+       h('button', {
+        type: 'button',
+        className: 'dshp-btn dshp-btn-small',
+        onClick: () => { if (api.backupMemory) api.backupMemory() },
+       }, '立即备份'),
+      ),
+     )
+     : null,
     h(
      'div',
      { className: 'dshp-growth-section' },
@@ -6905,7 +7010,6 @@ window.__ModuleLoader__.load({
      'div',
      { className: 'dshp-growth-actions' },
      h('button', { type: 'button', className: 'dshp-btn dshp-btn-primary', onClick: () => sayButton() }, '说一句'),
-     h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.refreshMoodNow) api.refreshMoodNow() } }, '刷新心情'),
      h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.openPoetryModule) api.openPoetryModule() } }, '诗词模块'),
      h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.openSettings) api.openSettings() } }, '设置'),
     ),

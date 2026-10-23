@@ -2177,7 +2177,7 @@ test('settings mood/spontaneousPoem：归一化与 PUT 序列化', () => {
   assertDeep(JSON.parse(request.init.body), { mood: false, spontaneousPoem: false })
 })
 
-test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览按钮', () => {
+test('心情 UI：今日 chip 不变；设置不再含心情块；成长页有心情开关/刷新/失败文案', () => {
   const { react, debug } = loadClient()
   const baseApi = {
     poem: POEM,
@@ -2198,18 +2198,13 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
       moodChip: '心情：开心',
     }),
   })
-  const moodText = textOf(withMood)
-  assert.match(moodText, /心情：开心/)
-  assert.match(moodText, /北京 · 小雨 18℃/)
-  const moodChips = findAll(withMood, (node) => node.type === 'span'
-    && typeof node.props.className === 'string'
-    && node.props.className.includes('dshp-mood-chip'))
-  assert.equal(moodChips.length, 1)
+  assert.match(textOf(withMood), /心情：开心/)
+  assert.match(textOf(withMood), /北京 · 小雨 18℃/)
 
   const updates = []
   const refreshed = []
   const previews = []
-  const settingsApi = {
+  const api = {
     settings: debug.normalizeSettings({}),
     updateSettings: (patch) => updates.push(patch),
     hideWidget() {},
@@ -2221,35 +2216,40 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
     moodStats: debug.normalizeMoodStats({ userMessages: 12, toolCalls: 128 }),
     moodView: { key: 'tired', label: '有点累', reason: '工具调用 128 次 · 今天辛苦啦' },
     moodBasis: '今天聊了 12 句 · 工具调用 128 次 · 天气 小雨',
+    moodAiStale: true,
+    moodAiFailure: 'http',
     refreshMoodNow: () => refreshed.push(true),
     previewSpontaneousPoem: () => previews.push(true),
     boot: { data: { version: '0.1.0', dataVersion: 'x', source: {} } },
   }
-  const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
-  const text = textOf(tree)
-  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数']) {
-    assert.ok(text.includes(label), '设置缺少：' + label)
+  const settingsTree = renderFresh(react, debug.SettingsTab, { api })
+  const settingsText = textOf(settingsTree)
+  for (const absent of ['心情换装', '刷新心情', '上次模型心情失败', '有点累']) {
+    assert.ok(!settingsText.includes(absent), '设置不应再含心情块：' + absent)
   }
-  assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
-  assert.match(text, /有点累/)
+  for (const label of ['自言自语（偶尔说说话）', '预览一句', '每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数']) {
+    assert.ok(settingsText.includes(label), '设置缺少：' + label)
+  }
+  const readSwitch = findAll(settingsTree, (node) => node.type === 'button' && node.props['aria-label'] === '自言自语开关')[0]
+  readSwitch.props.onClick()
+  assertDeep(updates[0], { spontaneousPoem: false })
+  const previewButton = findAll(settingsTree, (node) => node.type === 'button' && textOf(node) === '预览一句')[0]
+  previewButton.props.onClick()
+  assertDeep(previews, [true])
 
-  const moodSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '心情换装开关')[0]
+  const growthTree = renderFresh(react, debug.GrowthTab, { api })
+  const growthText = textOf(growthTree)
+  for (const label of ['心情换装', '刷新心情', '有点累', '工具调用 128 次 · 今天辛苦啦', '保留上一次']) {
+    assert.ok(growthText.includes(label), '成长页心情区缺少：' + label)
+  }
+  const moodSwitch = findAll(growthTree, (node) => node.type === 'button' && node.props['aria-label'] === '心情换装开关')[0]
   assert.ok(moodSwitch)
   moodSwitch.props.onClick()
-  assertDeep(updates[0], { mood: false })
-  const readSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '自言自语开关')[0]
-  assert.ok(readSwitch)
-  readSwitch.props.onClick()
-  assertDeep(updates[1], { spontaneousPoem: false })
-
-  const refreshButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '刷新心情')[0]
+  assertDeep(updates[1], { mood: false })
+  const refreshButton = findAll(growthTree, (node) => node.type === 'button' && textOf(node) === '刷新心情')[0]
   assert.ok(refreshButton)
   refreshButton.props.onClick()
   assertDeep(refreshed, [true])
-  const previewButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '预览一句')[0]
-  assert.ok(previewButton)
-  previewButton.props.onClick()
-  assertDeep(previews, [true])
 })
 
 test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情立绘/chip、预览不计次数、关闭回默认', async () => {
@@ -4145,7 +4145,7 @@ test('mood-catalog 资产懒加载：URL 带 dataVersion、版本变化失效、
   await assert.rejects(() => debug.loadResource('moodCatalog'), (error) => error.status === 404)
 })
 
-test('设置心情展示：label + reason + 来源（模型/启发式）与本地回退状态', () => {
+test('成长页心情展示：label + reason + 来源（模型/启发式）与本地回退状态', () => {
   const { react, debug } = loadClient()
   const baseApi = {
     settings: debug.normalizeSettings({}),
@@ -4164,11 +4164,11 @@ test('设置心情展示：label + reason + 来源（模型/启发式）与本�
     previewSpontaneousPoem() {},
     boot: { data: { version: '0.1.0' } },
   }
-  let text = textOf(renderFresh(react, debug.SettingsTab, { api: baseApi }))
+  let text = textOf(renderFresh(react, debug.GrowthTab, { api: baseApi }))
   assert.match(text, /发呆出神/)
   assert.match(text, /想发会儿呆/)
   assert.match(text, /来源：模型/)
-  const fallbackText = textOf(renderFresh(react, debug.SettingsTab, {
+  const fallbackText = textOf(renderFresh(react, debug.GrowthTab, {
     api: Object.assign({}, baseApi, {
       moodSource: 'heuristic',
       moodAiFallback: true,
@@ -5662,9 +5662,9 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     assert.equal(settingsEl.props.api.moodSource, 'model')
     assert.equal(settingsEl.props.api.moodAiStale, true)
     assert.equal(settingsEl.props.api.moodAiFailure, 'http')
-    const settingsText = textOf(settingsEl.type(settingsEl.props))
-    assert.match(settingsText, /模型心情暂时不可用（HTTP 错误），保留上一次，稍后重试/)
-    assert.match(settingsText, /上次模型心情失败：HTTP 错误/)
+    const growthText = textOf(debug.GrowthTab({ api: settingsEl.props.api }))
+    assert.match(growthText, /模型心情暂时不可用（HTTP 错误），保留上一次，稍后重试/)
+    assert.match(growthText, /上次模型心情失败：HTTP 错误/)
     retryTimer = findTimer(debug.MOOD_AI_RETRY_MIN_MS, debug.MOOD_AI_RETRY_MAX_MS)
     assert.ok(retryTimer)
 
@@ -6081,9 +6081,9 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   assert.ok(!text.includes('「一」'), '超过 5 条应只保留最近 5 条')
   for (const label of ['说一句', '刷新心情', '诗词模块', '设置']) assert.ok(text.includes(label))
   const buttons = findAll(tree, (node) => node.type === 'button')
-  assert.equal(buttons.length, 4)
+  assert.equal(buttons.length, 5)
   for (const button of buttons) button.props.onClick()
-  assertDeep(calls, ['say', 'refresh', 'poetry', 'settings'])
+  assertDeep(calls, ['refresh', 'say', 'poetry', 'settings'])
 
   const emptyTree = renderFresh(react, debug.GrowthTab, { api: { settings: {} } })
   const emptyText = textOf(emptyTree)
@@ -6091,5 +6091,192 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   assert.match(emptyText, /还没形成心情/)
   assert.match(emptyText, /还没开口/)
   assert.match(emptyText, /尚未开始/)
-  assert.equal(findAll(emptyTree, (node) => node.type === 'button').length, 4, '空数据也保留按钮')
+  assert.equal(findAll(emptyTree, (node) => node.type === 'button').length, 5, '空数据也保留按钮')
+})
+
+/* ------------------------------------------------------------------ */
+/* 24. M42 心情并入成长页 + 记忆中枢卡片                                 */
+/* ------------------------------------------------------------------ */
+
+test('记忆中枢：normalize 健康/计数/备份/recovered，404/缺失隐藏', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.MEMORY_PATH, 'memory.json')
+  assert.equal(debug.MEMORY_BACKUP_PATH, 'memory/backup.json')
+  const status = debug.normalizeMemoryStatus({
+    ok: true,
+    health: 'warn',
+    files: [
+      { id: 'journal', path: 'journal.jsonl', entries: 12 },
+      { id: 'topics', path: 'topics.json', entries: 4 },
+      { id: 'learnings', path: 'learnings.json', entries: 3 },
+    ],
+    backups: { count: 2, lastAt: shanghaiTs(2026, 10, 23, 9, 0), latestId: 'backup-2' },
+    recovered: { count: 2 },
+    updatedAt: 1,
+  })
+  assert.ok(status)
+  assert.equal(status.health, 'warn')
+  assert.equal(status.journal, 12)
+  assert.equal(status.topics, 4)
+  assert.equal(status.learnings, 3)
+  assert.equal(status.backups.count, 2)
+  assert.equal(status.backups.lastAt, shanghaiTs(2026, 10, 23, 9, 0))
+  assert.equal(status.recovered, 2)
+  assert.equal(debug.normalizeMemoryStatus({ ok: false }), null)
+  assert.equal(debug.normalizeMemoryStatus({ ok: true }), null)
+  assert.equal(debug.normalizeMemoryStatus(null), null)
+  const okStatus = debug.normalizeMemoryStatus({ ok: true, health: 'ok', files: [], backups: {}, recovered: false })
+  assert.equal(okStatus.health, 'ok')
+  assert.equal(okStatus.recovered, 0)
+})
+
+test('GrowthTab 记忆卡：健康徽章/计数/备份时间/recovered/立即备份，404 不显示', () => {
+  const { react, debug } = loadClient()
+  const memoryStatus = debug.normalizeMemoryStatus({
+    ok: true,
+    health: 'ok',
+    files: [
+      { id: 'journal', entries: 9 },
+      { id: 'topics', entries: 5 },
+      { id: 'learnings', entries: 2 },
+    ],
+    backups: { count: 1, lastAt: shanghaiTs(2026, 10, 23, 9, 30) },
+    recovered: 1,
+  })
+  let backups = 0
+  const api = {
+    settings: debug.normalizeSettings({}),
+    updateSettings() {},
+    memoryStatus,
+    backupMemory: () => { backups += 1 },
+  }
+  const tree = renderFresh(react, debug.GrowthTab, { api })
+  const text = textOf(tree)
+  assert.match(text, /记忆中枢/)
+  assert.match(text, /健康/)
+  assert.match(text, /journal 9 条 · 话题 5 条 · 学习 2 条/)
+  assert.match(text, /上次备份 09:30/)
+  assert.match(text, /已从备份恢复 1 个文件/)
+  const button = findAll(tree, (node) => node.type === 'button' && textOf(node) === '立即备份')[0]
+  assert.ok(button)
+  button.props.onClick()
+  assert.equal(backups, 1)
+  const noMemory = renderFresh(react, debug.GrowthTab, { api: { settings: debug.normalizeSettings({}) } })
+  assert.ok(!textOf(noMemory).includes('记忆中枢'), '404/无数据时整卡隐藏')
+})
+
+test('记忆中枢：仅成长 tab 轮询、隐藏跳过、POST 备份成功/失败 toast、404 隐藏', async () => {
+  const dataVersion = 'test.memory.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  let memoryMode = 'ok'
+  let backupMode = 'ok'
+  let memoryCalls = 0
+  let backupCalls = 0
+  const fetchImpl = async (url, init) => {
+    const raw = String(url)
+    if (raw.indexOf('memory/backup.json') >= 0) {
+      backupCalls += 1
+      if (backupMode === 'fail') return { ok: false, status: 500, json: async () => ({}) }
+      return { ok: true, json: async () => ({ ok: true, backup: { id: 'b1', at: 1, files: [] } }) }
+    }
+    if (raw.indexOf('memory.json') >= 0) {
+      memoryCalls += 1
+      if (memoryMode === '404') return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => ({ ok: true, health: 'ok', files: [{ id: 'journal', entries: 7 }, { id: 'topics', entries: 3 }, { id: 'learnings', entries: 2 }], backups: { count: 1, lastAt: 2 }, recovered: 0 }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const intervals = []
+  context.setInterval = (fn, ms) => {
+    const item = { fn, ms, cleared: false }
+    intervals.push(item)
+    return item
+  }
+  context.clearInterval = (item) => { if (item) item.cleared = true }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const sixtyIntervals = () => intervals.filter((item) => !item.cleared && item.ms === debug.MEMORY_POLL_MS)
+  const runSixty = async () => {
+    for (const item of sixtyIntervals()) item.fn()
+    await sleep(20)
+    return renderMain()
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 5; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    assert.equal(memoryCalls, 0, '面板未打开不轮询 memory')
+    const stage = findStage(tree)
+    stage.props.onContextMenu({ preventDefault() {} })
+    tree = renderMain()
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.equal(memoryCalls, 0, '停在设置 tab 时不轮询 memory')
+    const growthTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '成长')[0]
+    assert.ok(growthTab)
+    growthTab.props.onClick()
+    tree = renderMain()
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.ok(memoryCalls >= 1, '成长 tab 应轮询 memory')
+    const growthEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
+    assert.ok(growthEl)
+    let growthTree = debug.GrowthTab({ api: growthEl.props.api })
+    assert.match(textOf(growthTree), /记忆中枢/)
+    assert.ok(sixtyIntervals().length >= 1)
+    // 隐藏跳过
+    const beforeHidden = memoryCalls
+    context.document.visibilityState = 'hidden'
+    tree = await runSixty()
+    assert.equal(memoryCalls, beforeHidden, '隐藏时跳过 memory 轮询')
+    context.document.visibilityState = 'visible'
+    tree = await runSixty()
+    assert.ok(memoryCalls > beforeHidden, '回可见继续 memory 轮询')
+    // 备份成功 toast
+    let backupButton = findAll(growthTree, (node) => node.type === 'button' && textOf(node) === '立即备份')[0]
+    assert.ok(backupButton)
+    backupButton.props.onClick()
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(backupCalls, 1)
+    assert.match(textOf(tree), /已备份/)
+    // 备份失败 toast
+    backupMode = 'fail'
+    const growthEl2 = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
+    growthTree = debug.GrowthTab({ api: growthEl2.props.api })
+    backupButton = findAll(growthTree, (node) => node.type === 'button' && textOf(node) === '立即备份')[0]
+    backupButton.props.onClick()
+    await sleep(30)
+    tree = renderMain()
+    assert.match(textOf(tree), /备份失败/)
+    // memory 404 整卡隐藏
+    memoryMode = '404'
+    tree = await runSixty()
+    const growthEl3 = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
+    assert.ok(growthEl3)
+    assert.ok(!textOf(debug.GrowthTab({ api: growthEl3.props.api })).includes('记忆中枢'), 'memory 404 时整卡隐藏')
+  } finally {
+    react._cleanup()
+  }
 })

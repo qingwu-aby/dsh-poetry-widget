@@ -636,3 +636,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 新增 GrowthTab：心情卡、内在状态四行、最近 5 条话语、成长摘要、说一句/刷新心情/诗词/设置按钮。
 - openPanelTab 统一跳转，旧 tab 名深链兼容；资源激活/探头按 poetryTab；面板标题「鲸鱼娘的小角落」。
 - 三套单测 316/316（data 42 / host 162 / client 112）。
+
+## 47. 用户需求（M41/M42，2026-10-23）
+
+用户：担心记忆丢失，要一个中枢管理；心情挪到成长 tab 下。
+- Host `memory-hub`：登记 8 个记忆文件；health（缺失/JSON 损坏/大小骤减）、startup+6h 自动备份（保留 20 份+manifest sha256）、只恢复缺失文件、`GET memory.json` + fenced `POST memory/backup.json`；路由 16→18。
+- Client：Settings 删除心情块；GrowthTab 增加完整心情区（来源/失败/换装开关/刷新）+ 记忆中枢卡（健康、计数、上次备份、恢复提示、立即备份）。
+- 三套单测 327/327（data 42 / host 170 / client 115）。

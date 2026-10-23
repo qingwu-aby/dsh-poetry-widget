@@ -42,6 +42,11 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
+import {
+  MEMORY_ROUTE,
+  createMemoryHub,
+  createMemorySnapshotHandler,
+} from './lib/memory-hub.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { loadTopicBank, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
@@ -230,6 +235,27 @@ export async function apply(ctx) {
         'dsh-poetry-widget: 自驱成长',
       )
 
+      // M41：记忆中枢（create → recover → start；所有写入路径不变，中枢只管理/备份/恢复）。
+      const memoryHub = createMemoryHub({ env, home, logger })
+      const memoryRecovery = memoryHub.recover()
+      memoryHub.start()
+      const memorySnapshot = memoryHub.snapshot()
+      logger?.info?.(
+        `[dsh-poetry-widget] 记忆中枢：${memorySnapshot.files.length} 个文件 / 上次备份 ${
+          memorySnapshot.backups.latestId ?? '无'
+        }${memoryRecovery.recovered.length > 0 ? `（恢复 ${memoryRecovery.recovered.length} 个缺失文件）` : ''}`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            memoryHub.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 记忆中枢清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 记忆中枢',
+      )
+
       const routes = createRouteTable({
         dataStore,
         settingsStore,
@@ -243,6 +269,7 @@ export async function apply(ctx) {
         journal,
         feihuaFullService,
         getSelfState: () => selfState.snapshot(),
+        memoryHub,
         env,
         home,
       })
@@ -263,6 +290,14 @@ export async function apply(ctx) {
           kind: 'exact',
           path: PET_MEDIA_ROUTE,
           handler: createPetMediaHandler({ dir: petMediaDir, logger }),
+        }),
+      )
+      // 记忆中枢只读快照（unfenced、no-store；路径脱敏、无用户内容）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: MEMORY_ROUTE,
+          handler: createMemorySnapshotHandler({ hub: memoryHub }),
         }),
       )
       // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。
@@ -292,7 +327,7 @@ export async function apply(ctx) {
         'dsh-poetry-widget: HTTP 路由',
       )
       logger?.info?.(
-        `[dsh-poetry-widget] 已挂载 ${routes.length + 3} 条路由（assets + pet-media + self + ${routes.length} 条 JSON，version ${VERSION}，` +
+        `[dsh-poetry-widget] 已挂载 ${routes.length + 4} 条路由（assets + pet-media + self + memory + ${routes.length} 条 JSON，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
       logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)
