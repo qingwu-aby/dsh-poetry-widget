@@ -27,10 +27,6 @@ window.__ModuleLoader__.load({
   }
   const h = React.createElement
   const ROUTE = '/api/dsh-poetry/'
-  const DEV_VERSION_PATH = 'dev/version.json'
-  const DEV_VERSION_POLL_MS = 2000
-  const DEV_RELOAD_DELAY_MIN_MS = 300
-  const DEV_RELOAD_DELAY_MAX_MS = 800
   const ASSET_BASE = ROUTE + 'assets?f='
   const SETTINGS_URL = ROUTE + 'settings.json'
   const WIDGET_ID = 'dsh-poetry-widget'
@@ -1855,15 +1851,6 @@ window.__ModuleLoader__.load({
   })
   }
 
-  /** 自动刷新前的短暂提示延时 300–800ms。 */
-  function nextDevReloadDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(DEV_RELOAD_DELAY_MIN_MS + ratio * (DEV_RELOAD_DELAY_MAX_MS - DEV_RELOAD_DELAY_MIN_MS))
-  }
-
   /** 实时心情事件防抖窗口 2–4 秒（合并同分钟多次事件）。 */
   function nextMoodAiDebounceDelay(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
@@ -3215,7 +3202,6 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
-  DEV_VERSION_PATH, DEV_VERSION_POLL_MS, DEV_RELOAD_DELAY_MIN_MS, DEV_RELOAD_DELAY_MAX_MS, nextDevReloadDelay,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
@@ -3579,10 +3565,6 @@ window.__ModuleLoader__.load({
   }, [])
   const showToastRef = React.useRef(null)
   showToastRef.current = showToast
-  const devVersionBaselineRef = React.useRef(null)
-  const devVersionInFlightRef = React.useRef(false)
-  const devVersionReloadedRef = React.useRef(false)
-  const devVersionReloadTimerRef = React.useRef(null)
   React.useEffect(() => () => {
    if (toastTimer.current) {
     clearTimeout(toastTimer.current)
@@ -5462,74 +5444,6 @@ window.__ModuleLoader__.load({
   React.useEffect(() => () => {
    if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current)
    if (mealTimerRef.current) clearTimeout(mealTimerRef.current)
-  }, [])
-
-  // 自动刷新：轮询 dev/version.json，首次只记基线，后续变化提示后 reload（独立 timer）
-  React.useEffect(() => {
-   if (typeof fetch !== 'function') return undefined
-   const loc = typeof location !== 'undefined' && location && typeof location.reload === 'function'
-    ? location
-    : (typeof window !== 'undefined' && window && window.location && typeof window.location.reload === 'function' ? window.location : null)
-   if (!loc) return undefined
-   let disposed = false
-   const checkVersion = () => {
-    if (disposed || devVersionInFlightRef.current || devVersionReloadedRef.current) return
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    devVersionInFlightRef.current = true
-    Promise.resolve()
-     .then(() => fetch(ROUTE + DEV_VERSION_PATH, { cache: 'no-store' }))
-     .then((response) => {
-      if (!response || !response.ok) return null
-      return Promise.resolve(response.json()).catch(() => null)
-     })
-     .then((data) => {
-      if (disposed || !data || data.ok === false || !data.client) return
-      const mtimeMs = num(data.client.mtimeMs, NaN)
-      const size = num(data.client.size, NaN)
-      if (!Number.isFinite(mtimeMs)) return
-      const baseline = devVersionBaselineRef.current
-      if (!baseline) {
-       devVersionBaselineRef.current = { mtimeMs, size: Number.isFinite(size) ? size : -1 }
-       return
-      }
-      const baselineSize = Number.isFinite(baseline.size) ? baseline.size : -1
-      const nextSize = Number.isFinite(size) ? size : -1
-      if (baseline.mtimeMs === mtimeMs && baselineSize === nextSize) return
-      devVersionBaselineRef.current = { mtimeMs, size: nextSize }
-      if (devVersionReloadedRef.current) return
-      devVersionReloadedRef.current = true
-      if (showToastRef.current) showToastRef.current('插件已更新，正在刷新…')
-      if (devVersionReloadTimerRef.current) clearTimeout(devVersionReloadTimerRef.current)
-      devVersionReloadTimerRef.current = setTimeout(() => {
-       devVersionReloadTimerRef.current = null
-       try {
-        loc.reload()
-       } catch (error) {
-       }
-      }, nextDevReloadDelay())
-     })
-     .catch(() => {})
-     .then(() => {
-      devVersionInFlightRef.current = false
-     })
-   }
-   checkVersion()
-   const pollTimer = setInterval(checkVersion, DEV_VERSION_POLL_MS)
-   const onVisibility = () => {
-    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-    checkVersion()
-   }
-   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
-   return () => {
-    disposed = true
-    clearInterval(pollTimer)
-    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
-    if (devVersionReloadTimerRef.current) {
-     clearTimeout(devVersionReloadTimerRef.current)
-     devVersionReloadTimerRef.current = null
-    }
-    devVersionInFlightRef.current = false
-   }
   }, [])
 
   const syncMascotVideoPlayback = React.useCallback(() => {
