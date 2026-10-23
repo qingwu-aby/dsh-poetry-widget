@@ -2907,8 +2907,10 @@ window.__ModuleLoader__.load({
   '.dshp-dizzy-stars{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;animation:dshp-dizzy-float 900ms ease-in-out infinite;pointer-events:none;z-index:3}',
   '@keyframes dshp-dizzy-float{0%,100%{transform:translate(-50%,0);opacity:.75}50%{transform:translate(-50%,-6px);opacity:1}}',
   '.dshp-dizzy-tip{position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--dshp-bg);border:1px solid var(--dshp-border);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--dshp-label);box-shadow:var(--dshp-shadow);pointer-events:none;z-index:3}',
-  '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none}',
-  '.dshp-mascot-video{background:transparent}',
+  '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;pointer-events:none;user-select:none;-webkit-user-drag:none}',
+  '.dshp-mascot-img{object-fit:contain}',
+  /* 640x360 的 webm 人物只占画面高约 83%，方形挂件里 contain 会显得小；cover 裁掉两侧透明边并轻微放大，视觉高度与 512x512 静态图对齐 */
+  '.dshp-mascot-video{object-fit:cover;object-position:center;background:transparent;transform:scale(1.12)}',
   '.dshp-mascot-img.dshp-mascot-swap,.dshp-mascot-video.dshp-mascot-swap{animation:dshp-mascot-fade 220ms ease-out}',
   '@keyframes dshp-mascot-fade{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}',
   '@keyframes dshp-float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-5px) scale(1.012)}}',
