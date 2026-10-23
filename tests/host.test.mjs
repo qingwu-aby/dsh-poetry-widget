@@ -6955,6 +6955,7 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
     provider: MODEL_POLICY_OPENCODE_PROVIDER,
     model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
     reasoningEffort: 'low',
+    omitTemperature: true,
   })
   assert.deepEqual(moodCandidates[1], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
   assert.equal(unknown.resolve('selfTalk').reasoningEffort, effortHigh)
@@ -7102,6 +7103,165 @@ test('model-policy M51：候选已产出部分文本后失败 → 不重试（�
   assert.equal(timeoutResult.ok, true)
   assert.equal(timeoutLlm.calls.length, 2, '首候选超时后尝试第二候选')
   assert.deepEqual(timeoutResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+})
+
+// ---------------------------------------------------------------------------
+// M52：opencode-go 400 修复（opencode 候选请求不带 temperature）
+// ---------------------------------------------------------------------------
+
+test('model-policy M52：opencode 候选 omitTemperature，deepseek 候选保持温度', () => {
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['opencode-go'],
+  })
+  const candidates = policy.resolveCandidates('mood')
+  assert.equal(candidates.length, 2)
+  assert.equal(candidates[0].provider, 'opencode-go')
+  assert.equal(candidates[0].omitTemperature, true)
+  assert.equal(candidates[1].provider, 'deepseek-account')
+  assert.equal('omitTemperature' in candidates[1], false, 'deepseek 候选不 omit')
+  // 显式覆盖 opencode provider 也会带 omitTemperature 语义（provider 判断兜底）
+  const explicit = createModelPolicy({
+    env: { DSH_POETRY_MODEL_PROVIDER: 'opencode-go', DSH_POETRY_MODEL: 'deepseek-v4.1-flash' },
+    getSelection: () => null,
+    getProviders: () => [],
+  })
+  assert.equal(explicit.resolveCandidates('mood')[0].provider, 'opencode-go')
+})
+
+test('model-policy M52：四服务 opencode 候选不带 temperature，deepseek 候选带温度', async () => {
+  const opencodePolicy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['opencode-go'],
+  })
+  const deepseekPolicy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => [],
+  })
+
+  // mood
+  const moodOpencode = makeMoodAiHarness({ policy: opencodePolicy })
+  await moodOpencode.service.generate({}, { force: true })
+  assert.equal('temperature' in moodOpencode.llm.calls[0], false, 'opencode 不带 temperature')
+  assert.equal(moodOpencode.llm.calls[0].provider, 'opencode-go')
+  const moodDeepseek = makeMoodAiHarness({ policy: deepseekPolicy })
+  await moodDeepseek.service.generate({}, { force: true })
+  assert.equal(moodDeepseek.llm.calls[0].temperature, 1.05)
+
+  // selfTalk
+  const talkOpencode = makeSelfTalkHarness({ policy: opencodePolicy })
+  await talkOpencode.service.generate({})
+  assert.equal('temperature' in talkOpencode.llm.calls[0], false)
+  const talkDeepseek = makeSelfTalkHarness({ policy: deepseekPolicy })
+  await talkDeepseek.service.generate({})
+  assert.equal(talkDeepseek.llm.calls[0].temperature, 1.0)
+
+  // growth（reflect）
+  const growthOpencodeLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
+  const growthOpencode = makeGrowthHarness({ policy: opencodePolicy, llm: growthOpencodeLlm })
+  assert.equal((await growthOpencode.growth.reflectNow()).ok, true)
+  assert.equal('temperature' in growthOpencodeLlm.calls[0], false)
+  const growthDeepseekLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
+  const growthDeepseek = makeGrowthHarness({ policy: deepseekPolicy, llm: growthDeepseekLlm })
+  assert.equal((await growthDeepseek.growth.reflectNow()).ok, true)
+  assert.equal(growthDeepseekLlm.calls[0].temperature, 0.9)
+
+  // voice
+  const voiceDir = makeTmpDir('dshp-m52-voice')
+  const journalPath = writeRecallJournal(path.join(voiceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voiceLlm = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voiceOpencode = createVoiceService({
+    llm: voiceLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy: opencodePolicy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice-open.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voiceOpencode.refreshNow()).ok, true)
+  assert.equal('temperature' in voiceLlm.calls[0], false)
+
+  const voiceLlm2 = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voiceDeepseek = createVoiceService({
+    llm: voiceLlm2,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy: deepseekPolicy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice-deep.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voiceDeepseek.refreshNow()).ok, true)
+  assert.equal(voiceLlm2.calls[0].temperature, 0.8)
+})
+
+test('model-policy M52：回退第二候选时带 temperature；错误日志含 provider/model/status 不含提示词', async () => {
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['opencode-go'],
+  })
+  const failoverLlm = makeFailoverLlm({
+    successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '回落成功', energy: 60 }),
+  })
+  const mood = makeMoodAiHarness({ policy, llm: failoverLlm })
+  const result = await mood.service.generate({}, { force: true })
+  assert.equal(result.ok, true)
+  assert.equal('temperature' in failoverLlm.calls[0], false, '首候选 opencode 不带温度')
+  assert.equal(failoverLlm.calls[1].temperature, 1.05, '回退 deepseek 候选带温度')
+
+  // selfTalk 回退同样
+  const talkLlm = makeFailoverLlm({ successText: SELF_TALK_LINES_A.join('\n') })
+  const talk = makeSelfTalkHarness({ policy, llm: talkLlm })
+  assert.equal((await talk.service.generate({})).ok, true)
+  assert.equal('temperature' in talkLlm.calls[0], false)
+  assert.equal(talkLlm.calls[1].temperature, 1.0)
+
+  // 错误日志：provider/model/status 可见，且不含 prompt 内容
+  const warnings = []
+  const errorLlm = {
+    calls: [],
+    stream(options) {
+      this.calls.push(options)
+      if (options.provider === 'opencode-go') {
+        return (async function* () {
+          const error = new Error('Request failed with status code 400')
+          error.status = 400
+          throw error
+        })()
+      }
+      return (async function* () {
+        yield { type: 'text-delta', index: 0, text: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '回落', energy: 50 }) }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  const catalog = makeMoodCatalogFixture()
+  const service = createMoodAiService({
+    llm: errorLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    catalog,
+    now: () => FIXED_NOW.getTime(),
+    timeoutMs: 300,
+    cacheTtlMs: 0,
+    minIntervalMs: 0,
+    policy,
+    logger: { warn: (message) => warnings.push(String(message)) },
+  })
+  const logged = await service.generate({}, { force: true })
+  assert.equal(logged.ok, true, '400 后回退成功')
+  const statusWarning = warnings.find((message) => message.includes('opencode-go') && message.includes('400'))
+  assert.ok(statusWarning, `应有 provider/model/status 日志，实际：${warnings.join(' | ')}`)
+  assert.match(statusWarning, /opencode-go\/deepseek-v4\.1-flash/)
+  assert.equal(statusWarning.includes('心情图鉴'), false, '日志不含提示词内容')
 })
 
 // ---------------------------------------------------------------------------

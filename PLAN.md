@@ -693,3 +693,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 模型候选 + 推理策略默认：mood low、selfTalk/growth/voice high；env 可覆盖/关闭。
 - 修了客户端心情引擎测试的当前时间依赖（夜间误判 sleepy）。
 - 三套单测 361/361（data 42 / host 202 / client 117）。
+
+## 56. OpenCode Go 400 修复（M52，2026-10-23）
+
+- 400 根因判断：OpenCode Go 的 deepseek-v4.1-flash 为 reasoning 模型，catalog 无 supportsTemperature，插件却发送 temperature。
+- 修：opencode-go 候选 omitTemperature，四服务不发送 temperature；回落 deepseek-account 保留原温度；候选失败 warn 带 provider/model/status。
+- 三套单测 364/364（data 42 / host 205 / client 117）。

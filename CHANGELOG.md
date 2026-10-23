@@ -5,7 +5,8 @@
 - **移除静态自言自语池**：删除 `MURMUR_POOL`/`MURMUR_TEMPLATES`/本地候选与 `fallbackSpontCard`；模型生成失败时保持安静（不显示本地文案、不弹错误），碎碎念完全由模型/自身状态驱动；保留模型结果缓存与自主行为 action 气泡。
 - **按任务自选推理等级**：mood low / self-talk high / growth high / voice high（模型默认 deepseek-account/deepseek-flash，env `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_REASONING_*` 可覆盖）；self-talk 超时 35s、growth/voice 40s、client self-talk 35s。
 - **插件模型候选**：优先 `opencode-go/deepseek-v4.1-flash`，调用前失败自动回落 `deepseek-account/deepseek-flash`；不改 DSH 全局模型/子代理白名单；部分输出后失败不重试。
-- 单测：data 42 / host 202 / client 117 = **361 / 361 pass**。
+- **修复 OpenCode Go 400**：opencode-go/deepseek-v4.1-flash 为 reasoning 模型且 catalog 无 `supportsTemperature`，插件请求不再发送 `temperature`；回落 deepseek-account 时保留温度；失败日志含 provider/model/status 便于定位。
+- 单测：data 42 / host 205 / client 117 = **364 / 364 pass**。
 
 ## 0.1.3 — 2026-10-23
 
