@@ -3100,6 +3100,7 @@ window.__ModuleLoader__.load({
   '.dshp-card{display:flex;flex-direction:column;gap:6px}',
   '.dshp-card-title{font-size:15px;font-weight:700}',
   '.dshp-card-summary{color:var(--dshp-label-2);font-size:12.5px}',
+  '.dshp-ellipsis{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '.dshp-p{margin:0;font-size:12.5px;line-height:1.65}',
   '.dshp-example{border-left:3px solid var(--dshp-accent);background:var(--dshp-bg-soft);',
   'border-radius:0 8px 8px 0;padding:6px 10px;margin:0}',
@@ -6376,10 +6377,15 @@ window.__ModuleLoader__.load({
   const currentMood = api.moodView || null
   const moodAt = (api.moodRes && (api.moodRes.at || (api.moodRes.data && api.moodRes.data.updatedAt))) || 0
   const moodSourceLabel = api.moodSource === 'model' ? '模型' : api.moodSource === 'heuristic' ? '启发式' : ''
-  const moodStatusText = (api.moodBasis || moodBasisText(moodStats, api.weather))
-   + (currentMood ? '；当前：' + currentMood.label + '（' + currentMood.reason + '）' : '')
-   + (moodSourceLabel ? ' · 来源：' + moodSourceLabel : '')
-   + (moodAt ? ' · 更新于 ' + weatherUpdatedLabel(moodAt) : '')
+  const moodReasonText = currentMood ? String(currentMood.reason || '').replace(/[「」]/g, '').trim() : ''
+  const moodQuotedReason = moodReasonText ? '「' + moodReasonText + '」' : ''
+  const moodDetailText = currentMood ? '当前：' + currentMood.label + moodQuotedReason : ''
+  const moodMetaText = [api.moodBasis || moodBasisText(moodStats, api.weather), moodSourceLabel ? '来源：' + moodSourceLabel : '', moodAt ? '更新于 ' + weatherUpdatedLabel(moodAt) : '']
+   .filter(Boolean)
+   .join(' · ')
+  const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(' · ') || '心情数据加载中'
+  const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(' · ')
+  const moodLine = (text, className, key) => h('div', { key, className: cx('dshp-card-summary', 'dshp-ellipsis', className), title: text }, text)
 
   function seg(options, current, onPick) {
    return h(
@@ -6549,11 +6555,14 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
-    api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
-    api.moodAiStale ? h('div', { className: 'dshp-card-summary' }, '模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '，' + String(api.moodAiFailureCode).slice(0, 48) : '') + '），保留上一次，稍后重试') : null,
-    api.moodAiFailure ? h('div', { className: 'dshp-card-summary' }, '上次模型心情失败：' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : '')) : null,
-    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个；心情之间每 1–3 分钟会自己活动一下（播放动画）。') : null,
+    h('div', { className: 'dshp-field-label' },
+    h('b', null, '心情'),
+    h('small', { className: 'dshp-ellipsis', title: moodStatusFull || moodStatusText }, moodStatusText),
+    ),
+    api.moodAiFallback ? moodLine('当前使用本地面部表情（模型心情不可用，回退启发式）', '', 'mood-fallback') : null,
+    api.moodAiStale ? moodLine('模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '，' + String(api.moodAiFailureCode).slice(0, 48) : '') + '），保留上一次，稍后重试', '', 'mood-stale') : null,
+    api.moodAiFailure ? moodLine('上次模型心情失败：' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : ''), '', 'mood-failure') : null,
+    api.petVideoCount ? moodLine('心情动画素材 ' + api.petVideoCount + ' 个；心情之间每 1–3 分钟会自己活动一下（播放动画）。', '', 'mood-video') : null,
     h(
     'div',
     { className: 'dshp-field-control' },
