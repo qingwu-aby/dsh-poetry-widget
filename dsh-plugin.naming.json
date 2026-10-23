@@ -28,6 +28,10 @@
       },
       {
         "kind": "exact",
+        "path": "/api/dsh-poetry/pet-media"
+      },
+      {
+        "kind": "exact",
         "path": "/api/dsh-poetry/health.json"
       },
       {
@@ -52,11 +56,43 @@
       },
       {
         "kind": "exact",
+        "path": "/api/dsh-poetry/mood.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/mood-ai.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/weather.json"
+      },
+      {
+        "kind": "exact",
         "path": "/api/dsh-poetry/settings.json"
       },
       {
         "kind": "exact",
         "path": "/api/dsh-poetry/about.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/self-talk.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/feihua-full.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/self.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/memory.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/memory/backup.json"
       }
     ]
   }
