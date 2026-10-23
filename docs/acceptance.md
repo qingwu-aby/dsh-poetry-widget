@@ -11,8 +11,8 @@
 | A1 | `node --check` 全部 JS | ✅ | index.js / lib/*.mjs / client.js（含飞花令）/ scripts / tests 全过 |
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
 | A3 | `node --test tests/host.test.mjs` | ✅ | 135 pass / 0 fail（+心情回退修复/心情全保留） |
-| A4 | `node --test tests/client.test.mjs` | ✅ | 102 pass / 0 fail（+快速拖动晕眩/饭点吃饭） |
-| A5 | 三套合计 | ✅ | **279 tests / 279 pass / 0 fail**（data 42 / host 135 / client 102） |
+| A4 | `node --test tests/client.test.mjs` | ✅ | 103 pass / 0 fail（+心情超时/图鉴放宽） |
+| A5 | 三套合计 | ✅ | **280 tests / 280 pass / 0 fail**（data 42 / host 135 / client 103） |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |
 | A7 | `node tests/integration/verify.mjs` | ✅ | **64/64 passed, 0 failed, 10 warnings（栅栏 401 属预期；含 4 份 assets/data 资产）** |
 | A8 | 数据构建可复现 | ✅ | 连续两次构建 4 个数据文件 sha256 一致 |

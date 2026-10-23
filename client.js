@@ -102,7 +102,7 @@ window.__ModuleLoader__.load({
   const MOOD_REFRESH_MS = 5 * 60 * 1000
   const MOOD_TICK_MS = 60 * 1000
   const MOOD_AI_PATH = 'mood-ai.json'
-  const MOOD_AI_TIMEOUT_MS = 9000
+  const MOOD_AI_TIMEOUT_MS = 25000
   const MOOD_AI_DEBOUNCE_MIN_MS = 2000
   const MOOD_AI_DEBOUNCE_MAX_MS = 4000
   const MOOD_AI_RECENT_MAX = 3
@@ -1807,7 +1807,8 @@ window.__ModuleLoader__.load({
   const label = String(raw.label == null ? '' : raw.label).trim()
   const reason = String(raw.reason == null ? '' : raw.reason).trim()
   const image = String(raw.image == null ? '' : raw.image).trim()
-  if (!label || !moodCatalogAllows(catalog, image)) return { ok: false, reason: 'image' }
+  const videoImage = /^webm\/[^/]+\.webm$/.test(image)
+  if (!label || (!videoImage && !moodCatalogAllows(catalog, image))) return { ok: false, reason: 'image' }
   return {
    ok: true,
    mood: {
@@ -1822,7 +1823,7 @@ window.__ModuleLoader__.load({
   }
   }
 
-  /** 请求 host 模型心情；9s 超时；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */
+  /** 请求 host 模型心情；25s 超时（宿主 20s，客户端留余量）；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */
   function requestMoodAi(options) {
   const opts = options && typeof options === 'object' ? options : {}
   if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
