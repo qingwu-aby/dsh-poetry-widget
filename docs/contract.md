@@ -319,7 +319,7 @@
 GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片文件名，`|` 分隔，≤5）。
 成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
 失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
-约束：prompt 只含日期时间/天气/聚合统计/idle/最近自述/最近图片 + 图鉴（文件+标签），**不读会话内容**；模型必须从图鉴的 89 张 mood 图里选，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名），节日图仅在对应日期可用；避免 recentImages；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
+约束：prompt 只含日期时间/天气/聚合统计/idle/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以强制轮换；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
 
 图鉴静态资产：`GET /api/dsh-poetry/assets?f=data/mood-catalog.json` → `{ok,version,images:[{file,label,tags,scope,when?}],moodImages:[...],panelImages:[...]}`（89 心情图 + 3 panel 图）。
 
@@ -398,7 +398,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 | `data/ci.json` | ≤ 220 KB |
 | `data/yun.json` | ≤ 80 KB |
 | `data/knowledge.json` | ≤ 90 KB |
-| `client.js`（含内联样式，M6–M18 全部功能） | ≤ 325 KB |
+| `client.js`（含内联样式，M6–M19 全部功能） | ≤ 335 KB |
 | 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
 | 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
 
@@ -440,6 +440,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.13（2026-10-23，M19）**：心情多样性——mood-ai 每次打乱图鉴、提示词优先选 video 动画、`recentImages` 上限 5→20 并从图鉴剔除；Client 心情刷新 30→15 分钟，新增「小动作」层：心情之间每 3–6 分钟按**轮转顺序**播放 106 个 webm 里的下一个（15–25s）后回心情图，优先级 `pulse > panel > expression > motion > mood`，面板/隐藏时暂停，保证全部动画都会露脸。
 - **v1.12（2026-10-23，M18）**：新增心情动画素材（dsh-pet 106 个 MIT webm，`_ref/pet-media/` 不随包）；Host 静态路由 `GET /api/dsh-poetry/pet-media` + 启动时把视频并入 mood-ai 图鉴；Client 支持 `<video>` 立绘渲染与失败回退。
 - **v1.11（2026-10-21，M17）**：飞花令判定出处扩到**全量诗词**（新增 `GET /api/dsh-poetry/feihua-full.json` 按令字分片路由 + `scripts/build-feihua-full.mjs`；数据位于 `_ref/` 不随包，缺失时回退本地句库）。
 - **v1.10（2026-10-21，M14）**：新增自主记忆日志副作用（`$DSH_HOME/agent-memory/journal.{md,jsonl}`，只追加，仅模型生成的 self-talk/mood 内容，不含会话原文）。

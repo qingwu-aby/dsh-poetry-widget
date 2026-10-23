@@ -509,3 +509,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host 新增静态路由 `GET /api/dsh-poetry/pet-media?f=catalog.json|webm/*.webm`（不套栅栏、MIME/缓存/HEAD/路径穿越 404/405）；启动时把 106 条 video 并入 mood-ai 图鉴（moodImages 195 = 89 静态 + 106 视频），mood-ai prompt 增加 media 列；素材缺失时安全降级。
 - Client：懒加载动画图鉴并合并；`.webm` 心情用 `<video autoPlay muted loop playsInline>` 渲染，失败回退静态图，页面隐藏暂停；旧宿主/npm 安装只用 92 张静态图。
 - 三套单测 249/249（data 42 / host 111 / client 96）；真实素材冒烟 catalog 106 ↔ 磁盘 106、webm 200/video/webm、合并图鉴 195。
+
+## 30. 用户反馈修复（M19，2026-10-23）
+
+用户：「图像没怎么更新，一些动图也没用到」。journal 统计证实：41 条 mood 仅 8 条 webm、只有 2 个动画，静态图集中在 waiting/idle/melt；mood 刷新中位 30min。
+- Host mood-ai：每次打乱图鉴顺序、prompt 优先 media=video、recentImages 上限 5→20 并从图鉴剔除（强制轮换）、temperature 0.7→1.05。
+- Client：心情刷新 30→15min、recentImages 保留 20；新增「小动作」层——每 3–6min 按**轮转顺序**从 106 个 webm 取下一个播放 15–25s 后回心情图，位置持久化，面板/隐藏暂停，onError 跳过；优先级 pulse>panel>expression>motion>mood。
+- 三套单测 257/257（data 42 / host 117 / client 98）。

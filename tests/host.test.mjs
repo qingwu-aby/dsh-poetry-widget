@@ -63,6 +63,9 @@ import {
 import {
   MOOD_AI_CACHE_TTL_MS,
   MOOD_AI_SYSTEM_PROMPT,
+  MOOD_AI_TEMPERATURE,
+  MOOD_MIN_CANDIDATES,
+  MOOD_RECENT_IMAGES_MAX,
   buildMoodPrompt,
   createMoodAiService,
   isWhenActive,
@@ -70,6 +73,8 @@ import {
   normalizeMoodCatalog,
   parseMoodResult,
   resolveFestivalAvailability,
+  resolveMoodCandidates,
+  shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
   SELF_TALK_SYSTEM_PROMPT,
@@ -2317,7 +2322,8 @@ test('mood-ai 服务：成功生成心情并透传模型参数', async () => {
   assert.equal(options.model, 'deepseek-flash')
   assert.equal(options.system, MOOD_AI_SYSTEM_PROMPT)
   assert.equal(options.maxTokens, 220)
-  assert.equal(options.temperature, 0.7)
+  assert.equal(options.temperature, MOOD_AI_TEMPERATURE)
+  assert.ok(options.temperature >= 1.0 && options.temperature <= 1.1, 'v1.13 temperature 提到 1.0–1.1')
   assert.equal(options.reasoningEffort, undefined)
   assert.ok(options.signal instanceof AbortSignal)
   const userText = options.messages[0].content[0].text
@@ -2545,7 +2551,7 @@ test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一
 
   const captured = seen[0]
   assert.equal(captured.context.recent.length, 3, 'recent 最多 3 条')
-  assert.equal(captured.context.recentImages.length, 5, 'recentImages 最多 5 条')
+  assert.equal(captured.context.recentImages.length, 7, 'v1.13：上限 20，7 条全部保留')
   assert.equal(captured.context.idleMinutes, null, '非法 idleMinutes 忽略')
   assert.deepEqual(captured.options, { force: true })
 
@@ -3457,6 +3463,175 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
     if (previousDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousDshHome
   }
+})
+
+// ---------------------------------------------------------------------------
+// mood-ai 选择多样性（契约 v1.13，M19a：打乱/视频优先/排除最近 20 张）
+// ---------------------------------------------------------------------------
+
+/** 生成 count 个静态图条目的小图鉴（file=img-<n>.webp）。 */
+function makeMoodCatalogBig(count = 30) {
+  return normalizeMoodCatalog({
+    ok: true,
+    version: 'big.1',
+    images: Array.from({ length: count }, (_, index) => ({
+      file: `img-${index}.webp`,
+      label: `标签${index}`,
+      tags: [`tag${index % 5}`],
+    })),
+    panelImages: [],
+  })
+}
+
+/** 可复现的 LCG random（用于断言打乱顺序）。 */
+function seededRandom(seed = 12345) {
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 4294967296
+  }
+}
+
+function promptCatalogRowFiles(prompt) {
+  return prompt
+    .split('\n')
+    .filter((line) => line.includes('｜'))
+    .map((line) => line.split('｜')[0])
+    .filter((file) => /^(img-|dsh-whale-|webm\/)/.test(file))
+}
+
+test('mood-ai：每次构建图鉴用 Fisher–Yates 打乱（注入 random 可断言顺序变化/可复现）', () => {
+  const catalog = makeMoodCatalogBig(30)
+  const originalOrder = catalog.moodImages.map((image) => image.file)
+  const plan = resolveMoodCandidates(catalog, [], { random: seededRandom(20261023) })
+  const files = plan.candidates.map((image) => image.file)
+  assert.equal(files.length, 30, '不丢条目')
+  assert.deepEqual(new Set(files), new Set(originalOrder), '是原列表的排列')
+  assert.notDeepEqual(files, originalOrder, '顺序确实被打乱')
+
+  const planAgain = resolveMoodCandidates(catalog, [], { random: seededRandom(20261023) })
+  assert.deepEqual(planAgain.candidates.map((image) => image.file), files, '同一 random 可复现')
+
+  const prompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0) }, catalog, { plan })
+  assert.deepEqual(promptCatalogRowFiles(prompt), files, 'prompt 图鉴行顺序 = 打乱后的候选顺序')
+  assert.match(prompt, /已打乱顺序/)
+
+  // shuffleCopy 本身：排列且不修改入参
+  const input = [1, 2, 3, 4, 5]
+  const shuffled = shuffleCopy(input, seededRandom(7))
+  assert.deepEqual(new Set(shuffled), new Set(input))
+  assert.deepEqual(input, [1, 2, 3, 4, 5], '不修改入参')
+})
+
+test('mood-ai：prompt 明确「优先 video 动画 / 不连续重复 / 不同情境换不同 tag」', () => {
+  const catalog = makeMoodCatalogFixture()
+  const prompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0) }, catalog, {
+    random: seededRandom(3),
+  })
+  assert.match(prompt, /优先从 media=video 的动画里选/)
+  assert.match(prompt, /不要连续选同一张图或同一个动作/)
+  assert.match(prompt, /不同 tag 的动作/)
+  assert.match(prompt, /waiting\/idle\/melt/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /优先从 media=video 的动画里选/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /不要连续选同一张图或同一个动作/)
+  assert.ok(MOOD_AI_TEMPERATURE >= 1.0 && MOOD_AI_TEMPERATURE <= 1.1, `temperature=${MOOD_AI_TEMPERATURE}`)
+})
+
+test('mood-ai：recentImages 上限 20 并从图鉴行剔除；候选不足 20 时退回全量', () => {
+  assert.equal(MOOD_RECENT_IMAGES_MAX, 20)
+  assert.equal(MOOD_MIN_CANDIDATES, 20)
+  const big = makeMoodCatalogBig(50) // 50 - 20 = 30 ≥ MOOD_MIN_CANDIDATES，走排除模式
+  const recent25 = Array.from({ length: 25 }, (_, index) => `img-${index}.webp`)
+  const plan = resolveMoodCandidates(big, recent25, { random: seededRandom(11) })
+  assert.equal(plan.recentList.length, 20, 'recentImages 上限 20（路径/长度同步）')
+  assert.equal(plan.usedFallback, false)
+  assert.equal(plan.excludedFiles.size, 20)
+  assert.equal(plan.candidates.length, 30, '50 - 20 被排除')
+
+  const prompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0), recentImages: recent25 }, big, { plan })
+  assert.match(prompt, /已从下面的图鉴列表中移除/)
+  const rowFiles = promptCatalogRowFiles(prompt)
+  for (const file of recent25.slice(0, 20)) {
+    assert.equal(rowFiles.includes(file), false, `被排除条目不应出现在图鉴行：${file}`)
+  }
+  const recentSection = prompt.slice(prompt.indexOf('最近用过的图片'))
+  for (const file of recent25.slice(0, 20)) {
+    assert.equal(recentSection.includes(file), true, '最近图仍在文字里列出')
+  }
+
+  // 图鉴太小：退回完整列表（仍文字列出最近图），parse 不强制排除
+  const small = makeMoodCatalogFixture()
+  const allRecent = small.moodImages.map((image) => image.file)
+  const fallbackPlan = resolveMoodCandidates(small, allRecent, { random: seededRandom(5) })
+  assert.equal(fallbackPlan.usedFallback, true)
+  assert.equal(fallbackPlan.candidates.length, small.moodImages.length, '退回完整列表')
+  assert.equal(fallbackPlan.excludedFiles.size, 0)
+  const fallbackPrompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0), recentImages: allRecent }, small, {
+    plan: fallbackPlan,
+  })
+  assert.match(fallbackPrompt, /图鉴条目不足/)
+})
+
+test('mood-ai：被排除的最近图若被模型返回则 parse 失败；未排除图正常', () => {
+  const big = makeMoodCatalogBig(30)
+  const plan = resolveMoodCandidates(big, ['img-0.webp', 'img-1.webp'], { random: seededRandom(9) })
+  const excluded = parseMoodResult(
+    JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
+    big,
+    { dateKey: '2026-10-21', excludedImages: plan.excludedFiles },
+  )
+  assert.equal(excluded.ok, false)
+  assert.match(excluded.message, /最近用过/)
+
+  const allowed = parseMoodResult(
+    JSON.stringify({ label: '开心', image: 'img-2.webp', reason: '理由足够长', energy: 50 }),
+    big,
+    { dateKey: '2026-10-21', excludedImages: plan.excludedFiles },
+  )
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.mood.image, 'img-2.webp')
+
+  // 不传 excludedImages（旧调用方）时仍按图鉴校验
+  const legacy = parseMoodResult(
+    JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
+    big,
+    { dateKey: '2026-10-21' },
+  )
+  assert.equal(legacy.ok, true)
+})
+
+test('mood-ai 服务：模型返回被排除的最近图 → MOOD_AI_UNAVAILABLE（强制轮换）', async () => {
+  const big = makeMoodCatalogBig(30)
+  const { service } = makeMoodAiHarness({
+    catalog: big,
+    responder: () => JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
+  })
+  const rejected = await service.generate({ recentImages: ['img-0.webp'] })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.code, 'MOOD_AI_UNAVAILABLE')
+
+  const other = makeMoodAiHarness({
+    catalog: big,
+    responder: () => JSON.stringify({ label: '开心', image: 'img-5.webp', reason: '理由足够长', energy: 50 }),
+  })
+  const accepted = await other.service.generate({ recentImages: ['img-0.webp'] })
+  assert.equal(accepted.ok, true)
+  assert.equal(accepted.mood.image, 'img-5.webp')
+})
+
+test('mood-ai 路由：recentImages query 最多 20 条（解析同步上限）', async () => {
+  const seen = []
+  const stub = {
+    async generate(context) {
+      seen.push(context)
+      return { ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: 'x' } }
+    },
+  }
+  const harness = createHarness({ moodAiService: stub })
+  const many = encodeURIComponent(Array.from({ length: 25 }, (_, index) => `img-${index}.webp`).join('|'))
+  const response = await harness.call('mood-ai.json', mockRequest({ url: `/api/dsh-poetry/mood-ai.json?recentImages=${many}` }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(seen[0].recentImages.length, 20, 'recentImages 最多 20 条')
 })
 
 // ---------------------------------------------------------------------------

@@ -3795,7 +3795,7 @@ test('心情图鉴 helpers：92 张口径、任意 moodImages 可接受、3 张 
   assert.equal(debug.normalizeMoodCatalog(null), null)
 })
 
-test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentImages≤5，不含会话内容', () => {
+test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentImages≤20（去重），不含会话内容', () => {
   const { debug } = loadClient()
   const query = debug.moodAiQuery({
     force: true,
@@ -3803,7 +3803,7 @@ test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentIma
     weather: 'rain',
     idleMinutes: 23,
     recent: ['一', '二', '三', '四'],
-    recentImages: ['a.webp', 'b.webp', 'c.webp', 'd.webp', 'e.webp', 'f.webp'],
+    recentImages: Array.from({ length: 25 }, (_, index) => 'img' + index + '.webp').concat(['img24.webp', 'img0.webp']),
   })
   assert.ok(query.indexOf('mood-ai.json?') === 0)
   const params = new URLSearchParams(query.slice(query.indexOf('?') + 1))
@@ -3812,7 +3812,7 @@ test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentIma
   assert.equal(params.get('weather'), 'rain')
   assert.equal(params.get('idleMinutes'), '23')
   assert.equal(params.get('recent').split('|').length, 3)
-  assertDeep(params.get('recentImages').split('|'), ['b.webp', 'c.webp', 'd.webp', 'e.webp', 'f.webp'])
+  assertDeep(params.get('recentImages').split('|'), Array.from({ length: 20 }, (_, index) => 'img' + (index + 5) + '.webp'))
   const names = Array.from(params.keys()).sort()
   assertDeep(names, ['force', 'idleMinutes', 'mood', 'recent', 'recentImages', 'weather'], '只允许聚合上下文参数')
   const noForce = debug.moodAiQuery({ moodKey: 'calm' })
@@ -3839,7 +3839,7 @@ test('mood-ai 限频/显著事件纯函数：10min 最小间隔、force 绕过�
   assert.equal(debug.canRequestMoodAi(now - 10 * 60 * 1000, now, false), true)
   assert.equal(debug.canRequestMoodAi(now - 60 * 1000, now, true), true, 'force 绕过最小间隔')
   assert.equal(debug.MOOD_AI_MIN_INTERVAL_MS, 10 * 60 * 1000)
-  assert.equal(debug.MOOD_AI_REFRESH_MS, 30 * 60 * 1000)
+  assert.equal(debug.MOOD_AI_REFRESH_MS, 15 * 60 * 1000)
 
   const base = debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)
   assert.equal(debug.isMoodAiSignificant(null, base), false)
@@ -4771,6 +4771,193 @@ test('pet-media 失败/旧宿主：mood-ai 返回 webm 时按未知图回退启�
     assert.equal(debug.mascotVideoShouldPause({ hidden: true }), true)
     assert.equal(debug.mascotVideoShouldPause({ panelOpen: true }), true)
     assert.equal(debug.mascotVideoShouldPause({}), false)
+  } finally {
+    react._cleanup()
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* 17. M19：心情 15min 刷新 + 小动作 webm 轮转                          */
+/* ------------------------------------------------------------------ */
+
+test('小动作：3–6min 随机、15–25s、轮转顺序覆盖全部 106 个、持久化、优先级', () => {
+  const { debug, storage } = loadClient()
+  assert.equal(debug.MOOD_AI_REFRESH_MS, 15 * 60 * 1000, '心情刷新改为 15min')
+  assert.equal(debug.MOOD_AI_RECENT_IMAGES_MAX, 20, 'recentImages 保留最近 20')
+  assert.equal(debug.MOTION_MIN_DELAY_MS, 3 * 60 * 1000)
+  assert.equal(debug.MOTION_MAX_DELAY_MS, 6 * 60 * 1000)
+  assert.equal(debug.MOTION_PLAY_MIN_MS, 15 * 1000)
+  assert.equal(debug.MOTION_PLAY_MAX_MS, 25 * 1000)
+  const lowDelay = debug.nextMotionDelay(() => 0)
+  const highDelay = debug.nextMotionDelay(() => 0.999999)
+  assert.equal(lowDelay, 3 * 60 * 1000)
+  assert.ok(highDelay <= 6 * 60 * 1000 && highDelay >= 6 * 60 * 1000 - 1000)
+  const lowPlay = debug.nextMotionDuration(() => 0)
+  const highPlay = debug.nextMotionDuration(() => 0.999999)
+  assert.equal(lowPlay, 15 * 1000)
+  assert.ok(highPlay <= 25 * 1000 && highPlay >= 24 * 1000)
+
+  const entries = Array.from({ length: 106 }, (_, index) => ({ file: 'webm/动作' + index + '.webm' }))
+  let index = 0
+  const order = []
+  for (let i = 0; i < entries.length; i += 1) {
+    const picked = debug.nextMotionEntry(entries, index)
+    assert.equal(picked.entry.file, 'webm/动作' + i + '.webm', '必须按轮转顺序，不随机')
+    order.push(picked.entry.file)
+    index = picked.index
+  }
+  assert.equal(new Set(order).size, 106, '一轮必须覆盖全部 106 个动作')
+  assert.equal(index, 0, '一轮结束回到开头')
+  const wrapped = debug.nextMotionEntry(entries, 105)
+  assert.equal(wrapped.entry.file, 'webm/动作105.webm', '轮转位置 105 → 最后一个')
+  assert.equal(wrapped.index, 0)
+
+  // 轮转位置持久化：刷新后继续
+  debug.writeMotionRotation(7)
+  assert.equal(debug.readMotionRotation(), 7)
+  assert.equal(storage.getItem(debug.MOTION_ROTATION_KEY), '7')
+  debug.writeMotionRotation(0)
+  storage.setItem(debug.MOTION_ROTATION_KEY, '{bad')
+  assert.equal(debug.readMotionRotation(), 0, '损坏轮转记录安全降级')
+
+  // 优先级 pulse > panel > expression > motion > mood
+  assert.equal(debug.mascotFilePriority({ pulseFile: 'p', panelFile: 'pa', expressionFile: 'e', motionFile: 'm', moodFile: 'mo' }), 'p')
+  assert.equal(debug.mascotFilePriority({ panelFile: 'pa', expressionFile: 'e', motionFile: 'm', moodFile: 'mo' }), 'pa')
+  assert.equal(debug.mascotFilePriority({ expressionFile: 'e', motionFile: 'm', moodFile: 'mo' }), 'e')
+  assert.equal(debug.mascotFilePriority({ motionFile: 'm', moodFile: 'mo' }), 'm')
+  assert.equal(debug.mascotFilePriority({ moodFile: 'mo' }), 'mo')
+})
+
+test('小动作集成：轮转到下一个 webm 播放 15–25s 后回心情图、onError 跳过、面板暂停结束', async () => {
+  const dataVersion = 'test.motion.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'mo-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'mo-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const petCatalog = {
+    ok: true,
+    v: 1,
+    entries: [
+      { file: 'webm/动作0.webm', label: '动作0', media: 'video', scope: 'mood', tags: [] },
+      { file: 'webm/动作1.webm', label: '动作1', media: 'video', scope: 'mood', tags: [] },
+      { file: 'webm/动作2.webm', label: '动作2', media: 'video', scope: 'mood', tags: [] },
+    ],
+  }
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('pet-media') >= 0) {
+      if (raw.indexOf('catalog.json') >= 0) return { ok: true, json: async () => petCatalog }
+      return { ok: true, json: async () => ({}) }
+    }
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug } = loadClient({
+    seed: {
+      [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }),
+      'dshp-motion-rotation-v1': '1',
+    },
+    fetch: fetchImpl,
+  })
+  const timers = []
+  context.setTimeout = (fn, ms) => {
+    timers.push({ id: timers.length + 1, fn, ms })
+    return timers.length
+  }
+  context.clearTimeout = () => {}
+  const findTimer = (minMs, maxMs) => {
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      if (timers[i].ms >= minMs && timers[i].ms <= maxMs && !timers[i].used) return timers[i]
+    }
+    return null
+  }
+  const fire = (timer) => {
+    assert.ok(timer)
+    timer.used = true
+    timer.fn()
+  }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const videoNode = (tree) => findAll(tree, (node) => node.type === 'video')[0]
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 8; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(30)
+    tree = renderMain()
+    assert.equal(videoNode(tree), undefined, '小动作未到时间前应显示心情静态图')
+    let delayTimer = findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS)
+    assert.ok(delayTimer, '应安排 3–6min 的轮转动作')
+    fire(delayTimer)
+    tree = renderMain()
+    let video = videoNode(tree)
+    assert.ok(video, '到达间隔后应播放 pet webm 动作')
+    assert.ok(String(video.props.src).includes(encodeURIComponent('webm/动作1.webm')), '应按持久化轮转位置取下一个动作：' + video.props.src)
+    assert.equal(video.props.className, 'dshp-mascot-video dshp-mascot-swap')
+    assert.equal(video.props.autoPlay, true)
+    let stopTimer = findTimer(debug.MOTION_PLAY_MIN_MS, debug.MOTION_PLAY_MAX_MS)
+    assert.ok(stopTimer, '动作应有 15–25s 播放时长')
+    fire(stopTimer)
+    tree = renderMain()
+    video = videoNode(tree)
+    assert.equal(video, undefined, '播放结束后回心情图')
+    let img = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(img && String(img.props.src).includes('dsh-whale-state-abstract.webp'))
+
+    // 下一轮轮转 + onError 跳过动作
+    delayTimer = findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS)
+    assert.ok(delayTimer)
+    fire(delayTimer)
+    tree = renderMain()
+    video = videoNode(tree)
+    assert.ok(video)
+    assert.ok(String(video.props.src).includes(encodeURIComponent('webm/动作2.webm')))
+    video.props.onError()
+    tree = renderMain()
+    assert.equal(videoNode(tree), undefined, 'onError 应跳过该动作并回心情图')
+    img = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(img, 'onError 后应显示心情图')
+    assert.ok(findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS), '跳过动作后应继续安排下一次')
+
+    // 面板打开结束动作（并显示静态 peek）
+    delayTimer = findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS)
+    fire(delayTimer)
+    tree = renderMain()
+    assert.ok(videoNode(tree), '再次轮转到动作')
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    assert.equal(videoNode(tree), undefined, '面板打开应结束动作')
+    const panelImg = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(panelImg && String(panelImg.props.src).includes('dsh-whale-home-peek.webp'))
   } finally {
     react._cleanup()
   }

@@ -104,12 +104,17 @@ window.__ModuleLoader__.load({
   const MOOD_AI_PATH = 'mood-ai.json'
   const MOOD_AI_TIMEOUT_MS = 9000
   const MOOD_AI_MIN_INTERVAL_MS = 10 * 60 * 1000
-  const MOOD_AI_REFRESH_MS = 30 * 60 * 1000
+  const MOOD_AI_REFRESH_MS = 15 * 60 * 1000
   const MOOD_AI_RECENT_MAX = 3
-  const MOOD_AI_RECENT_IMAGES_MAX = 5
+  const MOOD_AI_RECENT_IMAGES_MAX = 20
   const PET_MEDIA_PATH = 'pet-media'
   const PET_MEDIA_CATALOG_FILE = 'catalog.json'
   const PET_MEDIA_TIMEOUT_MS = 9000
+  const MOTION_ROTATION_KEY = 'dshp-motion-rotation-v1'
+  const MOTION_MIN_DELAY_MS = 3 * 60 * 1000
+  const MOTION_MAX_DELAY_MS = 6 * 60 * 1000
+  const MOTION_PLAY_MIN_MS = 15 * 1000
+  const MOTION_PLAY_MAX_MS = 25 * 1000
   const MOOD_PANEL_PEEK_FILES = {
   today: 'dsh-whale-home-peek.webp',
   settings: 'dsh-whale-settings-peek.webp',
@@ -1417,6 +1422,12 @@ window.__ModuleLoader__.load({
   return opts.hidden === true || opts.panelOpen === true
   }
 
+  /** 立绘层优先级：pulse > panel > expression > motion > mood。 */
+  function mascotFilePriority(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  return opts.pulseFile || opts.panelFile || opts.expressionFile || opts.motionFile || opts.moodFile || ''
+  }
+
   function moodBasisText(stats, weather) {
   const normalized = normalizeMoodStats(stats)
   const label = weather && weather.label ? weather.label : '未知'
@@ -1532,6 +1543,50 @@ window.__ModuleLoader__.load({
   return inflight.promise
   }
 
+  function readMotionRotation() {
+  const storage = getStorage()
+  if (!storage) return 0
+  try {
+   const value = Number(storage.getItem(MOTION_ROTATION_KEY))
+   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
+  } catch (error) {
+   return 0
+  }
+  }
+
+  function writeMotionRotation(index) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index, 0)))))
+  } catch (error) {
+  }
+  }
+
+  /** 轮转取下一个动作（不随机）；返回 entry 与下一次索引（一轮结束回到 0）。 */
+  function nextMotionEntry(entries, index) {
+  if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 }
+  const size = entries.length
+  const start = Math.max(0, Math.floor(num(index, 0))) % size
+  return { entry: entries[start], index: (start + 1) % size, size, position: start }
+  }
+
+  function nextMotionDelay(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS))
+  }
+
+  function nextMotionDuration(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS))
+  }
+
   /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
   function normalizeMoodCatalog(data) {
   if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null
@@ -1594,8 +1649,15 @@ window.__ModuleLoader__.load({
   add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
   const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX)
   if (recent.length) add('recent', recent.join('|'))
-  const recentImages = (Array.isArray(opts.recentImages) ? opts.recentImages : []).map((file) => String(file == null ? '' : file).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_IMAGES_MAX)
-  if (recentImages.length) add('recentImages', recentImages.join('|'))
+  const imageSeen = {}
+  const recentImages = []
+  for (const file of Array.isArray(opts.recentImages) ? opts.recentImages : []) {
+   const clean = String(file == null ? '' : file).trim()
+   if (!clean || imageSeen[clean]) continue
+   imageSeen[clean] = true
+   recentImages.push(clean)
+  }
+  if (recentImages.length) add('recentImages', recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join('|'))
   return MOOD_AI_PATH + (params.length ? '?' + params.join('&') : '')
   }
 
@@ -2960,7 +3022,8 @@ window.__ModuleLoader__.load({
   pickDefaultFeihuaChar,
   feihuaStart,
   feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
-  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
+  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, mascotFilePriority, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
+  MOTION_ROTATION_KEY, MOTION_MIN_DELAY_MS, MOTION_MAX_DELAY_MS, MOTION_PLAY_MIN_MS, MOTION_PLAY_MAX_MS, readMotionRotation, writeMotionRotation, nextMotionEntry, nextMotionDelay, nextMotionDuration,
   normalizeFeihuaBest,
   feihuaBestUpdate,
   readFeihuaBest,
@@ -3240,6 +3303,7 @@ window.__ModuleLoader__.load({
   const [moodSource, setMoodSource] = React.useState('')
   const [moodAiFallback, setMoodAiFallback] = React.useState(false)
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
+  const [motionFile, setMotionFile] = React.useState('')
   const [libraryFocus, setLibraryFocus] = React.useState(null)
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
@@ -3287,10 +3351,21 @@ window.__ModuleLoader__.load({
   const mascotExprTimerRef = React.useRef(null)
   const mascotTapRef = React.useRef(0)
   const mascotVideoRef = React.useRef(null)
+  const mascotPulseRef = React.useRef(null)
+  const mascotExpressionRef = React.useRef('')
+  const petMediaEntriesRef = React.useRef([])
+  const motionFileRef = React.useRef('')
+  const motionIndexRef = React.useRef(readMotionRotation())
+  const motionDelayTimerRef = React.useRef(null)
+  const motionStopTimerRef = React.useRef(null)
   const spontReqRef = React.useRef(0)
   const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
   const recentSpokenRef = React.useRef([])
   spontPoemRef.current = spontPoem
+  mascotPulseRef.current = mascotPulse
+  mascotExpressionRef.current = mascotExpression
+  petMediaEntriesRef.current = petMediaRes.entries
+  motionFileRef.current = motionFile
 
   const wakeSpontaneous = React.useCallback((delay) => {
    spontWakeDelayRef.current = Math.max(1000, num(delay, nextSpontEventDelay()))
@@ -4861,6 +4936,90 @@ window.__ModuleLoader__.load({
    }, toast.text)
   }
 
+  function clearMotionTimers() {
+   if (motionDelayTimerRef.current) {
+    clearTimeout(motionDelayTimerRef.current)
+    motionDelayTimerRef.current = null
+   }
+   if (motionStopTimerRef.current) {
+    clearTimeout(motionStopTimerRef.current)
+    motionStopTimerRef.current = null
+   }
+  }
+
+  function scheduleMotion(delay) {
+   if (motionDelayTimerRef.current) clearTimeout(motionDelayTimerRef.current)
+   motionDelayTimerRef.current = setTimeout(() => {
+    motionDelayTimerRef.current = null
+    tryStartMotion()
+   }, Math.max(1000, num(delay, nextMotionDelay())))
+  }
+
+  function tryStartMotion() {
+   const entries = petMediaEntriesRef.current
+   const ui = uiRef.current
+   if (!entries || !entries.length) return
+   if (!ui.settings.mood || ui.settings.hidden) return
+   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+   if (ui.panelOpen) return
+   if (mascotPulseRef.current || mascotExpressionRef.current) {
+    scheduleMotion(nextMotionDelay())
+    return
+   }
+   if (motionFileRef.current) return
+   const picked = nextMotionEntry(entries, motionIndexRef.current)
+   if (!picked.entry) return
+   motionIndexRef.current = picked.index
+   writeMotionRotation(picked.index)
+   setMotionFile(picked.entry.file)
+   motionStopTimerRef.current = setTimeout(() => {
+    motionStopTimerRef.current = null
+    setMotionFile('')
+    scheduleMotion(nextMotionDelay())
+   }, nextMotionDuration())
+  }
+
+  function handleMascotMediaError(file) {
+   if (motionFileRef.current && file === motionFileRef.current) {
+    if (motionStopTimerRef.current) {
+     clearTimeout(motionStopTimerRef.current)
+     motionStopTimerRef.current = null
+    }
+    setMotionFile('')
+    scheduleMotion(nextMotionDelay())
+    return
+   }
+   setFailedMascot(file)
+  }
+
+  React.useEffect(() => {
+   if (!settings.mood || settings.hidden || panelOpen || petMediaRes.status !== 'ready' || !petMediaRes.entries.length) {
+    clearMotionTimers()
+    if (motionFileRef.current) setMotionFile('')
+    return undefined
+   }
+   scheduleMotion(nextMotionDelay())
+   return () => {
+    clearMotionTimers()
+   }
+  }, [settings.mood, settings.hidden, panelOpen, petMediaRes.status, petMediaRes.entries.length])
+
+  React.useEffect(() => {
+   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+   const onVisibility = () => {
+    if (document.visibilityState === 'hidden') {
+     clearMotionTimers()
+     if (motionFileRef.current) setMotionFile('')
+     return
+    }
+    if (settingsRef.current.mood && !uiRef.current.panelOpen && petMediaEntriesRef.current.length) {
+     scheduleMotion(nextMotionDelay())
+    }
+   }
+   document.addEventListener('visibilitychange', onVisibility)
+   return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
   const syncMascotVideoPlayback = React.useCallback(() => {
    const video = mascotVideoRef.current
    if (!video) return
@@ -4909,8 +5068,9 @@ window.__ModuleLoader__.load({
    const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
    const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
    const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab) : ''
-   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : expressionFile ? 'egg:' + expressionFile : imageInfo.stateKey
-   const desiredFile = pulseFile || panelFile || expressionFile || imageInfo.file
+   const motionVideoFile = motionFile && isVideoMoodFile(motionFile) ? motionFile : ''
+   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : expressionFile ? 'egg:' + expressionFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
+   const desiredFile = mascotFilePriority({ pulseFile, panelFile, expressionFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
    const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
    return h(
     'div',
@@ -4952,7 +5112,7 @@ window.__ModuleLoader__.load({
      playsInline: true,
      preload: 'auto',
      'aria-hidden': 'true',
-     onError: () => setFailedMascot(desiredFile),
+     onError: () => handleMascotMediaError(desiredFile),
     })
     : h('img', {
      key: stateKey,
@@ -4962,7 +5122,7 @@ window.__ModuleLoader__.load({
      draggable: false,
      loading: 'lazy',
      decoding: 'async',
-     onError: () => setFailedMascot(desiredFile),
+     onError: () => handleMascotMediaError(desiredFile),
     }),
     ),
     showHint ? h('div', { className: 'dshp-tip' }, '点我看今日一诗') : null,
@@ -5779,7 +5939,7 @@ window.__ModuleLoader__.load({
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
     api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
-    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个') : null,
+    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个；心情之间会自己活动一下（播放动画）。') : null,
     h(
     'div',
     { className: 'dshp-field-control' },
