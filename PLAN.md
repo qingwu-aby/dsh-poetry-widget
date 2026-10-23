@@ -648,3 +648,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - 自学引擎写 `agent-memory/learning-log.md` / `topics-candidates.json`，但记忆中枢原按 `.dsh-poetry/` 查找 → 误报 error。
 - 已统一到 `agent-memory/`；可选文件缺失降为 warn，核心 journal/topics 缺失才 error；对应 tests 适配。host 170 / client 115 / data 42 全绿。
+
+## 49. 记忆检索/自学扎根（M43，2026-10-23）
+
+- 新 `memory-recall`：只读 journal.jsonl 最后 300 行、learning-log 末段、topics 快照；digest ≤3 旧想法/≤2 旧心情/≤2 学习笔记/≤2 相关话题；绝不含用户聊天。
+- self-talk：prompt 注入 digest；生成后按中文 bigram Jaccard 与 recent 排序去重，默认只返回最不重复的一句（全高才 2 句）。
+- self-growth：自学用话题库种子+最近学习笔记；自省带最近 2 条 self-thought，保持连续性。
+- 同时修正 recall 的 learning-log 路径到 agent-memory；三套单测 336/336（data 42 / host 179 / client 115）。

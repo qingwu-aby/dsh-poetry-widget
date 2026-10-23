@@ -41,6 +41,7 @@ import {
   createSelfStateHandler,
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
+import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
 import {
   MEMORY_ROUTE,
@@ -164,7 +165,13 @@ export async function apply(ctx) {
       } else {
         logger?.warn?.(`[dsh-poetry-widget] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
       }
-      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger, topics: topicBank })
+      // v1.33：记忆检索（只读 journal/learning-log/topics，供碎碎念与自驱成长使用）。
+      const memoryRecall = createMemoryRecall({
+        journalPath: path.join(memoryDir, 'journal.jsonl'),
+        learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
+        topics: topicBank,
+      })
+      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger, topics: topicBank, recall: memoryRecall })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
       const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
@@ -213,6 +220,7 @@ export async function apply(ctx) {
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
         topics: topicBank,
+        recall: memoryRecall,
         logger,
       })
       growth.start()

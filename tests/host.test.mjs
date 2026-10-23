@@ -92,6 +92,17 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  MEMORY_RECALL_JOURNAL_LINES,
+  bigramJaccard,
+  chineseBigrams,
+  createMemoryRecall,
+  extractRecallKeywords,
+  formatMemoryDigest,
+  readLearningSections,
+  readRecentJournalEntries,
+  resolveMemoryRecallPaths,
+} from '../lib/memory-recall.mjs'
+import {
   MEMORY_BACKUP_INTERVAL_MS,
   MEMORY_BACKUP_MAX,
   MEMORY_BACKUP_ROUTE,
@@ -138,6 +149,8 @@ import {
 } from '../lib/self-talk-topics.mjs'
 import {
   SELF_TALK_RECENT_MAX,
+  selectDiverseSelfTalkLines,
+  selfTalkSimilarity,
   SELF_TALK_TEMPERATURE,
   SELF_TALK_THEMES,
   SELF_TALK_SYSTEM_PROMPT,
@@ -1962,8 +1975,8 @@ test('self-talk 服务：成功生成 2 句并透传模型参数', async () => {
   })
   assert.equal(result.ok, true)
   assert.equal(result.cached, false)
-  assert.equal(result.lines.length, 2)
-  assert.deepEqual(result.lines.map((line) => line.text), SELF_TALK_LINES_A)
+  assert.equal(result.lines.length, 1, 'v1.33：默认返回最不重复的一句')
+  assert.deepEqual(result.lines.map((line) => line.text), [SELF_TALK_LINES_A[0]])
   for (const line of result.lines) {
     assert.equal(typeof line.text, 'string')
     assert.equal(typeof line.ts, 'number')
@@ -2007,7 +2020,7 @@ test('self-talk 服务：多段 text-delta 正确拼接（含无 finish 的容�
   })
   const result = await service.generate({})
   assert.equal(result.ok, true)
-  assert.deepEqual(result.lines.map((line) => line.text), SELF_TALK_LINES_A)
+  assert.deepEqual(result.lines.map((line) => line.text), [SELF_TALK_LINES_A[0]])
 })
 
 test('self-talk：prompt 白名单（传敏感会话文本也不会进入模型请求）', async () => {
@@ -2054,7 +2067,7 @@ test('self-talk 服务：最小间隔内复用上次结果（cached:true），�
   assert.equal(third.ok, true)
   assert.equal(third.cached, false)
   assert.equal(llm.calls.length, 2)
-  assert.deepEqual(third.lines.map((line) => line.text), SELF_TALK_LINES_B)
+  assert.deepEqual(third.lines.map((line) => line.text), [SELF_TALK_LINES_B[0]])
 })
 
 test('self-talk 服务：无上次结果时的过早请求 → SELF_TALK_RATE_LIMITED', async () => {
@@ -2166,7 +2179,7 @@ test('self-talk 路由：成功形状 + query 解析 + 隐私白名单 + 栅栏'
   assert.equal(response.statusCode, 200)
   const body = response.json()
   assert.equal(body.ok, true)
-  assert.equal(body.lines.length, 2)
+  assert.equal(body.lines.length, 1, 'v1.33：默认返回最不重复的一句')
   assert.equal(body.cached, false)
   assert.deepEqual(body.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
   assert.equal(typeof body.generatedAt, 'number')
@@ -5009,6 +5022,7 @@ function makeGrowthHarness(overrides = {}) {
     learningLogPath: path.join(dir, 'learning-log.md'),
     candidatesPath: path.join(dir, 'topics-candidates.json'),
     topics: overrides.topics ?? [],
+    recall: overrides.recall,
     logger: { warn() {}, info() {} },
     reflectIntervalMs: overrides.reflectIntervalMs ?? SELF_GROWTH_REFLECT_INTERVAL_MS,
     learnIntervalMs: overrides.learnIntervalMs ?? 90 * 60 * 1000,
@@ -5698,6 +5712,270 @@ test('index.js：记忆中枢路由注册（memory.json + backup 路由）', () 
   assert.equal(typeof createMemoryHub, 'function')
   assert.equal(typeof createMemorySnapshotHandler, 'function')
   assert.equal(typeof createMemoryBackupHandler, 'function')
+})
+
+// ---------------------------------------------------------------------------
+// M43：记忆检索层 + 自学扎根 + 自述去重选句（v1.33）
+// ---------------------------------------------------------------------------
+
+function writeRecallJournal(file, entries) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, entries.map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry))).join('\n') + '\n', 'utf8')
+  return file
+}
+
+function makeMemoryRecallHarness(overrides = {}) {
+  const dir = makeTmpDir('dshp-recall')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const entries = overrides.entries ?? [
+    { ts: 1, kind: 'thought', text: '我刚学到章鱼有三颗心脏，觉得海里真安静。' },
+    { ts: 2, kind: 'mood', label: '好奇', reason: '看到海洋知识', image: 'a.webp' },
+    { ts: 3, kind: 'murmur', text: '杯子里的水凉了，我还是喝完了。' },
+    { ts: 4, kind: 'thought', text: '最近总在想鲸落这件事，深海也有自己的热闹。' },
+  ]
+  writeRecallJournal(journalPath, entries)
+  const learning = overrides.learning ?? '## 2026-10-21 11:00 · 自学\nQ: 鲸落为什么能养活深海？\n鲸的尸体沉到海底会形成持续多年的生态热点。\n'
+  fs.writeFileSync(learningLogPath, `${learning}\n## 2026-10-21 12:00 · 自学\nQ: 章鱼为什么有三颗心脏？\n一颗主心脏加两颗鳃心，血液用血蓝蛋白运氧。\n`, 'utf8')
+  const topics =
+    overrides.topics ??
+    [
+      { id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋', '动物'] },
+      { id: 'octopus-hearts', title: '章鱼的三颗心脏', fact: '章鱼有一颗主心脏和两颗鳃心。', tags: ['海洋', '好奇'] },
+      { id: 'bread', title: '面包为什么会变硬', fact: '淀粉回生让面包变硬。', tags: ['食物'] },
+    ]
+  const recall = createMemoryRecall({ journalPath, learningLogPath, topics })
+  return { dir, journalPath, learningLogPath, topics, recall }
+}
+
+test('memory-recall：读取最后 300 行/跳过坏行/缺失文件/learning 末段', () => {
+  const dir = makeTmpDir('dshp-recall')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const entries = []
+  for (let index = 0; index < MEMORY_RECALL_JOURNAL_LINES + 50; index += 1) {
+    entries.push(JSON.stringify({ ts: index, kind: 'thought', text: `第${index}条自省` }))
+  }
+  entries.push('not json at all')
+  entries.push(JSON.stringify({ ts: 9999, kind: 'thought', text: '最后一条' }))
+  writeRecallJournal(journalPath, entries)
+  const recent = readRecentJournalEntries(journalPath)
+  assert.ok(recent.length <= MEMORY_RECALL_JOURNAL_LINES)
+  assert.equal(recent.at(-1).text, '最后一条')
+  assert.equal(recent.some((entry) => entry.text === '第0条自省'), false, '只读最后 300 行')
+  assert.equal(recent.some((entry) => typeof entry.ts !== 'number'), false, '坏行被跳过')
+
+  assert.deepEqual(readRecentJournalEntries(path.join(dir, 'missing.jsonl')), [])
+  assert.deepEqual(readLearningSections(path.join(dir, 'missing.md')), [])
+
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  fs.writeFileSync(learningLogPath, '## 第一段\n内容一\n## 第二段\n内容二\n## 第三段\n内容三\n', 'utf8')
+  const sections = readLearningSections(learningLogPath, 2)
+  assert.equal(sections.length, 2)
+  assert.match(sections[0], /第二段/)
+  assert.match(sections[1], /第三段/)
+})
+
+test('memory-recall：readRecent/extractKeywords/bigram 工具', () => {
+  const { recall } = makeMemoryRecallHarness()
+  assert.equal(recall.recentThoughts(2).length, 2)
+  assert.match(recall.recentThoughts(2)[0], /鲸落/)
+  assert.equal(recall.recentLearning(1).length, 1)
+  assert.match(recall.recentLearning(1)[0], /章鱼/)
+  const seed = recall.randomTopicSeed(() => 0)
+  assert.equal(seed.title, '鲸落生态系统')
+  assert.equal(typeof seed.fact, 'string')
+
+  const keywords = extractRecallKeywords({
+    moodKey: 'curious',
+    moodLabel: '好奇',
+    weather: 'rain',
+    activity: { kind: 'read', label: '查资料' },
+    topic: { title: '鲸落', fact: '深海生态', tags: ['海洋'] },
+    recentTexts: ['最近说过的一句话'],
+  })
+  assert.ok(keywords.includes('好奇'))
+  assert.ok(keywords.includes('rain'))
+  assert.ok(keywords.includes('海洋'))
+  assert.ok(keywords.includes('查资料'))
+
+  assert.equal(bigramJaccard('今天的小雨让我有点想窝在窗边看雨', '今天的小雨让我有点想窝在窗边看雨'), 1)
+  assert.equal(bigramJaccard('今天的小雨让我有点想窝在窗边看雨', '完全不同的句子在说别的事情'), 0)
+  const similar = bigramJaccard('窗外的雨下得很安静', '窗外的雨下得很轻很安静')
+  assert.ok(similar > 0 && similar < 1)
+  assert.equal(selfTalkSimilarity('abc', 'abc'), bigramJaccard('abc', 'abc'))
+  assert.equal(chineseBigrams('雨声').size, 1)
+})
+
+test('memory-recall：digest 关键词/回退/≤80字/无聊天内容', () => {
+  const { recall } = makeMemoryRecallHarness()
+  const digest = recall.digest({
+    moodKey: 'curious',
+    moodLabel: '好奇',
+    weather: 'rain',
+    activity: { kind: 'read', label: '查资料' },
+    topic: { title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋'] },
+    recentTexts: ['完全不同的一句最近说过的话'],
+  })
+  assert.ok(digest.thoughts.length <= 3 && digest.thoughts.length >= 1)
+  assert.ok(digest.moods.length <= 2 && digest.moods.length >= 1)
+  assert.ok(digest.learned.length <= 2 && digest.learned.length >= 1)
+  assert.ok(digest.relatedTopics.length <= 2 && digest.relatedTopics.length >= 1)
+  assert.match(digest.learned.join(' '), /鲸落|章鱼/)
+  assert.match(digest.relatedTopics.join(' '), /鲸落|章鱼/)
+  for (const items of [digest.thoughts, digest.moods, digest.learned, digest.relatedTopics]) {
+    for (const item of items) assert.ok(Array.from(item).length <= 80, `条目≤80字：${item}`)
+  }
+
+  // 关键词不足 → 回退最近条目（不空）
+  const fallback = recall.digest({})
+  assert.ok(fallback.thoughts.length >= 1, '回退最近想法')
+  assert.ok(fallback.moods.length >= 1, '回退最近心情')
+  assert.ok(fallback.learned.length >= 1, '回退最近自学')
+
+  // 与 recent 高相似的想法被过滤
+  const filtered = recall.digest({ recentTexts: ['我刚学到章鱼有三颗心脏，觉得海里真安静。'] })
+  assert.equal(filtered.thoughts.includes('我刚学到章鱼有三颗心脏，觉得海里真安静。'), false)
+
+  // 不含聊天内容：journal 里即使混入非白名单 kind 也不读取
+  const dir = makeTmpDir('dshp-recall')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  writeRecallJournal(journalPath, [
+    { ts: 1, kind: 'user/message', text: 'SECRET_CHAT_MESSAGE' },
+    { ts: 2, kind: 'thought', text: '一句正常的自省内容' },
+  ])
+  const guarded = createMemoryRecall({ journalPath, learningLogPath: path.join(dir, 'none.md'), topics: [] })
+  const safe = guarded.digest({})
+  assert.equal(JSON.stringify(safe).includes('SECRET_CHAT_MESSAGE'), false)
+  assert.match(safe.thoughts.join(' '), /一句正常的自省内容/)
+})
+
+test('memory-recall：formatMemoryDigest 紧凑 prompt 行/空内容返回空', () => {
+  const formatted = formatMemoryDigest({
+    thoughts: ['我想起鲸落'],
+    moods: ['好奇：看到海洋知识'],
+    learned: ['鲸落能养活深海'],
+    relatedTopics: ['鲸落生态系统：鲸落可支撑深海生态数十年。'],
+  })
+  assert.match(formatted, /这些是你自己的记忆/)
+  assert.match(formatted, /不要复述原句/)
+  assert.match(formatted, /你记得自己最近的想法：我想起鲸落/)
+  assert.match(formatted, /你记得自己最近的心情：好奇：看到海洋知识/)
+  assert.match(formatted, /你最近自学到的：鲸落能养活深海/)
+  assert.match(formatted, /可能相关的已知话题：鲸落生态系统/)
+  assert.equal(formatMemoryDigest({ thoughts: [], moods: [], learned: [], relatedTopics: [] }), '')
+  assert.equal(formatMemoryDigest(null), '')
+})
+
+test('self-talk v1.33：去重选句（bigram 排序/ exact duplicate / 全高仍可用）', () => {
+  const repeated = '今天的小雨让我有点想窝在窗边看雨'
+  const fresh = '杯子里的水凉了，我还是慢慢喝完了'
+  const distinct = selectDiverseSelfTalkLines([repeated, fresh], [repeated])
+  assert.deepEqual(distinct, [fresh], '返回最不重复的一句')
+
+  // exact duplicate 只保留一条
+  assert.deepEqual(selectDiverseSelfTalkLines(['同一句话', '同一句话', fresh], []), ['同一句话'])
+
+  // 全部相似度 >0.8（两条不同但都跟 recent 很像）→ 返回首选+第二行
+  const closeVariant = '今天的小雨让我有点想窝在窗边看雨。' // 仅多一个句号：bigram 相似度 1，但不是 exact duplicate
+  const allSimilar = selectDiverseSelfTalkLines([repeated, closeVariant], [repeated])
+  assert.equal(allSimilar.length, 2, '全部太高时保留首选+第二行')
+  assert.deepEqual(allSimilar, [repeated, closeVariant])
+
+  // 无 recent 时稳定返回第一行（并列相似度 0）
+  assert.deepEqual(selectDiverseSelfTalkLines([fresh, '另一句完全不同的话'], []), [fresh])
+})
+
+test('self-talk v1.33：prompt 含 memoryDigest；无 digest 不出现', () => {
+  const digest = formatMemoryDigest({ thoughts: ['我想起鲸落'], moods: ['好奇：看到海洋知识'], learned: [], relatedTopics: [] })
+  const prompt = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), memoryDigest: digest })
+  assert.match(prompt, /这些是你自己的记忆/)
+  assert.match(prompt, /我想起鲸落/)
+  assert.match(prompt, /不要复述原句/)
+  const plain = buildSelfTalkPrompt({ now: FIXED_NOW.getTime() })
+  assert.equal(plain.includes('你记得自己最近的想法'), false)
+})
+
+test('self-talk 服务 v1.33：recall digest 进 prompt，并按 recent 选最不重复一句', async () => {
+  const repeated = SELF_TALK_LINES_A[0]
+  const fresh = SELF_TALK_LINES_B[0]
+  let call = 0
+  const { llm, service } = makeSelfTalkHarness({
+    responder: () => (call++ === 0 ? [repeated, fresh].join('\n') : fresh),
+  })
+  const recall = {
+    digest: (context) => {
+      assert.equal(context.moodKey, 'busy')
+      return { thoughts: ['我想起鲸落'], moods: [], learned: [], relatedTopics: [] }
+    },
+  }
+  const serviceWithRecall = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    recall,
+  })
+  const result = await serviceWithRecall.generate({ moodKey: 'busy', recent: [repeated] })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.lines.map((line) => line.text), [fresh], '与 recent 重复的候选被跳过')
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /这些是你自己的记忆/)
+  assert.match(prompt, /我想起鲸落/)
+  // 无 recall 时正常（不报错）
+  const plain = await service.generate({})
+  assert.equal(plain.ok, true)
+})
+
+test('self-growth v1.33：自学 prompt 带话题种子/最近自学，自省带最近 thought', () => {
+  const state = defaultSelfState(FIXED_NOW.getTime())
+  const learnPrompt = buildLearnPrompt({
+    now: FIXED_NOW.getTime(),
+    state,
+    topicSeed: { id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' },
+    learningSnippet: '上次自学：章鱼有三颗心脏。',
+  })
+  assert.match(learnPrompt, /你最近记下的一个话题：〈鲸落生态系统〉——鲸落可支撑深海生态数十年。/)
+  assert.match(learnPrompt, /你最近自学到：上次自学：章鱼有三颗心脏。/)
+  assert.match(learnPrompt, /从上面的话题\/你最近自学到的东西出发/)
+
+  const reflectPrompt = buildReflectPrompt({
+    now: FIXED_NOW.getTime(),
+    state,
+    recentThoughts: ['最近总在想鲸落这件事。', '今天的光很轻。'],
+  })
+  assert.match(reflectPrompt, /你最近的自省（可以自然地接着想，但不要复述原句）：/)
+  assert.match(reflectPrompt, /- 最近总在想鲸落这件事。/)
+  assert.match(reflectPrompt, /- 今天的光很轻。/)
+  // 无最近 thought 时不出现该段
+  assert.equal(buildReflectPrompt({ now: FIXED_NOW.getTime(), state }).includes('你最近的自省'), false)
+})
+
+test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与话题种子', async () => {
+  const now = FIXED_NOW.getTime()
+  const llm = makeGrowthLlm([
+    JSON.stringify({ thought: '接着上次的念头，我还在想鲸落。' }),
+    JSON.stringify({
+      question: '鲸落之后会发生什么？',
+      note: '鲸的尸体沉到海底，会形成持续多年的生态热点。',
+      topic: { id: 'whale-fall-later', title: '鲸落后的生态', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋'] },
+    }),
+  ])
+  const recall = {
+    recentThoughts: (limit) => ['上一次的自省内容。'].slice(0, limit),
+    recentLearning: (limit) => ['最近自学：章鱼有三颗心脏。'].slice(0, limit),
+    randomTopicSeed: () => ({ id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' }),
+  }
+  const { state, journal, growth } = makeGrowthHarness({ llm, recall })
+  const reflected = await growth.reflectNow()
+  assert.equal(reflected.ok, true)
+  assert.match(llm.calls[0].messages[0].content[0].text, /上一次的自省内容。/)
+  const learned = await growth.learnNow()
+  assert.equal(learned.ok, true)
+  assert.match(llm.calls[1].messages[0].content[0].text, /鲸落生态系统/)
+  assert.match(llm.calls[1].messages[0].content[0].text, /最近自学：章鱼有三颗心脏。/)
+  assert.equal(state.snapshot().reflections >= 1, true)
+  assert.equal(journal.entries[0].kind, 'thought')
+  growth.dispose()
 })
 
 // ---------------------------------------------------------------------------
