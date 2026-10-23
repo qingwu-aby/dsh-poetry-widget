@@ -42,13 +42,17 @@ window.__ModuleLoader__.load({
   const SAVE_DEBOUNCE_MS = 450
   const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
   const PANEL_TABS = [
+  { id: 'growth', label: '成长' },
+  { id: 'poetry', label: '诗词' },
+  { id: 'settings', label: '设置' },
+  ]
+  const POETRY_TABS = [
   { id: 'today', label: '今日' },
   { id: 'class', label: '课堂' },
   { id: 'yun', label: '韵部' },
   { id: 'ci', label: '词牌' },
   { id: 'library', label: '诗库' },
   { id: 'feihua', label: '飞花' },
-  { id: 'settings', label: '设置' },
   ]
   const FEIHUA_BEST_KEY = 'dshp-feihua-best-v1'
   const FEIHUA_CANDIDATE_CHARS = Array.from('花月风春山水人天云雨夜秋江酒白红舟愁梦心柳雪霜日星海玉金长何不无')
@@ -1918,7 +1922,32 @@ window.__ModuleLoader__.load({
   return parts.join(' · ')
   }
 
-  /** 实时心情事件防抖窗口 2–4 秒（合并同分钟多次事件）。 */
+  /** 成长指标四行（SettingsTab 与 GrowthTab 共用）。 */
+  function growthMetricsTree(status) {
+  const rows = [
+   ['energy', '精力'],
+   ['curiosity', '好奇'],
+   ['social', '社交'],
+   ['hunger', '饥饿'],
+  ]
+  return h(
+   'div',
+   { className: 'dshp-self-grid' },
+   rows.map(([key, label]) => {
+    const value = status ? Math.max(0, Math.min(100, Math.round(num(status[key], 0)))) : 0
+    return h(
+     'div',
+     { className: 'dshp-self-row', key },
+     h('span', { className: 'dshp-self-label' }, label),
+     h('span', { className: 'dshp-self-bar' }, h('span', { className: 'dshp-self-fill', style: { width: value + '%' } })),
+     h('span', { className: 'dshp-self-value' }, String(value)),
+    )
+   }),
+   h('div', { className: 'dshp-self-summary' }, selfStatusSummary(status) || '尚未开始'),
+  )
+  }
+
+  /** 自动刷新前的短暂提示延时 300–800ms。 */
   function nextMoodAiDebounceDelay(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
   const random = typeof opts.random === 'function' ? opts.random : Math.random
@@ -3179,6 +3208,23 @@ window.__ModuleLoader__.load({
   'padding:6px 0;font:inherit;font-size:12.5px;cursor:pointer;transition:background 120ms ease}',
   '.dshp-tab:hover{background:var(--dshp-hover)}',
   '.dshp-tab.dshp-is-active{background:var(--dshp-accent);color:#fff;font-weight:600}',
+  '.dshp-subtabs{display:flex;gap:2px;padding:6px 12px 8px;border-bottom:1px solid var(--dshp-border);overflow-x:auto}',
+  '.dshp-subtab{flex:none;appearance:none;border:0;background:transparent;color:var(--dshp-label-2);border-radius:7px;',
+  'padding:4px 9px;font:inherit;font-size:11.5px;cursor:pointer;transition:background 120ms ease;white-space:nowrap}',
+  '.dshp-subtab:hover{background:var(--dshp-hover)}',
+  '.dshp-subtab.dshp-is-active{background:var(--dshp-bg-soft);color:var(--dshp-label);font-weight:600}',
+  '.dshp-growth{display:flex;flex-direction:column;gap:12px;padding-bottom:4px}',
+  '.dshp-growth-title{font-family:"Noto Serif SC","Songti SC",serif;font-size:20px;font-weight:700;letter-spacing:.04em}',
+  '.dshp-growth-mood{background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:12px;padding:10px 12px}',
+  '.dshp-growth-mood-label{font-size:15px;font-weight:600}',
+  '.dshp-growth-mood-reason{margin-top:3px;font-size:12.5px;color:var(--dshp-label-2);line-height:1.5}',
+  '.dshp-growth-mood-source{margin-top:4px;font-size:11px;color:var(--dshp-label-2);opacity:.85}',
+  '.dshp-growth-section{display:flex;flex-direction:column;gap:6px}',
+  '.dshp-growth-section-head{font-size:11.5px;font-weight:600;color:var(--dshp-label-2);letter-spacing:.04em}',
+  '.dshp-growth-quote{font-family:"Noto Serif SC","Songti SC",serif;font-size:13px;line-height:1.6;color:var(--dshp-label);padding:4px 0;border-bottom:1px dashed var(--dshp-border)}',
+  '.dshp-growth-quote:last-child{border-bottom:0}',
+  '.dshp-growth-empty{font-size:12px;color:var(--dshp-label-2)}',
+  '.dshp-growth-actions{display:flex;gap:6px;flex-wrap:wrap;padding-top:2px}',
   '.dshp-panel-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 18px}',
   '.dshp-list{display:flex;flex-direction:column;gap:2px}',
   '.dshp-row{display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-radius:9px;border:0;',
@@ -3292,7 +3338,7 @@ window.__ModuleLoader__.load({
   ASSET_BASE,
   WIDGET_ID,
   STEPS,
-  PANEL_TABS,
+  PANEL_TABS, POETRY_TABS,
   DEFAULT_SETTINGS,
   buildToneCells,
   selectPoemText,
@@ -3359,6 +3405,7 @@ window.__ModuleLoader__.load({
   buildPingshuiIndex, annotatePoemLines, detectMetre, detectPoem, detectPoemText, parsePoemInput, formatDetectionReport, detectionRhymeIndexes, patternForShape,
   setAssetDataVersion, normalizeMascotEggState, readMascotEggState, writeMascotEggState, recordMascotEgg, shouldShowDailyGreet, canShowIdlePose, pickMascotExpression,
   LibraryTab,
+  GrowthTab,
   PoetryWidget,
   TodayTab,
   ClassTab,
@@ -3585,7 +3632,8 @@ window.__ModuleLoader__.load({
 
   const [step, setStep] = React.useState(-1)
   const [panelOpen, setPanelOpen] = React.useState(false)
-  const [panelTab, setPanelTab] = React.useState('today')
+  const [panelTab, setPanelTab] = React.useState('growth')
+  const [poetryTab, setPoetryTab] = React.useState('today')
   const [selectedPoemId, setSelectedPoemId] = React.useState(null)
   const [toast, setToast] = React.useState(null)
   const [feihuaLaunch, setFeihuaLaunch] = React.useState(0)
@@ -4101,19 +4149,20 @@ window.__ModuleLoader__.load({
    return () => clearInterval(timer)
   }, [settings.mood, settings.spontaneousPoem])
   const [poemsRes, reloadPoems] = useResource('poems', Boolean(boot.data))
-  const classActive = step === 2 || step === 4 || (panelOpen && (panelTab === 'class' || panelTab === 'ci'))
-  const yunActive = step === 3 || (panelOpen && panelTab === 'yun')
+  const poetryOn = panelOpen && panelTab === 'poetry'
+  const classActive = step === 2 || step === 4 || (poetryOn && (poetryTab === 'class' || poetryTab === 'ci'))
+  const yunActive = step === 3 || (poetryOn && poetryTab === 'yun')
   const weatherNeedsCi = settings.weatherPoem && !resourceCache.ci
    && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather
    && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT
   const ciActive = step === 4 || step === 5 || weatherNeedsCi
-   || (panelOpen && (panelTab === 'ci' || panelTab === 'feihua' || panelTab === 'library'))
+   || (poetryOn && (poetryTab === 'ci' || poetryTab === 'feihua' || poetryTab === 'library'))
   const [knowledgeRes, reloadKnowledge] = useResource('knowledge', classActive)
   const [yunRes, reloadYun] = useResource('yun', yunActive)
   const [ciRes, reloadCi] = useResource('ci', ciActive)
-  const libraryActive = panelOpen && panelTab === 'library'
-  const feihuaOpen = (panelOpen && panelTab === 'feihua') || step === 5
-  const ciTabActive = panelOpen && panelTab === 'ci'
+  const libraryActive = poetryOn && poetryTab === 'library'
+  const feihuaOpen = (poetryOn && poetryTab === 'feihua') || step === 5
+  const ciTabActive = poetryOn && poetryTab === 'ci'
   const extraPoolActive = libraryActive || feihuaOpen
   const [anthologyRes, reloadAnthology] = useResource('anthology', extraPoolActive)
   const [bankRes, reloadBank] = useResource('bank', extraPoolActive)
@@ -4292,12 +4341,13 @@ window.__ModuleLoader__.load({
   // 实时事件 2：面板打开/关闭/切 tab
   React.useEffect(() => {
    if (!settings.mood) return
+   const currentTab = panelTab === 'poetry' ? 'poetry:' + poetryTab : panelTab
    const changed = moodPrevPanelOpenRef.current !== panelOpen
-    || (panelOpen && moodPrevPanelTabRef.current !== panelTab)
+    || (panelOpen && moodPrevPanelTabRef.current !== currentTab)
    moodPrevPanelOpenRef.current = panelOpen
-   moodPrevPanelTabRef.current = panelTab
+   moodPrevPanelTabRef.current = currentTab
    if (changed) scheduleMoodAiRefresh()
-  }, [panelOpen, panelTab, settings.mood])
+  }, [panelOpen, panelTab, poetryTab, settings.mood])
 
   // 实时事件 3：self-talk 卡片出现/关闭
   React.useEffect(() => {
@@ -4597,10 +4647,41 @@ window.__ModuleLoader__.load({
    lastInteractionRef.current = Date.now()
   }
 
+  function openPanelTab(tabId) {
+   if (POETRY_TABS.some((item) => item.id === tabId)) {
+    setPanelTab('poetry')
+    setPoetryTab(tabId)
+    return
+   }
+   if (tabId === 'poetry') {
+    setPanelTab('poetry')
+    return
+   }
+   if (tabId === 'settings') {
+    setPanelTab('settings')
+    return
+   }
+   setPanelTab('growth')
+  }
+
+  function openPoetryModule() {
+   openPanelTab('poetry')
+   setPanelOpen(true)
+  }
+
+  function openSettingsPanel() {
+   openPanelTab('settings')
+   setPanelOpen(true)
+  }
+
   function openPanel(tab) {
    noteInteraction()
    panelOpensRef.current += 1
-   setPanelTab(tab && PANEL_TABS.some((item) => item.id === tab) ? tab : 'today')
+   if (tab === 'settings' || tab === 'growth' || tab === 'poetry' || POETRY_TABS.some((item) => item.id === tab)) {
+    openPanelTab(tab)
+   } else {
+    openPanelTab('growth')
+   }
    setPanelOpen(true)
   }
 
@@ -4836,7 +4917,7 @@ window.__ModuleLoader__.load({
 
   /** 气泡「来一局」：打开面板飞花 tab 并自增启动令牌（FeihuaTab 见令牌自动开局）。 */
   function openFeihuaGame() {
-   setPanelTab('feihua')
+   openPanelTab('feihua')
    setPanelOpen(true)
    setFeihuaLaunch((token) => token + 1)
    pulseMascot('gameThink')
@@ -5011,7 +5092,7 @@ window.__ModuleLoader__.load({
 
   function openCiSelectedForRhythmic(rhythmic) {
    setLibraryFocus({ type: 'ci-selected', rhythmic: String(rhythmic || ''), token: Date.now() })
-   setPanelTab('library')
+   openPanelTab('library')
    setPanelOpen(true)
    noteInteraction()
   }
@@ -5019,7 +5100,7 @@ window.__ModuleLoader__.load({
   function openCiBankForRhythmic(rhythmic) {
    setCiBankWanted(true)
    setLibraryFocus({ type: 'ci', rhythmic: String(rhythmic || ''), token: Date.now() })
-   setPanelTab('library')
+   openPanelTab('library')
    setPanelOpen(true)
    noteInteraction()
   }
@@ -5037,12 +5118,12 @@ window.__ModuleLoader__.load({
    if (picked.kind === 'poem') {
     userPickedPoemRef.current = true
     setSelectedPoemId(picked.id)
-    setPanelTab('today')
+    openPanelTab('today')
    } else if (picked.kind === 'ci') {
-    setPanelTab('ci')
+    openPanelTab('ci')
    } else {
     setLibraryFocus({ id: picked.id, source: picked.kind, token: Date.now() })
-    setPanelTab('library')
+    openPanelTab('library')
    }
   }
 
@@ -5747,7 +5828,7 @@ window.__ModuleLoader__.load({
    })
    const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
    const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
-   const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab) : ''
+   const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab === 'poetry' ? poetryTab : panelTab) : ''
    const dizzyFile = dizzy && dizzy.file ? dizzy.file : ''
    const mealFile = mealActive && mealActive.file ? mealActive.file : ''
    const motionVideoFile = motionFile && isVideoMoodFile(motionFile) ? motionFile : ''
@@ -5909,6 +5990,12 @@ window.__ModuleLoader__.load({
     selfStatus,
     refreshMoodNow,
     previewSpontaneousPoem,
+    readAnotherSpontaneous,
+    recentSpoken: recentSpokenRef.current.slice(-5),
+    openPoetryModule,
+    openSettings: openSettingsPanel,
+    openPanel,
+    openPanelTab,
     anthologyRes,
     bankRes,
     pingshuiRes,
@@ -5917,13 +6004,17 @@ window.__ModuleLoader__.load({
     reloadPingshui,
     libraryFocus,
    }
-   if (panelTab === 'class') return h(ClassTab, { api })
-   if (panelTab === 'yun') return h(YunTab, { api })
-   if (panelTab === 'ci') return h(CiTab, { api })
-   if (panelTab === 'library') return h(LibraryTab, { api })
-   if (panelTab === 'feihua') return h(FeihuaTab, { api })
+   if (panelTab === 'growth') return h(GrowthTab, { api })
    if (panelTab === 'settings') return h(SettingsTab, { api })
-   return h(TodayTab, { api })
+   if (panelTab === 'poetry') {
+    if (poetryTab === 'class') return h(ClassTab, { api })
+    if (poetryTab === 'yun') return h(YunTab, { api })
+    if (poetryTab === 'ci') return h(CiTab, { api })
+    if (poetryTab === 'library') return h(LibraryTab, { api })
+    if (poetryTab === 'feihua') return h(FeihuaTab, { api })
+    return h(TodayTab, { api })
+   }
+   return h(GrowthTab, { api })
   }
 
   function renderPanel() {
@@ -5942,7 +6033,7 @@ window.__ModuleLoader__.load({
     key: 'panel',
     className: 'dshp-panel',
     role: 'dialog',
-    'aria-label': '诗词格律面板',
+    'aria-label': '鲸鱼娘的小角落成长面板',
     style: { left: Math.round(left) + 'px', top: Math.round(top) + 'px' },
     },
     h(
@@ -5951,8 +6042,8 @@ window.__ModuleLoader__.load({
     h(
      'div',
      { className: 'dshp-panel-title' },
-     '诗词格律挂件',
-     boot.data && boot.data.dataVersion ? h('small', null, '数据 ' + boot.data.dataVersion) : null,
+     '鲸鱼娘的小角落',
+     h('small', null, '自驱成长中' + (boot.data && boot.data.dataVersion ? ' · 数据 ' + boot.data.dataVersion : '')),
     ),
     h('button', {
      type: 'button',
@@ -5971,9 +6062,23 @@ window.__ModuleLoader__.load({
      role: 'tab',
      'aria-selected': panelTab === tab.id,
      className: cx('dshp-tab', panelTab === tab.id && 'dshp-is-active'),
-     onClick: () => setPanelTab(tab.id),
+     onClick: () => openPanelTab(tab.id),
     }, tab.label)),
     ),
+    panelTab === 'poetry'
+     ? h(
+      'div',
+      { className: 'dshp-subtabs', role: 'tablist', 'aria-label': '诗词模块' },
+      POETRY_TABS.map((tab) => h('button', {
+       key: tab.id,
+       type: 'button',
+       role: 'tab',
+       'aria-selected': poetryTab === tab.id,
+       className: cx('dshp-subtab', poetryTab === tab.id && 'dshp-is-active'),
+       onClick: () => setPoetryTab(tab.id),
+      }, tab.label)),
+     )
+     : null,
     h('div', { className: 'dshp-panel-body' }, renderPanelTab()),
    )
   }
@@ -6513,32 +6618,11 @@ window.__ModuleLoader__.load({
   function renderSelfStatus() {
    const status = api.selfStatus
    if (!status) return null
-   const rows = [
-    ['energy', '精力'],
-    ['curiosity', '好奇'],
-    ['social', '社交'],
-    ['hunger', '饥饿'],
-   ]
-   const summary = selfStatusSummary(status)
    return h(
     'div',
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '成长状态'), h('small', null, '自驱成长 · 最近进度')),
-    h(
-     'div',
-     { className: 'dshp-self-grid' },
-     rows.map(([key, label]) => {
-      const value = Math.max(0, Math.min(100, Math.round(num(status[key], 0))))
-      return h(
-       'div',
-       { className: 'dshp-self-row', key },
-       h('span', { className: 'dshp-self-label' }, label),
-       h('span', { className: 'dshp-self-bar' }, h('span', { className: 'dshp-self-fill', style: { width: value + '%' } })),
-       h('span', { className: 'dshp-self-value' }, String(value)),
-      )
-     }),
-     h('div', { className: 'dshp-self-summary' }, summary),
-    ),
+    growthMetricsTree(status),
    )
   }
 
@@ -6779,6 +6863,55 @@ window.__ModuleLoader__.load({
    ),
   )
   }
+  function GrowthTab(props) {
+   const api = props.api || {}
+   const mood = api.moodView || null
+   const status = api.selfStatus || null
+   const recent = (Array.isArray(api.recentSpoken) ? api.recentSpoken : []).slice(-5)
+   const moodSourceLabel = mood && mood.source === 'model' ? '模型生成' : mood && mood.source === 'heuristic' ? '启发式' : ''
+   const sayButton = api.previewSpontaneousPoem || api.readAnotherSpontaneous || function () {}
+   return h(
+    'div',
+    { className: 'dshp-growth' },
+    h('div', { className: 'dshp-growth-title' }, '我的成长'),
+    h(
+     'div',
+     { className: 'dshp-growth-mood' },
+     h('div', { className: 'dshp-growth-mood-label' }, mood && mood.label ? mood.label : '还没形成心情'),
+     mood && mood.reason ? h('div', { className: 'dshp-growth-mood-reason' }, String(mood.reason)) : null,
+     moodSourceLabel ? h('div', { className: 'dshp-growth-mood-source' }, '来源：' + moodSourceLabel) : null,
+    ),
+    h(
+     'div',
+     { className: 'dshp-growth-section' },
+     h('div', { className: 'dshp-growth-section-head' }, '内在状态'),
+     growthMetricsTree(status),
+    ),
+    h(
+     'div',
+     { className: 'dshp-growth-section' },
+     h('div', { className: 'dshp-growth-section-head' }, '最近说过的话'),
+     recent.length
+      ? recent.map((text, index) => h('div', { className: 'dshp-growth-quote', key: 'recent-' + index }, '「' + String(text) + '」'))
+      : h('div', { className: 'dshp-growth-empty' }, '还没开口'),
+    ),
+    h(
+     'div',
+     { className: 'dshp-growth-section' },
+     h('div', { className: 'dshp-growth-section-head' }, '成长摘要'),
+     h('div', { className: 'dshp-self-summary' }, selfStatusSummary(status) || '尚未开始'),
+    ),
+    h(
+     'div',
+     { className: 'dshp-growth-actions' },
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-primary', onClick: () => sayButton() }, '说一句'),
+     h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.refreshMoodNow) api.refreshMoodNow() } }, '刷新心情'),
+     h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.openPoetryModule) api.openPoetryModule() } }, '诗词模块'),
+     h('button', { type: 'button', className: 'dshp-btn', onClick: () => { if (api.openSettings) api.openSettings() } }, '设置'),
+    ),
+   )
+  }
+
   function FeihuaTab(props) {
   const api = props.api || {}
   const poemsRes = api.poemsRes || {}

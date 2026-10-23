@@ -888,7 +888,7 @@ test('气泡序列：点击形象依次推进 6 步后收起，再点回到第 1
   assert.match(textOf(bubbles[0]), /今日一诗/)
 })
 
-test('面板 7 tab 可切换；隐藏后热区双击可恢复', () => {
+test('面板 3 顶层 tab（默认成长）+ 诗词 6 子 tab；隐藏后热区双击可恢复', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -900,21 +900,37 @@ test('面板 7 tab 可切换；隐藏后热区双击可恢复', () => {
   const tabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-tab'))
-  assert.equal(tabs.length, 7)
-  assert.deepEqual(tabs.map((tab) => textOf(tab)), ['今日', '课堂', '韵部', '词牌', '诗库', '飞花', '设置'])
+  assert.equal(tabs.length, 3)
+  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '诗词', '设置'])
+  // 右键默认打开设置；点击「成长」进入成长主页
+  tabs[0].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab').length, '成长 tab 应渲染 GrowthTab')
+  assert.equal(findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-subtab')).length, 0, '成长 tab 不显示诗词子导航')
 
-  for (let index = 0; index < tabs.length; index++) {
-    tabs[index].props.onClick()
-    tree = rerender(react, debug.PoetryWidget, {})
-    assert.equal(
-      findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-panel').length,
-      1,
-      'tab ' + index + ' 切换后面板不应消失',
-    )
-    assert.ok(textOf(tree).length > 0)
-  }
+  tabs[1].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  const subtabs = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-subtab'))
+  assert.equal(subtabs.length, 6)
+  assertDeep(subtabs.map((tab) => textOf(tab)), ['今日', '课堂', '韵部', '词牌', '诗库', '飞花'])
+  subtabs[1].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'ClassTab').length, '课堂子 tab 应渲染 ClassTab')
+  subtabs[4].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'LibraryTab').length, '诗库子 tab 应渲染 LibraryTab')
 
   // 设置 tab：隐藏按钮（面板 tab 有 hooks 不展开，直接调 api）→ 只剩恢复热区
+  const settingsTopTab = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-tab')
+    && textOf(node) === '设置')[0]
+  settingsTopTab.props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
   const settingsElement = findAll(
     tree,
     (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab',
@@ -1454,7 +1470,7 @@ test('飞花 tab：自由输入对句（chips/来一局/输入/回车/反馈/图
     && typeof node.props.className === 'string'
     && node.props.className === 'dshp-fh-line').length, 10)
 })
-test('飞花令入口：面板第 6 个 tab 进入飞花页；气泡第 6 张卡 + 圆点直切', () => {
+test('飞花令入口：诗词→飞花子 tab 进入飞花页；气泡第 6 张卡 + 圆点直切', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -1464,10 +1480,16 @@ test('飞花令入口：面板第 6 个 tab 进入飞花页；气泡第 6 张卡
   const tabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-tab'))
-  assert.equal(tabs.length, 7)
-  assert.equal(textOf(tabs[4]), '诗库')
-  assert.equal(textOf(tabs[5]), '飞花')
-  tabs[5].props.onClick()
+  assert.equal(tabs.length, 3)
+  tabs[1].props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
+  const subtabs = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-subtab'))
+  assert.equal(subtabs.length, 6)
+  assert.equal(textOf(subtabs[4]), '诗库')
+  assert.equal(textOf(subtabs[5]), '飞花')
+  subtabs[5].props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
   const feihuaElements = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'FeihuaTab')
   assert.equal(feihuaElements.length, 1, '点击「飞花」tab 应渲染 FeihuaTab')
@@ -3988,7 +4010,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     panelButton.props.onClick()
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(String(mascot.props.src).includes('dsh-whale-home-peek.webp'), '今日面板应显示 home-peek，实际 ' + mascot.props.src)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-home-peek.webp'), '诗词今日面板应显示 home-peek，实际 ' + mascot.props.src)
     const settingsTab = findAll(tree, (node) => node.type === 'button'
       && typeof node.props.className === 'string'
       && node.props.className.includes('dshp-tab')
@@ -3998,14 +4020,22 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(String(mascot.props.src).includes('dsh-whale-settings-peek.webp'), '设置面板应显示 settings-peek，实际 ' + mascot.props.src)
-    const classTab = findAll(tree, (node) => node.type === 'button'
+    const poetryTopTab = findAll(tree, (node) => node.type === 'button'
       && typeof node.props.className === 'string'
       && node.props.className.includes('dshp-tab')
+      && textOf(node) === '诗词')[0]
+    assert.ok(poetryTopTab)
+    poetryTopTab.props.onClick()
+    tree = renderMain()
+    const classTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-subtab')
       && textOf(node) === '课堂')[0]
+    assert.ok(classTab)
     classTab.props.onClick()
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'), '其他 tab 应显示 workbench-peek，实际 ' + mascot.props.src)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'), '诗词模块应显示 workbench-peek，实际 ' + mascot.props.src)
 
     // 设置显示 label/reason/来源（模型）
     const settingsTabAgain = findAll(tree, (node) => node.type === 'button'
@@ -5983,4 +6013,83 @@ test('成长状态轮询：仅面板打开时请求 self.json、页面隐藏跳�
   } finally {
     react._cleanup()
   }
+})
+
+/* ------------------------------------------------------------------ */
+/* 23. M40 信息架构：成长主页 + 诗词二级模块                            */
+/* ------------------------------------------------------------------ */
+
+test('M40 顶层 tab：成长/诗词/设置，诗词 6 子 tab，openPanel 深链', () => {
+  const { react, debug } = loadClient({ seed: CACHE_SEED })
+  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'poetry', 'settings'])
+  assertDeep(debug.POETRY_TABS.map((tab) => tab.id), ['today', 'class', 'yun', 'ci', 'library', 'feihua'])
+  let tree = renderFresh(react, debug.PoetryWidget, {})
+  const stage = findStage(tree)
+  stage.props.onContextMenu({ preventDefault() {} })
+  tree = rerender(react, debug.PoetryWidget, {})
+  const topTabs = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-tab'))
+  assert.equal(topTabs.length, 3)
+  const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+  assert.ok(settingsEl)
+  // openPanel('library') 深链 → poetry/library
+  settingsEl.props.api.openPanel('library')
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'LibraryTab').length, 'openPanel("library") 应渲染 LibraryTab')
+  const activeSubtab = findAll(tree, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-subtab')
+    && node.props['aria-selected'] === true)[0]
+  assert.equal(textOf(activeSubtab), '诗库')
+  // 无参数/未知 tab → growth
+  settingsEl.props.api.openPanel()
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab').length)
+  settingsEl.props.api.openPanel('unknown-tab')
+  tree = rerender(react, debug.PoetryWidget, {})
+  assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab').length)
+})
+
+test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮，空数据也有骨架', () => {
+  const { react, debug } = loadClient()
+  const status = debug.normalizeSelfStatus({
+    ok: true,
+    state: { energy: 44, curiosity: 55, social: 66, hunger: 77 },
+    growth: { learnings: 7, reflections: 3, lastLearnAt: 1000, lastReflectAt: 2000 },
+  })
+  const calls = []
+  const api = {
+    moodView: { label: '发呆出神', reason: '想发会儿呆', source: 'model' },
+    selfStatus: status,
+    recentSpoken: ['一', '二', '三', '四', '五', '六'],
+    readAnotherSpontaneous: () => calls.push('say'),
+    refreshMoodNow: () => calls.push('refresh'),
+    openPoetryModule: () => calls.push('poetry'),
+    openSettings: () => calls.push('settings'),
+  }
+  const tree = renderFresh(react, debug.GrowthTab, { api })
+  const text = textOf(tree)
+  assert.match(text, /我的成长/)
+  assert.match(text, /发呆出神/)
+  assert.match(text, /想发会儿呆/)
+  assert.match(text, /来源：模型/)
+  for (const label of ['精力', '好奇', '社交', '饥饿']) assert.ok(text.includes(label))
+  assert.match(text, /自学 7 条/)
+  assert.match(text, /自省 3 次/)
+  assert.ok(text.includes('「二」') && text.includes('「六」'), '最近话语应显示最后 5 条')
+  assert.ok(!text.includes('「一」'), '超过 5 条应只保留最近 5 条')
+  for (const label of ['说一句', '刷新心情', '诗词模块', '设置']) assert.ok(text.includes(label))
+  const buttons = findAll(tree, (node) => node.type === 'button')
+  assert.equal(buttons.length, 4)
+  for (const button of buttons) button.props.onClick()
+  assertDeep(calls, ['say', 'refresh', 'poetry', 'settings'])
+
+  const emptyTree = renderFresh(react, debug.GrowthTab, { api: { settings: {} } })
+  const emptyText = textOf(emptyTree)
+  assert.match(emptyText, /我的成长/)
+  assert.match(emptyText, /还没形成心情/)
+  assert.match(emptyText, /还没开口/)
+  assert.match(emptyText, /尚未开始/)
+  assert.equal(findAll(emptyTree, (node) => node.type === 'button').length, 4, '空数据也保留按钮')
 })
