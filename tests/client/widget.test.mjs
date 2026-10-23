@@ -4038,8 +4038,10 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     }
     const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsEl)
-    assert.equal(settingsEl.props.api.moodAiFallback, true, '未知图片应回退启发式并提示')
-    assert.equal(settingsEl.props.api.moodSource, 'heuristic')
+    assert.equal(settingsEl.props.api.moodAiFallback, false, '30min 内已有模型心情，失败时保留上一次')
+    assert.equal(settingsEl.props.api.moodSource, 'model')
+    assert.equal(settingsEl.props.api.moodAiStale, true)
+    assert.equal(settingsEl.props.api.moodAiFailure, 'image')
   } finally {
     react._cleanup()
   }
@@ -5448,4 +5450,194 @@ test('mood-ai 超时 25s + webm 图片校验放宽：未在图鉴的合法 webm 
     assert.equal(debug.parseMoodAiResponse(makeMood(image), catalog).ok, false, '应拒绝非法/未知图片：' + JSON.stringify(image))
   }
   assert.equal(debug.parseMoodAiResponse({ ok: true, mood: { label: '', image: 'webm/动画.webm', reason: '' } }, catalog).ok, false, '空 label 拒绝')
+})
+
+/* ------------------------------------------------------------------ */
+/* 20. M29b 模型心情失败保留/自动重试                                    */
+/* ------------------------------------------------------------------ */
+
+test('模型心情失败保留/重试纯函数：12–25s、30min 保留窗口、5 次上限、失败原因归一化', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.MOOD_AI_RETRY_MIN_MS, 12 * 1000)
+  assert.equal(debug.MOOD_AI_RETRY_MAX_MS, 25 * 1000)
+  assert.equal(debug.MOOD_AI_KEEP_MS, 30 * 60 * 1000)
+  assert.equal(debug.MOOD_AI_MAX_RETRIES, 5)
+  assert.equal(debug.nextMoodAiRetryDelay(() => 0), 12000)
+  assert.ok(debug.nextMoodAiRetryDelay(() => 0.999999) <= 25000 && debug.nextMoodAiRetryDelay(() => 0.999999) >= 24900)
+  const now = Date.now()
+  assert.equal(debug.moodAiKeepDecision({ source: 'heuristic', lastSuccessAt: now - 1000, now }), false, '从没成功/已回退不保留')
+  assert.equal(debug.moodAiKeepDecision({ source: 'model', lastSuccessAt: 0, now }), false, '没有成功时间不保留')
+  assert.equal(debug.moodAiKeepDecision({ source: 'model', lastSuccessAt: now - 29 * 60 * 1000, now }), true, '<30min 保留')
+  assert.equal(debug.moodAiKeepDecision({ source: 'model', lastSuccessAt: now - 30 * 60 * 1000, now }), false, '>30min 回退')
+  const reasons = {
+    timeout: 'timeout',
+    http: 'http',
+    json: 'json',
+    image: 'image',
+    network: 'network',
+    rate: 'rate',
+    'no-fetch': 'network',
+    invalid: 'unknown',
+    other: 'unknown',
+  }
+  for (const [reason, expected] of Object.entries(reasons)) {
+    assert.equal(debug.normalizeMoodAiFailure({ reason }), expected, '失败原因：' + reason)
+  }
+  assert.equal(debug.normalizeMoodAiFailure({ reason: 'http', status: 429 }), 'rate', '429 归为请求过频')
+  assert.equal(debug.normalizeMoodAiFailure({ reason: 'other', status: 429 }), 'rate')
+  assert.equal(debug.moodAiFailureLabel('timeout'), '超时')
+  assert.equal(debug.moodAiFailureLabel('image'), '图片无效')
+})
+
+test('模型心情失败集成：首次失败回退、成功过则保留并重试、失败原因显示、5 次后停止自动重试', async () => {
+  const dataVersion = 'test.moodretry.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'mr-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'mr-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 1, toolCalls: 10 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  let mode = 'fail'
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      if (mode === 'fail') return { ok: false, status: 500, json: async () => ({}) }
+      if (mode === 'rate') return { ok: true, json: async () => ({ ok: false, error: { code: 'MOOD_AI_RATE_LIMITED', message: 'rate' } }) }
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '成功心情', image: 'dsh-whale-state-abstract.webp', reason: '好了' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    if (raw.indexOf('pet-media') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const timers = []
+  context.setTimeout = (fn, ms) => { const item = { fn, ms, used: false }; timers.push(item); return item }
+  context.clearTimeout = (item) => { if (item) item.cleared = true }
+  const findTimer = (min, max) => {
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      const item = timers[i]
+      if (!item.used && !item.cleared && item.ms >= min && item.ms <= max) return item
+    }
+    return null
+  }
+  const fire = (item) => { assert.ok(item); item.used = true; item.fn() }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const openSettings = () => {
+    let tree = renderMain()
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    if (panelButton) panelButton.props.onClick()
+    tree = renderMain()
+    const settingsTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    if (settingsTab) settingsTab.props.onClick()
+    tree = renderMain()
+    return findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 8; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(20)
+    tree = renderMain()
+    // 首次失败（从没成功）→ 回退启发式 + 记录原因 + 自动重试排期
+    // 先打开设置面板，避免打开面板事件取消待执行的自动重试计时
+    let settingsEl = openSettings()
+    assert.ok(settingsEl)
+    let debounce = findTimer(debug.MOOD_AI_DEBOUNCE_MIN_MS, debug.MOOD_AI_DEBOUNCE_MAX_MS)
+    fire(debounce)
+    await sleep(20)
+    tree = renderMain()
+    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsEl)
+    assert.equal(settingsEl.props.api.moodAiFallback, true, '首次失败应回退本地')
+    assert.equal(settingsEl.props.api.moodSource, 'heuristic')
+    assert.equal(settingsEl.props.api.moodAiFailure, 'http')
+    let retryTimer = findTimer(debug.MOOD_AI_RETRY_MIN_MS, debug.MOOD_AI_RETRY_MAX_MS)
+    assert.ok(retryTimer, '首次失败应安排 12–25s 自动重试')
+
+    // 重试成功 → 模型心情、清除 stale/failure
+    mode = 'ok'
+    fire(retryTimer)
+    await sleep(20)
+    tree = renderMain()
+    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.equal(settingsEl.props.api.moodAiFallback, false)
+    assert.equal(settingsEl.props.api.moodSource, 'model')
+    assert.equal(settingsEl.props.api.moodAiStale, false)
+    assert.equal(settingsEl.props.api.moodAiFailure, '')
+
+    // 已有模型心情 <30min 再失败 → 保留模型心情 + stale 提示，不切本地
+    mode = 'fail'
+    settingsEl.props.api.refreshMoodNow()
+    tree = renderMain()
+    let immediate = findTimer(0, 0)
+    fire(immediate)
+    await sleep(20)
+    tree = renderMain()
+    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.equal(settingsEl.props.api.moodAiFallback, false, '30min 内保留上一次模型心情')
+    assert.equal(settingsEl.props.api.moodSource, 'model')
+    assert.equal(settingsEl.props.api.moodAiStale, true)
+    assert.equal(settingsEl.props.api.moodAiFailure, 'http')
+    const settingsText = textOf(settingsEl.type(settingsEl.props))
+    assert.match(settingsText, /模型心情暂时不可用（HTTP 错误），保留上一次，稍后重试/)
+    assert.match(settingsText, /上次模型心情失败：HTTP 错误/)
+    retryTimer = findTimer(debug.MOOD_AI_RETRY_MIN_MS, debug.MOOD_AI_RETRY_MAX_MS)
+    assert.ok(retryTimer)
+
+    // 重试成功清 stale
+    mode = 'ok'
+    fire(retryTimer)
+    await sleep(20)
+    tree = renderMain()
+    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.equal(settingsEl.props.api.moodAiStale, false)
+    assert.equal(settingsEl.props.api.moodAiFailure, '')
+
+    // 连续 5 次失败后停止自动重试
+    mode = 'fail'
+    for (let i = 0; i < debug.MOOD_AI_MAX_RETRIES; i += 1) {
+      settingsEl.props.api.refreshMoodNow()
+      tree = renderMain()
+      immediate = findTimer(0, 0)
+      fire(immediate)
+      await sleep(20)
+      tree = renderMain()
+      settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    }
+    assert.equal(debug.MOOD_AI_MAX_RETRIES, 5)
+    retryTimer = findTimer(debug.MOOD_AI_RETRY_MIN_MS, debug.MOOD_AI_RETRY_MAX_MS)
+    assert.equal(retryTimer, null, '连续 5 次失败后不应再自动重试')
+    assert.equal(settingsEl.props.api.moodAiStale, true, '仍保留上一次模型心情')
+  } finally {
+    react._cleanup()
+  }
 })
