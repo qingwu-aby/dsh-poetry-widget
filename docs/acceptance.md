@@ -10,9 +10,9 @@
 |---|---|---|---|
 | A1 | `node --check` 全部 JS | ✅ | index.js / lib/*.mjs / client.js（含飞花令）/ scripts / tests 全过 |
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
-| A3 | `node --test tests/host.test.mjs` | ✅ | 102 pass / 0 fail（天气 10 + 心情 9 + self-talk 18 + 模型心情 11 + 全量句库 11） |
-| A4 | `node --test tests/client.test.mjs` | ✅ | 92 pass / 0 fail（+飞花全量句库懒加载/合并/回退） |
-| A5 | 三套合计 | ✅ | **236 tests / 236 pass / 0 fail**（data 42 / host 102 / client 92） |
+| A3 | `node --test tests/host.test.mjs` | ✅ | 111 pass / 0 fail（天气 10 + 心情 9 + self-talk 18 + 模型心情 11 + 全量句库 11 + 动画素材 9） |
+| A4 | `node --test tests/client.test.mjs` | ✅ | 96 pass / 0 fail（+webm 动画立绘/回退/暂停） |
+| A5 | 三套合计 | ✅ | **249 tests / 249 pass / 0 fail**（data 42 / host 111 / client 96） |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |
 | A7 | `node tests/integration/verify.mjs` | ✅ | **64/64 passed, 0 failed, 10 warnings（栅栏 401 属预期；含 4 份 assets/data 资产）** |
 | A8 | 数据构建可复现 | ✅ | 连续两次构建 4 个数据文件 sha256 一致 |
@@ -48,7 +48,7 @@
 | C14 | 设置城市/按天气选诗开关/刷新天气 | ✅ | 用户确认「城市/开关/刷新正常」；设置持久化到 settings.json |
 | C15 | 飞花令输赢/思考立绘反馈 | ✅ | 用户确认「飞花令立绘反馈正常」（2.5s 后回天气/默认） |
 | C16 | 心情 chip + 心情理由/刷新心情 | ✅ | 用户确认模型生成心情与理由；失败回退启发式；设置显示来源与强制刷新 |
-| C17 | 92 张立绘全部可用：89 张心情图由模型任选 + 3 张 panel 探头按 tab 切换；切换限频 ≥20min、force 刷新 | ✅ | 用户确认「心情由模型生成」「3 张面板探头图正常」「刷新心情/来源显示正常」；图鉴 92 条 ↔ 92 文件 0 缺失 |
+| C17 | 心情立绘：92 张静态图（89 心情 + 3 panel）+ **106 个 dsh-pet webm 透明动画**（MIT，`_ref/pet-media/` 不随包）；mood-ai 可任选；切换限频 ≥20min、force 刷新 | ✅ | 用户确认静态图与面板探头；动画素材 catalog 106 ↔ 磁盘 106、合并后 moodImages 195；client 96 测试覆盖 video 渲染/回退/隐藏暂停 |
 | C18 | 自言自语（**纯模型随想**，不背诗/不引诗；**无时间闸门**：20–40s 轮询 + 事件唤醒、3s 安静、一卡制、25s 自动关、无每日次数；失败回退本地随想池；可关/预览） | ✅ | 用户要求「不限制时间、随时随地」；client 88 测试覆盖随时触发/一卡制/事件唤醒/后台不弹；Host prompt 禁止引诗 |
 | C19 | 诗库 tab（7 tab；分类/搜索/分页/详情，5,224 首） | ✅ | 用户验收；data 41 项 + client 59 项测试覆盖真实数据渲染 |
 | C20 | 格律检测器（选中诗 + 自定义输入；106 韵部/诗体/韵部/粘对/拗字） | ✅ | 用户验收；真实示例「登鹳雀楼」输出五绝/仄起/十一尤/0 拗字 |
@@ -73,7 +73,7 @@
 |---|---|---|---|
 | E1 | 92 张立绘本地化 | ✅ | `assets/generated/` 92 个 WebP / 12,692,916 B（与上游一致），经本地 assets 路由提供 |
 | E2 | curated 源快照 | ✅ | `data-src/` 10 文件 / 892KB（唐诗三百首/宋词三百首/千家诗/声律启蒙/诗经/楚辞 + LICENSE/README/source.json） |
-| E3 | 完整语料本地缓存 | ✅ | `_ref/poetry-source/b8594f81a897/` 326.7MB / 1330 文件（项目同级，不随包）；`_ref/feihua-full/` 167MB / 32 令字分片（飞花令全量校验，不随包） |
+| E3 | 完整语料本地缓存 | ✅ | `_ref/poetry-source/b8594f81a897/` 326.7MB / 1330 文件（项目同级，不随包）；`_ref/feihua-full/` 167MB / 32 令字分片（飞花令全量校验，不随包）；`_ref/pet-media/` 52MB / 106 个 webm（心情动画，MIT，不随包） |
 | E4 | 完全离线重建 | ✅ | `node scripts/fetch-data.mjs --offline` 通过；`build-data --offline` 产物 sha256 与在线构建一致 |
 | E5 | 天气依赖 | ⚠️ 运行时唯一外网 | 仅 Open-Meteo 两个固定域名；失败静默回退，不阻塞其他功能 |
 | E6 | M9 扩展数据资产 | ✅ | `assets/data/`：anthology 724 首 356KB / poems-bank 4,500 首 2.12MB / pingshui 106 韵部 160KB；`scripts/build-assets-data.mjs --offline` 可复现；静态路由 200 实测 |

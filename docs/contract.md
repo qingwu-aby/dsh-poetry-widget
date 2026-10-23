@@ -41,6 +41,7 @@
 | `/api/dsh-poetry/knowledge.json` | GET | 12 张格律卡 + 15 张词牌卡（见 §2.5） |
 | `/api/dsh-poetry/settings.json` | GET | `{ok:true, settings:{...完整 §2.6...}}` |
 | `/api/dsh-poetry/settings.json` | PUT | 部分设置合并写入；仅回环来源；`{ok:true, settings:{...合并后完整...}}` |
+| `/api/dsh-poetry/pet-media` | GET/HEAD | **静态心情动画素材**（不套栅栏，与 assets 同类）：`?f=catalog.json` → dsh-pet 106 个 webm 图鉴（`{ok,entries:[{file:"webm/…",label,media:"video",tags}]}`）；`?f=webm/<名>.webm` → `video/webm`（含 ATTRIBUTION）；素材位于 `_ref/pet-media/`，不随包；缺失时 404，客户端回退 92 张静态图 |
 | `/api/dsh-poetry/feihua-full.json` | GET | 飞花令**全量校验句库**按令字分片：`?char=花` → `{ok:true,char,count,entries:[[句子,出处],…]}`（来自全量 chinese-poetry 语料构建的 `_ref/feihua-full/<char>.json`，不随包）；缺失/旧宿主 → `FEIHUA_FULL_UNAVAILABLE`（200+JSON）。用于把飞花令的「有没有出处」判定扩到全量诗词 |
 | `/api/dsh-poetry/mood-ai.json` | GET | 让模型根据当天情境（活跃统计/天气/时段/自述/最近用过图）从 92 张本地立绘图鉴里**自主决定心情与配图**（非随机）；返回心情标签/理由/图片文件名；失败 `MOOD_AI_UNAVAILABLE`（200+JSON，永不 5xx） |
 | `/api/dsh-poetry/self-talk.json` | GET | 让挂件用当前默认模型实时生成一句「自言自语」（诗句/随想/引出句）；宿主侧 `ctx.llm.stream` + `agentDefaultModel.currentSelection()`，2 句/批、20s 超时、失败返回 `SELF_TALK_UNAVAILABLE`（200+JSON，永不 5xx）；只使用聚合统计/天气/时间/今日诗元数据，不读会话内容 |
@@ -281,6 +282,15 @@
 - 其余 → unknown；`isDay=0` 时客户端优先「月/夜」诗池。
 缓存：地理编码按城市 24h、天气 20min；刷新按钮/城市变更可主动失效。请求超时 6s，失败保留上次结果并标 `stale:true`。
 
+### 2.15 心情动画素材 `PET-MEDIA`（M18，`/api/dsh-poetry/pet-media`）
+
+来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）的 106 个透明 webm 动画，作为心情立绘的**动画状态**扩展（原有 92 张静态图保留）。素材由 Lead 落入项目同级 `_ref/pet-media/`（webm 52MB + catalog.json + ATTRIBUTION），**不随插件包**；`DSH_PET_MEDIA_DIR` 可覆盖。
+
+- Host 启动时读取 `<dir>/catalog.json`，把 `media:'video'` 条目并入心情图鉴（`moodImages`），mood-ai 的模型可从 106 个动画里选；`image` 字段返回 `webm/<名>.webm`。
+- 静态路由（**不套信任栅栏**，只读、无用户数据，供 `<video>` 直接加载）：`GET/HEAD /api/dsh-poetry/pet-media?f=<相对路径>`：
+  - 白名单：`catalog.json`、`webm/*.webm`；MIME `application/json` / `video/webm`；`Cache-Control: public, max-age=3600`；支持 Content-Length/HEAD；404 缺文件；拒绝 `..`/绝对路径/反斜杠/空字节/非白名单扩展。
+- Client：设置 mood 开启时懒加载 `?f=catalog.json` 并合并图鉴；`.webm` 心情用 `<video autoPlay muted loop playsInline>` 渲染（`.dshp-mascot-video` 与图片同样式），加载失败回退静态图；页面隐藏时暂停；动画图鉴加载失败则只用 92 张静态图（mood-ai 返回视频时按未知图回退启发式）。
+
 ### 2.14 飞花令全量校验句库 `FEIHUA-FULL`（M17，`/api/dsh-poetry/feihua-full.json`）
 
 飞花令「是否算接上」的出处查找不再局限于当前已加载句库：客户端按**当前令字**懒加载全量校验分片，与本地句库合并后做 plain/小句/整句匹配。
@@ -388,7 +398,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 | `data/ci.json` | ≤ 220 KB |
 | `data/yun.json` | ≤ 80 KB |
 | `data/knowledge.json` | ≤ 90 KB |
-| `client.js`（含内联样式，M6–M16 全部功能） | ≤ 310 KB |
+| `client.js`（含内联样式，M6–M18 全部功能） | ≤ 325 KB |
 | 首屏请求 | bootstrap + 今日诗所需的 poems.json（可接受 ~620KB 一次拉取；后续面板复用） |
 | 宿主静态/数据路由响应 | 单文件 ≤ 1 MB |
 
@@ -430,6 +440,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 - **v1.1（2026-10-21）**：数据数量不再固定 500/300。`rank/` 热度选择被证实不可靠（宋诗/冷门诗人比例过高），改为「唐三百 + 千家诗精选匹配为主、名家白名单补足」；**最终数量以 `data/manifest.json` 的 `stats` 与各数据文件实际长度为准**（下限：诗 ≥250、词 ≥150；上限不变）。客户端不得写死数量，一律读 `bootstrap.counts`/数组长度。
 - v1.1 同时明确：抛体判定允许「违例 ≤2 的拗体/变格」，analysis 追加说明；三平调/孤平仍丢弃。押韵校验在构建期用公版平水韵表（`_ref/pingshui`，MIT，仅构建期 QA，不随包）完成。
+- **v1.12（2026-10-23，M18）**：新增心情动画素材（dsh-pet 106 个 MIT webm，`_ref/pet-media/` 不随包）；Host 静态路由 `GET /api/dsh-poetry/pet-media` + 启动时把视频并入 mood-ai 图鉴；Client 支持 `<video>` 立绘渲染与失败回退。
 - **v1.11（2026-10-21，M17）**：飞花令判定出处扩到**全量诗词**（新增 `GET /api/dsh-poetry/feihua-full.json` 按令字分片路由 + `scripts/build-feihua-full.mjs`；数据位于 `_ref/` 不随包，缺失时回退本地句库）。
 - **v1.10（2026-10-21，M14）**：新增自主记忆日志副作用（`$DSH_HOME/agent-memory/journal.{md,jsonl}`，只追加，仅模型生成的 self-talk/mood 内容，不含会话原文）。
 - **v1.9（2026-10-21，M13）**：新增模型心情路由 `GET /api/dsh-poetry/mood-ai.json` 与本地心情图鉴 `assets/data/mood-catalog.json`（92 张全部纳入：89 心情 + 3 探头）；Client 由模型决定心情标签/理由/配图（失败回退现有启发式），面板打开时使用 3 张 peek 图。

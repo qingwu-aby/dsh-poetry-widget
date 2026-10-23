@@ -42,6 +42,14 @@ import {
   zeroMoodResponse,
 } from '../lib/mood.mjs'
 import {
+  PET_MEDIA_ROUTE,
+  createPetMediaHandler,
+  isSafeWebmRelative,
+  loadPetMediaCatalog,
+  mergePetMediaIntoMoodCatalog,
+  resolvePetMediaDir,
+} from '../lib/pet-media.mjs'
+import {
   createFeihuaFullService,
   isValidFeihuaChar,
   resolveFeihuaFullDir,
@@ -1647,7 +1655,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 14, 'assets + 13 条 JSON 路由')
+    assert.equal(routes.length, 15, 'assets + pet-media + 13 条 JSON 路由')
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
       '注册了 self-talk.json 路由',
@@ -1659,6 +1667,10 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/feihua-full.json'),
       '注册了 feihua-full.json 路由',
+    )
+    assert.ok(
+      routes.some((route) => route.path === PET_MEDIA_ROUTE),
+      '注册了 pet-media 静态路由',
     )
 
     // 假 ctx 里没有 llm/agentDefaultModel → mood-ai 路由必须安全降级（200 + ok:false）
@@ -3133,6 +3145,318 @@ test('feihua-full 路由：服务缺失/异常 → 200 + FEIHUA_FULL_UNAVAILABLE
   assert.equal(throwingResponse.statusCode, 200)
   assert.equal(throwingResponse.json().ok, false)
   assert.equal(throwingResponse.json().error.code, 'FEIHUA_FULL_UNAVAILABLE')
+})
+
+// ---------------------------------------------------------------------------
+// 心情动画素材（契约 v1.12 §2.15，dsh-pet MIT webm）
+// ---------------------------------------------------------------------------
+
+function writePetCatalog(dir, entries, extra = {}) {
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(
+    path.join(dir, 'catalog.json'),
+    JSON.stringify({ ok: true, v: 1, source: 'PC2005-cloud/dsh-pet@MIT (webm animations)', entries, ...extra }),
+    'utf8',
+  )
+}
+
+const PET_VIDEO_FILE = 'webm/三球抛接.webm'
+const PET_VIDEO_BYTES = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x93, 0x42, 0x82, 0x88])
+
+function writePetVideo(dir) {
+  fs.mkdirSync(path.join(dir, 'webm'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'webm', '三球抛接.webm'), PET_VIDEO_BYTES)
+}
+
+test('pet-media：resolvePetMediaDir（env 覆盖/默认项目同级 _ref）', () => {
+  assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '/tmp/pet-media' }, '/pkg/app'), '/tmp/pet-media')
+  assert.equal(resolvePetMediaDir({}, '/a/b/dsh-poetry-widget'), '/a/b/_ref/pet-media')
+  assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '   ' }, '/a/b/pkg'), '/a/b/_ref/pet-media')
+  assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '  /tmp/x  ' }, '/pkg'), '/tmp/x')
+})
+
+test('pet-media：isSafeWebmRelative 只接受 webm/<名>.webm', () => {
+  assert.equal(isSafeWebmRelative(PET_VIDEO_FILE), true)
+  assert.equal(isSafeWebmRelative('webm/a.webm'), true)
+  for (const bad of ['', 'catalog.json', '../a.webm', '/abs/a.webm', 'webm\\a.webm', 'webm/a.js', 'webm/../a.webm', 'webm/', 'other/a.webm', 'webm/a.webm/../b.webm', 'webm/a./webm']) {
+    assert.equal(isSafeWebmRelative(bad), false, bad)
+  }
+})
+
+test('pet-media：loadPetMediaCatalog 合法/过滤非法条目/去重', () => {
+  const dir = makeTmpDir('dshp-pet')
+  writePetCatalog(dir, [
+    { file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', scope: 'mood', tags: ['game'] },
+    { file: 'webm/下五子棋.webm', label: '下五子棋', media: 'video', tags: ['game', 'game', ''] },
+    { file: PET_VIDEO_FILE, label: '重复文件', media: 'video', tags: ['dup'] },
+    { file: '../evil.webm', label: '越界', media: 'video', tags: ['x'] },
+    { file: 'webm/a.js', label: '非白名单', media: 'video', tags: ['x'] },
+    { file: 'webm/缺标签.webm', label: '', media: 'video', tags: [] },
+    { file: 'webm/错类型.webm', label: '错类型', media: 'image', tags: [] },
+    { file: 'webm/缺tags.webm', label: '缺 tags', media: 'video' },
+    { file: 'webm/坏tags.webm', label: '坏 tags', media: 'video', tags: 'game' },
+    { file: 'webm/缺media.webm', label: '缺 media', tags: [] },
+  ])
+  const loaded = loadPetMediaCatalog({ dir, logger: { warn() {} } })
+  assert.equal(loaded.ok, true, loaded.ok === false ? loaded.message : '')
+  assert.equal(loaded.entries.length, 2, '合法 2 条 + 去重')
+  assert.deepEqual(loaded.entries[0], {
+    file: PET_VIDEO_FILE,
+    label: '三球抛接',
+    media: 'video',
+    scope: 'mood',
+    tags: ['game'],
+  })
+  assert.deepEqual(loaded.entries[1].tags, ['game'], 'tags 去重/去空')
+  assert.equal(loaded.entries.some((entry) => entry.file === 'webm/错类型.webm'), false)
+})
+
+test('pet-media：loadPetMediaCatalog 缺目录/坏 JSON/格式不符/全非法 → ok:false 不抛', () => {
+  const missing = loadPetMediaCatalog({ dir: path.join(makeTmpDir('dshp-pet'), 'nope'), logger: { warn() {} } })
+  assert.equal(missing.ok, false)
+  assert.match(missing.message, /不存在/)
+
+  const badJsonDir = makeTmpDir('dshp-pet')
+  fs.writeFileSync(path.join(badJsonDir, 'catalog.json'), 'not json', 'utf8')
+  assert.equal(loadPetMediaCatalog({ dir: badJsonDir, logger: { warn() {} } }).ok, false)
+
+  const badShapeDir = makeTmpDir('dshp-pet')
+  fs.writeFileSync(path.join(badShapeDir, 'catalog.json'), JSON.stringify({ ok: true, v: 2, entries: [] }), 'utf8')
+  assert.equal(loadPetMediaCatalog({ dir: badShapeDir, logger: { warn() {} } }).ok, false)
+
+  const noEntriesDir = makeTmpDir('dshp-pet')
+  fs.writeFileSync(path.join(noEntriesDir, 'catalog.json'), JSON.stringify({ ok: true, v: 1, entries: 'nope' }), 'utf8')
+  assert.equal(loadPetMediaCatalog({ dir: noEntriesDir, logger: { warn() {} } }).ok, false)
+
+  const allInvalidDir = makeTmpDir('dshp-pet')
+  writePetCatalog(allInvalidDir, [{ file: '../x.webm', label: 'x', media: 'video', tags: [] }])
+  const allInvalid = loadPetMediaCatalog({ dir: allInvalidDir, logger: { warn() {} } })
+  assert.equal(allInvalid.ok, false)
+  assert.match(allInvalid.message, /没有可用视频条目/)
+})
+
+test('pet-media：merge 追加视频/补 media:image/去重/保留 panel/不修改原对象', () => {
+  const base = makeMoodCatalogFixture()
+  const snapshot = JSON.stringify(base)
+  const petEntries = [
+    { file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', scope: 'mood', tags: ['game'] },
+    { file: 'dsh-whale-state-happy.webp', label: '重复静图', media: 'video', tags: ['dup'] },
+    { file: 'webm/下五子棋.webm', label: '下五子棋', media: 'video', scope: 'mood', tags: ['game'] },
+  ]
+  const merged = mergePetMediaIntoMoodCatalog(base, petEntries)
+  assert.notEqual(merged, base)
+  assert.equal(JSON.stringify(base), snapshot, '原 catalog 不被修改')
+
+  const baseCount = base.moodImages.length
+  assert.equal(merged.moodImages.length, baseCount + 2, '重复 file 不追加')
+  for (const image of merged.moodImages.slice(0, baseCount)) {
+    assert.equal(image.media, 'image', '原有图片补 media:image')
+  }
+  const added = merged.moodImages.slice(baseCount)
+  assert.deepEqual(added.map((image) => image.file), [PET_VIDEO_FILE, 'webm/下五子棋.webm'])
+  for (const image of added) {
+    assert.equal(image.media, 'video')
+    assert.equal(image.scope, 'mood')
+  }
+  assert.equal(merged.files.has(PET_VIDEO_FILE), true)
+  assert.equal(merged.files.has('dsh-whale-state-happy.webp'), true)
+  assert.deepEqual(merged.panelImages, base.panelImages, '保留 panelImages')
+  assert.equal(merged.panelImages !== base.panelImages, true, '不是同一个数组引用')
+
+  // 无视频条目：浅拷贝，内容保持原样
+  const copy = mergePetMediaIntoMoodCatalog(base, [])
+  assert.notEqual(copy, base)
+  assert.deepEqual(copy.moodImages, base.moodImages, '无条目时 moodImages 原样')
+  assert.deepEqual(copy.panelImages, base.panelImages)
+  assert.equal(JSON.stringify(base), snapshot)
+})
+
+test('pet-media handler：webm/catalog 200 + Content-Type/Content-Length/Cache-Control/HEAD', async () => {
+  const dir = makeTmpDir('dshp-pet')
+  writePetCatalog(dir, [{ file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', tags: ['game'] }])
+  writePetVideo(dir)
+  const handler = createPetMediaHandler({ dir, logger: { warn() {} } })
+
+  async function call({ method = 'GET', url }) {
+    const response = new MockResponse()
+    await handler(mockRequest({ method, url }), response)
+    await response.finished()
+    return response
+  }
+
+  const video = await call({ url: `${PET_MEDIA_ROUTE}?f=${encodeURIComponent(PET_VIDEO_FILE)}` })
+  assert.equal(video.statusCode, 200)
+  assert.equal(video.headers['Content-Type'], 'video/webm')
+  assert.equal(video.headers['Content-Length'], String(PET_VIDEO_BYTES.length))
+  assert.equal(video.headers['Cache-Control'], 'public, max-age=3600')
+  assert.deepEqual(Buffer.concat(video.chunks), PET_VIDEO_BYTES)
+
+  const catalog = await call({ url: `${PET_MEDIA_ROUTE}?f=catalog.json` })
+  assert.equal(catalog.statusCode, 200)
+  assert.equal(catalog.headers['Content-Type'], 'application/json; charset=utf-8')
+  assert.equal(catalog.headers['Cache-Control'], 'public, max-age=3600')
+  const parsed = catalog.json()
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.entries.length, 1)
+
+  const head = await call({ method: 'HEAD', url: `${PET_MEDIA_ROUTE}?f=${encodeURIComponent(PET_VIDEO_FILE)}` })
+  assert.equal(head.statusCode, 200)
+  assert.equal(head.headers['Content-Length'], String(PET_VIDEO_BYTES.length))
+  assert.equal(Buffer.concat(head.chunks).length, 0, 'HEAD 不返回 body')
+})
+
+test('pet-media handler：404（缺失/越界/非白名单）与 405，错误不泄漏', async () => {
+  const dir = makeTmpDir('dshp-pet')
+  writePetCatalog(dir, [{ file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', tags: ['game'] }])
+  writePetVideo(dir)
+  fs.mkdirSync(path.join(dir, 'webm'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'webm', 'other.js'), 'console.log(1)', 'utf8')
+  fs.writeFileSync(path.join(dir, 'secret.txt'), 'secret', 'utf8')
+  const handler = createPetMediaHandler({ dir, logger: { warn() {} } })
+
+  async function call({ method = 'GET', url }) {
+    const response = new MockResponse()
+    await handler(mockRequest({ method, url }), response)
+    await response.finished()
+    return response
+  }
+
+  for (const f of [
+    '',
+    'webm/不存在.webm',
+    '../secret.txt',
+    '%2e%2e%2fsecret.txt',
+    'webm%2F..%2Fsecret.txt',
+    '/etc/passwd',
+    'webm\\a.webm',
+    'webm/other.js',
+    'catalog.json/../catalog.json',
+    'webm/a.webm%00.png',
+    'ATTRIBUTION.md',
+  ]) {
+    const response = await call({ url: `${PET_MEDIA_ROUTE}?f=${f}` })
+    assert.equal(response.statusCode, 404, `应 404: ${f}`)
+    assert.equal(response.bodyText.includes('secret'), false, '不泄漏内容')
+  }
+
+  const wrongMethod = await call({ method: 'POST', url: `${PET_MEDIA_ROUTE}?f=catalog.json` })
+  assert.equal(wrongMethod.statusCode, 405)
+  assert.equal(wrongMethod.headers.Allow, 'GET, HEAD')
+
+  // 不套信任栅栏：没有任何 cookie/Host 校验也能读（只读、无用户数据）
+  const unfenced = await call({ url: `${PET_MEDIA_ROUTE}?f=catalog.json` })
+  assert.equal(unfenced.statusCode, 200)
+})
+
+test('pet-media：merge 后 mood-ai prompt 含 video 条目，parse 接受 video 文件', async () => {
+  const base = makeMoodCatalogFixture()
+  const merged = mergePetMediaIntoMoodCatalog(base, [
+    { file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', scope: 'mood', tags: ['game'] },
+  ])
+  const prompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0), weather: 'clear' }, merged)
+  assert.equal(prompt.includes(PET_VIDEO_FILE), true, 'prompt 图鉴里应含视频文件')
+  assert.ok(prompt.includes(`${PET_VIDEO_FILE}｜三球抛接｜game｜video｜-`), '图鉴行含 video 条目与 media 列')
+  assert.match(prompt, /media=video/, 'prompt 说明 media 语义')
+
+  const parsed = parseMoodResult(
+    JSON.stringify({ label: '在玩球', image: PET_VIDEO_FILE, reason: '今天想活动一下', energy: 60 }),
+    merged,
+    { dateKey: '2026-10-21' },
+  )
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.mood.image, PET_VIDEO_FILE)
+
+  const unknownVideo = parseMoodResult(
+    JSON.stringify({ label: '在玩球', image: 'webm/不存在.webm', reason: '理由', energy: 50 }),
+    merged,
+    { dateKey: '2026-10-21' },
+  )
+  assert.equal(unknownVideo.ok, false, '未在合并图鉴内的视频仍拒绝')
+
+  // 服务层：mock llm 返回 video 文件 → 成功
+  const { service } = makeMoodAiHarness({
+    catalog: merged,
+    responder: () => JSON.stringify({ label: '在玩球', image: PET_VIDEO_FILE, reason: '今天想活动一下', energy: 60 }),
+  })
+  const result = await service.generate({})
+  assert.equal(result.ok, true)
+  assert.equal(result.mood.image, PET_VIDEO_FILE)
+  assert.equal(result.mood.label, '在玩球')
+})
+
+test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临时目录，未栅栏）', async () => {
+  const petDir = makeTmpDir('dshp-pet')
+  writePetCatalog(petDir, [{ file: PET_VIDEO_FILE, label: '三球抛接', media: 'video', tags: ['game'] }])
+  writePetVideo(petDir)
+  const dshHome = makeTmpDir('dshp-dshhome')
+  const previousPetDir = process.env.DSH_PET_MEDIA_DIR
+  const previousDshHome = process.env.DSH_HOME
+  process.env.DSH_PET_MEDIA_DIR = petDir
+  process.env.DSH_HOME = dshHome
+  try {
+    const routes = []
+    const cleanups = []
+    const fakeCtx = {
+      logger: { info() {}, warn() {}, error() {} },
+      on() {
+        return () => {}
+      },
+      effect(execute) {
+        const disposer = execute()
+        cleanups.push(disposer)
+        return disposer
+      },
+      inject(_keys, callback) {
+        callback({
+          get(name) {
+            if (name === 'webServer') {
+              return {
+                register(route) {
+                  routes.push(route)
+                  return () => {}
+                },
+              }
+            }
+            if (name === 'connection') return { requestRejection: () => undefined }
+            return undefined
+          },
+          effect(execute) {
+            const disposer = execute()
+            cleanups.push(disposer)
+            return disposer
+          },
+        })
+      },
+    }
+    await pluginApply(fakeCtx)
+    assert.equal(routes.length, 15, 'assets + pet-media + 13 条 JSON')
+    const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
+    assert.ok(petRoute, '注册了 pet-media 路由')
+
+    const catalogResponse = new MockResponse()
+    await petRoute.handler(mockRequest({ url: `${PET_MEDIA_ROUTE}?f=catalog.json` }), catalogResponse)
+    await catalogResponse.finished()
+    assert.equal(catalogResponse.statusCode, 200)
+    assert.equal(catalogResponse.json().entries.length, 1)
+
+    const videoResponse = new MockResponse()
+    await petRoute.handler(
+      mockRequest({ url: `${PET_MEDIA_ROUTE}?f=${encodeURIComponent(PET_VIDEO_FILE)}` }),
+      videoResponse,
+    )
+    await videoResponse.finished()
+    assert.equal(videoResponse.statusCode, 200)
+    assert.equal(videoResponse.headers['Content-Type'], 'video/webm')
+
+    for (const cleanup of cleanups.reverse()) {
+      if (typeof cleanup === 'function') cleanup()
+    }
+  } finally {
+    if (previousPetDir === undefined) delete process.env.DSH_PET_MEDIA_DIR
+    else process.env.DSH_PET_MEDIA_DIR = previousPetDir
+    if (previousDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousDshHome
+  }
 })
 
 // ---------------------------------------------------------------------------

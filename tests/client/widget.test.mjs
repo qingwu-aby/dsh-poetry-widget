@@ -4422,7 +4422,7 @@ test('飞花 UI 全量校验：loading→启用、全量句可校验、切字加
   const fixture = makeFeihuaFixture()
   const fullEntries = {
     '花': [['花 开 满 院 春 色 好。', '全量诗人《全量集》'], ['花字第1句。', '本地已有《重复》']],
-    '月': [['月落乌啼霜满天。', '全量诗人《月集》']],
+    '月': [['月落乌啼霜满天。', '全量诗人《月集》'], ['月上柳梢头。', '全量诗人《月集二》']],
   }
   const calls = []
   let resolveHua = null
@@ -4464,7 +4464,7 @@ test('飞花 UI 全量校验：loading→启用、全量句可校验、切字加
     react._runEffects()
     await sleep(20)
     tree = rerender(react, debug.FeihuaTab, { api })
-    assert.match(textOf(tree), /全量校验已启用（1 句）/, '应显示月字全量状态')
+    assert.match(textOf(tree), /全量校验已启用（2 句）/, '应显示月字全量状态')
     assert.ok(calls.some((url) => url.includes(encodeURIComponent('月'))))
     const huaCallsBefore = calls.filter((url) => url.includes(encodeURIComponent('花'))).length
     if (resolveHua) resolveHua()
@@ -4491,7 +4491,7 @@ test('飞花 UI 全量校验：loading→启用、全量句可校验、切字加
     react._runEffects()
     await sleep(20)
     tree = rerender(react, debug.FeihuaTab, { api })
-    assert.match(textOf(tree), /全量校验已启用（1 句）/)
+    assert.match(textOf(tree), /全量校验已启用（2 句）/)
     assert.equal(calls.filter((url) => url.includes(encodeURIComponent('月'))).length, 1, '同字缓存不应重复请求')
 
     // 用全量句校验：本地没有的「月落乌啼霜满天」应能接上
@@ -4500,12 +4500,15 @@ test('飞花 UI 全量校验：loading→启用、全量句可校验、切字加
     startButton.props.onClick({ stopPropagation() {} })
     tree = rerender(react, debug.FeihuaTab, { api })
     const input = findAll(tree, (node) => node.type === 'input' && node.props['aria-label'] === '输入飞花令对句')[0]
-    input.props.onChange({ target: { value: '月落乌啼霜满天' } })
+    const panelText = textOf(tree)
+    const fullOnly = (fullEntries['月'] || []).find((entry) => !panelText.includes(entry[0]))
+    assert.ok(fullOnly, '应有未被系统使用的全量句')
+    input.props.onChange({ target: { value: fullOnly[0] } })
     tree = rerender(react, debug.FeihuaTab, { api })
     findAll(tree, (node) => node.type === 'button' && textOf(node) === '接一句')[0].props.onClick({ stopPropagation() {} })
     tree = rerender(react, debug.FeihuaTab, { api })
-    assert.match(textOf(tree), /接上了/) 
-    assert.match(textOf(tree), /全量诗人《月集》/)
+    assert.match(textOf(tree), /接上了/)
+    assert.ok(textOf(tree).includes(fullOnly[1]))
   } finally {
     react._cleanup()
   }
@@ -4534,6 +4537,240 @@ test('飞花 UI 全量校验失败：静默回退本地句库，状态「未启�
     tree = rerender(react, debug.FeihuaTab, { api })
     assert.match(textOf(tree), /对方：/)
     assert.ok(!textOf(tree).includes('失败'), '失败不应弹错误文案')
+  } finally {
+    react._cleanup()
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* 16. M18：dsh-pet webm 动画心情素材                                    */
+/* ------------------------------------------------------------------ */
+
+function makePetCatalogFixture() {
+  return {
+    ok: true,
+    v: 1,
+    source: 'PC2005-cloud/dsh-pet@MIT',
+    entries: [
+      { file: 'webm/吃白饭.webm', label: '吃白饭', media: 'video', scope: 'mood', tags: ['hungry', 'food'] },
+      { file: 'webm/中秋赏月吃月饼.webm', label: '中秋赏月吃月饼', media: 'video', scope: 'mood', tags: ['festival', 'food'] },
+      { file: 'webm/吃白饭.webm', label: '重复条目', media: 'video', scope: 'mood', tags: ['dup'] },
+      { file: '../evil.webm', label: '非法路径', media: 'video', scope: 'mood', tags: [] },
+      { file: 'webm/not-video.png', label: '非视频', media: 'video', scope: 'mood', tags: [] },
+    ],
+  }
+}
+
+test('pet-media 图鉴：normalize/merge 保留 92 张静态图、追加视频、去重/byFile 更新', () => {
+  const { debug } = loadClient()
+  const base = debug.normalizeMoodCatalog(makeMoodCatalogFixture())
+  const videos = debug.normalizePetMediaCatalog(makePetCatalogFixture())
+  assert.equal(videos.length, 2, '只接受 webm/ 下 .webm 且去重')
+  assert.equal(videos[0].file, 'webm/吃白饭.webm')
+  assert.equal(videos[0].media, 'video')
+  const merged = debug.mergePetMediaIntoCatalog(base, videos)
+  assert.equal(merged.moodImages.length, base.moodImages.length + 2, '保留原静态图并追加动画')
+  assert.deepEqual(merged.moodFiles.slice(0, base.moodFiles.length), base.moodFiles)
+  assert.ok(merged.moodFiles.includes('webm/吃白饭.webm'))
+  assert.equal(merged.byFile['webm/吃白饭.webm'].media, 'video')
+  assert.equal(merged.moodImages[merged.moodImages.length - 1].label, '中秋赏月吃月饼')
+  const mergedAgain = debug.mergePetMediaIntoCatalog(merged, videos)
+  assert.equal(mergedAgain.moodImages.length, merged.moodImages.length, '同一动画重复 merge 不重复追加')
+  assert.equal(debug.moodCatalogAllows(merged, 'webm/吃白饭.webm'), true)
+  assert.equal(debug.moodCatalogAllows(merged, 'webm/不存在.webm'), false)
+  assert.equal(debug.isVideoMoodFile('webm/吃白饭.webm'), true)
+  assert.equal(debug.isVideoMoodFile('dsh-whale-state-abstract.webp'), false)
+  assert.ok(debug.petMediaUrl('webm/吃白饭.webm').includes('f=' + encodeURIComponent('webm/吃白饭.webm')))
+})
+
+test('pet-media catalog 请求：成功缓存、404/非法结构静默失败、9s 超时、dataVersion 清缓存', async () => {
+  const calls = []
+  const client = loadClient()
+  client.context.fetch = async (url) => {
+    calls.push(String(url))
+    return { ok: true, json: async () => makePetCatalogFixture() }
+  }
+  const first = await client.debug.requestPetMediaCatalog()
+  assert.equal(first.ok, true)
+  assert.equal(first.entries.length, 2)
+  assert.ok(calls[0].includes('pet-media?f='))
+  assert.ok(calls[0].includes(encodeURIComponent('catalog.json')))
+  const second = await client.debug.requestPetMediaCatalog()
+  assert.equal(second.ok, true)
+  assert.equal(calls.length, 1, 'catalog 同版本应缓存')
+  client.debug.setAssetDataVersion('test.pet.2')
+  const third = await client.debug.requestPetMediaCatalog()
+  assert.equal(third.ok, true)
+  assert.equal(calls.length, 2, 'dataVersion 变化应清空动画图鉴缓存并重新请求')
+
+  for (const response of [
+    { ok: false, status: 404, json: async () => ({}) },
+    { ok: true, json: async () => ({ ok: false }) },
+  ]) {
+    const failing = loadClient({ fetch: async () => response })
+    const failed = await failing.debug.requestPetMediaCatalog()
+    assert.equal(failed.ok, false, 'HTTP/ok:false 应静默返回失败')
+    assert.ok(Array.isArray(failed.entries))
+  }
+  const emptyClient = loadClient({ fetch: async () => ({ ok: true, json: async () => ({ ok: true, entries: [] }) }) })
+  const emptyResult = await emptyClient.debug.requestPetMediaCatalog()
+  assert.equal(emptyResult.ok, true, '空素材清单应成功但 0 个动画')
+  assert.equal(emptyResult.entries.length, 0)
+
+  const timeoutClient = loadClient({ fetch: () => new Promise(() => {}) })
+  const timers = []
+  timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
+  timeoutClient.context.clearTimeout = () => {}
+  const pending = timeoutClient.debug.requestPetMediaCatalog()
+  const timer = timers.find((entry) => entry.ms === 9000)
+  assert.ok(timer, 'pet catalog 应注册 9s 超时')
+  timer.fn()
+  const timedOut = await pending
+  assert.equal(timedOut.ok, false)
+})
+
+test('pet-media 视频立绘：mood-ai 返回 webm → <video> 属性/URL 编码、onError 回退静态图', async () => {
+  const dataVersion = 'test.pet.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'pet-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'pet-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const calls = []
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    calls.push(raw)
+    if (raw.indexOf('pet-media') >= 0) {
+      if (raw.indexOf('catalog.json') >= 0) return { ok: true, json: async () => makePetCatalogFixture() }
+      return { ok: true, json: async () => ({}) }
+    }
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '吃白饭', image: 'webm/吃白饭.webm', reason: '饿了，干饭' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 10; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(50)
+    tree = renderMain()
+    const video = findAll(tree, (node) => node.type === 'video')[0]
+    assert.ok(video, '模型返回 webm 时应渲染 <video>')
+    assert.equal(video.props.className, 'dshp-mascot-video dshp-mascot-swap')
+    assert.equal(video.props.autoPlay, true)
+    assert.equal(video.props.muted, true)
+    assert.equal(video.props.loop, true)
+    assert.equal(video.props.playsInline, true)
+    assert.equal(video.props.preload, 'auto')
+    assert.equal(video.props['aria-hidden'], 'true')
+    assert.ok(String(video.props.src).includes('pet-media?f='))
+    assert.ok(String(video.props.src).includes(encodeURIComponent('webm/吃白饭.webm')))
+    assert.equal(findAll(tree, (node) => node.type === 'img').length, 0)
+    assert.ok(calls.some((url) => url.indexOf('mood-ai.json') >= 0))
+    // 心情 chip 照常显示 label/reason
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const bubbleText = textOf(findBubble(tree))
+    assert.match(bubbleText, /心情：吃白饭/)
+    const chip = findAll(tree, (node) => node.type === 'span'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-mood-chip'))[0]
+    assert.ok(chip)
+    assert.match(String(chip.props.title || ''), /饿了/)
+    // onError 回退静态 celebrate（先等每日 greet/表情彩蛋 2.5s 结束）
+    await sleep(2600)
+    tree = renderMain()
+    video.props.onError()
+    tree = renderMain()
+    const img = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(img)
+    assert.ok(String(img.props.src).includes('dsh-whale-state-celebrate.webp'), '实际回退图：' + img.props.src)
+  } finally {
+    react._cleanup()
+  }
+})
+
+test('pet-media 失败/旧宿主：mood-ai 返回 webm 时按未知图回退启发式，不报错', async () => {
+  const dataVersion = 'test.petfail.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'pf-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'pf-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 2, toolCalls: 100 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('pet-media') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    if (raw.indexOf('mood-ai.json') >= 0) return { ok: true, json: async () => ({ ok: true, mood: { label: '不该用', image: 'webm/吃白饭.webm', reason: '未知动画' } }) }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  try {
+    const renderMain = () => {
+      react._beginRender()
+      return debug.PoetryWidget({})
+    }
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 10; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(50)
+    tree = renderMain()
+    assert.equal(findAll(tree, (node) => node.type === 'video').length, 0, '未知动画不可渲染')
+    const img = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(img)
+    assert.ok(String(img.props.src).includes('dsh-whale-state-work-sleep.webp'), '应回退启发式 tired 图片')
+    assert.equal(debug.mascotVideoShouldPause({ hidden: true }), true)
+    assert.equal(debug.mascotVideoShouldPause({ panelOpen: true }), true)
+    assert.equal(debug.mascotVideoShouldPause({}), false)
   } finally {
     react._cleanup()
   }

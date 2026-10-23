@@ -501,3 +501,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host 新增 `GET /api/dsh-poetry/feihua-full.json?char=<令字>`（第 14 条路由；LRU≤4、并发去重、gzip、缺失/坏文件/旧宿主安全降级）。
 - Client 飞花令进入/切字时懒加载对应分片，`mergeFeihuaFullEntries` 并入 byChar/plain/clause 校验索引；状态显示「全量校验已启用（N 句）/未启用（本地句库）」；失败静默回退。
 - 三套单测 236/236（data 42 / host 102 / client 92）；真实分片冒烟：花 65,688 句 / 不 179,559 句 / 星 11,449 句；gzip 花 5.6MB→2.3MB。
+
+## 29. 用户素材接入（M18，2026-10-23 完成）
+
+用户提供 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（MIT）的 preview/webm 素材，用于丰富心情立绘。
+- Lead 落库 106 个透明 webm（52MB）到项目同级 `_ref/pet-media/`（不随包），生成 catalog.json（中文 label/tags/media:video）。
+- Host 新增静态路由 `GET /api/dsh-poetry/pet-media?f=catalog.json|webm/*.webm`（不套栅栏、MIME/缓存/HEAD/路径穿越 404/405）；启动时把 106 条 video 并入 mood-ai 图鉴（moodImages 195 = 89 静态 + 106 视频），mood-ai prompt 增加 media 列；素材缺失时安全降级。
+- Client：懒加载动画图鉴并合并；`.webm` 心情用 `<video autoPlay muted loop playsInline>` 渲染，失败回退静态图，页面隐藏暂停；旧宿主/npm 安装只用 92 张静态图。
+- 三套单测 249/249（data 42 / host 111 / client 96）；真实素材冒烟 catalog 106 ↔ 磁盘 106、webm 200/video/webm、合并图鉴 195。

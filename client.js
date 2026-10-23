@@ -107,6 +107,9 @@ window.__ModuleLoader__.load({
   const MOOD_AI_REFRESH_MS = 30 * 60 * 1000
   const MOOD_AI_RECENT_MAX = 3
   const MOOD_AI_RECENT_IMAGES_MAX = 5
+  const PET_MEDIA_PATH = 'pet-media'
+  const PET_MEDIA_CATALOG_FILE = 'catalog.json'
+  const PET_MEDIA_TIMEOUT_MS = 9000
   const MOOD_PANEL_PEEK_FILES = {
   today: 'dsh-whale-home-peek.webp',
   settings: 'dsh-whale-settings-peek.webp',
@@ -1408,13 +1411,128 @@ window.__ModuleLoader__.load({
   return { stateKey: 'celebrate', file: mascotFileFor('celebrate'), source: 'default' }
   }
 
+  /** 视频立绘暂停条件：页面隐藏或面板打开时暂停，避免后台解码/打扰。 */
+  function mascotVideoShouldPause(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  return opts.hidden === true || opts.panelOpen === true
+  }
+
   function moodBasisText(stats, weather) {
   const normalized = normalizeMoodStats(stats)
   const label = weather && weather.label ? weather.label : '未知'
   return '今天聊了 ' + normalized.userMessages + ' 句 · 工具调用 ' + normalized.toolCalls + ' 次 · 天气 ' + label
   }
 
-  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
+  function isVideoMoodFile(file) {
+  return /\.webm$/i.test(String(file == null ? '' : file))
+  }
+
+  function petMediaUrl(file) {
+  return ROUTE + PET_MEDIA_PATH + '?f=' + encodeURIComponent(String(file == null ? '' : file))
+  }
+
+  /** dsh-pet catalog：只接受 webm/ 下的 video 条目，去重。 */
+  function normalizePetMediaCatalog(data) {
+  if (!data || data.ok === false || !Array.isArray(data.entries)) return null
+  const entries = []
+  const seen = {}
+  for (const item of data.entries) {
+   if (!item || typeof item.file !== 'string') continue
+   const file = item.file.trim()
+   if (!/^webm\/[^/]+\.webm$/.test(file)) continue
+   if (seen[file]) continue
+   seen[file] = true
+   entries.push({
+    file,
+    label: String(item.label || ''),
+    media: 'video',
+    tags: Array.isArray(item.tags) ? item.tags.slice() : [],
+   })
+  }
+  return entries
+  }
+
+  function mergePetMediaIntoCatalog(catalog, petEntries) {
+  if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog
+  const moodImages = catalog.moodImages.slice()
+  const moodFiles = catalog.moodFiles.slice()
+  const byFile = Object.assign({}, catalog.byFile)
+  for (const entry of petEntries) {
+   if (!entry || !entry.file || byFile[entry.file]) continue
+   const normalized = { file: entry.file, label: String(entry.label || ''), tags: Array.isArray(entry.tags) ? entry.tags : [], media: 'video' }
+   moodImages.push(normalized)
+   moodFiles.push(entry.file)
+   byFile[entry.file] = normalized
+  }
+  return Object.assign({}, catalog, { moodImages, moodFiles, byFile })
+  }
+
+  let petMediaCache = null
+  let petMediaInflight = null
+
+  function clearPetMediaCache() {
+  petMediaCache = null
+  if (petMediaInflight && typeof petMediaInflight.abort === 'function') {
+   try {
+    petMediaInflight.abort()
+   } catch (error) {
+   }
+  }
+  petMediaInflight = null
+  }
+
+  function requestPetMediaCatalog() {
+  if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache })
+  if (petMediaInflight) return petMediaInflight.promise
+  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, entries: [] })
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let settled = false
+  let timer = null
+  let abortResolve = null
+  const abortPromise = new Promise((resolve) => {
+   abortResolve = () => resolve({ ok: false, entries: [], reason: 'aborted' })
+  })
+  const finish = (result) => {
+   if (settled) return result
+   settled = true
+   if (timer) clearTimeout(timer)
+   petMediaInflight = null
+   if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries
+   return result
+  }
+  const task = Promise.resolve()
+   .then(() => fetch(ROUTE + PET_MEDIA_PATH + '?f=' + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : undefined))
+   .then((response) => {
+    if (!response || typeof response.ok !== 'boolean' || !response.ok) return { ok: false, entries: [], reason: 'http' }
+    return Promise.resolve(response.json()).then((data) => {
+     const entries = normalizePetMediaCatalog(data)
+     if (!entries) return { ok: false, entries: [], reason: 'invalid' }
+     return { ok: true, entries }
+    }).catch(() => ({ ok: false, entries: [], reason: 'json' }))
+   })
+   .catch(() => ({ ok: false, entries: [], reason: 'network' }))
+  const timeout = new Promise((resolve) => {
+   timer = setTimeout(() => {
+    try {
+     if (controller) controller.abort()
+    } catch (error) {
+    }
+    resolve({ ok: false, entries: [], reason: 'timeout' })
+   }, PET_MEDIA_TIMEOUT_MS)
+  })
+  const inflight = { promise: null, abort: () => {
+   try {
+    if (controller) controller.abort()
+   } catch (error) {
+   }
+   if (abortResolve) abortResolve()
+  } }
+  inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish)
+  petMediaInflight = inflight
+  return inflight.promise
+  }
+
+  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
   function normalizeMoodCatalog(data) {
   if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null
   const moodImages = []
@@ -1423,7 +1541,7 @@ window.__ModuleLoader__.load({
    const file = item && typeof item.file === 'string' ? item.file.trim() : ''
    if (!file || seen[file]) continue
    seen[file] = true
-   moodImages.push({ file, label: String(item.label || ''), tags: Array.isArray(item.tags) ? item.tags : [] })
+   moodImages.push({ file, label: String(item.label || ''), tags: Array.isArray(item.tags) ? item.tags : [], media: item.media || 'image' })
   }
   if (!moodImages.length) return null
   const panel = Object.assign({}, MOOD_PANEL_PEEK_FILES)
@@ -1439,10 +1557,13 @@ window.__ModuleLoader__.load({
   for (const item of Array.isArray(data.images) ? data.images : []) {
    if (item && item.scope === 'panel') applyPanel(item)
   }
+  const byFile = {}
+  for (const item of moodImages) byFile[item.file] = item
   return {
    version: String(data.version || data.dataVersion || ''),
    moodImages,
    moodFiles: moodImages.map((item) => item.file),
+   byFile,
    panel,
   }
   }
@@ -2374,6 +2495,7 @@ window.__ModuleLoader__.load({
   if (next === assetDataVersion) return
   assetDataVersion = next
   clearFeihuaFullCache()
+  clearPetMediaCache()
   for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']) {
    resourceCache[kind] = null
    resourceInflight[kind] = null
@@ -2433,6 +2555,7 @@ window.__ModuleLoader__.load({
   function clearResourceCache(kind) {
   clearFeihuaIndexCache()
   clearFeihuaFullCache()
+  clearPetMediaCache()
   if (kind) {
    resourceCache[kind] = null
    resourceInflight[kind] = null
@@ -2561,8 +2684,9 @@ window.__ModuleLoader__.load({
   '.dshp-stage:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:4px}',
   '.dshp-mascot{width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;',
   'filter:drop-shadow(0 10px 22px rgba(0,0,0,.22));animation:dshp-float 4.2s ease-in-out infinite}',
-  '.dshp-mascot-img{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none}',
-  '.dshp-mascot-img.dshp-mascot-swap{animation:dshp-mascot-fade 220ms ease-out}',
+  '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none}',
+  '.dshp-mascot-video{background:transparent}',
+  '.dshp-mascot-img.dshp-mascot-swap,.dshp-mascot-video.dshp-mascot-swap{animation:dshp-mascot-fade 220ms ease-out}',
   '@keyframes dshp-mascot-fade{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}',
   '@keyframes dshp-float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-5px) scale(1.012)}}',
   '.dshp-weather{display:flex;flex-direction:column;gap:3px;align-items:center;margin:2px 0 6px}',
@@ -2836,6 +2960,7 @@ window.__ModuleLoader__.load({
   pickDefaultFeihuaChar,
   feihuaStart,
   feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
+  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
   normalizeFeihuaBest,
   feihuaBestUpdate,
   readFeihuaBest,
@@ -3114,6 +3239,7 @@ window.__ModuleLoader__.load({
   const [selfTalkFallback, setSelfTalkFallback] = React.useState(false)
   const [moodSource, setMoodSource] = React.useState('')
   const [moodAiFallback, setMoodAiFallback] = React.useState(false)
+  const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
   const [libraryFocus, setLibraryFocus] = React.useState(null)
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
@@ -3160,6 +3286,7 @@ window.__ModuleLoader__.load({
   const uiRef = React.useRef({})
   const mascotExprTimerRef = React.useRef(null)
   const mascotTapRef = React.useRef(0)
+  const mascotVideoRef = React.useRef(null)
   const spontReqRef = React.useRef(0)
   const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
   const recentSpokenRef = React.useRef([])
@@ -3522,7 +3649,8 @@ window.__ModuleLoader__.load({
   const weatherNote = weatherActive ? weatherExplainText(weather) : ''
   weatherRef.current = weather
   const moodStats = moodRes.data ? moodRes.data.stats : emptyMoodStats()
-  const moodCatalog = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data])
+  const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data])
+  const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries])
   moodCatalogRef.current = moodCatalog
   const moodChip = settings.mood && moodView ? '心情：' + moodView.label : ''
   const moodChipTitle = settings.mood && moodView ? String(moodView.reason || '') : ''
@@ -3604,12 +3732,30 @@ window.__ModuleLoader__.load({
    applyMood(force)
   }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood])
 
-  // 模型心情：初次加载（图鉴就绪后）
+  // 心情动画素材（dsh-pet webm）：设置 mood 开启时懒加载，失败只用 92 张静态图
+  React.useEffect(() => {
+   if (!settings.mood) {
+    setPetMediaRes({ status: 'idle', entries: [] })
+    return undefined
+   }
+   let alive = true
+   setPetMediaRes({ status: 'loading', entries: [] })
+   requestPetMediaCatalog().then((result) => {
+    if (!alive) return
+    setPetMediaRes({ status: result && result.ok ? 'ready' : 'error', entries: result && result.ok ? result.entries : [] })
+   })
+   return () => {
+    alive = false
+   }
+  }, [settings.mood, boot.data && boot.data.dataVersion])
+
+  // 模型心情：初次加载（图鉴/动画图鉴都就绪或失败后）
   React.useEffect(() => {
    if (!settings.mood || !moodCatalog) return
+   if (petMediaRes.status === 'loading' || petMediaRes.status === 'idle') return
    if (moodAiRef.current.at > 0) return
    requestModelMood(false)
-  }, [settings.mood, moodCatalog, requestModelMood])
+  }, [settings.mood, moodCatalog, petMediaRes.status, requestModelMood])
 
   // 模型心情：每 30 分钟刷新（后台不请求）
   React.useEffect(() => {
@@ -4715,6 +4861,42 @@ window.__ModuleLoader__.load({
    }, toast.text)
   }
 
+  const syncMascotVideoPlayback = React.useCallback(() => {
+   const video = mascotVideoRef.current
+   if (!video) return
+   const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
+   const shouldPause = mascotVideoShouldPause({ hidden, panelOpen })
+   try {
+    if (shouldPause) {
+     if (typeof video.pause === 'function') video.pause()
+    } else if (typeof video.play === 'function') {
+     const played = video.play()
+     if (played && typeof played.catch === 'function') played.catch(() => {})
+    }
+   } catch (error) {
+   }
+  }, [panelOpen])
+
+  React.useEffect(() => {
+   syncMascotVideoPlayback()
+  })
+
+  React.useEffect(() => {
+   if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
+   document.addEventListener('visibilitychange', syncMascotVideoPlayback)
+   return () => document.removeEventListener('visibilitychange', syncMascotVideoPlayback)
+  }, [syncMascotVideoPlayback])
+
+  React.useEffect(() => () => {
+   const video = mascotVideoRef.current
+   if (video && typeof video.pause === 'function') {
+    try {
+     video.pause()
+    } catch (error) {
+    }
+   }
+  }, [])
+
   function renderMascot() {
    const showHint = !settings.tutorialSeen && step < 0 && !panelOpen
    const weatherOn = settings.weatherPoem || settings.mood
@@ -4758,7 +4940,21 @@ window.__ModuleLoader__.load({
     h(
     'div',
     { className: 'dshp-mascot', 'aria-hidden': 'true' },
-    h('img', {
+    isVideoMoodFile(mascotFile)
+    ? h('video', {
+     key: stateKey + '|' + mascotFile,
+     ref: mascotVideoRef,
+     className: 'dshp-mascot-video dshp-mascot-swap',
+     src: petMediaUrl(mascotFile),
+     autoPlay: true,
+     muted: true,
+     loop: true,
+     playsInline: true,
+     preload: 'auto',
+     'aria-hidden': 'true',
+     onError: () => setFailedMascot(desiredFile),
+    })
+    : h('img', {
      key: stateKey,
      className: 'dshp-mascot-img dshp-mascot-swap',
      src: mascotUrl(mascotFile),
@@ -4845,6 +5041,7 @@ window.__ModuleLoader__.load({
     moodBasis,
     moodSource,
     moodAiFallback,
+    petVideoCount: petMediaRes.entries.length,
     refreshMoodNow,
     previewSpontaneousPoem,
     anthologyRes,
@@ -5582,6 +5779,7 @@ window.__ModuleLoader__.load({
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
     api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
+    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个') : null,
     h(
     'div',
     { className: 'dshp-field-control' },

@@ -8,6 +8,7 @@
 //   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
 //   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
+//   · 心情动画素材：GET/HEAD pet-media?f=…（dsh-pet MIT webm，不随包；不套栅栏，与 assets 并列）；
 //   · 自主记忆：self-talk / mood-ai 新生成成功时，把模型输出**只追加**写入 $DSH_HOME/agent-memory/；
 //   · 飞花令全量校验：GET feihua-full.json 按令字懒加载项目同级 _ref/feihua-full/<字>.json（LRU≤4、gzip、缺失降级）；
 //   · 所有新增路由接入宿主信任栅栏（lib/trust.mjs，委托 connection.requestRejection）。
@@ -24,6 +25,14 @@ import { createFeihuaFullService, resolveFeihuaFullDir } from './lib/feihua-full
 import { readPackageMeta } from './lib/paths.mjs'
 import { createMemoryJournal, resolveMemoryDir } from './lib/memory-journal.mjs'
 import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
+import {
+  PET_MEDIA_ROUTE,
+  createPetMediaHandler,
+  loadPetMediaCatalog,
+  mergePetMediaIntoMoodCatalog,
+  petMediaDirExists,
+  resolvePetMediaDir,
+} from './lib/pet-media.mjs'
 import { createRouteTable } from './lib/routes.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
@@ -133,15 +142,31 @@ export async function apply(ctx) {
         }
       }
       const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger })
+      // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
+      const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
+      const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
+      if (petCatalog.ok === true) {
+        logger?.info?.(`[dsh-poetry-widget] 心情动画素材：${petMediaDir}（${petCatalog.entries.length} 个视频）`)
+      } else if (petMediaDirExists(petMediaDir)) {
+        logger?.warn?.(`[dsh-poetry-widget] 心情动画素材不可用：${petCatalog.message}（mood-ai 仅用静态图）`)
+      } else {
+        logger?.warn?.(`[dsh-poetry-widget] 心情动画素材目录不存在（mood-ai 仅用静态图）：${petMediaDir}`)
+      }
       // 模型心情：启动时读包内 92 张心情图鉴（缺失 → 服务降级为 MOOD_AI_UNAVAILABLE，不抛）。
       const moodCatalog = loadMoodCatalog()
       if (moodCatalog.ok !== true) {
         logger?.warn?.(`[dsh-poetry-widget] 心情图鉴不可用：${moodCatalog.message}`)
       }
+      const moodCatalogForAi =
+        petCatalog.ok === true && petCatalog.entries.length > 0
+          ? mergePetMediaIntoMoodCatalog(moodCatalog.ok === true ? moodCatalog.catalog : null, petCatalog.entries)
+          : moodCatalog.ok === true
+            ? moodCatalog.catalog
+            : null
       const moodAiService = createMoodAiService({
         getLlm,
         getSelection,
-        catalog: moodCatalog.ok === true ? moodCatalog.catalog : null,
+        catalog: moodCatalogForAi,
         logger,
       })
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
@@ -181,6 +206,14 @@ export async function apply(ctx) {
           handler: createAssetHandler({ assetsDir: ASSETS_DIR }),
         }),
       )
+      // dsh-pet 动画素材静态路由（只读、无用户数据；供 <video> 直接加载，与 assets 同类不套栅栏）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: PET_MEDIA_ROUTE,
+          handler: createPetMediaHandler({ dir: petMediaDir, logger }),
+        }),
+      )
       for (const route of routes) disposers.push(webServer.register(route))
 
       hostCtx.effect(
@@ -196,7 +229,7 @@ export async function apply(ctx) {
         'dsh-poetry-widget: HTTP 路由',
       )
       logger?.info?.(
-        `[dsh-poetry-widget] 已挂载 ${routes.length + 1} 条路由（/api/dsh-poetry/*，version ${VERSION}，` +
+        `[dsh-poetry-widget] 已挂载 ${routes.length + 2} 条路由（assets + pet-media + ${routes.length} 条 JSON，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
       logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)

@@ -48,3 +48,10 @@
 ## 5. 下架/署名请求
 
 如权利人认为上述使用不当，请提 issue 或联系仓库维护者，我们会立即移除相应素材并重新发布。
+
+## 夜间心情动画素材（本地增强，不随包）
+
+- 来源：<https://github.com/PC2005-cloud/dsh-pet>，MIT License，Copyright (c) 2026 PC2005-cloud
+- 内容：`dsh-pet/assets/webm` 下 106 个透明动画（webm）+ 由本插件生成的 `catalog.json`
+- 位置：项目同级 `_ref/pet-media/`（`DSH_PET_MEDIA_DIR` 可覆盖）；**不随 npm/GitHub 插件包发布**
+- 用途：心情立绘的动画状态（mood-ai 可选）；素材缺失时插件回退到画面内 92 张静态图
