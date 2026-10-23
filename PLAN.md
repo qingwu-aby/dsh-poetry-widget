@@ -537,3 +537,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host 增加活动感知：从 `tool/call` 的**名称**（不读 arguments）记最近 ≤12 条工具，归类为 看视频/逛网页（bsk_/browser）、查资料/学习（web_fetch/search）、写代码/跑命令（bash/edit/git）、聊天/思考（subagent/message）、发呆（60s 无调用）。
 - mood-ai prompt 增加「你最近在做：<label>」并优先选匹配活动的动画/图片；仍遵守 video 优先、避开最近 20 张、不连续重复；隐私：零参数/内容。
 - 三套单测 266/266（data 42 / host 122 / client 102）；需宿主重载后生效。
+
+## 34. 用户需求（M23，2026-10-23 完成）
+
+用户：「心情和你做的事情以及展示图像强相关；看小说遇到感人情节会随角色心情变化，看视频也一样」。
+- 新增 `$DSH_HOME/.dsh-poetry/experience.json`（title 1–80、kind novel/video/article/music/other、emotion touched/sad/happy/tense/curious/calm/angry/inspired、note≤200、at；>2h 忽略）。
+- mood-ai prompt 注入「你最近在体验：《…》，此刻心情：…」+ note，并明确**情绪匹配优先于活动匹配**（感动→温柔共情；紧张→屏息专注；开心→笑；振奋→有劲…），仍保留 video 优先/避开最近20/不重复。
+- 体验正文不写 journal；三套单测 271/271（data 42 / host 127 / client 102）。

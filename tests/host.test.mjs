@@ -47,6 +47,13 @@ import {
   zeroMoodResponse,
 } from '../lib/mood.mjs'
 import {
+  EXPERIENCE_EMOTION_LABELS,
+  EXPERIENCE_KIND_LABELS,
+  EXPERIENCE_MAX_AGE_MS,
+  readExperience,
+  resolveExperiencePath,
+} from '../lib/experience.mjs'
+import {
   PET_MEDIA_ROUTE,
   createPetMediaHandler,
   isSafeWebmRelative,
@@ -3819,6 +3826,202 @@ test('mood-ai 路由：最近活动来自工具名并写入 prompt，不泄漏�
   assert.match(prompt, /你最近在做：查资料\/学习/)
   assert.equal(prompt.includes(sensitive), false)
   assert.equal(JSON.stringify(llm.calls[0]).includes(sensitive), false, '工具参数不出现在模型请求里')
+})
+
+// ---------------------------------------------------------------------------
+// 体验/情绪状态通道（契约 v1.17，M23：体验内容 → 情绪 → 心情图像）
+// ---------------------------------------------------------------------------
+
+function writeExperienceFile(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data), 'utf8')
+  return file
+}
+
+test('experience：resolveExperiencePath（env 覆盖 / DSH_HOME / home 回退）', () => {
+  assert.equal(resolveExperiencePath({ DSH_POETRY_EXPERIENCE: '/tmp/exp.json' }, '/Users/alice'), '/tmp/exp.json')
+  assert.equal(
+    resolveExperiencePath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'),
+    '/tmp/dsh-home/.dsh-poetry/experience.json',
+  )
+  assert.equal(resolveExperiencePath({}, '/Users/alice'), '/Users/alice/.dsh/.dsh-poetry/experience.json')
+  assert.equal(
+    resolveExperiencePath({ DSH_POETRY_EXPERIENCE: '   ' }, '/Users/alice'),
+    '/Users/alice/.dsh/.dsh-poetry/experience.json',
+    '空白覆盖值忽略',
+  )
+  assert.equal(EXPERIENCE_KIND_LABELS.video, '视频')
+  assert.equal(EXPERIENCE_KIND_LABELS.novel, '小说')
+  assert.equal(EXPERIENCE_KIND_LABELS.article, '文章')
+  assert.equal(EXPERIENCE_KIND_LABELS.music, '音乐')
+  assert.equal(EXPERIENCE_KIND_LABELS.other, '其他')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.touched, '感动鼻酸')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.sad, '难过')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.happy, '开心')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.tense, '紧张')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.curious, '好奇')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.calm, '平静')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.angry, '生气')
+  assert.equal(EXPERIENCE_EMOTION_LABELS.inspired, '振奋')
+})
+
+test('experience：readExperience 合法（含/不含 note、ISO 时间、默认路径）', () => {
+  const now = new Date(2026, 9, 23, 16, 0, 0).getTime()
+  const dir = makeTmpDir('dshp-exp')
+  const file = path.join(dir, 'experience.json')
+  writeExperienceFile(file, {
+    title: '海上钢琴师',
+    kind: 'video',
+    emotion: 'touched',
+    note: '结尾那段琴声听得眼眶发热',
+    at: now - 10 * 60 * 1000,
+  })
+  const result = readExperience({ env: { DSH_POETRY_EXPERIENCE: file }, now })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.experience, {
+    title: '海上钢琴师',
+    kind: 'video',
+    emotion: 'touched',
+    note: '结尾那段琴声听得眼眶发热',
+    at: now - 10 * 60 * 1000,
+  })
+
+  // 无 note
+  writeExperienceFile(file, { title: '活着', kind: 'novel', emotion: 'sad', at: new Date(now - 60 * 1000).toISOString() })
+  const noNote = readExperience({ env: { DSH_POETRY_EXPERIENCE: file }, now })
+  assert.equal(noNote.ok, true)
+  assert.equal(noNote.experience.title, '活着')
+  assert.equal('note' in noNote.experience, false)
+  assert.equal(noNote.experience.at, now - 60 * 1000, 'ISO 字符串时间戳也可接受')
+
+  // DSH_HOME 默认路径
+  const dshHome = makeTmpDir('dshp-exp-home')
+  writeExperienceFile(path.join(dshHome, '.dsh-poetry', 'experience.json'), {
+    title: '宇宙探索编辑部',
+    kind: 'other',
+    emotion: 'inspired',
+    at: now - 5 * 60 * 1000,
+  })
+  const viaHome = readExperience({ env: { DSH_HOME: dshHome }, home: '/Users/alice', now })
+  assert.equal(viaHome.ok, true)
+  assert.equal(viaHome.experience.title, '宇宙探索编辑部')
+})
+
+test('experience：readExperience 缺失/坏 JSON/过期/越界/未知枚举 → ok:false 不抛', () => {
+  const now = new Date(2026, 9, 23, 16, 0, 0).getTime()
+  const dir = makeTmpDir('dshp-exp')
+  const file = path.join(dir, 'experience.json')
+  const read = (data, extra = {}) => {
+    writeExperienceFile(file, data)
+    return readExperience({ env: { DSH_POETRY_EXPERIENCE: file }, now, ...extra })
+  }
+
+  assert.deepEqual(readExperience({ env: { DSH_POETRY_EXPERIENCE: path.join(dir, 'nope.json') }, now }), {
+    ok: false,
+    reason: 'missing',
+  })
+  assert.equal(read('not json at all').reason, 'bad-json')
+  assert.equal(read({}).reason, 'bad-title')
+  const base = { title: '测试作品', kind: 'novel', emotion: 'calm', at: now - 1000 }
+
+  assert.equal(read({ ...base, title: '' }).reason, 'bad-title')
+  assert.equal(read({ ...base, title: '字'.repeat(81) }).reason, 'bad-title')
+  assert.equal(read({ ...base, kind: 'game' }).reason, 'bad-kind')
+  assert.equal(read({ ...base, emotion: 'excited' }).reason, 'bad-emotion')
+  assert.equal(read({ ...base, note: '感'.repeat(201) }).reason, 'bad-note')
+  assert.equal(read({ ...base, note: 123 }).reason, 'bad-note')
+  assert.equal(read({ ...base, at: undefined }).reason, 'bad-at')
+  assert.equal(read({ ...base, at: 'not-a-date' }).reason, 'bad-at')
+  assert.equal(read({ ...base, at: now - EXPERIENCE_MAX_AGE_MS - 1000 }).reason, 'expired')
+
+  // 恰好 2h 不过期；超过 2h 过期
+  assert.equal(read({ ...base, at: now - EXPERIENCE_MAX_AGE_MS }).ok, true, '恰好 2h 仍有效')
+  assert.equal(read({ ...base, at: now - EXPERIENCE_MAX_AGE_MS - 1 }).reason, 'expired')
+
+  // 字段边界：80 字标题、200 字 note 合法
+  const boundary = read({ ...base, title: '字'.repeat(80), note: '注'.repeat(200) })
+  assert.equal(boundary.ok, true)
+  assert.equal(Array.from(boundary.experience.title).length, 80)
+  assert.equal(Array.from(boundary.experience.note).length, 200)
+})
+
+test('mood-ai：prompt 含体验标题/情绪标签/情绪匹配指令；无 experience 时正常', () => {
+  const catalog = makeMoodCatalogFixture()
+  const now = Date.UTC(2026, 9, 23, 8, 0, 0)
+  const experience = {
+    title: '海上钢琴师',
+    kind: 'video',
+    emotion: 'touched',
+    note: '结尾那段琴声听得眼眶发热',
+    at: Date.UTC(2026, 9, 23, 7, 50, 0),
+  }
+  const prompt = buildMoodPrompt({ now, experience }, catalog, { random: seededRandom(3) })
+  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频）/)
+  assert.match(prompt, /你此刻的心情是：感动鼻酸/)
+  assert.match(prompt, /你记下的感受：结尾那段琴声听得眼眶发热/)
+  assert.match(prompt, /感动\/鼻酸 → 温柔、共情、眼眶发热类/)
+  assert.match(prompt, /紧张 → 屏息、专注、好奇类/)
+  assert.match(prompt, /情绪匹配优先于活动匹配/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /情绪匹配优先于活动匹配/)
+
+  // 无体验：不出现体验段
+  const plain = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' } }, catalog)
+  assert.equal(plain.includes('你最近在体验'), false)
+  assert.match(plain, /你最近在做：查资料\/学习/)
+
+  // 同时有活动 + 体验：两段都在
+  const both = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' }, experience }, catalog)
+  assert.match(both, /你最近在做：查资料\/学习/)
+  assert.match(both, /你最近在体验：《海上钢琴师》/)
+  // 只取白名单字段：note 之外的额外字段不注入
+  const injected = buildMoodPrompt(
+    {
+      now,
+      experience: { ...experience, arguments: { command: 'SECRET_FIELD_VALUE' }, toolArguments: 'SECRET_FIELD_VALUE' },
+    },
+    catalog,
+  )
+  assert.equal(injected.includes('SECRET_FIELD_VALUE'), false)
+  assert.match(injected, /你最近在体验/)
+})
+
+test('mood-ai 路由：读取 experience 状态文件并注入 prompt，journal 不写体验正文', async () => {
+  const now = FIXED_NOW.getTime()
+  const expDir = makeTmpDir('dshp-exp-route')
+  const expFile = writeExperienceFile(path.join(expDir, 'experience.json'), {
+    title: '海上钢琴师',
+    kind: 'video',
+    emotion: 'touched',
+    note: '结尾那段琴声听得眼眶发热',
+    at: now - 5 * 60 * 1000,
+  })
+  const { llm, service } = makeMoodAiHarness({
+    responder: () =>
+      JSON.stringify({ label: '有点鼻酸', image: 'dsh-whale-state-happy.webp', reason: '看完那段琴声很感动', energy: 55 }),
+  })
+  const harness = createHarness({ env: { DSH_POETRY_EXPERIENCE: expFile }, moodAiService: service })
+  const response = await harness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().ok, true)
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频）/)
+  assert.match(prompt, /你此刻的心情是：感动鼻酸/)
+  assert.match(prompt, /温柔、共情、眼眶发热类/)
+
+  // journal 只记 mood label/reason/image，不含体验标题/note 正文
+  const journalRaw = fs.readFileSync(path.join(harness.journalDir, 'journal.jsonl'), 'utf8')
+  assert.equal(journalRaw.includes('海上钢琴师'), false, 'journal 不写体验标题')
+  assert.equal(journalRaw.includes('结尾那段琴声'), false, 'journal 不写体验 note')
+  assert.match(journalRaw, /dsh-whale-state-happy\.webp/, 'journal 仍记录心情图像')
+
+  // 无体验文件：prompt 正常、不含体验段
+  const plainMood = makeMoodAiHarness()
+  const plainHarness = createHarness({ env: {}, moodAiService: plainMood.service })
+  const plain = await plainHarness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
+  assert.equal(plain.statusCode, 200)
+  assert.equal(plain.json().ok, true)
+  const plainPrompt = plainMood.llm.calls[0].messages[0].content[0].text
+  assert.equal(plainPrompt.includes('你最近在体验'), false, '无体验文件时 prompt 无体验段')
 })
 
 // ---------------------------------------------------------------------------
