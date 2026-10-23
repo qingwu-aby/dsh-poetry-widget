@@ -91,6 +91,16 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  SELF_TALK_TOPIC_RECENT_MAX,
+  SELF_TALK_TOPIC_TOP_N,
+  buildTopicPromptLine,
+  loadTopicBank,
+  parseTopicBank,
+  pickSelfTalkTopic,
+  resolveTopicsPath,
+  scoreSelfTalkTopic,
+} from '../lib/self-talk-topics.mjs'
+import {
   SELF_TALK_RECENT_MAX,
   SELF_TALK_TEMPERATURE,
   SELF_TALK_THEMES,
@@ -4407,6 +4417,345 @@ test('self-talk M32 服务：temperature=1.0，theme 可注入/随机挑，均�
     lastLlm.calls[0].messages[0].content[0].text.includes(`这次试着围绕「${SELF_TALK_THEMES.at(-1)}」说一句`),
     'random≈1 挑最后一个主题',
   )
+})
+
+// ---------------------------------------------------------------------------
+// M34：碎碎念话题库（心情/天气/活动/体验 + 小知识话题轮换）
+// ---------------------------------------------------------------------------
+
+function writeTopicsFile(file, topics, extra = {}) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ ok: true, v: 1, updatedAt: new Date().toISOString(), topics, ...extra }),
+    'utf8',
+  )
+  return file
+}
+
+function makeTopic(id, title, fact, tags) {
+  return { id, title, fact, tags }
+}
+
+test('self-talk-topics：resolveTopicsPath（env 覆盖/DSH_HOME/home 回退）', () => {
+  assert.equal(resolveTopicsPath({ DSH_SELF_TALK_TOPICS: '/tmp/topics.json' }, '/Users/alice'), '/tmp/topics.json')
+  assert.equal(
+    resolveTopicsPath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'),
+    '/tmp/dsh-home/agent-memory/topics.json',
+  )
+  assert.equal(resolveTopicsPath({}, '/Users/alice'), '/Users/alice/.dsh/agent-memory/topics.json')
+  assert.equal(
+    resolveTopicsPath({ DSH_SELF_TALK_TOPICS: '   ' }, '/Users/alice'),
+    '/Users/alice/.dsh/agent-memory/topics.json',
+    '空白覆盖值忽略',
+  )
+})
+
+test('self-talk-topics：loadTopicBank mtime 缓存自动重读、坏文件降级保留上次可用', () => {
+  const dir = makeTmpDir('dshp-topics')
+  const file = writeTopicsFile(path.join(dir, 'topics.json'), [
+    makeTopic('t1', '章鱼的三颗心脏', '章鱼有三颗心脏。', ['海洋', '好奇']),
+    makeTopic('t2', '抹香鲸的方言', '抹香鲸有方言。', ['海洋', 'social']),
+  ])
+  const warned = []
+  const bank = loadTopicBank({ path: file, logger: { warn: (message) => warned.push(String(message)) } })
+
+  const first = bank.read()
+  assert.equal(first.ok, true)
+  assert.equal(first.entries.length, 2)
+  assert.equal(first.reloaded, true)
+  assert.equal(bank.read().reloaded, false, 'mtime 未变直接用缓存')
+
+  // 文件更新（新内容）+ 显式改 mtime → 自动重读
+  writeTopicsFile(file, [
+    makeTopic('t1', '章鱼的三颗心脏', '章鱼有三颗心脏。', ['海洋', '好奇']),
+    makeTopic('t2', '抹香鲸的方言', '抹香鲸有方言。', ['海洋', 'social']),
+    makeTopic('t3', '鲸落', '鲸落后形成生态系统。', ['海洋', '平静']),
+  ])
+  const later = new Date(Date.now() + 5000)
+  fs.utimesSync(file, later, later)
+  const updated = bank.read()
+  assert.equal(updated.ok, true)
+  assert.equal(updated.reloaded, true, '文件变化自动重读（无需重载插件）')
+  assert.equal(updated.entries.length, 3)
+
+  // 坏 JSON：ok:false 但保留上次可用话题（服务降级不抛）
+  fs.writeFileSync(file, 'not json at all', 'utf8')
+  const brokenAt = new Date(Date.now() + 10000)
+  fs.utimesSync(file, brokenAt, brokenAt)
+  const broken = bank.read()
+  assert.equal(broken.ok, false)
+  assert.equal(broken.entries.length, 3, '坏文件保留上次可用数据')
+  assert.ok(warned.length > 0)
+
+  // 修复后恢复
+  writeTopicsFile(file, [makeTopic('t9', '新话题', '新事实。', ['天气'])])
+  const fixedAt = new Date(Date.now() + 15000)
+  fs.utimesSync(file, fixedAt, fixedAt)
+  const fixed = bank.read()
+  assert.equal(fixed.ok, true)
+  assert.deepEqual(fixed.entries.map((entry) => entry.id), ['t9'])
+
+  // 文件缺失 → ok:false、空条目、不抛
+  const missing = loadTopicBank({ path: path.join(dir, 'nope.json'), logger: { warn() {} } })
+  const missingResult = missing.read()
+  assert.equal(missingResult.ok, false)
+  assert.deepEqual(missingResult.entries, [])
+})
+
+test('self-talk-topics：parseTopicBank 校验/过滤非法条目/去重/空库', () => {
+  const parsed = parseTopicBank(
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      topics: [
+        makeTopic('a', '标题A', '事实A', ['好奇', '海洋']),
+        makeTopic('b', '标题B', '事实B', 'not-array'),
+        makeTopic('', '无 id', '事实', ['x']),
+        makeTopic('c', '', '无标题', ['x']),
+        makeTopic('d', '无事实', '', ['x']),
+        makeTopic('a', '重复 id', '重复', ['x']),
+      ],
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.deepEqual(parsed.entries.map((entry) => entry.id), ['a'])
+  assert.equal(parsed.dropped >= 3, true, '记录被过滤条数')
+
+  assert.equal(parseTopicBank('not json').ok, false)
+  assert.equal(parseTopicBank(JSON.stringify({ ok: true, v: 2, topics: [] })).ok, false)
+  assert.equal(parseTopicBank(JSON.stringify({ ok: true, v: 1, topics: [] })).ok, false, '空话题库视为失败')
+  assert.equal(parseTopicBank(JSON.stringify({ ok: true, v: 1 })).ok, false)
+})
+
+test('self-talk-topics：pickSelfTalkTopic 按心情/天气/活动/体验/时段打分并排除最近', () => {
+  const topics = [
+    makeTopic('mood', '心情话题', '事实', ['平静']),
+    makeTopic('weather', '天气话题', '事实', ['rain']),
+    makeTopic('activity', '活动话题', '事实', ['watch']),
+    makeTopic('exp', '体验话题', '事实', ['touched']),
+    makeTopic('period', '时段话题', '事实', ['夜里']),
+    makeTopic('other', '不相关话题', '事实', ['海洋']),
+  ]
+  const pick = (context, recentIds = []) => pickSelfTalkTopic(topics, context, recentIds, { random: () => 0 })
+
+  assert.equal(pick({ moodKey: 'calm', moodLabel: '平静' }).id, 'mood', '心情 +3')
+  assert.equal(pick({ weather: 'rain' }).id, 'weather', '天气 +3')
+  assert.equal(pick({ activity: { kind: 'watch', label: '看视频' } }).id, 'activity', '活动 +3')
+  assert.equal(pick({ experience: { kind: 'video', emotion: 'touched' } }).id, 'exp', '体验 +2')
+  assert.equal(pick({ period: '夜里' }).id, 'period', '时段 +1')
+  assert.equal(scoreSelfTalkTopic(topics[0], { moodKey: 'calm', moodLabel: '平静' }), 3)
+  assert.equal(scoreSelfTalkTopic(topics[0], { moodKey: 'curious', moodLabel: '好奇' }), 0)
+
+  // 排除最近 topic：不会选到 mood；其余同分里按稳定序随机
+  const afterExclude = pick({ moodKey: 'calm', moodLabel: '平静' }, ['mood'])
+  assert.notEqual(afterExclude.id, 'mood')
+  assert.ok(['weather', 'activity', 'exp', 'period', 'other'].includes(afterExclude.id))
+  // 全部被排除 → 允许全量兜底（仍返回合法 topic）
+  const fallback = pick({ moodKey: 'calm', moodLabel: '平静' }, topics.map((topic) => topic.id))
+  assert.ok(fallback !== null && topics.some((topic) => topic.id === fallback.id), '全排除时兜底')
+  // 空库 → null
+  assert.equal(pickSelfTalkTopic([], {}, []), null)
+  assert.equal(pickSelfTalkTopic(null, {}, []), null)
+  // 接受 loadTopicBank 读取器
+  const dir = makeTmpDir('dshp-topics')
+  const bank = loadTopicBank({ path: writeTopicsFile(path.join(dir, 'topics.json'), topics), logger: { warn() {} } })
+  assert.equal(pickSelfTalkTopic(bank, { weather: 'rain' }, [], { random: () => 0 }).id, 'weather')
+})
+
+test('self-talk-topics：top8 随机窗口 + buildTopicPromptLine 内容', () => {
+  const topics = Array.from({ length: 10 }, (_, index) => makeTopic(`t${index}`, `标题${index}`, `事实${index}`, ['海洋']))
+  // 同分时稳定序 → top8 是前 8 个；random≈0/≈1 分别取 top 内首/尾
+  assert.equal(pickSelfTalkTopic(topics, {}, [], { random: () => 0 }).id, 't0')
+  assert.equal(pickSelfTalkTopic(topics, {}, [], { random: () => 0.999999 }).id, `t${SELF_TALK_TOPIC_TOP_N - 1}`)
+  assert.equal(SELF_TALK_TOPIC_TOP_N, 8)
+
+  const line = buildTopicPromptLine({ title: '章鱼的三颗心脏', fact: '章鱼有三颗心脏。' })
+  assert.match(line, /你最近学到的一个小知识：〈章鱼的三颗心脏〉——章鱼有三颗心脏。/)
+  assert.match(line, /不要科普腔/)
+  assert.match(line, /不要照本宣科/)
+  assert.match(line, /不要编造事实/)
+  assert.equal(buildTopicPromptLine(null), '')
+})
+
+test('self-talk：prompt 综合心情/天气/活动/体验 + 话题 fact（有 topic 时不再用 theme）', () => {
+  const topic = { id: 't1', title: '章鱼的三颗心脏', fact: '章鱼有三颗心脏。' }
+  const prompt = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    weather: 'rain',
+    moodKey: 'curious',
+    moodLabel: '好奇',
+    activity: { kind: 'read', label: '查资料/学习' },
+    experience: { title: '海上钢琴师', kind: 'video', emotion: 'touched', note: '结尾很感动' },
+    topic,
+    theme: '杯子',
+    recent: ['最近说过的一句话'],
+  })
+  assert.match(prompt, /你最近在做：查资料\/学习/)
+  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频），此刻心里有点感动鼻酸/)
+  assert.match(prompt, /你记下的感受：结尾很感动/)
+  assert.match(prompt, /章鱼的三颗心脏/)
+  assert.match(prompt, /章鱼有三颗心脏。/)
+  assert.match(prompt, /综合你此刻的心情、天气、最近在做的事、最近在体验的内容（如有）以及上面的小知识/)
+  assert.match(prompt, /不要变成科普/)
+  assert.equal(prompt.includes('这次试着围绕'), false, '有 topic 时 theme 仅作 fallback 不输出')
+
+  const noTopic = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), theme: '杯子' })
+  assert.match(noTopic, /这次试着围绕「杯子」说一句/)
+  assert.equal(noTopic.includes('你最近在做'), false)
+  assert.equal(noTopic.includes('你最近在体验'), false)
+})
+
+test('self-talk 服务：每次挑一个 topic、成功后记 recent、下次排除（失败不记）', async () => {
+  const topics = [
+    makeTopic('t1', '话题一', '事实一。', ['好奇']),
+    makeTopic('t2', '话题二', '事实二。', ['平静']),
+  ]
+  let reply = SELF_TALK_LINES_A.join('\n')
+  const llm = makeMockLlm(() => reply)
+  const service = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    topics,
+    random: () => 0,
+  })
+
+  const first = await service.generate({ moodKey: 'curious', moodLabel: '好奇' })
+  assert.equal(first.ok, true)
+  assert.match(llm.calls[0].messages[0].content[0].text, /事实一。/)
+  assert.deepEqual(service.recentTopics(), ['t1'])
+
+  // 换一批不重复的句子，避免被 recent 去重过滤
+  reply = SELF_TALK_LINES_B.join('\n')
+  const second = await service.generate({ moodKey: 'curious', moodLabel: '好奇' })
+  assert.equal(second.ok, true)
+  assert.match(llm.calls[1].messages[0].content[0].text, /事实二。/)
+  assert.match(llm.calls[1].messages[0].content[0].text, /你最近学到的一个小知识/)
+  assert.deepEqual(service.recentTopics(), ['t1', 't2'])
+  assert.equal(service.recentTopics().length <= SELF_TALK_TOPIC_RECENT_MAX, true)
+
+  // 失败不记录 topic
+  reply = ''
+  const failed = await service.generate({})
+  assert.equal(failed.ok, false)
+  assert.deepEqual(service.recentTopics(), ['t1', 't2'], '失败不记 topic')
+})
+
+test('self-talk 路由：传入 activity/experience（仅名称/状态文件），不含工具参数', async () => {
+  const captured = []
+  const stub = {
+    async generate(context) {
+      captured.push(context)
+      return { ok: true, lines: [{ text: '测试句子，长度足够吧。', ts: 1 }], model: { provider: 'p', model: 'm' }, generatedAt: 1, cached: false }
+    },
+  }
+  const expDir = makeTmpDir('dshp-exp-self-talk')
+  const expFile = path.join(expDir, 'experience.json')
+  writeExperienceFile(expFile, {
+    title: '海上钢琴师',
+    kind: 'video',
+    emotion: 'touched',
+    at: FIXED_NOW.getTime() - 5 * 60 * 1000,
+  })
+  const harness = createHarness({ selfTalkService: stub, env: { DSH_POETRY_EXPERIENCE: expFile } })
+  const sensitive = 'SECRET_TOOL_ARG_NEVER_LEAK'
+  harness.moodTracker.record(
+    { id: 's1' },
+    {
+      type: 'tool/call',
+      time: FIXED_NOW.getTime(),
+      data: { name: 'web_fetch', callId: 'c1', arguments: { url: `https://secret.example/${sensitive}` } },
+    },
+  )
+  const response = await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
+  assert.equal(response.statusCode, 200)
+  assert.equal(response.json().ok, true)
+  assert.equal(captured[0].activity.kind, 'read')
+  assert.equal(captured[0].experience.title, '海上钢琴师')
+  assert.equal(JSON.stringify(captured[0]).includes(sensitive), false, '工具参数不进入 service 上下文')
+})
+
+test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路由）', async () => {
+  const dshHome = makeTmpDir('dshp-dshhome-topics')
+  const topicsFile = writeTopicsFile(path.join(dshHome, 'agent-memory', 'topics.json'), [
+    makeTopic('t1', '章鱼的三颗心脏', '章鱼有三颗心脏。', ['好奇']),
+  ])
+  const previousDshHome = process.env.DSH_HOME
+  const previousTopics = process.env.DSH_SELF_TALK_TOPICS
+  process.env.DSH_HOME = dshHome
+  delete process.env.DSH_SELF_TALK_TOPICS
+  try {
+    const routes = []
+    const cleanups = []
+    const logs = []
+    const llm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+    const fakeCtx = {
+      logger: {
+        info: (message) => logs.push(String(message)),
+        warn: (message) => logs.push(String(message)),
+        error() {},
+      },
+      on() {
+        return () => {}
+      },
+      effect(execute) {
+        const disposer = execute()
+        cleanups.push(disposer)
+        return disposer
+      },
+      inject(_keys, callback) {
+        callback({
+          get(name) {
+            if (name === 'webServer') {
+              return {
+                register(route) {
+                  routes.push(route)
+                  return () => {}
+                },
+              }
+            }
+            if (name === 'connection') return { requestRejection: () => undefined }
+            if (name === 'llm') return llm
+            if (name === 'agentDefaultModel') {
+              return { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) }
+            }
+            return undefined
+          },
+          effect(execute) {
+            const disposer = execute()
+            cleanups.push(disposer)
+            return disposer
+          },
+        })
+      },
+    }
+    await pluginApply(fakeCtx)
+    assert.equal(routes.length, 15, '无新路由（assets + pet-media + 13 JSON）')
+    assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
+    assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
+
+    const route = routes.find((item) => item.path === '/api/dsh-poetry/self-talk.json')
+    const response = new MockResponse()
+    await route.handler(mockRequest({ url: '/api/dsh-poetry/self-talk.json' }), response)
+    await response.finished()
+    assert.equal(response.json().ok, true)
+    const prompt = llm.calls[0].messages[0].content[0].text
+    assert.match(prompt, /章鱼的三颗心脏/)
+    assert.match(prompt, /章鱼有三颗心脏。/)
+    assert.match(prompt, /综合你此刻的心情/)
+    assert.equal(fs.existsSync(topicsFile), true)
+
+    for (const cleanup of cleanups.reverse()) {
+      if (typeof cleanup === 'function') cleanup()
+    }
+  } finally {
+    if (previousDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousDshHome
+    if (previousTopics === undefined) delete process.env.DSH_SELF_TALK_TOPICS
+    else process.env.DSH_SELF_TALK_TOPICS = previousTopics
+  }
 })
 
 // ---------------------------------------------------------------------------

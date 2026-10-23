@@ -7,6 +7,7 @@
 //   · 天气接口：GET weather.json（Open-Meteo 地理编码 + forecast，20min 缓存，失败降级永 200）；
 //   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
+//     结合心情/天气/最近活动/体验，并从 $DSH_HOME/agent-memory/topics.json 话题库挑一个小知识自然融入；
 //   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
 //   · 心情动画素材：GET/HEAD pet-media?f=…（dsh-pet MIT webm，不随包；不套栅栏，与 assets 并列）；
 //   · 自主记忆：self-talk / mood-ai 新生成成功时，把模型输出**只追加**写入 $DSH_HOME/agent-memory/；
@@ -35,6 +36,7 @@ import {
 } from './lib/pet-media.mjs'
 import { createRouteTable } from './lib/routes.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
+import { loadTopicBank, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createMoodTracker } from './lib/mood.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -141,7 +143,16 @@ export async function apply(ctx) {
           return null
         }
       }
-      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger })
+      // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
+      const topicsPath = resolveTopicsPath(env, home)
+      const topicBank = loadTopicBank({ path: topicsPath, logger })
+      const topicSnapshot = topicBank.read()
+      if (topicSnapshot.ok === true) {
+        logger?.info?.(`[dsh-poetry-widget] 碎碎念话题库：${topicsPath}（${topicSnapshot.entries.length} 个话题）`)
+      } else {
+        logger?.warn?.(`[dsh-poetry-widget] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
+      }
+      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger, topics: topicBank })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
       const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
