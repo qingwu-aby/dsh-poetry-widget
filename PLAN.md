@@ -674,3 +674,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host：self-state 加 thirst/sleeping/sleepSince 与睡眠恢复；self-actions 按阈值自驱 eat/drink/play/socialize/sleep/wake（≥3min 间隔，环形 50 条 self-actions.json，纳入记忆中枢第 10 文件）；self.json 暴露 thirst/sleeping/actions。
 - Client：App 级 60s 轮询 self.json，新 action 用自己的气泡显示一次（同 id 不重复，隐藏暂存）；成长页五行状态/睡眠中/最近 5 条自主行为。
 - 三套单测 356/356（data 42 / host 196 / client 118）。
+
+## 53. 删除静态自言自语池（M48，2026-10-23）
+
+- 用户：去掉项目里的静态自言语，只保留模型/自身驱动生成。
+- Client 删除 MURMUR_POOL/MURMUR_TEMPLATES/本地候选/pickMurmur/buildMurmurCandidates/fallbackSpontCard；失败只清 thinking，不显示本地文案、不弹错误；设置「本地句子池」移除；保留模型缓存与 action 气泡；client.js 330KB→313KB。
+- 三套单测 355/355（data 42 / host 196 / client 117）。
