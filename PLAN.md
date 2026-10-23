@@ -552,3 +552,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host 修复（M24）：建 `basename→完整 file` 索引，normalize/resolve/parse 全用完整 file 排除；131 host 测试。
 - Client 调整（M25）：小动作间隔 3–6min→**1.5–3.5min**、播放 15–25s→**20–30s**；若当前心情图是静态图，首次 10–20s 内先补一个 webm；设置说明同步。
 - 三套单测 275/275（data 42 / host 131 / client 102）。
+
+## 36. 用户反馈修复（M27，2026-10-23）
+
+用户发现 journal 刷屏：691 条 = thought 18 / mood 236 / murmur 437；哈欠连天 123 次、蓝鲸现世 56 次；16:35–16:48 每半分钟一条心情。
+- 原因：实时心情每生成一次就写 journal + experience 持续感动 2h + 客户端 recentImages 偶发未生效时宿主无兜底。
+- Host mood-ai：内存维护最近生成 image ring（≤20），与客户端 recentImages 合并排除（客户端不传也不重复选最近图）。
+- memory-journal：mood 同 image+label 跳过且 ≥10min 一条；murmur 同文本跳过且 ≥3min 一条；thought 不限；只追加、md/jsonl 同步跳过、不影响实时接口。
+- 三套单测 279/279（data 42 / host 135 / client 102）。

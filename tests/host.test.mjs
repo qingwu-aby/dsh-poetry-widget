@@ -67,6 +67,8 @@ import {
   resolveFeihuaFullDir,
 } from '../lib/feihua-full.mjs'
 import {
+  JOURNAL_MOOD_MIN_INTERVAL_MS,
+  JOURNAL_MURMUR_MIN_INTERVAL_MS,
   MEMORY_JOURNAL_HEADER,
   createMemoryJournal,
   formatJournalTime,
@@ -2608,7 +2610,8 @@ test('memory-journal：resolveMemoryDir 优先级（DSH_AGENT_MEMORY_DIR → DSH
 test('memory-journal：append 创建目录/补 header/只追加，jsonl 格式正确', async () => {
   const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
   const ts = new Date(2026, 9, 21, 10, 30, 0).getTime()
-  const journal = createMemoryJournal({ dir, now: () => ts, logger: { warn() {} } })
+  let clock = ts
+  const journal = createMemoryJournal({ dir, now: () => clock, logger: { warn() {} } })
   const model = { provider: 'deepseek-account', model: 'deepseek-flash' }
 
   const first = await journal.append({ kind: 'murmur', text: '今天有点困，想趴一会儿', model })
@@ -2629,6 +2632,7 @@ test('memory-journal：append 创建目录/补 header/只追加，jsonl 格式�
     model: { provider: 'deepseek-account', model: 'deepseek-flash' },
   })
 
+  clock += JOURNAL_MURMUR_MIN_INTERVAL_MS // v1.20：murmur 最多 3min 一条，推进时钟后再写
   const second = await journal.append({ kind: 'murmur', text: '第二句碎碎念', model })
   assert.equal(second.ok, true)
   entries = readJournalJsonl(dir)
@@ -2727,12 +2731,11 @@ test('memory-journal 路由：self-talk 新生成每句写一条 murmur，cached
   assert.equal(first.json().ok, true)
 
   let entries = readJournalJsonl(harness.journalDir)
-  assert.equal(entries.length, SELF_TALK_LINES_A.length, '批次 2 句 → 2 条 murmur')
-  for (const entry of entries) {
-    assert.equal(entry.kind, 'murmur')
-    assert.deepEqual(entry.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
-  }
-  assert.deepEqual(entries.map((entry) => entry.text), SELF_TALK_LINES_A)
+  // v1.20：murmur 最多 3min 一条，同一批 2 句同 ts → 只写第 1 句，第 2 句被限频跳过。
+  assert.equal(entries.length, 1, '批次 2 句 → journal 只写 1 条（限频）')
+  assert.equal(entries[0].kind, 'murmur')
+  assert.deepEqual(entries[0].model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.equal(entries[0].text, SELF_TALK_LINES_A[0])
   const md = fs.readFileSync(path.join(harness.journalDir, 'journal.md'), 'utf8')
   assert.match(md, /· 碎碎念/)
   assert.equal(`${md}${JSON.stringify(entries)}`.includes(sensitive), false, 'query 里的 recent 不得写入记忆')
@@ -2742,7 +2745,7 @@ test('memory-journal 路由：self-talk 新生成每句写一条 murmur，cached
   const second = await harness.call('self-talk.json', mockRequest({ url }))
   assert.equal(second.json().cached, true)
   entries = readJournalJsonl(harness.journalDir)
-  assert.equal(entries.length, SELF_TALK_LINES_A.length, 'cached 不重复写')
+  assert.equal(entries.length, 1, 'cached 不重复写')
 })
 
 test('memory-journal 路由：mood-ai 新生成写 mood，cached 不写，force 再写，失败不写', async () => {
@@ -2770,10 +2773,10 @@ test('memory-journal 路由：mood-ai 新生成写 mood，cached 不写，force 
   assert.equal(cached.json().cached, true)
   assert.equal(readJournalJsonl(harness.journalDir).length, 1)
 
-  // force 新生成 → 再写一条
+  // v1.20：force 新生成视觉/接口照常返回，但 journal 因「同 image+label」且 <10min 被限频跳过
   const forced = await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))
   assert.equal(forced.json().cached, false)
-  assert.equal(readJournalJsonl(harness.journalDir).length, 2)
+  assert.equal(readJournalJsonl(harness.journalDir).length, 1, 'journal 最多 10min 一条心情/同图同 label 跳过')
 
   // 失败 → 不写
   const failingHarness = createHarness({
@@ -2859,7 +2862,7 @@ test('index.js：注入记忆日志（临时 DSH_HOME），self-talk/mood-ai 新
 
     const memoryDir = path.join(dshHome, 'agent-memory')
     const entries = readJournalJsonl(memoryDir)
-    assert.deepEqual(entries.map((entry) => entry.kind), ['murmur', 'murmur', 'mood'])
+    assert.deepEqual(entries.map((entry) => entry.kind), ['murmur', 'mood'])
     assert.equal(JSON.stringify(entries).includes(sensitive), false)
     const md = fs.readFileSync(path.join(memoryDir, 'journal.md'), 'utf8')
     assert.match(md, /## \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 碎碎念/)
@@ -4145,6 +4148,148 @@ test('mood-ai M24 服务：模型返回近期用过的视频 → 失败（完整
   const okResult = await accepted.service.generate({ recentImages: ['webm/哈欠连天.webm'] })
   assert.equal(okResult.ok, true)
   assert.equal(okResult.mood.image, 'webm/吃午餐.webm')
+})
+
+// ---------------------------------------------------------------------------
+// M27：journal 刷屏修复（服务端生成 ring 兜底 + journal 写入限频）
+// ---------------------------------------------------------------------------
+
+test('mood-ai 服务：宿主生成 image ring 兜底（客户端 recent 为空也不连续重复）', async () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  let calls = 0
+  const responder = () => {
+    calls += 1
+    if (calls <= 2) {
+      return JSON.stringify({ label: '好困', image: 'webm/哈欠连天.webm', reason: '理由足够长', energy: 40 })
+    }
+    return JSON.stringify({ label: '饿了', image: 'webm/吃午餐.webm', reason: '理由足够长', energy: 50 })
+  }
+  const { service } = makeMoodAiHarness({ catalog, responder })
+
+  const first = await service.generate({}, { force: true })
+  assert.equal(first.ok, true)
+  assert.equal(first.mood.image, 'webm/哈欠连天.webm')
+  assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm'], '成功后 image 入宿主 ring')
+
+  // 第二次：客户端 recentImages 为空，但宿主 ring 兜底 → 模型仍返回同图 → 失败
+  const second = await service.generate({}, { force: true })
+  assert.equal(second.ok, false, '即使客户端没传 recent，也不重复最近生成过的图')
+  assert.equal(second.error.code, 'MOOD_AI_UNAVAILABLE')
+  assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm'], '失败不入 ring')
+
+  // 换一张没生成过的图 → 正常成功
+  const third = await service.generate({}, { force: true })
+  assert.equal(third.ok, true)
+  assert.equal(third.mood.image, 'webm/吃午餐.webm')
+  assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm', 'webm/吃午餐.webm'])
+
+  // 缓存命中不入 ring
+  const cached = await service.generate({})
+  assert.equal(cached.cached, true)
+  assert.equal(service.peekRecentGenerated().length, 2, '缓存命中不重复入 ring')
+})
+
+test('mood-ai 服务：宿主生成 ring 最多保留最近 20 张', async () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  const files = catalog.moodImages.map((image) => image.file)
+  let calls = 0
+  const responder = () => {
+    const image = files[calls % files.length]
+    calls += 1
+    return JSON.stringify({ label: '测试', image, reason: '理由足够长', energy: 50 })
+  }
+  const { service } = makeMoodAiHarness({ catalog, responder })
+  for (let index = 0; index < 25; index += 1) {
+    const result = await service.generate({}, { force: true })
+    assert.equal(result.ok, true, `第 ${index + 1} 次生成应成功`)
+  }
+  const ring = service.peekRecentGenerated()
+  assert.equal(ring.length, 20, 'ring 上限 20')
+  assert.deepEqual(ring, files.slice(5, 25), '只保留最近 20 张')
+})
+
+test('memory-journal v1.20：mood 同 image+label 跳过、10min 限频、>10min 可再写', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  const t0 = new Date(2026, 9, 23, 16, 0, 0).getTime()
+  let clock = t0
+  const journal = createMemoryJournal({ dir, now: () => clock, logger: { warn() {} } })
+  const jsonlFile = path.join(dir, 'journal.jsonl')
+  const mdFile = path.join(dir, 'journal.md')
+  const sizes = () => ({ jsonl: fs.statSync(jsonlFile).size, md: fs.statSync(mdFile).size })
+
+  const moodA = { kind: 'mood', label: '开心', image: 'a.webp', reason: 'r1' }
+  assert.equal((await journal.append(moodA)).ok, true)
+  assert.equal(readJournalJsonl(dir).length, 1)
+
+  // 同 image+label（即使已过 11min）→ 跳过
+  clock = t0 + 11 * 60 * 1000
+  const before = sizes()
+  const same = await journal.append(moodA)
+  assert.equal(same.ok, true)
+  assert.equal(same.skipped, true)
+  assert.equal(same.reason, 'same-mood')
+  assert.deepEqual(sizes(), before, '跳过时 md/jsonl 都不增长')
+
+  // 不同心情、距上次 mood 11min → 写入
+  const moodB = { kind: 'mood', label: '难过', image: 'b.webp', reason: 'r2' }
+  const writtenB = await journal.append(moodB)
+  assert.equal(writtenB.ok, true)
+  assert.equal(writtenB.skipped, undefined)
+  assert.equal(readJournalJsonl(dir).length, 2)
+
+  // <10min（距上一次写入 4min）→ 跳过
+  clock = t0 + 15 * 60 * 1000
+  const skipC = await journal.append({ kind: 'mood', label: '平静', image: 'c.webp', reason: 'r3' })
+  assert.equal(skipC.skipped, true)
+  assert.equal(skipC.reason, 'mood-throttled')
+  assert.equal(readJournalJsonl(dir).length, 2)
+
+  // >10min → 写入
+  clock = t0 + 22 * 60 * 1000
+  assert.equal((await journal.append({ kind: 'mood', label: '平静', image: 'c.webp', reason: 'r3' })).skipped, undefined)
+  assert.equal(readJournalJsonl(dir).length, 3)
+})
+
+test('memory-journal v1.20：murmur 同文本跳过、3min 限频、thought 永远写', async () => {
+  const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
+  const t0 = new Date(2026, 9, 23, 16, 0, 0).getTime()
+  let clock = t0
+  const journal = createMemoryJournal({ dir, now: () => clock, logger: { warn() {} } })
+  const sizes = () => ({
+    jsonl: fs.statSync(path.join(dir, 'journal.jsonl')).size,
+    md: fs.statSync(path.join(dir, 'journal.md')).size,
+  })
+
+  assert.equal((await journal.append({ kind: 'murmur', text: '第一句碎碎念' })).ok, true)
+  assert.equal(readJournalJsonl(dir).length, 1)
+
+  // 1min 内不同文本 → 跳过
+  clock = t0 + 60 * 1000
+  const before = sizes()
+  const skip = await journal.append({ kind: 'murmur', text: '第二句碎碎念' })
+  assert.equal(skip.skipped, true)
+  assert.equal(skip.reason, 'murmur-throttled')
+  assert.deepEqual(sizes(), before, '跳过时 md/jsonl 都不增长')
+
+  // 满 3min → 写入
+  clock = t0 + JOURNAL_MURMUR_MIN_INTERVAL_MS
+  assert.equal((await journal.append({ kind: 'murmur', text: '第二句碎碎念' })).skipped, undefined)
+  assert.equal(readJournalJsonl(dir).length, 2)
+
+  // 同文本（即使超过 3min）→ 跳过
+  clock = t0 + 10 * 60 * 1000
+  const sameText = await journal.append({ kind: 'murmur', text: '第二句碎碎念' })
+  assert.equal(sameText.skipped, true)
+  assert.equal(sameText.reason, 'same-murmur')
+  assert.equal(readJournalJsonl(dir).length, 2)
+
+  // thought 永远写（同一文本连写两次也写）
+  clock = t0 + 10 * 60 * 1000
+  assert.equal((await journal.append({ kind: 'thought', text: '我在想一件事' })).ok, true)
+  assert.equal((await journal.append({ kind: 'thought', text: '我在想一件事' })).ok, true)
+  assert.equal(readJournalJsonl(dir).length, 4)
+  const thoughtEntries = readJournalJsonl(dir).filter((entry) => entry.kind === 'thought')
+  assert.equal(thoughtEntries.length, 2, 'thought 不受限频')
 })
 
 // ---------------------------------------------------------------------------
