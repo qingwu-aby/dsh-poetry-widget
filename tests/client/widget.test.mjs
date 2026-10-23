@@ -3437,7 +3437,7 @@ test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤12（去�
   assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: [] }).ok, false)
   assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: [{ text: '   ' }] }).ok, false)
   assert.equal(debug.parseSelfTalkResponse(null).ok, false)
-  assert.equal(debug.SELF_TALK_TIMEOUT_MS, 8000)
+  assert.equal(debug.SELF_TALK_TIMEOUT_MS, 35000)
 })
 
 test('self-talk 请求：成功/404/401/ok:false/网络失败/超时全部静默降级', async () => {
@@ -3460,14 +3460,14 @@ test('self-talk 请求：成功/404/401/ok:false/网络失败/超时全部静默
   const network = loadClient({ fetch: async () => { throw new Error('network') } })
   assert.equal((await network.debug.requestSelfTalk({})).ok, false)
 
-  // 8s 超时：替换沙箱 setTimeout，只触发 8s 定时器
+  // 35s 超时：替换沙箱 setTimeout，只触发 35s 定时器
   const timeoutClient = loadClient({ fetch: () => new Promise(() => {}) })
   const timers = []
   timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
   timeoutClient.context.clearTimeout = () => {}
   const pending = timeoutClient.debug.requestSelfTalk({ kind: 'murmur' })
-  const timeoutTimer = timers.find((entry) => entry.ms === 8000)
-  assert.ok(timeoutTimer, '应注册 8s 超时（实际 ' + JSON.stringify(timers.map((entry) => entry.ms)) + '）')
+  const timeoutTimer = timers.find((entry) => entry.ms === 35000)
+  assert.ok(timeoutTimer, '应注册 35s 超时（实际 ' + JSON.stringify(timers.map((entry) => entry.ms)) + '）')
   timeoutTimer.fn()
   const timedOut = await pending
   assert.equal(timedOut.ok, false)

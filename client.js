@@ -175,7 +175,7 @@ window.__ModuleLoader__.load({
   const SPONT_MAX_SEEN = 300
   const SPONT_AUTO_CLOSE_MS = 25000
   const SELF_TALK_PATH = 'self-talk.json'
-  const SELF_TALK_TIMEOUT_MS = 8 * 1000
+  const SELF_TALK_TIMEOUT_MS = 35 * 1000
   const SELF_TALK_RECENT_MAX = 12
   /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
   const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json', moodCatalog: 'data/mood-catalog.json' }
@@ -2225,7 +2225,7 @@ window.__ModuleLoader__.load({
   return { ok: true, line: texts[0], next: texts[1] || '' }
   }
 
-  /** 请求 host 实时自言自语；8s 超时；所有失败都 resolve 成 {ok:false}，由调用方静默回退。 */
+  /** 请求 host 实时自言自语；35s 超时（与宿主 high 推理对齐）；所有失败都 resolve 成 {ok:false}，由调用方静默处理。 */
   function requestSelfTalk(options) {
   const opts = options && typeof options === 'object' ? options : {}
   if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })

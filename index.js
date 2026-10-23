@@ -42,6 +42,7 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import { createModelPolicy, describeModelPolicy } from './lib/model-policy.mjs'
 import { createSelfActions } from './lib/self-actions.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
@@ -158,6 +159,8 @@ export async function apply(ctx) {
           return null
         }
       }
+      // v1.38：模型策略（按 role 选 provider/model/reasoningEffort；env 可覆盖，无 policy 回退旧行为）。
+      const modelPolicy = createModelPolicy({ env, getSelection })
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
       const topicBank = loadTopicBank({ path: topicsPath, logger })
@@ -177,6 +180,7 @@ export async function apply(ctx) {
       const voiceService = createVoiceService({
         getLlm,
         getSelection,
+        policy: modelPolicy,
         journalPath: path.join(memoryDir, 'journal.jsonl'),
         voicePath: resolveVoicePath(env, home),
         logger,
@@ -201,6 +205,7 @@ export async function apply(ctx) {
         recall: memoryRecall,
         voice: () => voiceService.get(),
         refreshVoice: () => voiceService.refreshNow(),
+        policy: modelPolicy,
       })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
@@ -228,6 +233,7 @@ export async function apply(ctx) {
         getSelection,
         catalog: moodCatalogForAi,
         logger,
+        policy: modelPolicy,
       })
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
       // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
@@ -252,11 +258,13 @@ export async function apply(ctx) {
         topics: topicBank,
         recall: memoryRecall,
         logger,
+        policy: modelPolicy,
       })
       growth.start()
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（内在状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
+      logger?.info?.(`[dsh-poetry-widget] 模型策略：${describeModelPolicy(modelPolicy)}`)
       hostCtx.effect(
         () => () => {
           try {

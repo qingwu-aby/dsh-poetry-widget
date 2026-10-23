@@ -76,6 +76,7 @@ import {
 import {
   MOOD_AI_CACHE_TTL_MS,
   MOOD_AI_EMOTION_VOCAB,
+  MOOD_AI_TIMEOUT_MS,
   MOOD_AI_SYSTEM_PROMPT,
   MOOD_AI_TEMPERATURE,
   MOOD_MIN_CANDIDATES,
@@ -92,8 +93,18 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  MODEL_POLICY_DEFAULTS,
+  MODEL_POLICY_DEFAULT_EFFORTS,
+  MODEL_POLICY_EFFORTS,
+  MODEL_POLICY_ROLES,
+  createModelPolicy,
+  describeModelPolicy,
+  normalizeEffort,
+} from '../lib/model-policy.mjs'
+import {
   VOICE_EXEMPLAR_MAX_CHARS,
   VOICE_REFRESH_INTERVAL_MS,
+  VOICE_TIMEOUT_MS,
   buildVoiceRefreshPrompt,
   collectVoiceSamples,
   createVoiceService,
@@ -125,6 +136,7 @@ import {
 import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
+  SELF_GROWTH_TIMEOUT_MS,
   buildLearnPrompt,
   buildReflectPrompt,
   createSelfGrowth,
@@ -170,6 +182,7 @@ import {
 } from '../lib/self-talk-topics.mjs'
 import {
   SELF_TALK_RECENT_MAX,
+  SELF_TALK_TIMEOUT_MS,
   selectDiverseSelfTalkLines,
   selfTalkSimilarity,
   SELF_TALK_TEMPERATURE,
@@ -469,6 +482,7 @@ function makeSelfTalkHarness(overrides = {}) {
     minIntervalMs: overrides.minIntervalMs ?? 0,
     timeoutMs: overrides.timeoutMs ?? 300,
     logger: { warn() {} },
+    policy: overrides.policy,
   })
   return { llm, service, state }
 }
@@ -521,6 +535,7 @@ function makeMoodAiHarness(overrides = {}) {
     cacheTtlMs: overrides.cacheTtlMs ?? MOOD_AI_CACHE_TTL_MS,
     minIntervalMs: overrides.minIntervalMs ?? 0,
     logger: { warn() {} },
+    policy: overrides.policy,
   })
   return { llm, service, state, catalog }
 }
@@ -5050,6 +5065,7 @@ function makeGrowthHarness(overrides = {}) {
     timeoutMs: overrides.timeoutMs ?? 200,
     tickIntervalMs: overrides.tickIntervalMs ?? SELF_GROWTH_TICK_MS,
     now: overrides.now ?? (() => FIXED_NOW.getTime()),
+    policy: overrides.policy,
   })
   return { dir, state, journal, growth }
 }
@@ -6740,6 +6756,145 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
   await bare(mockRequest({ url: SELF_STATE_ROUTE }), bareResponse)
   await bareResponse.finished()
   assert.deepEqual(bareResponse.json().actions, { latest: null, recent: [] })
+})
+
+// ---------------------------------------------------------------------------
+// M49：模型策略（按 role 选 provider/model/reasoningEffort）
+// ---------------------------------------------------------------------------
+
+test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice'])
+  assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
+  assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, { mood: 'low', selfTalk: 'high', growth: 'high', voice: 'high' })
+  assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
+  assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
+
+  const selection = () => ({ provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' })
+  const policy = createModelPolicy({ env: {}, getSelection: selection })
+  assert.deepEqual(policy.resolve('mood'), { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.deepEqual(policy.resolve('selfTalk'), { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
+  assert.deepEqual(policy.resolve('growth').reasoningEffort, 'high')
+  assert.deepEqual(policy.resolve('voice').reasoningEffort, 'high')
+  assert.equal(policy.resolve('unknown'), null)
+  const described = describeModelPolicy(policy)
+  assert.match(described, /心情=deepseek-account\/deepseek-flash\(low\)/)
+  assert.match(described, /碎碎念=deepseek-account\/deepseek-flash\(high\)/)
+  assert.match(described, /成长=/)
+  assert.match(described, /声音=/)
+
+  // env 全局模型 + 各 role effort 覆盖；非法 effort 回退默认
+  const env = {
+    DSH_POETRY_MODEL_PROVIDER: 'openrouter',
+    DSH_POETRY_MODEL: 'gpt-x',
+    DSH_POETRY_REASONING_MOOD: 'max',
+    DSH_POETRY_REASONING_SELF_TALK: 'low',
+    DSH_POETRY_REASONING_GROWTH: 'banana',
+    DSH_POETRY_REASONING_VOICE: 'off',
+  }
+  const envPolicy = createModelPolicy({ env, getSelection: selection })
+  assert.deepEqual(envPolicy.resolve('mood'), { provider: 'openrouter', model: 'gpt-x', reasoningEffort: 'max' })
+  assert.equal(envPolicy.resolve('selfTalk').reasoningEffort, 'low')
+  assert.equal(envPolicy.resolve('growth').reasoningEffort, 'high', '非法 env effort 回退默认')
+  assert.equal(envPolicy.resolve('voice').reasoningEffort, 'off')
+
+  // 仅 env 提供 provider/model（selection 缺失）也可用
+  const envOnly = createModelPolicy({
+    env: { DSH_POETRY_MODEL_PROVIDER: 'p', DSH_POETRY_MODEL: 'm' },
+    getSelection: () => null,
+  })
+  assert.deepEqual(envOnly.resolve('mood'), { provider: 'p', model: 'm', reasoningEffort: 'low' })
+
+  // 全部缺失 → null；describe 中角色 none
+  const empty = createModelPolicy({ env: {}, getSelection: () => null })
+  assert.equal(empty.resolve('mood'), null)
+  assert.match(describeModelPolicy(empty), /心情=none/)
+  assert.equal(normalizeEffort('HIGH'), 'high')
+  assert.equal(normalizeEffort('banana', 'low'), 'low')
+  assert.equal(normalizeEffort(undefined, 'low'), 'low')
+  assert.equal(normalizeEffort(123, 'low'), 'low')
+})
+
+test('model-policy M49：四服务按 role 把 provider/model/reasoningEffort 传给 mock llm', async () => {
+  const selection = () => ({ provider: 'deepseek-account', model: 'deepseek-flash' })
+  const policy = createModelPolicy({ env: {}, getSelection: selection })
+
+  // mood → low
+  const mood = makeMoodAiHarness({ policy })
+  await mood.service.generate({}, { force: true })
+  assert.equal(mood.llm.calls[0].provider, 'deepseek-account')
+  assert.equal(mood.llm.calls[0].model, 'deepseek-flash')
+  assert.equal(mood.llm.calls[0].reasoningEffort, 'low')
+
+  // selfTalk → high
+  const talk = makeSelfTalkHarness({ policy })
+  await talk.service.generate({})
+  assert.equal(talk.llm.calls[0].reasoningEffort, 'high')
+  assert.equal(talk.llm.calls[0].provider, 'deepseek-account')
+
+  // growth → high
+  const growthLlm = makeGrowthLlm([JSON.stringify({ thought: '接着自己的声音想一想，今天过得很安静。' })])
+  const growthHarness = makeGrowthHarness({ policy, llm: growthLlm })
+  const reflected = await growthHarness.growth.reflectNow()
+  assert.equal(reflected.ok, true)
+  assert.equal(growthLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(growthLlm.calls[0].model, 'deepseek-flash')
+
+  // voice → high
+  const voiceDir = makeTmpDir('dshp-policy-voice')
+  const journalPath = writeRecallJournal(path.join(voiceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voiceLlm = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voiceService = createVoiceService({
+    llm: voiceLlm,
+    getSelection: selection,
+    policy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  const refreshed = await voiceService.refreshNow()
+  assert.equal(refreshed.ok, true)
+  assert.equal(voiceLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(voiceLlm.calls[0].provider, 'deepseek-account')
+
+  // env 覆盖 provider/model/effort 同样生效
+  const envPolicy = createModelPolicy({
+    env: {
+      DSH_POETRY_MODEL_PROVIDER: 'alt',
+      DSH_POETRY_MODEL: 'alt-model',
+      DSH_POETRY_REASONING_MOOD: 'max',
+    },
+    getSelection: selection,
+  })
+  const moodEnv = makeMoodAiHarness({ policy: envPolicy })
+  await moodEnv.service.generate({}, { force: true })
+  assert.equal(moodEnv.llm.calls[0].provider, 'alt')
+  assert.equal(moodEnv.llm.calls[0].model, 'alt-model')
+  assert.equal(moodEnv.llm.calls[0].reasoningEffort, 'max')
+})
+
+test('model-policy M49：非法 effort 不透传；policy 缺失/异常回退旧行为；超时常量', async () => {
+  const weirdPolicy = () => ({ provider: 'p', model: 'm', reasoningEffort: 'banana' })
+  const mood = makeMoodAiHarness({ policy: weirdPolicy })
+  await mood.service.generate({}, { force: true })
+  assert.equal(mood.llm.calls[0].reasoningEffort, undefined, '非法 effort 不传')
+
+  const throwingPolicy = () => {
+    throw new Error('policy boom')
+  }
+  const talk = makeSelfTalkHarness({ policy: throwingPolicy })
+  await talk.service.generate({})
+  assert.equal(talk.llm.calls[0].provider, 'deepseek-account', 'policy 异常回退 selection')
+  assert.equal(talk.llm.calls[0].reasoningEffort, undefined, '无 policy 行为不回归（不继承 reasoning）')
+
+  assert.equal(SELF_TALK_TIMEOUT_MS, 35000)
+  assert.equal(SELF_GROWTH_TIMEOUT_MS, 40000)
+  assert.equal(VOICE_TIMEOUT_MS, 40000)
+  assert.equal(MOOD_AI_TIMEOUT_MS, 20000, 'mood 超时保持不变')
 })
 
 // ---------------------------------------------------------------------------

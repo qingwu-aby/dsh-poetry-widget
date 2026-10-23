@@ -680,3 +680,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户：去掉项目里的静态自言语，只保留模型/自身驱动生成。
 - Client 删除 MURMUR_POOL/MURMUR_TEMPLATES/本地候选/pickMurmur/buildMurmurCandidates/fallbackSpontCard；失败只清 thinking，不显示本地文案、不弹错误；设置「本地句子池」移除；保留模型缓存与 action 气泡；client.js 330KB→313KB。
 - 三套单测 355/355（data 42 / host 196 / client 117）。
+
+## 54. 模型策略（M49/M50，2026-10-23）
+
+- 用户允许自选模型/推理等级。可路由：deepseek-account/deepseek-flash（off/low/high/max）。
+- 策略：mood=low、selfTalk=high、growth=high、voice=high；模型默认宿主 selection，env 可覆盖 provider/model/各 role effort；self-talk 20→35s、growth/voice 20→40s、client self-talk 8→35s。
+- 三套单测 358/358（data 42 / host 199 / client 117）。
