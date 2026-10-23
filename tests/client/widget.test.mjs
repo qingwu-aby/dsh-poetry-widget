@@ -177,7 +177,12 @@ function createDocumentMock() {
 function loadClient(options) {
   const opts = options || {}
   const react = createReactMock()
-  const storage = createStorage(opts.seed)
+  // 默认把当天饭点标记为已触发，避免真实时间进入饭点窗口时干扰与饭点无关的 UI 测试
+  const todayForMeal = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+  const defaultMealSeed = {
+    'dshp-meal-v1': JSON.stringify({ date: todayForMeal, meals: { breakfast: true, lunch: true, dinner: true } }),
+  }
+  const storage = createStorage(Object.assign({}, defaultMealSeed, opts.seed))
   const doc = createDocumentMock()
   let loaded = null
 
@@ -5033,6 +5038,11 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     if (timer) timer.cancelled = true
   }
   const findDebounceTimer = () => {
+    // 已有请求后事件触发会走 20s 最小间隔（剩余时间），优先取该计时器
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      const timer = timers[i]
+      if (!timer.cancelled && timer.ms > debug.MOOD_AI_DEBOUNCE_MAX_MS && timer.ms <= debug.MOOD_AI_MIN_GAP_MS) return timer
+    }
     for (let i = timers.length - 1; i >= 0; i -= 1) {
       const timer = timers[i]
       if (!timer.cancelled && timer.ms >= debug.MOOD_AI_DEBOUNCE_MIN_MS && timer.ms <= debug.MOOD_AI_DEBOUNCE_MAX_MS) return timer
@@ -5040,7 +5050,7 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     return null
   }
   const fire = (timer) => {
-    assert.ok(timer, '应存在 2–4s 防抖计时器')
+    assert.ok(timer, '应存在事件防抖/最小间隔计时器')
     timer.cancelled = true
     timer.fn()
   }
@@ -5376,6 +5386,7 @@ test('饭点集成：12:00 播吃午餐动画+提醒文案、25–40s 后恢复�
     seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
     fetch: fetchImpl,
   })
+  storage.removeItem(debug.MEAL_KEY)
   const fixedNow = shanghaiTs(2026, 10, 23, 12, 0)
   const RealDate = Date
   class FakeDate extends RealDate {
@@ -5477,7 +5488,7 @@ test('模型心情失败保留/重试纯函数：12–25s、30min 保留窗口�
     network: 'network',
     rate: 'rate',
     'no-fetch': 'network',
-    invalid: 'unknown',
+    invalid: 'model',
     other: 'unknown',
   }
   for (const [reason, expected] of Object.entries(reasons)) {
@@ -5640,4 +5651,66 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
   } finally {
     react._cleanup()
   }
+})
+
+/* ------------------------------------------------------------------ */
+/* 21. M30b 失败原因透传 + 事件触发 20s 最小间隔                         */
+/* ------------------------------------------------------------------ */
+
+test('mood-ai 失败原因透传：host code/HTTP status/429、parse 保留 code、label 映射', async () => {
+  const { debug } = loadClient()
+  const catalog = debug.normalizeMoodCatalog(makeMoodCatalogFixture())
+  assert.equal(debug.MOOD_AI_MIN_GAP_MS, 20000)
+  // parse 保留 error.code
+  const parsedInvalid = debug.parseMoodAiResponse({ ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: '不可用' } }, catalog)
+  assert.equal(parsedInvalid.ok, false)
+  assert.equal(parsedInvalid.code, 'MOOD_AI_UNAVAILABLE')
+
+  // host ok:false + code → reason 'host'+code、保留 code/status/message
+  const hostClient = loadClient({ fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: '模型不可用' } }) }) })
+  const hostResult = await hostClient.debug.requestMoodAi({ catalog })
+  assert.equal(hostResult.ok, false)
+  assert.equal(hostResult.reason, 'host')
+  assert.equal(hostResult.code, 'MOOD_AI_UNAVAILABLE')
+  assert.equal(hostResult.status, 200)
+  assert.equal(hostResult.message, '模型不可用')
+  const hostRate = await loadClient({ fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: false, error: { code: 'MOOD_AI_RATE_LIMITED', message: '限频' } }) }) }).debug.requestMoodAi({ catalog })
+  assert.equal(hostRate.reason, 'rate', 'host RATE_LIMITED → rate')
+  assert.equal(hostRate.code, 'MOOD_AI_RATE_LIMITED')
+
+  // 429 → rate，保留 status
+  const rateClient = loadClient({ fetch: async () => ({ ok: false, status: 429, json: async () => ({}) }) })
+  const rateResult = await rateClient.debug.requestMoodAi({ catalog })
+  assert.equal(rateResult.reason, 'rate')
+  assert.equal(rateResult.status, 429)
+  // 其它 HTTP 错误保留 status
+  const httpClient = loadClient({ fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }) })
+  const httpResult = await httpClient.debug.requestMoodAi({ catalog })
+  assert.equal(httpResult.reason, 'http')
+  assert.equal(httpResult.status, 503)
+
+  // 归一化 host code → 可读原因
+  assert.equal(debug.normalizeMoodAiFailure(hostResult), 'model')
+  assert.equal(debug.normalizeMoodAiFailure({ reason: 'hostMOOD_AI_RATE_LIMITED', code: 'MOOD_AI_RATE_LIMITED', status: 200 }), 'rate')
+  assert.equal(debug.normalizeMoodAiFailure({ code: 'MOOD_AI_TIMEOUT' }), 'timeout')
+  assert.equal(debug.normalizeMoodAiFailure({ code: 'MOOD_AI_INVALID_JSON' }), 'json')
+  assert.equal(debug.normalizeMoodAiFailure({ code: 'MOOD_CATALOG_MISSING' }), 'catalog')
+  assert.equal(debug.normalizeMoodAiFailure({ code: 'MOOD_AI_NETWORK' }), 'network')
+  assert.equal(debug.normalizeMoodAiFailure({ reason: 'host', code: 'MYSTERY_CODE' }), 'model')
+  assert.equal(debug.normalizeMoodAiFailure(rateResult), 'rate')
+  assert.equal(debug.moodAiFailureLabel('model'), '模型返回错误')
+  assert.equal(debug.moodAiFailureLabel('catalog'), '图鉴未加载')
+  assert.equal(debug.moodAiFailureLabel('network'), '网络错误')
+  assert.equal(debug.moodAiFailureLabel('unknown'), '未知原因')
+  assert.equal(debug.moodAiFailureLabel('model'), '模型返回错误', 'host code 映射到模型错误而非未知原因')
+
+  // 20s 最小间隔纯函数
+  const now = Date.now()
+  assert.equal(debug.moodAiEventDelay({ lastRequestAt: 0, now, random: () => 0 }), 2000)
+  const early = debug.moodAiEventDelay({ lastRequestAt: now - 5 * 1000, now, random: () => 0 })
+  assert.equal(early, 15000, '距上次开始 5s → 剩余 15s')
+  const tooEarly = debug.moodAiEventDelay({ lastRequestAt: now - 19 * 1000, now, random: () => 0 })
+  assert.equal(tooEarly, 1000, '距上次开始 19s → 剩余 1s')
+  const afterGap = debug.moodAiEventDelay({ lastRequestAt: now - 25 * 1000, now, random: () => 0 })
+  assert.equal(afterGap, 2000, '超过 20s → 回落到 2–4s 防抖')
 })

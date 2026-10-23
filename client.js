@@ -105,6 +105,7 @@ window.__ModuleLoader__.load({
   const MOOD_AI_TIMEOUT_MS = 25000
   const MOOD_AI_DEBOUNCE_MIN_MS = 2000
   const MOOD_AI_DEBOUNCE_MAX_MS = 4000
+  const MOOD_AI_MIN_GAP_MS = 20000
   const MOOD_AI_RETRY_MIN_MS = 12000
   const MOOD_AI_RETRY_MAX_MS = 25000
   const MOOD_AI_KEEP_MS = 30 * 60 * 1000
@@ -1806,13 +1807,14 @@ window.__ModuleLoader__.load({
   }
 
   function parseMoodAiResponse(data, catalog) {
-  if (!data || data.ok === false || !data.mood || typeof data.mood !== 'object') return { ok: false, reason: 'invalid' }
+  const errorCode = data && data.error && typeof data.error.code === 'string' ? data.error.code : ''
+  if (!data || data.ok === false || !data.mood || typeof data.mood !== 'object') return { ok: false, reason: 'invalid', code: errorCode }
   const raw = data.mood
   const label = String(raw.label == null ? '' : raw.label).trim()
   const reason = String(raw.reason == null ? '' : raw.reason).trim()
   const image = String(raw.image == null ? '' : raw.image).trim()
   const videoImage = /^webm\/[^/]+\.webm$/.test(image)
-  if (!label || (!videoImage && !moodCatalogAllows(catalog, image))) return { ok: false, reason: 'image' }
+  if (!label || (!videoImage && !moodCatalogAllows(catalog, image))) return { ok: false, reason: 'image', code: errorCode }
   return {
    ok: true,
    mood: {
@@ -1845,10 +1847,22 @@ window.__ModuleLoader__.load({
   const request = Promise.resolve()
    .then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : undefined))
    .then((response) => {
-    if (!response || typeof response.ok !== 'boolean' || !response.ok) return { ok: false, reason: 'http', status: response ? response.status : 0 }
+    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
+     const status = response ? num(response.status, 0) : 0
+     return { ok: false, reason: status === 429 ? 'rate' : 'http', status }
+    }
     return Promise.resolve(response.json()).then((data) => {
      const parsed = parseMoodAiResponse(data, opts.catalog)
-     if (!parsed.ok && data && data.error && /RATE_LIMITED/.test(String(data.error.code || ''))) return Object.assign({}, parsed, { reason: 'rate' })
+     const code = parsed && parsed.code ? String(parsed.code) : (data && data.error && typeof data.error.code === 'string' ? data.error.code : '')
+     if (!parsed.ok && code) {
+      return {
+       ok: false,
+       reason: /RATE_LIMITED|RATE/i.test(code) ? 'rate' : 'host',
+       code,
+       status: num(response.status, 200),
+       message: data && data.error && typeof data.error.message === 'string' ? data.error.message : '',
+      }
+     }
      return parsed
     }).catch(() => ({ ok: false, reason: 'json' }))
    })
@@ -1889,18 +1903,41 @@ window.__ModuleLoader__.load({
   /** 归一化失败原因，便于设置页显示。 */
   function normalizeMoodAiFailure(result) {
   const reason = result && typeof result.reason === 'string' ? result.reason : ''
+  const code = result && typeof result.code === 'string' ? result.code : ''
   if (result && result.status === 429) return 'rate'
   if (reason === 'timeout' || reason === 'http' || reason === 'json' || reason === 'image' || reason === 'network' || reason === 'rate') return reason
   if (reason === 'no-fetch') return 'network'
+  if (reason === 'catalog') return 'catalog'
+  if (code) {
+   if (/RATE|LIMIT/i.test(code)) return 'rate'
+   if (/TIMEOUT/i.test(code)) return 'timeout'
+   if (/JSON|PARSE/i.test(code)) return 'json'
+   if (/IMAGE/i.test(code)) return 'image'
+   if (/CATALOG/i.test(code)) return 'catalog'
+   if (/NETWORK|OFFLINE/i.test(code)) return 'network'
+  }
+  if (reason === 'host' || reason === 'invalid') return 'model'
   return 'unknown'
   }
 
   function moodAiFailureLabel(reason) {
-  const labels = { timeout: '超时', http: 'HTTP 错误', json: '响应格式错误', image: '图片无效', network: '网络错误', rate: '请求过频', unknown: '未知原因' }
+  const labels = { timeout: '超时', http: 'HTTP 错误', json: '响应格式错误', image: '图片无效', network: '网络错误', rate: '请求过频', model: '模型返回错误', catalog: '图鉴未加载', unknown: '未知原因' }
   return labels[reason] || labels.unknown
   }
 
-  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */
+  /** 事件触发请求距上次请求开始  /** 事件触发请求距上次请求开始不足 20s 时，延后到剩余时间（合并事件）。 */
+  function moodAiEventDelay(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const last = num(opts.lastRequestAt, 0)
+  const now = num(opts.now, Date.now())
+  if (last > 0) {
+   const remaining = MOOD_AI_MIN_GAP_MS - (now - last)
+   if (remaining > 0) return remaining
+  }
+  return nextMoodAiDebounceDelay(opts)
+  }
+
+  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */
   function moodTimeBucket(now) {
   const parts = shanghaiParts(num(now, Date.now()))
   const hour = parts.hour
@@ -3244,7 +3281,7 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
-  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
+  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
   buildMurmurContext, murmurTagsForContext, buildMurmurCandidates, pickMurmur, selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
@@ -3508,6 +3545,7 @@ window.__ModuleLoader__.load({
   const [moodAiFallback, setMoodAiFallback] = React.useState(false)
   const [moodAiStale, setMoodAiStale] = React.useState(false)
   const [moodAiFailure, setMoodAiFailure] = React.useState('')
+  const [moodAiFailureCode, setMoodAiFailureCode] = React.useState('')
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -3744,6 +3782,7 @@ window.__ModuleLoader__.load({
    setMoodAiFallback(false)
    setMoodAiStale(false)
    setMoodAiFailure('')
+   setMoodAiFailureCode('')
    clearMoodAiRetry()
    setMoodView(view)
    moodAiRef.current = Object.assign({}, moodAiRef.current, { at: Date.now(), image: mood.image })
@@ -3785,7 +3824,9 @@ window.__ModuleLoader__.load({
 
   function handleMoodAiFailure(result) {
    const reason = normalizeMoodAiFailure(result)
+   const code = result && typeof result.code === 'string' ? result.code : (reason.indexOf('host:') === 0 ? reason.slice(5) : '')
    setMoodAiFailure(reason)
+   setMoodAiFailureCode(code)
    moodAiRetryCountRef.current += 1
    const keep = moodAiKeepDecision({ source: moodSourceRef.current, lastSuccessAt: moodAiRef.current.at, now: Date.now() })
    if (keep) {
@@ -3816,6 +3857,7 @@ window.__ModuleLoader__.load({
     return Promise.resolve({ ok: false, reason: 'inflight' })
    }
    const now = Date.now()
+   moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now })
    const token = moodAiTokenRef.current + 1
    moodAiTokenRef.current = token
    moodAiInFlightRef.current = true
@@ -3870,7 +3912,9 @@ window.__ModuleLoader__.load({
     moodAiRetryTimerRef.current = null
    }
    if (moodAiDebounceTimerRef.current) clearTimeout(moodAiDebounceTimerRef.current)
-   const delay = opts.immediate === true ? 0 : nextMoodAiDebounceDelay()
+   const delay = opts.immediate === true
+    ? 0
+    : moodAiEventDelay({ lastRequestAt: moodAiRef.current.lastRequestAt, now: Date.now() })
    moodAiDebounceTimerRef.current = setTimeout(() => {
     moodAiDebounceTimerRef.current = null
     if (!settingsRef.current.mood || settingsRef.current.hidden) return
@@ -4116,6 +4160,7 @@ window.__ModuleLoader__.load({
     setMoodAiFallback(false)
     setMoodAiStale(false)
     setMoodAiFailure('')
+    setMoodAiFailureCode('')
     setMoodView(null)
     return
    }
@@ -5757,6 +5802,7 @@ window.__ModuleLoader__.load({
     moodAiFallback,
     moodAiStale,
     moodAiFailure,
+    moodAiFailureCode,
     petVideoCount: petMediaRes.entries.length,
     refreshMoodNow,
     previewSpontaneousPoem,
@@ -6497,8 +6543,8 @@ window.__ModuleLoader__.load({
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
     api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
-    api.moodAiStale ? h('div', { className: 'dshp-card-summary' }, '模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + '），保留上一次，稍后重试') : null,
-    api.moodAiFailure ? h('div', { className: 'dshp-card-summary' }, '上次模型心情失败：' + moodAiFailureLabel(api.moodAiFailure)) : null,
+    api.moodAiStale ? h('div', { className: 'dshp-card-summary' }, '模型心情暂时不可用（' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '，' + String(api.moodAiFailureCode).slice(0, 48) : '') + '），保留上一次，稍后重试') : null,
+    api.moodAiFailure ? h('div', { className: 'dshp-card-summary' }, '上次模型心情失败：' + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? '（' + String(api.moodAiFailureCode).slice(0, 48) + '）' : '')) : null,
     api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个；心情之间每 1–3 分钟会自己活动一下（播放动画）。') : null,
     h(
     'div',

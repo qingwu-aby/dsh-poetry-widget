@@ -583,3 +583,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 失败后 12–25s 自动重试，最多连续 5 次；事件请求会取消待执行重试；成功清 stale。
 - 记录失败原因（timeout/http/json/image/network/rate/unknown）并在设置页显示；不弹 toast。
 - 三套单测 282/282（data 42 / host 135 / client 105）。
+
+## 40. 用户反馈修复（M31，2026-10-23）
+
+用户仍偶发「当前使用本地面部表情」，设置显示「未知原因」。
+- 失败原因透传：host 返回 `error.code` 保留到 client（model/catalog/network/rate/timeout/http/json/image），设置显示具体 code，不再「未知原因」；429/RATE_LIMITED→rate。
+- 事件触发的心情感知加 **20s 最小间隔**（距上次请求开始 <20s 的事件合并延后；手动刷新/force 绕过；失败重试 12–25s 不受限），降低高频工具/事件导致的模型限流/超时。
+- 三套单测 283/283（data 42 / host 135 / client 106）。
