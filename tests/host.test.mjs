@@ -75,6 +75,7 @@ import {
 } from '../lib/memory-journal.mjs'
 import {
   MOOD_AI_CACHE_TTL_MS,
+  MOOD_AI_EMOTION_VOCAB,
   MOOD_AI_SYSTEM_PROMPT,
   MOOD_AI_TEMPERATURE,
   MOOD_MIN_CANDIDATES,
@@ -4875,6 +4876,57 @@ test('self-talk M35 服务：生成请求的 prompt 含心情理由/立绘与联
   assert.match(prompt, /此刻心情的理由：看完蓝鲸那段，眼睛有点热。/)
   assert.match(prompt, /你现在展示的立绘\/动画：蓝鲸现世（webm\/蓝鲸现世\.webm）。/)
   assert.match(prompt, /不要提文件名、路径或技术细节/)
+})
+
+// ---------------------------------------------------------------------------
+// M37：心情词汇扩展（细腻人类情绪词 + prompt 引导）
+// ---------------------------------------------------------------------------
+
+test('mood-ai M37：细腻情绪词库导出 ≥20 且 prompt 引导细情绪词/≤12/不硬造', () => {
+  assert.ok(Array.isArray(MOOD_AI_EMOTION_VOCAB), 'MOOD_AI_EMOTION_VOCAB 是数组')
+  assert.ok(MOOD_AI_EMOTION_VOCAB.length >= 20, `词库长度 ${MOOD_AI_EMOTION_VOCAB.length} ≥ 20`)
+  const expected = [
+    '怅然', '眷恋', '释然', '雀跃', '忐忑', '倦怠', '惊奇', '羞赧', '怀念', '笃定',
+    '心软', '空落', '满足', '惶惑', '温柔', '烦躁', '期待', '失落', '松弛', '鼻酸',
+    '被戳中', '想撒娇', '想安静', '想被看见', '有点委屈', '暗自得意', '淡淡的遗憾',
+  ]
+  for (const word of expected) assert.ok(MOOD_AI_EMOTION_VOCAB.includes(word), `词库包含：${word}`)
+  for (const word of MOOD_AI_EMOTION_VOCAB) {
+    assert.equal(typeof word, 'string')
+    assert.ok(Array.from(word).length >= 1 && Array.from(word).length <= 12, `词条 ${word} 长度 ≤12`)
+  }
+
+  // system prompt 引导
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /心情标签可以比图鉴标签更细：优先用人类会用的细情绪词/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /如：怅然、眷恋、释然/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /不要每轮都只用「开心\/难过\/累\/烦」这种粗词/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /label 仍须 ≤12 个汉字/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /必须和 reason、所选 image 的气氛一致/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /不要为新颖而硬造生僻词/)
+  // 既有规则未回归
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /优先从 media=video 的动画里选/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /不要连续选同一张图或同一个动作/)
+  assert.match(MOOD_AI_SYSTEM_PROMPT, /情绪匹配优先于活动匹配/)
+
+  // parse：细情绪词/粗词都可（≤12 字），超长仍拒绝
+  const catalog = makeMoodCatalogFixture()
+  const image = catalog.moodImages[0].file
+  const options = { dateKey: '2026-10-21' }
+  for (const label of ['怅然', '想被看见', '开心', '有点委屈']) {
+    const parsed = parseMoodResult(
+      JSON.stringify({ label, image, reason: '理由足够长', energy: 50 }),
+      catalog,
+      options,
+    )
+    assert.equal(parsed.ok, true, `label「${label}」应通过`)
+    assert.equal(parsed.mood.label, label)
+  }
+  const tooLong = parseMoodResult(
+    JSON.stringify({ label: '特别特别特别长的情绪标签呀', image, reason: '理由足够长', energy: 50 }),
+    catalog,
+    options,
+  )
+  assert.equal(tooLong.ok, false, '超过 12 字仍拒绝')
 })
 
 // ---------------------------------------------------------------------------
