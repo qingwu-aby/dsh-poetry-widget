@@ -319,7 +319,7 @@
 GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片/动画文件名，`|` 分隔，**≤20**，宿主会剔除它们强制轮换）。
 成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
 失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
-约束：prompt 只含日期时间/天气/聚合统计/idle/**最近活动（仅工具名归类，不含参数/命令/URL/页面内容）**/最近体验（experience.json 的 title/kind/emotion/note，≤2h）/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以强制轮换；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
+约束：prompt 只含日期时间/天气/聚合统计/idle/**最近活动（仅工具名归类，不含参数/命令/URL/页面内容）**/最近体验（experience.json 的 title/kind/emotion/note，≤2h）/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以引导轮换；**但这只是软建议：模型若仍返回最近用过的图，只要在图鉴内就接受，不判失败**；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
 
 图鉴静态资产：`GET /api/dsh-poetry/assets?f=data/mood-catalog.json` → `{ok,version,images:[{file,label,tags,scope,when?}],moodImages:[...],panelImages:[...]}`（89 心情图 + 3 panel 图）。
 

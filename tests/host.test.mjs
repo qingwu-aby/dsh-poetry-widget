@@ -67,7 +67,6 @@ import {
   resolveFeihuaFullDir,
 } from '../lib/feihua-full.mjs'
 import {
-  JOURNAL_MOOD_MIN_INTERVAL_MS,
   JOURNAL_MURMUR_MIN_INTERVAL_MS,
   MEMORY_JOURNAL_HEADER,
   createMemoryJournal,
@@ -2773,10 +2772,10 @@ test('memory-journal 路由：mood-ai 新生成写 mood，cached 不写，force 
   assert.equal(cached.json().cached, true)
   assert.equal(readJournalJsonl(harness.journalDir).length, 1)
 
-  // v1.20：force 新生成视觉/接口照常返回，但 journal 因「同 image+label」且 <10min 被限频跳过
+  // v1.21：mood 不再限频/去重 → force 新生成再写一条
   const forced = await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))
   assert.equal(forced.json().cached, false)
-  assert.equal(readJournalJsonl(harness.journalDir).length, 1, 'journal 最多 10min 一条心情/同图同 label 跳过')
+  assert.equal(readJournalJsonl(harness.journalDir).length, 2, '每条 mood 都写（回忆完整保留）')
 
   // 失败 → 不写
   const failingHarness = createHarness({
@@ -3607,51 +3606,52 @@ test('mood-ai：recentImages 上限 20 并从图鉴行剔除；候选不足 20 �
   assert.match(fallbackPrompt, /图鉴条目不足/)
 })
 
-test('mood-ai：被排除的最近图若被模型返回则 parse 失败；未排除图正常', () => {
+test('mood-ai v1.21：被排除的最近图若被模型返回仍成功（排除只是软建议）；图鉴外才失败', () => {
   const big = makeMoodCatalogBig(30)
   const plan = resolveMoodCandidates(big, ['img-0.webp', 'img-1.webp'], { random: seededRandom(9) })
-  const excluded = parseMoodResult(
+  // 被排除的图仍被接受（否则体验/情绪要求某张图时会误判失败、客户端回退本地心情）
+  const accepted = parseMoodResult(
     JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
     big,
     { dateKey: '2026-10-21', excludedImages: plan.excludedFiles },
   )
-  assert.equal(excluded.ok, false)
-  assert.match(excluded.message, /最近用过/)
+  assert.equal(accepted.ok, true)
+  assert.equal(accepted.mood.image, 'img-0.webp')
 
+  // 图鉴外的图仍然失败
+  const unknown = parseMoodResult(
+    JSON.stringify({ label: '开心', image: 'nope.webp', reason: '理由足够长', energy: 50 }),
+    big,
+    { dateKey: '2026-10-21', excludedImages: plan.excludedFiles },
+  )
+  assert.equal(unknown.ok, false)
+  assert.match(unknown.message, /不在图鉴/)
+
+  // 未排除图正常
   const allowed = parseMoodResult(
     JSON.stringify({ label: '开心', image: 'img-2.webp', reason: '理由足够长', energy: 50 }),
     big,
     { dateKey: '2026-10-21', excludedImages: plan.excludedFiles },
   )
   assert.equal(allowed.ok, true)
-  assert.equal(allowed.mood.image, 'img-2.webp')
-
-  // 不传 excludedImages（旧调用方）时仍按图鉴校验
-  const legacy = parseMoodResult(
-    JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
-    big,
-    { dateKey: '2026-10-21' },
-  )
-  assert.equal(legacy.ok, true)
 })
 
-test('mood-ai 服务：模型返回被排除的最近图 → MOOD_AI_UNAVAILABLE（强制轮换）', async () => {
+test('mood-ai 服务 v1.21：模型返回被排除/最近用过的图 → 仍成功（排除只做 prompt 引导）', async () => {
   const big = makeMoodCatalogBig(30)
-  const { service } = makeMoodAiHarness({
+  const { service, llm } = makeMoodAiHarness({
     catalog: big,
     responder: () => JSON.stringify({ label: '开心', image: 'img-0.webp', reason: '理由足够长', energy: 50 }),
   })
-  const rejected = await service.generate({ recentImages: ['img-0.webp'] })
-  assert.equal(rejected.ok, false)
-  assert.equal(rejected.error.code, 'MOOD_AI_UNAVAILABLE')
+  const first = await service.generate({ recentImages: ['img-0.webp'] }, { force: true })
+  assert.equal(first.ok, true)
+  assert.equal(first.mood.image, 'img-0.webp')
 
-  const other = makeMoodAiHarness({
-    catalog: big,
-    responder: () => JSON.stringify({ label: '开心', image: 'img-5.webp', reason: '理由足够长', energy: 50 }),
-  })
-  const accepted = await other.service.generate({ recentImages: ['img-0.webp'] })
-  assert.equal(accepted.ok, true)
-  assert.equal(accepted.mood.image, 'img-5.webp')
+  // 第二次同一张：prompt 图鉴仍把它排除（软引导多样性），但模型返回它也不再失败
+  const second = await service.generate({ recentImages: ['img-0.webp'] }, { force: true })
+  assert.equal(second.ok, true)
+  assert.equal(second.mood.image, 'img-0.webp')
+  const prompt = llm.calls[1].messages[0].content[0].text
+  assert.equal(promptCatalogRowFiles(prompt).includes('img-0.webp'), false, 'prompt 仍排除最近图（仅引导）')
 })
 
 test('mood-ai 路由：recentImages query 最多 20 条（解析同步上限）', async () => {
@@ -4094,26 +4094,35 @@ test('mood-ai M24：被排除视频不在候选/prompt 图鉴行，静态图排�
   assert.equal(planBase.candidates.some((image) => image.file === 'webm/哈欠连天.webm'), false)
 })
 
-test('mood-ai M24：parse 拒绝被排除视频（完整路径或 basename 传入），未排除视频可接受', () => {
+test('mood-ai M24/v1.21：被排除视频若被模型返回仍成功；图鉴外视频失败；basename 正常解析', () => {
   const catalog = makeMoodCatalogWithVideos(25)
   const excludedVideo = 'webm/哈欠连天.webm'
   const make = (image) => JSON.stringify({ label: '好困', image, reason: '理由足够长', energy: 40 })
   const options = { dateKey: '2026-10-21' }
 
-  // 完整 file 传入 excluded
-  assert.equal(
-    parseMoodResult(make(excludedVideo), catalog, { ...options, excludedImages: new Set([excludedVideo]) }).ok,
-    false,
-  )
-  // basename 传入 excluded 也拒绝
-  const baseExcluded = parseMoodResult(make(excludedVideo), catalog, {
+  // 被排除的视频（完整 file / basename）仍被接受——排除只是 prompt 软建议
+  const acceptedFull = parseMoodResult(make(excludedVideo), catalog, {
+    ...options,
+    excludedImages: new Set([excludedVideo]),
+  })
+  assert.equal(acceptedFull.ok, true)
+  assert.equal(acceptedFull.mood.image, excludedVideo)
+
+  const acceptedBase = parseMoodResult(make(excludedVideo), catalog, {
     ...options,
     excludedImages: ['哈欠连天.webm'],
   })
-  assert.equal(baseExcluded.ok, false)
-  assert.match(baseExcluded.message, /最近用过/)
+  assert.equal(acceptedBase.ok, true)
 
-  // 未排除的视频（完整路径 / 模型漏写 webm/ 前缀的 basename）都能解析成完整 file
+  // 图鉴外的视频仍然失败
+  const unknown = parseMoodResult(make('webm/不存在.webm'), catalog, {
+    ...options,
+    excludedImages: new Set([excludedVideo]),
+  })
+  assert.equal(unknown.ok, false)
+  assert.match(unknown.message, /不在图鉴/)
+
+  // 未排除的视频（完整路径 / 模型漏写 webm/ 前缀的 basename）解析成完整 file
   const other = parseMoodResult(make('webm/吃午餐.webm'), catalog, {
     ...options,
     excludedImages: new Set([excludedVideo]),
@@ -4129,23 +4138,28 @@ test('mood-ai M24：parse 拒绝被排除视频（完整路径或 basename 传�
   assert.equal(otherBase.mood.image, 'webm/吃午餐.webm')
 })
 
-test('mood-ai M24 服务：模型返回近期用过的视频 → 失败（完整路径与 basename 都生效）', async () => {
+test('mood-ai M24 服务 v1.21：模型返回近期用过的视频 → 成功（排除只做 prompt 引导）', async () => {
   const catalog = makeMoodCatalogWithVideos(25)
   const responder = () => JSON.stringify({ label: '好困', image: 'webm/哈欠连天.webm', reason: '理由足够长', energy: 40 })
   const full = makeMoodAiHarness({ catalog, responder })
-  const rejectedFull = await full.service.generate({ recentImages: ['webm/哈欠连天.webm'] })
-  assert.equal(rejectedFull.ok, false)
-  assert.equal(rejectedFull.error.code, 'MOOD_AI_UNAVAILABLE')
+  const fullResult = await full.service.generate({ recentImages: ['webm/哈欠连天.webm'] }, { force: true })
+  assert.equal(fullResult.ok, true, '被排除的最近视频也应成功，不再 MOOD_AI_UNAVAILABLE')
+  assert.equal(fullResult.mood.image, 'webm/哈欠连天.webm')
 
   const base = makeMoodAiHarness({ catalog, responder })
-  const rejectedBase = await base.service.generate({ recentImages: ['哈欠连天.webm'] })
-  assert.equal(rejectedBase.ok, false, 'basename recent 也能阻止重复视频')
+  const baseResult = await base.service.generate({ recentImages: ['哈欠连天.webm'] }, { force: true })
+  assert.equal(baseResult.ok, true, 'basename recent 同样不再造成失败')
+  assert.equal(baseResult.mood.image, 'webm/哈欠连天.webm')
+
+  // prompt 仍然把最近用过的视频从候选里排除（软引导）
+  const prompt = full.llm.calls[0].messages[0].content[0].text
+  assert.equal(promptCatalogRowFiles(prompt).includes('webm/哈欠连天.webm'), false, 'prompt 候选仍排除最近图')
 
   const accepted = makeMoodAiHarness({
     catalog,
     responder: () => JSON.stringify({ label: '饿了', image: 'webm/吃午餐.webm', reason: '理由足够长', energy: 50 }),
   })
-  const okResult = await accepted.service.generate({ recentImages: ['webm/哈欠连天.webm'] })
+  const okResult = await accepted.service.generate({ recentImages: ['webm/哈欠连天.webm'] }, { force: true })
   assert.equal(okResult.ok, true)
   assert.equal(okResult.mood.image, 'webm/吃午餐.webm')
 })
@@ -4154,7 +4168,7 @@ test('mood-ai M24 服务：模型返回近期用过的视频 → 失败（完整
 // M27：journal 刷屏修复（服务端生成 ring 兜底 + journal 写入限频）
 // ---------------------------------------------------------------------------
 
-test('mood-ai 服务：宿主生成 image ring 兜底（客户端 recent 为空也不连续重复）', async () => {
+test('mood-ai 服务：宿主生成 image ring 引导下一轮候选（不再硬失败）', async () => {
   const catalog = makeMoodCatalogWithVideos(25)
   let calls = 0
   const responder = () => {
@@ -4164,20 +4178,23 @@ test('mood-ai 服务：宿主生成 image ring 兜底（客户端 recent 为空�
     }
     return JSON.stringify({ label: '饿了', image: 'webm/吃午餐.webm', reason: '理由足够长', energy: 50 })
   }
-  const { service } = makeMoodAiHarness({ catalog, responder })
+  const { service, llm } = makeMoodAiHarness({ catalog, responder })
 
   const first = await service.generate({}, { force: true })
   assert.equal(first.ok, true)
   assert.equal(first.mood.image, 'webm/哈欠连天.webm')
   assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm'], '成功后 image 入宿主 ring')
 
-  // 第二次：客户端 recentImages 为空，但宿主 ring 兜底 → 模型仍返回同图 → 失败
+  // 第二次：客户端 recent 为空，但宿主 ring 会把它从 prompt 候选里排除（软引导）；
+  // 若模型仍返回同图，v1.21 起接受（不再 MOOD_AI_UNAVAILABLE）。
   const second = await service.generate({}, { force: true })
-  assert.equal(second.ok, false, '即使客户端没传 recent，也不重复最近生成过的图')
-  assert.equal(second.error.code, 'MOOD_AI_UNAVAILABLE')
-  assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm'], '失败不入 ring')
+  assert.equal(second.ok, true, 'ring 只做 prompt 引导，不硬拒绝')
+  assert.equal(second.mood.image, 'webm/哈欠连天.webm')
+  const secondPrompt = llm.calls[1].messages[0].content[0].text
+  assert.equal(promptCatalogRowFiles(secondPrompt).includes('webm/哈欠连天.webm'), false, 'prompt 已排除 ring 内图片')
+  assert.deepEqual(service.peekRecentGenerated(), ['webm/哈欠连天.webm'], '同图去重后仍是一条')
 
-  // 换一张没生成过的图 → 正常成功
+  // 换一张没生成过的图 → 正常成功并继续累积 ring
   const third = await service.generate({}, { force: true })
   assert.equal(third.ok, true)
   assert.equal(third.mood.image, 'webm/吃午餐.webm')
@@ -4208,46 +4225,37 @@ test('mood-ai 服务：宿主生成 ring 最多保留最近 20 张', async () =>
   assert.deepEqual(ring, files.slice(5, 25), '只保留最近 20 张')
 })
 
-test('memory-journal v1.20：mood 同 image+label 跳过、10min 限频、>10min 可再写', async () => {
+test('memory-journal v1.21：mood 不再限频/去重，每条都写（回忆完整保留）', async () => {
   const dir = path.join(makeTmpDir('dshp-mem'), 'agent-memory')
   const t0 = new Date(2026, 9, 23, 16, 0, 0).getTime()
   let clock = t0
   const journal = createMemoryJournal({ dir, now: () => clock, logger: { warn() {} } })
   const jsonlFile = path.join(dir, 'journal.jsonl')
   const mdFile = path.join(dir, 'journal.md')
-  const sizes = () => ({ jsonl: fs.statSync(jsonlFile).size, md: fs.statSync(mdFile).size })
 
   const moodA = { kind: 'mood', label: '开心', image: 'a.webp', reason: 'r1' }
   assert.equal((await journal.append(moodA)).ok, true)
-  assert.equal(readJournalJsonl(dir).length, 1)
-
-  // 同 image+label（即使已过 11min）→ 跳过
-  clock = t0 + 11 * 60 * 1000
-  const before = sizes()
-  const same = await journal.append(moodA)
-  assert.equal(same.ok, true)
-  assert.equal(same.skipped, true)
-  assert.equal(same.reason, 'same-mood')
-  assert.deepEqual(sizes(), before, '跳过时 md/jsonl 都不增长')
-
-  // 不同心情、距上次 mood 11min → 写入
-  const moodB = { kind: 'mood', label: '难过', image: 'b.webp', reason: 'r2' }
-  const writtenB = await journal.append(moodB)
-  assert.equal(writtenB.ok, true)
-  assert.equal(writtenB.skipped, undefined)
+  // 同一时刻、同 image+label 连写 → 都写（不再 same-mood 跳过）
+  const second = await journal.append(moodA)
+  assert.equal(second.ok, true)
+  assert.equal(second.skipped, undefined)
   assert.equal(readJournalJsonl(dir).length, 2)
 
-  // <10min（距上一次写入 4min）→ 跳过
-  clock = t0 + 15 * 60 * 1000
-  const skipC = await journal.append({ kind: 'mood', label: '平静', image: 'c.webp', reason: 'r3' })
-  assert.equal(skipC.skipped, true)
-  assert.equal(skipC.reason, 'mood-throttled')
-  assert.equal(readJournalJsonl(dir).length, 2)
+  // <10min 内不同心情 → 照常写
+  clock = t0 + 60 * 1000
+  assert.equal((await journal.append({ kind: 'mood', label: '难过', image: 'b.webp', reason: 'r2' })).skipped, undefined)
+  clock = t0 + 90 * 1000
+  assert.equal((await journal.append({ kind: 'mood', label: '难过', image: 'b.webp', reason: 'r2' })).skipped, undefined)
+  const entries = readJournalJsonl(dir)
+  assert.equal(entries.length, 4, '每条 mood 都写')
+  assert.deepEqual(entries.map((entry) => entry.kind), ['mood', 'mood', 'mood', 'mood'])
 
-  // >10min → 写入
-  clock = t0 + 22 * 60 * 1000
-  assert.equal((await journal.append({ kind: 'mood', label: '平静', image: 'c.webp', reason: 'r3' })).skipped, undefined)
-  assert.equal(readJournalJsonl(dir).length, 3)
+  // 仍只追加：已有行逐字保留、md 同步增长
+  const lines = fs.readFileSync(jsonlFile, 'utf8').trim().split('\n')
+  assert.equal(lines.length, 4)
+  assert.equal(lines[0], JSON.stringify(entries[0]))
+  const md = fs.readFileSync(mdFile, 'utf8')
+  assert.equal((md.match(/· 心情/g) ?? []).length, 4, 'md 同步写入 4 条心情')
 })
 
 test('memory-journal v1.20：murmur 同文本跳过、3min 限频、thought 永远写', async () => {

@@ -560,3 +560,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - Host mood-ai：内存维护最近生成 image ring（≤20），与客户端 recentImages 合并排除（客户端不传也不重复选最近图）。
 - memory-journal：mood 同 image+label 跳过且 ≥10min 一条；murmur 同文本跳过且 ≥3min 一条；thought 不限；只追加、md/jsonl 同步跳过、不影响实时接口。
 - 三套单测 279/279（data 42 / host 135 / client 102）。
+
+## 37. 用户反馈修复（M28，2026-10-23）
+
+用户：「心情不可用了，现在是本地的」+「以后不要再归档心情了，这些心情都是回忆的一部分」。
+- 根因：体验要求选蓝鲸，但蓝鲸被 recentImages/ring 排除；模型仍返回 → `parseMoodResult` 的 excludedImages 硬判失败 → MOOD_AI_UNAVAILABLE → 客户端回退本地。
+- 修复：排除改为**软建议**（只用于 prompt 多样性），图鉴内即接受；图鉴外/字段非法才失败。**心情恢复可用**。
+- journal：取消 mood 的 10min 限频与同图同 label 跳过，**每条心情都写**（回忆完整保留）；murmur 仍 3min 限频；thought 不限。
+- 三套单测 279/279（data 42 / host 135 / client 102）。
