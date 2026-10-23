@@ -699,3 +699,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 400 根因判断：OpenCode Go 的 deepseek-v4.1-flash 为 reasoning 模型，catalog 无 supportsTemperature，插件却发送 temperature。
 - 修：opencode-go 候选 omitTemperature，四服务不发送 temperature；回落 deepseek-account 保留原温度；候选失败 warn 带 provider/model/status。
 - 三套单测 364/364（data 42 / host 205 / client 117）。
+
+## 57. dsh-opencode-go 适配器接入（M54，2026-10-23）
+
+- 原生 opencode-go 400；安装 dsh-opencode-go@0.1.24（新网关/会话头/协议转换），profile 配置 apiKeyEnv=OPENCODE_GO_API_KEY。
+- 插件候选：dsh-opencode-go → 原生 opencode-go → deepseek-account；dsh 不发 temperature、保留 effort；原生两者不发；失败写 model-errors.jsonl。
+- 三套单测 370/370（data 42 / host 211 / client 117）。

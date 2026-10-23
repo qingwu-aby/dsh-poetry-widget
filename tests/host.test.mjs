@@ -93,6 +93,20 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
+  MODEL_POLICY_DSH_OPENCODE_PROVIDER,
+} from '../lib/model-policy.mjs'
+import {
+  MODEL_ERRORS_MAX_LINES,
+  MODEL_ERRORS_MESSAGE_MAX,
+  MODEL_ERRORS_ROUTE,
+  appendModelError,
+  buildModelErrorRecord,
+  createModelErrorsHandler,
+  readModelErrors,
+  resolveModelErrorsPath,
+} from '../lib/model-errors.mjs'
+import {
   MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_OPENCODE_PROVIDER,
   MODEL_POLICY_DEFAULTS,
@@ -485,6 +499,7 @@ function makeSelfTalkHarness(overrides = {}) {
     timeoutMs: overrides.timeoutMs ?? 300,
     logger: { warn() {} },
     policy: overrides.policy,
+    modelErrorsPath: overrides.modelErrorsPath,
   })
   return { llm, service, state }
 }
@@ -538,6 +553,7 @@ function makeMoodAiHarness(overrides = {}) {
     minIntervalMs: overrides.minIntervalMs ?? 0,
     logger: { warn() {} },
     policy: overrides.policy,
+    modelErrorsPath: overrides.modelErrorsPath,
   })
   return { llm, service, state, catalog }
 }
@@ -1777,7 +1793,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 条 JSON 路由')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3574,7 +3590,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 条 JSON')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4824,7 +4840,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + 14 JSON')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -5068,6 +5084,7 @@ function makeGrowthHarness(overrides = {}) {
     tickIntervalMs: overrides.tickIntervalMs ?? SELF_GROWTH_TICK_MS,
     now: overrides.now ?? (() => FIXED_NOW.getTime()),
     policy: overrides.policy,
+    modelErrorsPath: overrides.modelErrorsPath,
   })
   return { dir, state, journal, growth }
 }
@@ -6950,14 +6967,21 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
   // 无法探测 → 假定 opencode-go 存在，opencode-go → selection
   const unknown = makeCandidatePolicy()
   const moodCandidates = unknown.resolveCandidates('mood')
-  assert.equal(moodCandidates.length, 2)
+  assert.equal(moodCandidates.length, 3)
   assert.deepEqual(moodCandidates[0], {
+    provider: MODEL_POLICY_DSH_OPENCODE_PROVIDER,
+    model: MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
+    reasoningEffort: 'low',
+    omitTemperature: true,
+  })
+  assert.deepEqual(moodCandidates[1], {
     provider: MODEL_POLICY_OPENCODE_PROVIDER,
     model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
     reasoningEffort: 'low',
     omitTemperature: true,
+    omitReasoningEffort: true,
   })
-  assert.deepEqual(moodCandidates[1], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.deepEqual(moodCandidates[2], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
   assert.equal(unknown.resolve('selfTalk').reasoningEffort, effortHigh)
   assert.equal(MODEL_POLICY_OPENCODE_DEFAULT_MODEL, 'deepseek-v4.1-flash')
   assert.equal(MODEL_POLICY_OPENCODE_PROVIDER, 'opencode-go')
@@ -6968,6 +6992,12 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
     ['deepseek-account'],
   )
   assert.deepEqual(
+    makeCandidatePolicy({ getProviders: () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account'] })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+  )
+  assert.deepEqual(
     makeCandidatePolicy({ getProviders: () => ['opencode-go', 'deepseek-account'] }).resolveCandidates('mood').map((c) => c.provider),
     ['opencode-go', 'deepseek-account'],
   )
@@ -6975,10 +7005,10 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
     makeCandidatePolicy({ getProviders: () => [{ id: 'opencode-go' }] }).resolveCandidates('mood')[0].provider,
     'opencode-go',
   )
-  // Promise 视为未知（不阻塞）→ 仍包含 opencode-go
+  // Promise 视为未知（不阻塞）→ 仍包含 dsh-opencode-go / opencode-go
   assert.equal(
     makeCandidatePolicy({ getProviders: () => Promise.resolve(['whatever']) }).resolveCandidates('mood')[0].provider,
-    'opencode-go',
+    'dsh-opencode-go',
   )
 
   // 显式覆盖 → 单候选
@@ -7003,11 +7033,13 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
   )
   // opencode 模型 env 覆盖
   assert.equal(
-    makeCandidatePolicy({ env: { DSH_POETRY_OPENCODE_MODEL: 'custom-opencode' } }).resolveCandidates('mood')[0].model,
+    makeCandidatePolicy({ env: { DSH_POETRY_OPENCODE_MODEL: 'custom-opencode' } }).resolveCandidates('mood')[1].model,
     'custom-opencode',
+    'DSH_POETRY_OPENCODE_MODEL 覆盖原生 opencode 候选（dsh 候选仍用默认）',
   )
   // 去重：selection 与 opencode 候选相同
   const deduped = makeCandidatePolicy({
+    getProviders: () => ['opencode-go'],
     getSelection: () => ({ provider: 'opencode-go', model: 'deepseek-v4.1-flash' }),
   }).resolveCandidates('mood')
   assert.equal(deduped.length, 1)
@@ -7030,7 +7062,7 @@ test('model-policy M51：四服务首候选失败（未产出文本）→ 回落
   assert.equal(moodResult.ok, true)
   assert.deepEqual(moodResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' }, '实际回落的 provider/model')
   assert.deepEqual(moodLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
-  assert.equal(moodLlm.calls[0].reasoningEffort, 'low')
+  assert.equal(moodLlm.calls[0].reasoningEffort, undefined, 'opencode 不传显式 effort')
   assert.equal(moodLlm.calls[1].reasoningEffort, 'low')
 
   // selfTalk
@@ -7040,7 +7072,8 @@ test('model-policy M51：四服务首候选失败（未产出文本）→ 回落
   assert.equal(talkResult.ok, true)
   assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
   assert.deepEqual(talkLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
-  assert.equal(talkLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(talkLlm.calls[0].reasoningEffort, undefined)
+  assert.equal(talkLlm.calls[1].reasoningEffort, 'high')
 
   // growth（reflect）
   const growthLlm = makeFailoverLlm({ successText: JSON.stringify({ thought: '安静地接着自己上一次的念头想一想。' }) })
@@ -7048,7 +7081,8 @@ test('model-policy M51：四服务首候选失败（未产出文本）→ 回落
   const growthResult = await growthHarness.growth.reflectNow()
   assert.equal(growthResult.ok, true)
   assert.deepEqual(growthLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
-  assert.equal(growthLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(growthLlm.calls[0].reasoningEffort, undefined)
+  assert.equal(growthLlm.calls[1].reasoningEffort, 'high')
 
   // voice（refresh）
   const voiceDir = makeTmpDir('dshp-candidates-voice')
@@ -7072,7 +7106,8 @@ test('model-policy M51：四服务首候选失败（未产出文本）→ 回落
   const voiceResult = await voice.refreshNow()
   assert.equal(voiceResult.ok, true)
   assert.deepEqual(voiceLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
-  assert.equal(voiceLlm.calls[0].reasoningEffort, 'high')
+  assert.equal(voiceLlm.calls[0].reasoningEffort, undefined)
+  assert.equal(voiceLlm.calls[1].reasoningEffort, 'high')
 })
 
 test('model-policy M51：候选已产出部分文本后失败 → 不重试（避免串话）；空输出/首候选超时仍可回落', async () => {
@@ -7262,6 +7297,502 @@ test('model-policy M52：回退第二候选时带 temperature；错误日志含 
   assert.ok(statusWarning, `应有 provider/model/status 日志，实际：${warnings.join(' | ')}`)
   assert.match(statusWarning, /opencode-go\/deepseek-v4\.1-flash/)
   assert.equal(statusWarning.includes('心情图鉴'), false, '日志不含提示词内容')
+})
+
+// ---------------------------------------------------------------------------
+// M53：OpenCode 400 继续修复（不发显式 reasoningEffort + 模型错误诊断落盘）
+// ---------------------------------------------------------------------------
+
+function makeErrorPath(dir, name = 'model-errors.jsonl') {
+  return path.join(dir, name)
+}
+
+test('model-policy M53：opencode 候选既无 temperature 也无 reasoningEffort；deepseek 两者都有（四服务）', async () => {
+  const opencodePolicy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['opencode-go'],
+  })
+  const deepseekPolicy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => [],
+  })
+
+  // mood
+  const moodOpen = makeMoodAiHarness({ policy: opencodePolicy })
+  await moodOpen.service.generate({}, { force: true })
+  assert.equal('temperature' in moodOpen.llm.calls[0], false)
+  assert.equal('reasoningEffort' in moodOpen.llm.calls[0], false)
+  const moodDeep = makeMoodAiHarness({ policy: deepseekPolicy })
+  await moodDeep.service.generate({}, { force: true })
+  assert.equal(moodDeep.llm.calls[0].temperature, 1.05)
+  assert.equal(moodDeep.llm.calls[0].reasoningEffort, 'low')
+
+  // selfTalk
+  const talkOpen = makeSelfTalkHarness({ policy: opencodePolicy })
+  await talkOpen.service.generate({})
+  assert.equal('temperature' in talkOpen.llm.calls[0], false)
+  assert.equal('reasoningEffort' in talkOpen.llm.calls[0], false)
+  const talkDeep = makeSelfTalkHarness({ policy: deepseekPolicy })
+  await talkDeep.service.generate({})
+  assert.equal(talkDeep.llm.calls[0].temperature, 1.0)
+  assert.equal(talkDeep.llm.calls[0].reasoningEffort, 'high')
+
+  // growth
+  const growthOpenLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
+  const growthOpen = makeGrowthHarness({ policy: opencodePolicy, llm: growthOpenLlm })
+  assert.equal((await growthOpen.growth.reflectNow()).ok, true)
+  assert.equal('temperature' in growthOpenLlm.calls[0], false)
+  assert.equal('reasoningEffort' in growthOpenLlm.calls[0], false)
+  const growthDeepLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
+  const growthDeep = makeGrowthHarness({ policy: deepseekPolicy, llm: growthDeepLlm })
+  assert.equal((await growthDeep.growth.reflectNow()).ok, true)
+  assert.equal(growthDeepLlm.calls[0].temperature, 0.9)
+  assert.equal(growthDeepLlm.calls[0].reasoningEffort, 'high')
+
+  // voice
+  const voiceDir = makeTmpDir('dshp-m53-voice')
+  const journalPath = writeRecallJournal(path.join(voiceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const openLlm = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voiceOpen = createVoiceService({
+    llm: openLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy: opencodePolicy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice-open.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voiceOpen.refreshNow()).ok, true)
+  assert.equal('temperature' in openLlm.calls[0], false)
+  assert.equal('reasoningEffort' in openLlm.calls[0], false)
+  const deepLlm = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voiceDeep = createVoiceService({
+    llm: deepLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy: deepseekPolicy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice-deep.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voiceDeep.refreshNow()).ok, true)
+  assert.equal(deepLlm.calls[0].temperature, 0.8)
+  assert.equal(deepLlm.calls[0].reasoningEffort, 'high')
+
+  // 回退第二候选时 deepseek 两者都有
+  const failoverLlm = makeFailoverLlm({
+    successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '回落', energy: 60 }),
+  })
+  const moodFallback = makeMoodAiHarness({ policy: opencodePolicy, llm: failoverLlm })
+  assert.equal((await moodFallback.service.generate({}, { force: true })).ok, true)
+  assert.equal('temperature' in failoverLlm.calls[0], false)
+  assert.equal('reasoningEffort' in failoverLlm.calls[0], false)
+  assert.equal(failoverLlm.calls[1].temperature, 1.05)
+  assert.equal(failoverLlm.calls[1].reasoningEffort, 'low')
+})
+
+test('model-errors M53：落盘字段/截断/200 行/不含 prompt；四服务各写一条', async () => {
+  assert.equal(
+    resolveModelErrorsPath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'),
+    '/tmp/dsh-home/.dsh-poetry/model-errors.jsonl',
+  )
+  const dir = makeTmpDir('dshp-model-errors')
+  const file = makeErrorPath(dir)
+
+  // 字段与截断（message >500）
+  const longMessage = 'x'.repeat(800)
+  const record = buildModelErrorRecord({
+    role: 'mood',
+    provider: 'opencode-go',
+    model: 'deepseek-v4.1-flash',
+    error: { status: 400, code: 'INVALID_REQUEST', message: longMessage },
+    request: { hasTemperature: false, reasoningEffort: null, maxTokens: 400, systemChars: 123, promptChars: 456, messagesCount: 1 },
+    now: 1700000000000,
+  })
+  assert.equal(record.at, 1700000000000)
+  assert.equal(record.status, 400)
+  assert.equal(record.code, 'INVALID_REQUEST')
+  assert.ok(Array.from(record.message).length <= MODEL_ERRORS_MESSAGE_MAX)
+  assert.equal(Array.from(record.message).length, MODEL_ERRORS_MESSAGE_MAX)
+  assert.equal(JSON.stringify(record).includes('content'), false)
+  appendModelError(file, record)
+
+  // 超 200 行 → 只保留最近 200
+  for (let index = 0; index < MODEL_ERRORS_MAX_LINES + 5; index += 1) {
+    appendModelError(file, { ...record, at: 1700000000001 + index })
+  }
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n')
+  assert.equal(lines.length, MODEL_ERRORS_MAX_LINES)
+  assert.equal(JSON.parse(lines.at(-1)).at, 1700000000001 + MODEL_ERRORS_MAX_LINES + 4)
+  assert.equal(readModelErrors(file, 20).length, 20)
+
+  // 四服务覆盖：opencode 首候选 400 失败 → 各写一条（然后回退成功）
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['opencode-go'],
+  })
+  const serviceDir = makeTmpDir('dshp-model-errors-services')
+  const moodPath = makeErrorPath(serviceDir, 'mood.jsonl')
+  const moodLlm = makeFailoverLlm({
+    successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '回落', energy: 60 }),
+  })
+  // makeFailoverLlm 抛普通 Error；包一层带 status=400 便于断言
+  const moodLlm400 = {
+    calls: moodLlm.calls,
+    stream(options) {
+      if (options.provider === 'opencode-go') {
+        moodLlm.calls.push(options)
+        return (async function* () {
+          const error = new Error('Request failed with status code 400')
+          error.status = 400
+          throw error
+        })()
+      }
+      return moodLlm.stream(options)
+    },
+  }
+  const moodHarness = makeMoodAiHarness({ policy, llm: moodLlm400, modelErrorsPath: moodPath })
+  assert.equal((await moodHarness.service.generate({}, { force: true })).ok, true)
+
+  const talkPath = makeErrorPath(serviceDir, 'talk.jsonl')
+  const talkLlm = makeFailoverLlm({ successText: SELF_TALK_LINES_A.join('\n') })
+  const talkHarness = makeSelfTalkHarness({ policy, llm: talkLlm, modelErrorsPath: talkPath })
+  assert.equal((await talkHarness.service.generate({})).ok, true)
+
+  const growthPath = makeErrorPath(serviceDir, 'growth.jsonl')
+  const growthLlm = makeFailoverLlm({ successText: JSON.stringify({ thought: '安静地接着自己的想法。' }) })
+  const growthHarness = makeGrowthHarness({ policy, llm: growthLlm, modelErrorsPath: growthPath })
+  assert.equal((await growthHarness.growth.reflectNow()).ok, true)
+
+  const voicePath = path.join(serviceDir, 'voice.jsonl')
+  const voiceJournal = writeRecallJournal(path.join(serviceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voiceLlm = makeFailoverLlm({ successText: JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }) })
+  const voiceService = createVoiceService({
+    llm: voiceLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy,
+    journalPath: voiceJournal,
+    voicePath: path.join(serviceDir, 'voice-profile.json'),
+    modelErrorsPath: voicePath,
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voiceService.refreshNow()).ok, true)
+
+  for (const [role, rolePath] of [
+    ['mood', moodPath],
+    ['selfTalk', talkPath],
+    ['growth', growthPath],
+    ['voice', voicePath],
+  ]) {
+    const records = readModelErrors(rolePath, 5)
+    assert.equal(records.length, 1, `${role} 应写一条候选失败`)
+    const item = records[0]
+    assert.equal(item.role, role)
+    assert.equal(item.provider, 'opencode-go')
+    assert.equal(item.model, 'deepseek-v4.1-flash')
+    if (role === 'mood') {
+      assert.equal(item.status, 400)
+      assert.match(item.message, /400/)
+    } else {
+      assert.equal(item.status, undefined, '其它服务 mock 错误无 status（status 可选）')
+      assert.match(item.message, /unavailable|failed/)
+    }
+    assert.equal(item.request.hasTemperature, false)
+    assert.equal(item.request.reasoningEffort, null)
+    assert.ok(item.request.maxTokens > 0)
+    assert.ok(item.request.systemChars > 0)
+    assert.ok(item.request.promptChars > 0)
+    assert.equal(item.request.messagesCount, 1)
+    const raw = fs.readFileSync(rolePath, 'utf8')
+    assert.equal(raw.includes('心情图鉴'), false, '不含提示词')
+    assert.equal(raw.includes('"content"'), false, '不含 messages 正文')
+  }
+})
+
+test('model-errors M53：只读路由 GET/HEAD/405（最近 20 条，无敏感内容）', async () => {
+  const dir = makeTmpDir('dshp-model-errors-route')
+  const file = makeErrorPath(dir)
+  for (let index = 0; index < 25; index += 1) {
+    appendModelError(file, {
+      at: 1700000000000 + index,
+      role: 'mood',
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      status: 400,
+      message: `失败 ${index}`,
+      request: { hasTemperature: false, reasoningEffort: null, maxTokens: 400, systemChars: 10, promptChars: 20, messagesCount: 1 },
+    })
+  }
+  assert.equal(MODEL_ERRORS_ROUTE, '/api/dsh-poetry/model-errors.json')
+  const handler = createModelErrorsHandler({ file, limit: 20 })
+  const response = new MockResponse()
+  await handler(mockRequest({ url: MODEL_ERRORS_ROUTE }), response)
+  await response.finished()
+  const body = response.json()
+  assert.equal(response.statusCode, 200)
+  assert.equal(body.ok, true)
+  assert.equal(body.errors.length, 20)
+  assert.equal(body.errors[0].message, '失败 5')
+  assert.equal(body.errors.at(-1).message, '失败 24')
+  assert.equal(JSON.stringify(body).includes('"content"'), false)
+
+  const head = new MockResponse()
+  await handler(mockRequest({ method: 'HEAD', url: MODEL_ERRORS_ROUTE }), head)
+  await head.finished()
+  assert.equal(head.bodyText, '')
+
+  const post = new MockResponse()
+  await handler(mockRequest({ method: 'POST', url: MODEL_ERRORS_ROUTE }), post)
+  await post.finished()
+  assert.equal(post.statusCode, 405)
+})
+
+// ---------------------------------------------------------------------------
+// M54：模型候选切到 dsh-opencode-go（新适配器优先）
+// ---------------------------------------------------------------------------
+
+function makeChainLlm({ failProviders = [], successText }) {
+  const calls = []
+  const llm = {
+    calls,
+    stream(options) {
+      calls.push(options)
+      if (failProviders.includes(options.provider)) {
+        return (async function* () {
+          throw new Error(`provider ${options.provider} unavailable before any text`)
+        })()
+      }
+      return (async function* () {
+        yield { type: 'text-delta', index: 0, text: successText }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  return llm
+}
+
+test('model-policy M54：候选顺序 dsh-opencode-go → opencode-go → deepseek-account（探测/关闭/覆盖/去重）', () => {
+  const allProviders = () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account']
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: allProviders,
+  })
+  const candidates = policy.resolveCandidates('mood')
+  assert.equal(candidates.length, 3)
+  assert.deepEqual(candidates[0], {
+    provider: MODEL_POLICY_DSH_OPENCODE_PROVIDER,
+    model: MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
+    reasoningEffort: 'low',
+    omitTemperature: true,
+  })
+  assert.equal('omitReasoningEffort' in candidates[0], false, 'dsh 适配器保留 reasoningEffort')
+  assert.deepEqual(candidates[1], {
+    provider: MODEL_POLICY_OPENCODE_PROVIDER,
+    model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
+    reasoningEffort: 'low',
+    omitTemperature: true,
+    omitReasoningEffort: true,
+  })
+  assert.deepEqual(candidates[2], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.equal(candidates[0].reasoningEffort, 'low')
+  assert.equal(candidates[1].reasoningEffort, 'low')
+  assert.equal(policy.resolve('selfTalk').reasoningEffort, 'high')
+  assert.equal(policy.resolve('growth').reasoningEffort, 'high')
+  assert.equal(policy.resolve('voice').reasoningEffort, 'high')
+
+  // env 覆盖 dsh 模型
+  const customDsh = createModelPolicy({
+    env: { DSH_POETRY_DSH_OPENCODE_MODEL: 'custom-dsh-model' },
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: allProviders,
+  })
+  assert.equal(customDsh.resolveCandidates('mood')[0].model, 'custom-dsh-model')
+
+  // 探测：只有 dsh / 只有原生 / 都没有
+  assert.deepEqual(
+    createModelPolicy({
+      env: {},
+      getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+      getProviders: () => ['dsh-opencode-go'],
+    })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['dsh-opencode-go', 'deepseek-account'],
+  )
+  assert.deepEqual(
+    createModelPolicy({
+      env: {},
+      getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+      getProviders: () => ['opencode-go'],
+    })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['opencode-go', 'deepseek-account'],
+  )
+  assert.deepEqual(
+    createModelPolicy({
+      env: {},
+      getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+      getProviders: () => [],
+    })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['deepseek-account'],
+  )
+  // 无法探测 → 三候选
+  assert.deepEqual(
+    createModelPolicy({ env: {}, getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+  )
+
+  // 关闭开关 → 只 selection
+  for (const env of [{ DSH_POETRY_OPENCODE_GO: '0' }, { DSH_POETRY_MODEL_PRIORITY: 'deepseek-account' }]) {
+    assert.deepEqual(
+      createModelPolicy({
+        env,
+        getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+        getProviders: allProviders,
+      })
+        .resolveCandidates('mood')
+        .map((c) => c.provider),
+      ['deepseek-account'],
+    )
+  }
+  // 显式覆盖 → 单候选
+  assert.deepEqual(
+    createModelPolicy({
+      env: { DSH_POETRY_MODEL_PROVIDER: 'custom-p', DSH_POETRY_MODEL: 'custom-m' },
+      getSelection: allProviders,
+      getProviders: allProviders,
+    }).resolveCandidates('mood'),
+    [{ provider: 'custom-p', model: 'custom-m', reasoningEffort: 'low' }],
+  )
+  // 去重：selection 与 dsh 相同
+  const deduped = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' }),
+    getProviders: () => ['dsh-opencode-go'],
+  }).resolveCandidates('mood')
+  assert.equal(deduped.length, 1)
+  assert.equal(deduped[0].provider, 'dsh-opencode-go')
+
+  // describe 显示候选顺序
+  const described = describeModelPolicy(policy)
+  assert.match(described, /心情=dsh-opencode-go\/deepseek-v4\.1-flash\(low\) → opencode-go\/deepseek-v4\.1-flash\(low\) → deepseek-account\/deepseek-flash\(low\)/)
+})
+
+test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningEffort；响应 model 为 dsh', async () => {
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['dsh-opencode-go', 'opencode-go'],
+  })
+
+  // mood
+  const mood = makeMoodAiHarness({ policy })
+  const moodResult = await mood.service.generate({}, { force: true })
+  assert.equal(moodResult.ok, true)
+  assert.deepEqual(moodResult.model, { provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' })
+  assert.equal('temperature' in mood.llm.calls[0], false)
+  assert.equal(mood.llm.calls[0].reasoningEffort, 'low')
+
+  // selfTalk
+  const talk = makeSelfTalkHarness({ policy })
+  const talkResult = await talk.service.generate({})
+  assert.equal(talkResult.ok, true)
+  assert.deepEqual(talkResult.model, { provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' })
+  assert.equal('temperature' in talk.llm.calls[0], false)
+  assert.equal(talk.llm.calls[0].reasoningEffort, 'high')
+
+  // growth
+  const growthLlm = makeGrowthLlm([JSON.stringify({ thought: '安静地想一想今天的事情。' })])
+  const growthHarness = makeGrowthHarness({ policy, llm: growthLlm })
+  assert.equal((await growthHarness.growth.reflectNow()).ok, true)
+  assert.equal('temperature' in growthLlm.calls[0], false)
+  assert.equal(growthLlm.calls[0].reasoningEffort, 'high')
+
+  // voice
+  const voiceDir = makeTmpDir('dshp-m54-voice')
+  const journalPath = writeRecallJournal(path.join(voiceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voiceLlm = makeMockLlm(() => JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }))
+  const voice = createVoiceService({
+    llm: voiceLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  assert.equal((await voice.refreshNow()).ok, true)
+  assert.equal('temperature' in voiceLlm.calls[0], false)
+  assert.equal(voiceLlm.calls[0].reasoningEffort, 'high')
+})
+
+test('model-policy M54：dsh 失败（未产出文本）→ 原生 opencode → deepseek；参数差异正确', async () => {
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+  })
+  const failProviders = ['dsh-opencode-go', 'opencode-go']
+
+  // mood：三候选链
+  const moodLlm = makeChainLlm({
+    failProviders,
+    successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: 'deepseek 回落', energy: 60 }),
+  })
+  const mood = makeMoodAiHarness({ policy, llm: moodLlm })
+  const moodResult = await mood.service.generate({}, { force: true })
+  assert.equal(moodResult.ok, true)
+  assert.deepEqual(moodLlm.calls.map((call) => call.provider), [
+    'dsh-opencode-go',
+    'opencode-go',
+    'deepseek-account',
+  ])
+  assert.equal('temperature' in moodLlm.calls[0], false)
+  assert.equal(moodLlm.calls[0].reasoningEffort, 'low', 'dsh 候选保留 effort')
+  assert.equal('temperature' in moodLlm.calls[1], false)
+  assert.equal('reasoningEffort' in moodLlm.calls[1], false, '原生 opencode 不发 effort')
+  assert.equal(moodLlm.calls[2].temperature, 1.05)
+  assert.equal(moodLlm.calls[2].reasoningEffort, 'low')
+  assert.deepEqual(moodResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+
+  // selfTalk：三候选链
+  const talkLlm = makeChainLlm({ failProviders, successText: SELF_TALK_LINES_A.join('\n') })
+  const talk = makeSelfTalkHarness({ policy, llm: talkLlm })
+  const talkResult = await talk.service.generate({})
+  assert.equal(talkResult.ok, true)
+  assert.deepEqual(talkLlm.calls.map((call) => call.provider), [
+    'dsh-opencode-go',
+    'opencode-go',
+    'deepseek-account',
+  ])
+  assert.equal(talkLlm.calls[0].reasoningEffort, 'high')
+  assert.equal('temperature' in talkLlm.calls[0], false)
+  assert.equal('reasoningEffort' in talkLlm.calls[1], false)
+  assert.equal(talkLlm.calls[2].temperature, 1.0)
+  assert.equal(talkLlm.calls[2].reasoningEffort, 'high')
+  assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 })
 
 // ---------------------------------------------------------------------------

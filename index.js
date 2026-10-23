@@ -42,6 +42,11 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import {
+  MODEL_ERRORS_ROUTE,
+  createModelErrorsHandler,
+  resolveModelErrorsPath,
+} from './lib/model-errors.mjs'
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
 import { createSelfActions } from './lib/self-actions.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
@@ -170,6 +175,8 @@ export async function apply(ctx) {
         }
       }
       const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
+      // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
+      const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
       const topicBank = loadTopicBank({ path: topicsPath, logger })
@@ -190,6 +197,7 @@ export async function apply(ctx) {
         getLlm,
         getSelection,
         policy: modelPolicy,
+        modelErrorsPath,
         journalPath: path.join(memoryDir, 'journal.jsonl'),
         voicePath: resolveVoicePath(env, home),
         logger,
@@ -215,6 +223,7 @@ export async function apply(ctx) {
         voice: () => voiceService.get(),
         refreshVoice: () => voiceService.refreshNow(),
         policy: modelPolicy,
+        modelErrorsPath,
       })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
@@ -243,6 +252,7 @@ export async function apply(ctx) {
         catalog: moodCatalogForAi,
         logger,
         policy: modelPolicy,
+        modelErrorsPath,
       })
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
       // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
@@ -268,6 +278,7 @@ export async function apply(ctx) {
         recall: memoryRecall,
         logger,
         policy: modelPolicy,
+        modelErrorsPath,
       })
       growth.start()
       logger?.info?.(
@@ -392,6 +403,14 @@ export async function apply(ctx) {
           handler: createMemorySnapshotHandler({ hub: memoryHub }),
         }),
       )
+      // 模型错误诊断只读路由（unfenced、no-store；只含元数据，无提示词/正文/用户内容）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: MODEL_ERRORS_ROUTE,
+          handler: createModelErrorsHandler({ file: modelErrorsPath }),
+        }),
+      )
       // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。
       disposers.push(
         webServer.register({
@@ -420,7 +439,7 @@ export async function apply(ctx) {
         'dsh-poetry-widget: HTTP 路由',
       )
       logger?.info?.(
-        `[dsh-poetry-widget] 已挂载 ${routes.length + 4} 条路由（assets + pet-media + self + memory + ${routes.length} 条 JSON，version ${VERSION}，` +
+        `[dsh-poetry-widget] 已挂载 ${routes.length + 5} 条路由（assets + pet-media + self + memory + model-errors + ${routes.length} 条 JSON，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
       logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)

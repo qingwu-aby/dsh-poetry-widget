@@ -6,7 +6,8 @@
 - **按任务自选推理等级**：mood low / self-talk high / growth high / voice high（模型默认 deepseek-account/deepseek-flash，env `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_REASONING_*` 可覆盖）；self-talk 超时 35s、growth/voice 40s、client self-talk 35s。
 - **插件模型候选**：优先 `opencode-go/deepseek-v4.1-flash`，调用前失败自动回落 `deepseek-account/deepseek-flash`；不改 DSH 全局模型/子代理白名单；部分输出后失败不重试。
 - **修复 OpenCode Go 400**：opencode-go/deepseek-v4.1-flash 为 reasoning 模型且 catalog 无 `supportsTemperature`，插件请求不再发送 `temperature`；回落 deepseek-account 时保留温度；失败日志含 provider/model/status 便于定位。
-- 单测：data 42 / host 205 / client 117 = **364 / 364 pass**。
+- **接入 dsh-opencode-go 适配器**：插件模型候选改为 `dsh-opencode-go/deepseek-v4.1-flash` → 原生 `opencode-go` → `deepseek-account`；新适配器走 `https://opencode.ai/inference/go/v1`、无 temperature、保留 reasoningEffort；失败诊断写 `model-errors.jsonl`（provider/model/status，无提示词）。
+- 单测：data 42 / host 211 / client 117 = **370 / 370 pass**。
 
 ## 0.1.3 — 2026-10-23
 
