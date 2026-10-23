@@ -92,6 +92,16 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  VOICE_EXEMPLAR_MAX_CHARS,
+  VOICE_REFRESH_INTERVAL_MS,
+  buildVoiceRefreshPrompt,
+  collectVoiceSamples,
+  createVoiceService,
+  normalizeVoiceFile,
+  parseVoiceResult,
+  resolveVoicePath,
+} from '../lib/voice-memory.mjs'
+import {
   MEMORY_RECALL_JOURNAL_LINES,
   bigramJaccard,
   chineseBigrams,
@@ -5419,6 +5429,7 @@ function seedMemoryFiles(paths, overrides = {}) {
     'journal.md': '# 我的碎碎念与想法\n\n> 只追加。\n\n## 2026-10-21 10:00 · 碎碎念\n第一句\n\n## 2026-10-21 10:05 · 心情\n心情：开心\n',
     'journal.jsonl': '{"ts":1,"kind":"murmur","text":"第一句"}\n{"ts":2,"kind":"mood","label":"开心"}\n',
     'topics.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'a', title: 'A', fact: 'fa', tags: ['x'] }, { id: 'b', title: 'B', fact: 'fb', tags: ['y'] }] }),
+    'voice.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, profile: '我习惯先写一个轻的观察，再落到一个安静的动作上。', exemplars: ['窗边的光很轻'], sourceEntries: 3 }),
     'README.md': '# 记忆目录\n',
     'learning-log.md': '## 2026-10-21 11:00 · 自学\nQ: 为什么？\n笔记\n',
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
@@ -5464,17 +5475,19 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 8 个核心文件', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 9 个核心文件（含可选 voice.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json'],
   )
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
-  assert.equal(paths.files[6].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
+  assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
+  assert.equal(paths.files[3].optional, true)
+  assert.equal(paths.files[7].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
 })
 
 test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () => {
@@ -5483,7 +5496,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 8)
+  assert.equal(healthy.files.length, 9)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
@@ -5516,7 +5529,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 7, '只复制存在的 7 个文件')
+  assert.equal(first.backup.files, 8, '只复制存在的 8 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -5528,6 +5541,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   assert.equal(typeof journalEntry.size, 'number')
   assert.equal(typeof journalEntry.mtimeMs, 'number')
   assert.equal(manifest.files.find((file) => file.id === 'README.md').exists, false)
+  assert.equal(manifest.files.find((file) => file.id === 'voice.json').exists, true)
   assert.equal(fs.existsSync(path.join(dir, 'README.md')), false)
   assert.equal(fs.readdirSync(dir).some((name) => name.endsWith('.tmp')), false, '无残留 tmp（原子写）')
 
@@ -5646,7 +5660,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 8)
+  assert.equal(get.json().files.length, 9)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)
@@ -5976,6 +5990,304 @@ test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与�
   assert.equal(state.snapshot().reflections >= 1, true)
   assert.equal(journal.entries[0].kind, 'thought')
   growth.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// M44：自生成声音档案（voice.json 提炼 + self-talk 注入）
+// ---------------------------------------------------------------------------
+
+const VOICE_PROFILE_SAMPLE =
+  '我说话时习惯先抛出一个很轻的观察，再把动作收小：写窗边的光、杯子的温度、键盘的声音；句子偏短，偶尔留一个不解释的尾音。' +
+  '开头很少直接抒情，喜欢从一件很小的东西进入；收尾通常落在安静下来的一瞬间。语气不急着讨人喜欢，也不做总结陈词。' +
+  '常用“好像”“有一点”“慢慢”这类词，让话留出一点空；不常用第二人称命令句。'
+
+function makeLongVoiceProfile() {
+  let text = VOICE_PROFILE_SAMPLE
+  while (Array.from(text).length < 150) text += '我还会把情绪藏在具体的动作里。'
+  return Array.from(text).slice(0, 200).join('')
+}
+
+function writeVoiceFile(file, payload) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(payload), 'utf8')
+  return file
+}
+
+test('voice-memory：路径/抽样白名单/时间均匀抽样', () => {
+  assert.equal(resolveVoicePath({ DSH_VOICE: '/tmp/voice.json' }, '/Users/alice'), '/tmp/voice.json')
+  assert.equal(
+    resolveVoicePath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'),
+    '/tmp/dsh-home/agent-memory/voice.json',
+  )
+  assert.equal(resolveVoicePath({}, '/Users/alice'), '/Users/alice/.dsh/agent-memory/voice.json')
+
+  const entries = []
+  for (let index = 0; index < 60; index += 1) {
+    entries.push({ kind: index % 2 === 0 ? 'thought' : 'murmur', text: `第${index}句自己的话` })
+  }
+  entries.push({ kind: 'user/message', text: 'SECRET_USER_CHAT' })
+  entries.push({ kind: 'assistant/message', text: 'SECRET_ASSISTANT_TEXT' })
+  const samples = collectVoiceSamples(entries, 40)
+  assert.equal(samples.length, 40, '最多抽样 40 条')
+  assert.equal(samples.some((text) => text.includes('SECRET')), false, '只取 thought/murmur 白名单')
+  assert.match(samples[0], /第0句自己的话/)
+  assert.match(samples.at(-1), /第59句自己的话/)
+
+  // 少量条目时全取
+  assert.deepEqual(collectVoiceSamples([{ kind: 'thought', text: '一句' }, { kind: 'murmur' }], 40), ['一句'])
+})
+
+test('voice-memory：提炼 prompt 明确「自己写的不是用户说的」/JSON 要求', () => {
+  const prompt = buildVoiceRefreshPrompt(['窗边的光很轻。', '杯子凉了。', '键盘声比平时轻。'])
+  assert.match(prompt, /都是\*\*你自己\*\*过去写过的/)
+  assert.match(prompt, /不是用户说的话/)
+  assert.match(prompt, /不要用「温柔」「调皮」这种扁平标签/)
+  assert.match(prompt, /句长、节奏、常用意象、语气、开头收尾习惯/)
+  assert.match(prompt, /exemplars/)
+  assert.match(prompt, /不要新造/)
+  assert.match(prompt, /窗边的光很轻。/)
+})
+
+test('voice-memory：parseVoiceResult/normalizeVoiceFile 校验', () => {
+  const profile = makeLongVoiceProfile()
+  const parsed = parseVoiceResult(
+    '```json\n' +
+      JSON.stringify({ profile, exemplars: ['窗边的光很轻。', '杯子凉了，我还是喝完了。', '键盘声好像比昨天轻。'] }) +
+      '\n```',
+  )
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.profile, profile)
+  assert.equal(parsed.exemplars.length, 3)
+
+  const deduped = parseVoiceResult(
+    JSON.stringify({ profile, exemplars: ['同一句', '同一句', '另一句', '第三句', '第四句'] }),
+  )
+  assert.equal(deduped.ok, true)
+  assert.equal(deduped.exemplars.length, 3, '最多 3 条且去重')
+
+  assert.equal(parseVoiceResult('not json').ok, false)
+  assert.equal(parseVoiceResult(JSON.stringify({ profile: '', exemplars: ['x'] })).ok, false)
+  assert.equal(parseVoiceResult(JSON.stringify({ profile, exemplars: [] })).ok, false)
+  assert.equal(
+    parseVoiceResult(JSON.stringify({ profile, exemplars: ['字'.repeat(VOICE_EXEMPLAR_MAX_CHARS + 1)] })).ok,
+    false,
+    '单条 exemplar >80 拒绝',
+  )
+
+  const normalized = normalizeVoiceFile({
+    ok: true,
+    v: 1,
+    updatedAt: 1700000000000,
+    profile,
+    exemplars: ['a', 'a', 'b', 'c', 'd'],
+    sourceEntries: 12,
+  })
+  assert.equal(normalized.ok, true)
+  assert.equal(normalized.exemplars.length, 3)
+  assert.equal(normalized.sourceEntries, 12)
+  assert.equal(normalizeVoiceFile({ ok: false, v: 1, profile, exemplars: ['x'] }), null)
+  assert.equal(normalizeVoiceFile({ ok: true, v: 2, profile, exemplars: ['x'] }), null)
+  assert.equal(normalizeVoiceFile({ ok: true, v: 1, profile: '', exemplars: ['x'] }), null)
+  assert.equal(normalizeVoiceFile(null), null)
+})
+
+test('voice-memory：get 读取/mtime 缓存/坏文件 null', () => {
+  const dir = makeTmpDir('dshp-voice')
+  const voicePath = path.join(dir, 'voice.json')
+  const service = createVoiceService({ journalPath: path.join(dir, 'journal.jsonl'), voicePath, logger: { warn() {} } })
+  assert.equal(service.get(), null, '缺失文件返回 null')
+
+  const profile = makeLongVoiceProfile()
+  writeVoiceFile(voicePath, { ok: true, v: 1, updatedAt: 1, profile, exemplars: ['a', 'b', 'c'], sourceEntries: 3 })
+  const first = service.get()
+  assert.equal(first.profile, profile)
+  const later = new Date(Date.now() + 5000)
+  writeVoiceFile(voicePath, { ok: true, v: 1, updatedAt: 2, profile: `${profile.slice(0, 150)}（新）`, exemplars: ['x'], sourceEntries: 5 })
+  fs.utimesSync(voicePath, later, later)
+  const updated = service.get()
+  assert.match(updated.profile, /（新）/, '文件更新后 mtime 缓存重读')
+  assert.equal(updated.sourceEntries, 5)
+
+  fs.writeFileSync(voicePath, 'not json', 'utf8')
+  assert.equal(service.get(), null, '坏文件返回 null 不抛')
+})
+
+test('voice-memory：refreshNow 成功原子写/失败静默/不重入/隐私白名单', async () => {
+  const dir = makeTmpDir('dshp-voice-refresh')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const voicePath = path.join(dir, 'voice.json')
+  const entries = []
+  for (let index = 0; index < 10; index += 1) {
+    entries.push({ ts: index, kind: index % 2 === 0 ? 'thought' : 'murmur', text: `我写过的第${index}句自己的话。` })
+  }
+  entries.push({ ts: 99, kind: 'user/message', text: 'SECRET_USER_CHAT_TEXT' })
+  writeRecallJournal(journalPath, entries)
+
+  const profile = makeLongVoiceProfile()
+  const llm = makeMockLlm(() => JSON.stringify({ profile, exemplars: ['我写过的第1句自己的话。', '我写过的第5句自己的话。', '我写过的第9句自己的话。'] }))
+  const service = createVoiceService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    journalPath,
+    voicePath,
+    logger: { warn() {}, info() {} },
+    now: () => FIXED_NOW.getTime(),
+    timeoutMs: 300,
+  })
+  const result = await service.refreshNow()
+  assert.equal(result.ok, true)
+  const saved = JSON.parse(fs.readFileSync(voicePath, 'utf8'))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.v, 1)
+  assert.equal(saved.profile, profile)
+  assert.equal(saved.exemplars.length, 3)
+  assert.equal(saved.sourceEntries, 10, '只统计白名单样本')
+  assert.equal(fs.readdirSync(dir).some((name) => name.endsWith('.tmp')), false, '原子写无 tmp 残留')
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.equal(prompt.includes('SECRET_USER_CHAT_TEXT'), false, '用户聊天不进入 prompt')
+  assert.match(prompt, /你自己/)
+  assert.equal(service.get().profile, profile)
+
+  // 失败：非法 JSON → 不写、不抛
+  fs.rmSync(voicePath, { force: true })
+  const badLlm = makeMockLlm(() => 'not json')
+  const badService = createVoiceService({
+    llm: badLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    journalPath,
+    voicePath,
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  const failed = await badService.refreshNow()
+  assert.equal(failed.ok, false)
+  assert.equal(fs.existsSync(voicePath), false)
+
+  // 不重入
+  const slowLlm = makeMockLlm(() => JSON.stringify({ profile, exemplars: ['a', 'b', 'c'] }))
+  const slowStream = slowLlm.stream
+  slowLlm.stream = (options) => {
+    const inner = slowStream(options)
+    return (async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      yield* inner
+    })()
+  }
+  const slow = createVoiceService({
+    llm: slowLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    journalPath,
+    voicePath,
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  const running = slow.refreshNow()
+  const busy = await slow.refreshNow()
+  assert.equal(busy.ok, false)
+  assert.equal(busy.reason, 'busy')
+  const finished = await running
+  assert.equal(finished.ok, true)
+  slow.dispose()
+  service.dispose()
+})
+
+test('voice-memory：start 缺失或 >24h 刷新，<24h 不刷新', async () => {
+  const dir = makeTmpDir('dshp-voice-start')
+  const journalPath = writeRecallJournal(path.join(dir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voicePath = path.join(dir, 'voice.json')
+  const profile = makeLongVoiceProfile()
+  const llm = makeMockLlm(() => JSON.stringify({ profile, exemplars: ['a', 'b', 'c'] }))
+
+  // 缺失 → start 后自动刷新
+  const missing = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300 })
+  missing.start()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(fs.existsSync(voicePath), true)
+  assert.equal(llm.calls.length, 1)
+  missing.dispose()
+
+  // 新鲜文件（<24h）→ 不刷新
+  writeVoiceFile(voicePath, { ok: true, v: 1, updatedAt: Date.now(), profile, exemplars: ['a'], sourceEntries: 3 })
+  const fresh = createVoiceService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    journalPath,
+    voicePath,
+    logger: { warn() {} },
+    now: () => Date.now(),
+    timeoutMs: 300,
+  })
+  fresh.start()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(llm.calls.length, 1, '<24h 不刷新')
+  fresh.dispose()
+
+  // 过期（>24h）→ 刷新
+  writeVoiceFile(voicePath, {
+    ok: true,
+    v: 1,
+    updatedAt: Date.now() - VOICE_REFRESH_INTERVAL_MS - 1000,
+    profile,
+    exemplars: ['a'],
+    sourceEntries: 3,
+  })
+  const stale = createVoiceService({ llm, getSelection: () => SELF_TALK_SELECTION, journalPath, voicePath, logger: { warn() {} }, timeoutMs: 300 })
+  stale.start()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(llm.calls.length, 2, '>24h 刷新')
+  stale.dispose()
+})
+
+test('self-talk M44：prompt 接入 voice（无 voice 正常）；system prompt 去固定人设', () => {
+  const profile = makeLongVoiceProfile()
+  const prompt = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    voice: { profile, exemplars: ['窗边的光很轻。', '杯子凉了。'] },
+  })
+  assert.match(prompt, /这是你自己从旧记忆里总结出来的声音（不是别人给你的人设）：/)
+  assert.match(prompt, /句长、节奏|我说话时习惯/)
+  assert.match(prompt, /你过去说过、可作语气参照但不要复述的句子：/)
+  assert.match(prompt, /- 窗边的光很轻。/)
+  assert.match(prompt, /请延续这个声音，但只说此刻真正想说的，不要照抄示例。/)
+  const plain = buildSelfTalkPrompt({ now: FIXED_NOW.getTime() })
+  assert.equal(plain.includes('这是你自己从旧记忆里总结出来的声音'), false)
+
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /语气以你自己从记忆里长出的声音为准；保持自然、第一人称、不迎合、不说教/)
+  assert.equal(SELF_TALK_SYSTEM_PROMPT.includes('温柔、调皮、吐槽、自嘲'), false, '旧固定人设行已移除')
+})
+
+test('self-talk M44：service voice getter 注入 prompt；getter 异常安全降级', async () => {
+  const profile = makeLongVoiceProfile()
+  const { llm, service } = makeSelfTalkHarness()
+  const serviceWithVoice = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    voice: () => ({ profile, exemplars: ['窗边的光很轻。'] }),
+  })
+  const result = await serviceWithVoice.generate({})
+  assert.equal(result.ok, true)
+  assert.match(llm.calls[0].messages[0].content[0].text, /不是别人给你的人设/)
+  assert.match(llm.calls[0].messages[0].content[0].text, /窗边的光很轻。/)
+
+  const brokenLlm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const broken = createSelfTalkService({
+    llm: brokenLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    voice: () => {
+      throw new Error('voice getter boom')
+    },
+  })
+  const brokenResult = await broken.generate({})
+  assert.equal(brokenResult.ok, true, 'voice getter 异常不影响生成')
+  assert.equal(brokenLlm.calls[0].messages[0].content[0].text.includes('这是你自己从旧记忆里总结出来的声音'), false)
 })
 
 // ---------------------------------------------------------------------------

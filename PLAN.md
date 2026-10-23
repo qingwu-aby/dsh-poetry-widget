@@ -655,3 +655,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-talk：prompt 注入 digest；生成后按中文 bigram Jaccard 与 recent 排序去重，默认只返回最不重复的一句（全高才 2 句）。
 - self-growth：自学用话题库种子+最近学习笔记；自省带最近 2 条 self-thought，保持连续性。
 - 同时修正 recall 的 learning-log 路径到 agent-memory；三套单测 336/336（data 42 / host 179 / client 115）。
+
+## 50. 语言风格自生成（M44，2026-10-23）
+
+- 用户：语言风格要自己生成，按记忆来。
+- Host `voice-memory`：从 journal 白名单 thought/murmur 均匀抽样 ≤40 条，让模型提炼自己的句长/节奏/意象/语气/开头收尾，写 `agent-memory/voice.json`（profile ≤400 字 + 3 条不同风格示例）；每 24h 自更新；self-talk prompt 注入 voice 作为语气参照（不照抄），移除硬编码「温柔/调皮」人设；memory-hub 纳入第 9 个可选文件。
+- 三套单测 344/344（data 42 / host 187 / client 115）。

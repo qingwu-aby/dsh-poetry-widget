@@ -42,6 +42,7 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
 import {
   MEMORY_ROUTE,
@@ -171,7 +172,34 @@ export async function apply(ctx) {
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         topics: topicBank,
       })
-      const selfTalkService = createSelfTalkService({ getLlm, getSelection, logger, topics: topicBank, recall: memoryRecall })
+      // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
+      const voiceService = createVoiceService({
+        getLlm,
+        getSelection,
+        journalPath: path.join(memoryDir, 'journal.jsonl'),
+        voicePath: resolveVoicePath(env, home),
+        logger,
+      })
+      voiceService.start()
+      logger?.info?.(`[dsh-poetry-widget] 声音档案：${voiceService.voicePath}`)
+      hostCtx.effect(
+        () => () => {
+          try {
+            voiceService.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 声音档案清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 声音档案',
+      )
+      const selfTalkService = createSelfTalkService({
+        getLlm,
+        getSelection,
+        logger,
+        topics: topicBank,
+        recall: memoryRecall,
+        voice: () => voiceService.get(),
+      })
       // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
       const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
