@@ -3472,6 +3472,10 @@ test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤12（去�
   const query = debug.selfTalkQuery({
     kind: 'intro',
     moodKey: 'tired',
+    moodLabel: '发呆 & 出神',
+    moodReason: '想发会儿呆，别催',
+    image: 'webm/吃白饭.webm',
+    imageLabel: '发呆出神',
     weather: 'rain',
     idleMinutes: 42,
     recent: ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四', '十三', '  '],
@@ -3481,6 +3485,10 @@ test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤12（去�
   assert.equal(params.get('kind'), 'murmur', 'kind 固定 murmur')
   assert.equal(params.get('mood'), 'tired')
   assert.equal(params.get('weather'), 'rain')
+  assert.equal(params.get('moodLabel'), '发呆 & 出神')
+  assert.equal(params.get('moodReason'), '想发会儿呆，别催')
+  assert.equal(params.get('image'), 'webm/吃白饭.webm')
+  assert.equal(params.get('imageLabel'), '发呆出神')
   assert.equal(params.get('idleMinutes'), '42')
   const recent = params.get('recent').split('|')
   assert.equal(recent.length, 12, 'recent 最多 12 条')
@@ -3490,8 +3498,14 @@ test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤12（去�
   assert.ok(encoded.includes('recent=' + encodeURIComponent('你好 & 再见，今天好吗？')))
   assert.ok(!encoded.includes('你好 & 再见，今天好吗？'), 'raw 文本必须 URI 编码')
 
+  assert.ok(encoded.indexOf('moodLabel=') < 0, '缺失心情字段应省略')
+  const moodEncoded = debug.selfTalkQuery({ moodLabel: '发呆 & 出神', moodReason: '别催', image: 'webm/吃白饭.webm', imageLabel: '发呆出神' })
+  assert.ok(moodEncoded.includes('moodLabel=' + encodeURIComponent('发呆 & 出神')))
+  assert.ok(moodEncoded.includes('moodReason=' + encodeURIComponent('别催')))
+  assert.ok(moodEncoded.includes('image=' + encodeURIComponent('webm/吃白饭.webm')))
+  assert.ok(moodEncoded.includes('imageLabel=' + encodeURIComponent('发呆出神')))
   const keys = Array.from(params.keys())
-  assertDeep(keys.sort(), ['idleMinutes', 'kind', 'mood', 'recent', 'weather'], '只允许聚合上下文参数')
+  assertDeep(keys.sort(), ['idleMinutes', 'image', 'imageLabel', 'kind', 'mood', 'moodLabel', 'moodReason', 'recent', 'weather'], '只允许聚合上下文参数')
 
   assertDeep(debug.parseSelfTalkResponse({ ok: true, lines: [{ text: '今天也辛苦啦。' }, { text: '早点休息。' }] }), { ok: true, line: '今天也辛苦啦。', next: '早点休息。' })
   assert.equal(debug.parseSelfTalkResponse({ ok: true, lines: ['一句。'] }).line, '一句。')
@@ -3626,7 +3640,7 @@ test('自言自语模型集成：占位→模型 murmur、缓存、再说一句�
     assert.ok(query.get('mood'))
     assert.equal(query.get('weather'), 'rain')
     assert.ok(Number(query.get('idleMinutes')) >= 0)
-    const allowedKeys = ['kind', 'mood', 'weather', 'idleMinutes', 'recent']
+    const allowedKeys = ['kind', 'mood', 'weather', 'idleMinutes', 'recent', 'moodLabel', 'moodReason', 'image', 'imageLabel']
     for (const key of Array.from(query.keys())) assert.ok(allowedKeys.includes(key), '请求不得包含额外/会话参数：' + key)
 
     resolveDeferred()
@@ -5713,4 +5727,114 @@ test('mood-ai 失败原因透传：host code/HTTP status/429、parse 保留 code
   assert.equal(tooEarly, 1000, '距上次开始 19s → 剩余 1s')
   const afterGap = debug.moodAiEventDelay({ lastRequestAt: now - 25 * 1000, now, random: () => 0 })
   assert.equal(afterGap, 2000, '超过 20s → 回落到 2–4s 防抖')
+})
+
+test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label/reason/image/imageLabel', async () => {
+  const dataVersion = 'test.selftalkmood.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: true, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: [] },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 1, toolCalls: 5 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const selfTalkUrls = []
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self-talk.json') >= 0) {
+      selfTalkUrls.push(raw)
+      return { ok: true, json: async () => ({ ok: true, lines: [{ text: '发呆的时候，最适合听风。' }] }) }
+    }
+    if (raw.indexOf('mood-ai.json') >= 0) {
+      return { ok: true, json: async () => ({ ok: true, mood: { label: '发呆出神', image: 'dsh-whale-state-abstract.webp', reason: '想发会儿呆' } }) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    if (raw.indexOf('pet-media') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const timers = []
+  context.setTimeout = (fn, ms) => {
+    const entry = { fn, ms, used: false }
+    timers.push(entry)
+    return entry
+  }
+  context.clearTimeout = (entry) => { if (entry) entry.cleared = true }
+  const findTimer = (min, max) => {
+    for (let i = timers.length - 1; i >= 0; i -= 1) {
+      const entry = timers[i]
+      if (!entry.used && !entry.cleared && entry.ms >= min && entry.ms <= max) return entry
+    }
+    return null
+  }
+  const fire = (entry) => { assert.ok(entry); entry.used = true; entry.fn() }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 6; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    // 打开设置，用「刷新心情」立即拉一次模型心情，再关闭面板
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    const settingsTab = findAll(tree, (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && textOf(node) === '设置')[0]
+    assert.ok(settingsTab)
+    settingsTab.props.onClick()
+    tree = renderMain()
+    let settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.ok(settingsEl)
+    settingsEl.props.api.refreshMoodNow()
+    tree = renderMain()
+    const immediate = findTimer(0, 0)
+    assert.ok(immediate, '刷新心情应立即排期')
+    fire(immediate)
+    await sleep(30)
+    tree = renderMain()
+    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    assert.equal(settingsEl.props.api.moodSource, 'model')
+    // 用预览一句直接触发 startSpontaneousCard
+    settingsEl.props.api.previewSpontaneousPoem()
+    await sleep(30)
+    tree = renderMain()
+    assert.ok(selfTalkUrls.length >= 1, '应请求 self-talk')
+    const params = new URLSearchParams(selfTalkUrls[selfTalkUrls.length - 1].slice(selfTalkUrls[selfTalkUrls.length - 1].indexOf('?') + 1))
+    assert.equal(params.get('moodLabel'), '发呆出神')
+    assert.equal(params.get('moodReason'), '想发会儿呆')
+    assert.equal(params.get('image'), 'dsh-whale-state-abstract.webp')
+    assert.equal(params.get('imageLabel'), '发呆出神')
+    assert.equal(params.get('kind'), 'murmur')
+    assert.equal(params.get('mood'), 'calm')
+    assert.ok(params.get('recent') === null || params.get('recent').length >= 0)
+    assert.match(textOf(tree), /发呆的时候，最适合听风。/)
+  } finally {
+    react._cleanup()
+  }
 })

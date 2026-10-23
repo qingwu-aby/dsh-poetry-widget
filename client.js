@@ -2265,6 +2265,10 @@ window.__ModuleLoader__.load({
   }
   add('kind', 'murmur')
   add('mood', opts.moodKey)
+  add('moodLabel', opts.moodLabel)
+  add('moodReason', opts.moodReason)
+  add('image', opts.image)
+  add('imageLabel', opts.imageLabel)
   add('weather', opts.weather)
   add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
   const seen = {}
@@ -4881,6 +4885,11 @@ window.__ModuleLoader__.load({
    setSpontPoem({ type: 'thinking', title: '它正在想…', line: '', placeholder: true })
    const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now - lastInteractionRef.current) / 60000)) : 0
    const weatherValue = weatherRef.current ? String(weatherRef.current.category || weatherRef.current.label || '') : ''
+   const view = ui.moodView || null
+   const moodLabel = view && typeof view.label === 'string' ? view.label.trim() : ''
+   const moodReason = view && typeof view.reason === 'string' ? view.reason.trim() : ''
+   const image = view && typeof view.image === 'string' ? view.image.trim() : ''
+   const imageLabel = moodLabel
    const fallback = () => {
     setSelfTalkFallback(true)
     const card = fallbackSpontCard(moodKey, state)
@@ -4890,7 +4899,7 @@ window.__ModuleLoader__.load({
      setSpontPoem(null)
     }
    }
-   requestSelfTalk({ kind: 'murmur', moodKey, weather: weatherValue, idleMinutes, recent }).then((result) => {
+   requestSelfTalk({ kind: 'murmur', moodKey, moodLabel, moodReason, image, imageLabel, weather: weatherValue, idleMinutes, recent }).then((result) => {
     if (token !== spontReqRef.current) return
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
      setSpontPoem((current) => (current && current.type === 'thinking' ? null : current))

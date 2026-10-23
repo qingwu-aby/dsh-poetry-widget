@@ -4759,6 +4759,125 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
 })
 
 // ---------------------------------------------------------------------------
+// M35：碎碎念感知心情理由与立绘/动画（双向联动）
+// ---------------------------------------------------------------------------
+
+test('self-talk M35：prompt 含心情 label/理由/立绘（label 或 basename）与联动指令', () => {
+  const prompt = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    weather: 'rain',
+    moodKey: 'happy',
+    moodLabel: '开心',
+    moodReason: '看到蓝鲸出现，心里一下子软了',
+    image: 'webm/蓝鲸现世.webm',
+    imageLabel: '蓝鲸现世',
+    recent: ['最近说过的一句话'],
+  })
+  assert.match(prompt, /你此刻的心情：happy（开心）。/)
+  assert.match(prompt, /此刻心情的理由：看到蓝鲸出现，心里一下子软了。/)
+  assert.match(prompt, /你现在展示的立绘\/动画：蓝鲸现世（webm\/蓝鲸现世\.webm）。/)
+  assert.match(prompt, /让这句自言自语和你此刻的心情、表情\/动作、展示的画面自然对得上/)
+  assert.match(prompt, /可以轻轻提到画面里的动作\/表情\/光线/)
+  assert.match(prompt, /不要提文件名、路径或技术细节，也不要生硬描述画面/)
+  // 原有上下文仍在
+  assert.match(prompt, /你最近说过的话/)
+
+  // 没有 imageLabel 时用 basename
+  const noLabel = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    image: 'webm/哈欠连天.webm',
+  })
+  assert.match(noLabel, /你现在展示的立绘\/动画：哈欠连天\.webm（webm\/哈欠连天\.webm）。/)
+
+  // 无 image → 不输出立绘行/联动指令
+  const noImage = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    moodKey: 'calm',
+    moodLabel: '平静',
+    moodReason: '只是觉得安静很好',
+  })
+  assert.match(noImage, /你此刻的心情：calm（平静）。/)
+  assert.match(noImage, /此刻心情的理由：只是觉得安静很好。/)
+  assert.equal(noImage.includes('你现在展示的立绘/动画'), false)
+  assert.equal(noImage.includes('让这句自言自语和你此刻的心情'), false)
+})
+
+test('self-talk M35 路由：解析并传递 moodLabel/moodReason/image/imageLabel（截断/缺失/webm 路径）', async () => {
+  const captured = []
+  const stub = {
+    async generate(context) {
+      captured.push(context)
+      return { ok: true, lines: [{ text: '这是一句长度足够的测试句子。', ts: 1 }], model: { provider: 'p', model: 'm' }, generatedAt: 1, cached: false }
+    },
+  }
+  const harness = createHarness({ selfTalkService: stub })
+
+  const image = 'webm/蓝鲸现世.webm'
+  const fullUrl =
+    '/api/dsh-poetry/self-talk.json?mood=happy&moodLabel=' +
+    encodeURIComponent('开心') +
+    '&moodReason=' +
+    encodeURIComponent('看到蓝鲸出现，心里一下子软了') +
+    '&image=' +
+    encodeURIComponent(image) +
+    '&imageLabel=' +
+    encodeURIComponent('蓝鲸现世')
+  await harness.call('self-talk.json', mockRequest({ url: fullUrl }))
+  assert.equal(captured[0].moodKey, 'happy')
+  assert.equal(captured[0].moodLabel, '开心')
+  assert.equal(captured[0].moodReason, '看到蓝鲸出现，心里一下子软了')
+  assert.equal(captured[0].image, image, 'webm/ 完整相对路径保留')
+  assert.equal(captured[0].imageLabel, '蓝鲸现世')
+
+  // 缺失字段 → null
+  await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
+  assert.equal(captured[1].moodLabel, null)
+  assert.equal(captured[1].moodReason, null)
+  assert.equal(captured[1].image, null)
+  assert.equal(captured[1].imageLabel, null)
+
+  // 超长截断 + 白名单外字段不传递
+  const longLabel = '标'.repeat(30)
+  const longReason = '理'.repeat(90)
+  const longImage = `webm/${'图'.repeat(130)}.webm`
+  const longImageLabel = '画'.repeat(30)
+  const truncatedUrl =
+    '/api/dsh-poetry/self-talk.json?moodLabel=' +
+    encodeURIComponent(longLabel) +
+    '&moodReason=' +
+    encodeURIComponent(longReason) +
+    '&image=' +
+    encodeURIComponent(longImage) +
+    '&imageLabel=' +
+    encodeURIComponent(longImageLabel) +
+    '&sessionMessages=' +
+    encodeURIComponent('SECRET_SESSION_TEXT')
+  await harness.call('self-talk.json', mockRequest({ url: truncatedUrl }))
+  assert.equal(Array.from(captured[2].moodLabel).length, 24)
+  assert.equal(Array.from(captured[2].moodReason).length, 80)
+  assert.equal(Array.from(captured[2].image).length, 120)
+  assert.equal(Array.from(captured[2].imageLabel).length, 24)
+  assert.equal(JSON.stringify(captured[2]).includes('SECRET_SESSION_TEXT'), false, '白名单外字段不传递')
+})
+
+test('self-talk M35 服务：生成请求的 prompt 含心情理由/立绘与联动指令', async () => {
+  const { llm, service } = makeSelfTalkHarness()
+  const result = await service.generate({
+    moodKey: 'touched',
+    moodLabel: '感动',
+    moodReason: '看完蓝鲸那段，眼睛有点热',
+    image: 'webm/蓝鲸现世.webm',
+    imageLabel: '蓝鲸现世',
+  })
+  assert.equal(result.ok, true)
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /你此刻的心情：touched（感动）。/)
+  assert.match(prompt, /此刻心情的理由：看完蓝鲸那段，眼睛有点热。/)
+  assert.match(prompt, /你现在展示的立绘\/动画：蓝鲸现世（webm\/蓝鲸现世\.webm）。/)
+  assert.match(prompt, /不要提文件名、路径或技术细节/)
+})
+
+// ---------------------------------------------------------------------------
 // 静态资源路由
 // ---------------------------------------------------------------------------
 
