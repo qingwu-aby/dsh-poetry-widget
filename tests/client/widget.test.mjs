@@ -1992,7 +1992,7 @@ test('心情引擎 computeMood：各分类 + 优先级（tired/sleepy/proud > ha
   const moodOf = (overrides) => debug.computeMood(baseMoodInput(overrides))
 
   assert.equal(moodOf({}).key, 'calm')
-  assert.equal(debug.computeMood({}).key, 'calm', '未知数据按 0 → calm')
+  assert.equal(debug.computeMood({ signals: { now: shanghaiTs(2026, 10, 21, 10, 0), lastInteractionAt: shanghaiTs(2026, 10, 21, 9, 0) } }).key, 'calm', '未知数据按 0 → calm（固定时钟，避免夜间误判 sleepy）')
   assert.equal(moodOf({ stats: { toolCalls: 100 } }).key, 'tired')
   assert.equal(moodOf({ stats: { activeMs: 4 * 3600 * 1000 } }).key, 'tired')
   assert.equal(moodOf({ stats: { turnsErrored: 2 } }).key, 'tired')

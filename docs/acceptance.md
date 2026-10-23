@@ -10,7 +10,7 @@
 |---|---|---|---|
 | A1 | `node --check` 全部 JS | ✅ | index.js / lib/*.mjs / client.js（含飞花令）/ scripts / tests 全过 |
 | A2 | `node --test tests/data.test.mjs` | ✅ | 42 pass / 0 fail（含 data-src 离线快照 + M9/M10 四份数据资产） |
-| A3 | `node --test tests/host.test.mjs` | ✅ | 199 pass / 0 fail（+模型策略 3） |
+| A3 | `node --test tests/host.test.mjs` | ✅ | 202 pass / 0 fail（+OpenCode Go 候选 3） |
 | A4 | `node --test tests/client.test.mjs` | ✅ | 117 pass / 0 fail（-静态池，仅模型生成） |
 | A5 | 三套合计 | ✅ | **358 tests / 358 pass / 0 fail**（data 42 / host 199 / client 117） |
 | A6 | `node scripts/validate-data.mjs` | ✅ | 0 错误 / 0 warning（含押韵门、体式、简体残留、生僻字、词牌覆盖） |

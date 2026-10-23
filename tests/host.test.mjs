@@ -93,6 +93,8 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
+  MODEL_POLICY_OPENCODE_PROVIDER,
   MODEL_POLICY_DEFAULTS,
   MODEL_POLICY_DEFAULT_EFFORTS,
   MODEL_POLICY_EFFORTS,
@@ -474,7 +476,7 @@ const SELF_TALK_LINES_B = ['书页翻到一半的时候我忽然想起你在忙'
 /** 构造一个注入 mock llm 的 self-talk 服务 + 可控时钟。 */
 function makeSelfTalkHarness(overrides = {}) {
   const state = { clock: FIXED_NOW.getTime() }
-  const llm = makeMockLlm(overrides.responder ?? (() => SELF_TALK_LINES_A.join('\n')))
+  const llm = overrides.llm ?? makeMockLlm(overrides.responder ?? (() => SELF_TALK_LINES_A.join('\n')))
   const service = createSelfTalkService({
     llm,
     getSelection: overrides.getSelection ?? (() => SELF_TALK_SELECTION),
@@ -6770,7 +6772,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
 
   const selection = () => ({ provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' })
-  const policy = createModelPolicy({ env: {}, getSelection: selection })
+  const policy = createModelPolicy({ env: {}, getSelection: selection, getProviders: () => [] })
   assert.deepEqual(policy.resolve('mood'), { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
   assert.deepEqual(policy.resolve('selfTalk'), { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
   assert.deepEqual(policy.resolve('growth').reasoningEffort, 'high')
@@ -6791,7 +6793,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     DSH_POETRY_REASONING_GROWTH: 'banana',
     DSH_POETRY_REASONING_VOICE: 'off',
   }
-  const envPolicy = createModelPolicy({ env, getSelection: selection })
+  const envPolicy = createModelPolicy({ env, getSelection: selection, getProviders: () => [] })
   assert.deepEqual(envPolicy.resolve('mood'), { provider: 'openrouter', model: 'gpt-x', reasoningEffort: 'max' })
   assert.equal(envPolicy.resolve('selfTalk').reasoningEffort, 'low')
   assert.equal(envPolicy.resolve('growth').reasoningEffort, 'high', '非法 env effort 回退默认')
@@ -6801,11 +6803,12 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   const envOnly = createModelPolicy({
     env: { DSH_POETRY_MODEL_PROVIDER: 'p', DSH_POETRY_MODEL: 'm' },
     getSelection: () => null,
+    getProviders: () => [],
   })
   assert.deepEqual(envOnly.resolve('mood'), { provider: 'p', model: 'm', reasoningEffort: 'low' })
 
   // 全部缺失 → null；describe 中角色 none
-  const empty = createModelPolicy({ env: {}, getSelection: () => null })
+  const empty = createModelPolicy({ env: {}, getSelection: () => null, getProviders: () => [] })
   assert.equal(empty.resolve('mood'), null)
   assert.match(describeModelPolicy(empty), /心情=none/)
   assert.equal(normalizeEffort('HIGH'), 'high')
@@ -6816,7 +6819,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
 
 test('model-policy M49：四服务按 role 把 provider/model/reasoningEffort 传给 mock llm', async () => {
   const selection = () => ({ provider: 'deepseek-account', model: 'deepseek-flash' })
-  const policy = createModelPolicy({ env: {}, getSelection: selection })
+  const policy = createModelPolicy({ env: {}, getSelection: selection, getProviders: () => [] })
 
   // mood → low
   const mood = makeMoodAiHarness({ policy })
@@ -6869,6 +6872,7 @@ test('model-policy M49：四服务按 role 把 provider/model/reasoningEffort �
       DSH_POETRY_REASONING_MOOD: 'max',
     },
     getSelection: selection,
+    getProviders: () => [],
   })
   const moodEnv = makeMoodAiHarness({ policy: envPolicy })
   await moodEnv.service.generate({}, { force: true })
@@ -6895,6 +6899,209 @@ test('model-policy M49：非法 effort 不透传；policy 缺失/异常回退旧
   assert.equal(SELF_GROWTH_TIMEOUT_MS, 40000)
   assert.equal(VOICE_TIMEOUT_MS, 40000)
   assert.equal(MOOD_AI_TIMEOUT_MS, 20000, 'mood 超时保持不变')
+})
+
+// ---------------------------------------------------------------------------
+// M51：插件模型候选（opencode-go 优先 → deepseek-account 回落）
+// ---------------------------------------------------------------------------
+
+function makeCandidatePolicy(options = {}) {
+  return createModelPolicy({
+    env: options.env ?? {},
+    getSelection: options.getSelection ?? (() => ({ provider: 'deepseek-account', model: 'deepseek-flash' })),
+    getProviders: options.getProviders,
+  })
+}
+
+function makeFailoverLlm({ failProvider = 'opencode-go', partialProvider = null, timeoutProvider = null, successText }) {
+  const calls = []
+  const llm = {
+    calls,
+    stream(options) {
+      calls.push(options)
+      if (timeoutProvider !== null && options.provider === timeoutProvider) {
+        return (async function* () {
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          yield { type: 'text-delta', index: 0, text: successText }
+        })()
+      }
+      if (partialProvider !== null && options.provider === partialProvider) {
+        return (async function* () {
+          yield { type: 'text-delta', index: 0, text: '{"label"' }
+          throw new Error('stream broke after partial text')
+        })()
+      }
+      if (options.provider === failProvider) {
+        return (async function* () {
+          throw new Error('provider unavailable before any text')
+        })()
+      }
+      return (async function* () {
+        yield { type: 'text-delta', index: 0, text: successText }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  return llm
+}
+
+test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', () => {
+  const effortHigh = 'high'
+  // 无法探测 → 假定 opencode-go 存在，opencode-go → selection
+  const unknown = makeCandidatePolicy()
+  const moodCandidates = unknown.resolveCandidates('mood')
+  assert.equal(moodCandidates.length, 2)
+  assert.deepEqual(moodCandidates[0], {
+    provider: MODEL_POLICY_OPENCODE_PROVIDER,
+    model: MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
+    reasoningEffort: 'low',
+  })
+  assert.deepEqual(moodCandidates[1], { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'low' })
+  assert.equal(unknown.resolve('selfTalk').reasoningEffort, effortHigh)
+  assert.equal(MODEL_POLICY_OPENCODE_DEFAULT_MODEL, 'deepseek-v4.1-flash')
+  assert.equal(MODEL_POLICY_OPENCODE_PROVIDER, 'opencode-go')
+
+  // 已知 provider 列表不含 opencode-go 或含它
+  assert.deepEqual(
+    makeCandidatePolicy({ getProviders: () => [] }).resolveCandidates('mood').map((c) => c.provider),
+    ['deepseek-account'],
+  )
+  assert.deepEqual(
+    makeCandidatePolicy({ getProviders: () => ['opencode-go', 'deepseek-account'] }).resolveCandidates('mood').map((c) => c.provider),
+    ['opencode-go', 'deepseek-account'],
+  )
+  assert.deepEqual(
+    makeCandidatePolicy({ getProviders: () => [{ id: 'opencode-go' }] }).resolveCandidates('mood')[0].provider,
+    'opencode-go',
+  )
+  // Promise 视为未知（不阻塞）→ 仍包含 opencode-go
+  assert.equal(
+    makeCandidatePolicy({ getProviders: () => Promise.resolve(['whatever']) }).resolveCandidates('mood')[0].provider,
+    'opencode-go',
+  )
+
+  // 显式覆盖 → 单候选
+  const explicit = makeCandidatePolicy({
+    env: { DSH_POETRY_MODEL_PROVIDER: 'custom-p', DSH_POETRY_MODEL: 'custom-m', DSH_POETRY_REASONING_MOOD: 'max' },
+  })
+  assert.deepEqual(explicit.resolveCandidates('mood'), [
+    { provider: 'custom-p', model: 'custom-m', reasoningEffort: 'max' },
+  ])
+  assert.equal(explicit.resolveCandidates('selfTalk').length, 1, '显式覆盖所有 role 都是单候选')
+
+  // 关闭开关 → 直接回落 selection
+  assert.deepEqual(
+    makeCandidatePolicy({ env: { DSH_POETRY_OPENCODE_GO: '0' } }).resolveCandidates('mood').map((c) => c.provider),
+    ['deepseek-account'],
+  )
+  assert.deepEqual(
+    makeCandidatePolicy({ env: { DSH_POETRY_MODEL_PRIORITY: 'deepseek-account' } })
+      .resolveCandidates('mood')
+      .map((c) => c.provider),
+    ['deepseek-account'],
+  )
+  // opencode 模型 env 覆盖
+  assert.equal(
+    makeCandidatePolicy({ env: { DSH_POETRY_OPENCODE_MODEL: 'custom-opencode' } }).resolveCandidates('mood')[0].model,
+    'custom-opencode',
+  )
+  // 去重：selection 与 opencode 候选相同
+  const deduped = makeCandidatePolicy({
+    getSelection: () => ({ provider: 'opencode-go', model: 'deepseek-v4.1-flash' }),
+  }).resolveCandidates('mood')
+  assert.equal(deduped.length, 1)
+  assert.equal(deduped[0].provider, 'opencode-go')
+  // 非法 role / 全缺失
+  assert.deepEqual(unknown.resolveCandidates('unknown'), [])
+  const none = createModelPolicy({ env: {}, getSelection: () => null, getProviders: () => [] })
+  assert.deepEqual(none.resolveCandidates('mood'), [])
+})
+
+test('model-policy M51：四服务首候选失败（未产出文本）→ 回落第二候选并记录实际 model', async () => {
+  const policy = makeCandidatePolicy({ getProviders: () => ['opencode-go'] })
+
+  // mood
+  const moodLlm = makeFailoverLlm({
+    successText: JSON.stringify({ label: '开心', image: 'dsh-whale-state-happy.webp', reason: '一切顺利', energy: 80 }),
+  })
+  const mood = makeMoodAiHarness({ policy, llm: moodLlm })
+  const moodResult = await mood.service.generate({}, { force: true })
+  assert.equal(moodResult.ok, true)
+  assert.deepEqual(moodResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' }, '实际回落的 provider/model')
+  assert.deepEqual(moodLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
+  assert.equal(moodLlm.calls[0].reasoningEffort, 'low')
+  assert.equal(moodLlm.calls[1].reasoningEffort, 'low')
+
+  // selfTalk
+  const talkLlm = makeFailoverLlm({ successText: SELF_TALK_LINES_A.join('\n') })
+  const talk = makeSelfTalkHarness({ policy, llm: talkLlm })
+  const talkResult = await talk.service.generate({})
+  assert.equal(talkResult.ok, true)
+  assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.deepEqual(talkLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
+  assert.equal(talkLlm.calls[0].reasoningEffort, 'high')
+
+  // growth（reflect）
+  const growthLlm = makeFailoverLlm({ successText: JSON.stringify({ thought: '安静地接着自己上一次的念头想一想。' }) })
+  const growthHarness = makeGrowthHarness({ policy, llm: growthLlm })
+  const growthResult = await growthHarness.growth.reflectNow()
+  assert.equal(growthResult.ok, true)
+  assert.deepEqual(growthLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
+  assert.equal(growthLlm.calls[0].reasoningEffort, 'high')
+
+  // voice（refresh）
+  const voiceDir = makeTmpDir('dshp-candidates-voice')
+  const journalPath = writeRecallJournal(path.join(voiceDir, 'journal.jsonl'), [
+    { kind: 'thought', text: '一句话。' },
+    { kind: 'murmur', text: '第二句话。' },
+    { kind: 'thought', text: '第三句话。' },
+  ])
+  const voiceLlm = makeFailoverLlm({
+    successText: JSON.stringify({ profile: makeLongVoiceProfile(), exemplars: ['a', 'b', 'c'] }),
+  })
+  const voice = createVoiceService({
+    llm: voiceLlm,
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    policy,
+    journalPath,
+    voicePath: path.join(voiceDir, 'voice.json'),
+    logger: { warn() {} },
+    timeoutMs: 300,
+  })
+  const voiceResult = await voice.refreshNow()
+  assert.equal(voiceResult.ok, true)
+  assert.deepEqual(voiceLlm.calls.map((call) => call.provider), ['opencode-go', 'deepseek-account'])
+  assert.equal(voiceLlm.calls[0].reasoningEffort, 'high')
+})
+
+test('model-policy M51：候选已产出部分文本后失败 → 不重试（避免串话）；空输出/首候选超时仍可回落', async () => {
+  const policy = makeCandidatePolicy({ getProviders: () => ['opencode-go'] })
+
+  // mood：首个候选已输出部分文本后抛错 → 不尝试第二候选
+  const partialLlm = makeFailoverLlm({ partialProvider: 'opencode-go', successText: 'ignored' })
+  const mood = makeMoodAiHarness({ policy, llm: partialLlm })
+  const moodResult = await mood.service.generate({}, { force: true })
+  assert.equal(moodResult.ok, false)
+  assert.equal(partialLlm.calls.length, 1, '部分输出失败不重试')
+
+  // selfTalk：同样不重试
+  const talkPartial = makeFailoverLlm({ partialProvider: 'opencode-go', successText: 'ignored' })
+  const talk = makeSelfTalkHarness({ policy, llm: talkPartial })
+  const talkResult = await talk.service.generate({})
+  assert.equal(talkResult.ok, false)
+  assert.equal(talkPartial.calls.length, 1)
+
+  // mood：首候选超时（未产出文本）→ 回落第二候选成功
+  const timeoutLlm = makeFailoverLlm({
+    timeoutProvider: 'opencode-go',
+    successText: JSON.stringify({ label: '放松', image: 'dsh-whale-state-happy.webp', reason: '慢下来了', energy: 50 }),
+  })
+  const timeoutPolicy = makeCandidatePolicy({ getProviders: () => ['opencode-go'] })
+  const timeoutHarness = makeMoodAiHarness({ policy: timeoutPolicy, llm: timeoutLlm, timeoutMs: 40 })
+  const timeoutResult = await timeoutHarness.service.generate({}, { force: true })
+  assert.equal(timeoutResult.ok, true)
+  assert.equal(timeoutLlm.calls.length, 2, '首候选超时后尝试第二候选')
+  assert.deepEqual(timeoutResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 })
 
 // ---------------------------------------------------------------------------

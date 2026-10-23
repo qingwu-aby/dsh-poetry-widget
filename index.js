@@ -42,7 +42,7 @@ import {
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
-import { createModelPolicy, describeModelPolicy } from './lib/model-policy.mjs'
+import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
 import { createSelfActions } from './lib/self-actions.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
@@ -159,8 +159,17 @@ export async function apply(ctx) {
           return null
         }
       }
-      // v1.38：模型策略（按 role 选 provider/model/reasoningEffort；env 可覆盖，无 policy 回退旧行为）。
-      const modelPolicy = createModelPolicy({ env, getSelection })
+      // v1.38/v1.39：模型策略（按 role 选候选 provider/model/reasoningEffort；插件自身调用优先 opencode-go）。
+      const getProviders = () => {
+        try {
+          const llm = getLlm()
+          if (llm !== null && llm !== undefined && typeof llm.listProviders === 'function') return llm.listProviders()
+          return null
+        } catch {
+          return null
+        }
+      }
+      const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
       const topicBank = loadTopicBank({ path: topicsPath, logger })
@@ -264,7 +273,24 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（内在状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      logger?.info?.(`[dsh-poetry-widget] 模型策略：${describeModelPolicy(modelPolicy)}`)
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice']
+        .map((role) => {
+          let candidates = []
+          try {
+            candidates = modelPolicy.resolveCandidates(role)
+          } catch {
+            candidates = []
+          }
+          const list = candidates
+            .map(
+              (candidate) =>
+                `${candidate.provider}/${candidate.model}${candidate.reasoningEffort ? `(${candidate.reasoningEffort})` : ''}`,
+            )
+            .join(' → ')
+          return `${MODEL_POLICY_ROLE_LABELS[role] ?? role}=[${list || 'none'}]`
+        })
+        .join('; ')
+      logger?.info?.(`[dsh-poetry-widget] 模型候选：${candidateText}`)
       hostCtx.effect(
         () => () => {
           try {

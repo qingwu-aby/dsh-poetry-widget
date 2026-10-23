@@ -686,3 +686,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户允许自选模型/推理等级。可路由：deepseek-account/deepseek-flash（off/low/high/max）。
 - 策略：mood=low、selfTalk=high、growth=high、voice=high；模型默认宿主 selection，env 可覆盖 provider/model/各 role effort；self-talk 20→35s、growth/voice 20→40s、client self-talk 8→35s。
 - 三套单测 358/358（data 42 / host 199 / client 117）。
+
+## 55. OpenCode Go 模型候选（M51，2026-10-23）
+
+- 插件自身调用优先 opencode-go/deepseek-v4.1-flash，失败回落 deepseek-account/deepseek-flash；候选在产生文本前失败才回退，部分输出不重试；不改 DSH 全局模型/子代理白名单。
+- 模型候选 + 推理策略默认：mood low、selfTalk/growth/voice high；env 可覆盖/关闭。
+- 修了客户端心情引擎测试的当前时间依赖（夜间误判 sleepy）。
+- 三套单测 361/361（data 42 / host 202 / client 117）。
