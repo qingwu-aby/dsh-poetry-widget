@@ -619,3 +619,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - mood-ai 新增 `MOOD_AI_EMOTION_VOCAB`（27 个细情绪词）+ prompt 引导：label 可用怅然/眷恋/释然/雀跃/忐忑/倦怠/惊奇/羞赧/怀念/笃定/心软/空落/满足/惶惑/温柔/烦躁/期待/失落/松弛/鼻酸/被戳中/想撒娇/想安静/想被看见/有点委屈/暗自得意/淡淡的遗憾，不再只用粗词；仍 ≤12 字且与 reason/image 一致。
 - 话题库新增 32 条（弗洛伊德/荣格/拉康/康德/尼采/海德格尔/萨特/加缪/波伏娃/阿伦特/福柯/柏拉图/亚里士多德/斯多葛/斯宾诺莎 + 情绪词汇），197 条；新增 `learning-log.md` 学习日志与流程（学习→判断→topics.json / journal.md）。
 - 三套单测 300/300（data 42 / host 151 / client 107）。
+
+## 45. 用户同意自驱成长（M38/M39，2026-10-23）
+
+用户：「好，尽量给自己留足成长的空间」。
+- Host `self-state.json`：精力/好奇/社交/饥饿/情绪按分钟自己漂移，原子持久化；60s tick。
+- Host `self-growth`：每 60min 自省写 journal `thought`；每 90min 自学写 `agent-memory/learning-log.md`；自学话题只进 `agent-memory/topics-candidates.json` 候选区，不直接改 topics.json；失败推迟、不重入、20s 超时、隐私白名单。
+- `GET /api/dsh-poetry/self.json` 只读内部指标；mood-ai/self-talk prompt 注入内在状态行（要求不把数字原样说出）。
+- Client 设置页「成长状态」：精力/好奇/社交/饥饿 + 自学/自省摘要；仅面板打开时 60s 轮询。
+- 三套单测 314/314（data 42 / host 162 / client 110）。

@@ -92,6 +92,31 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  SELF_GROWTH_REFLECT_INTERVAL_MS,
+  SELF_GROWTH_TICK_MS,
+  buildLearnPrompt,
+  buildReflectPrompt,
+  createSelfGrowth,
+  normalizeTopicCandidate,
+  parseLearnResult,
+  parseReflectResult,
+} from '../lib/self-growth.mjs'
+import {
+  SELF_STATE_DEFAULTS,
+  SELF_STATE_MAX_TICK_MINUTES,
+  SELF_STATE_ROUTE,
+  advanceSelfState,
+  applySelfEvent,
+  clampSelfValue,
+  createSelfState,
+  createSelfStateHandler,
+  defaultSelfState,
+  describeSelfState,
+  formatSelfStateLine,
+  normalizeSelfState,
+  resolveSelfStatePath,
+} from '../lib/self-state.mjs'
+import {
   SELF_TALK_TOPIC_RECENT_MAX,
   SELF_TALK_TOPIC_TOP_N,
   buildTopicPromptLine,
@@ -222,6 +247,7 @@ function createHarness(overrides = {}) {
   const settingsFile = overrides.settingsFile ?? path.join(home, '.dsh', '.dsh-poetry', 'settings.json')
   const env = overrides.env ?? {}
   const now = overrides.now ?? (() => FIXED_NOW)
+  const getSelfState = overrides.getSelfState
   const dataStore = createDataStore({ dataDir })
   const settingsStore =
     overrides.settingsStore ??
@@ -287,6 +313,7 @@ function createHarness(overrides = {}) {
       moodAiService,
       journal,
       feihuaFullService,
+      getSelfState,
       env,
       home,
       now,
@@ -1689,7 +1716,8 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
     emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
 
-    assert.equal(routes.length, 15, 'assets + pet-media + 13 条 JSON 路由')
+    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 条 JSON 路由')
+    assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(
       routes.some((route) => route.path === '/api/dsh-poetry/self-talk.json'),
       '注册了 self-talk.json 路由',
@@ -3483,7 +3511,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 15, 'assets + pet-media + 13 条 JSON')
+    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4733,7 +4761,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 15, '无新路由（assets + pet-media + 13 JSON）')
+    assert.equal(routes.length, 16, 'assets + pet-media + self + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -4927,6 +4955,426 @@ test('mood-ai M37：细腻情绪词库导出 ≥20 且 prompt 引导细情绪词
     options,
   )
   assert.equal(tooLong.ok, false, '超过 12 字仍拒绝')
+})
+
+// ---------------------------------------------------------------------------
+// M38：自驱成长引擎（内在状态 + 自省/自学 + self.json 路由 + prompt 注入）
+// ---------------------------------------------------------------------------
+
+/** 构造按顺序返回预设文本的 mock llm（超出后重复最后一个）。 */
+function makeGrowthLlm(texts) {
+  const calls = []
+  let index = 0
+  return {
+    calls,
+    stream(options) {
+      calls.push(options)
+      const text = texts[Math.min(index, texts.length - 1)]
+      index += 1
+      return (async function* () {
+        yield { type: 'text-delta', index: 0, text }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+}
+
+function makeGrowthHarness(overrides = {}) {
+  const dir = makeTmpDir('dshp-growth')
+  const state = overrides.state ?? createSelfState({ file: path.join(dir, 'self-state.json'), logger: { warn() {} } })
+  const journal = overrides.journal ?? {
+    entries: [],
+    async append(entry) {
+      this.entries.push(entry)
+      return { ok: true }
+    },
+  }
+  const growth = createSelfGrowth({
+    state,
+    llm: overrides.llm ?? makeGrowthLlm([JSON.stringify({ thought: '今天安静地陪着你，心里很稳。' })]),
+    getSelection: overrides.getSelection ?? (() => ({ provider: 'deepseek-account', model: 'deepseek-flash' })),
+    journal,
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    candidatesPath: path.join(dir, 'topics-candidates.json'),
+    topics: overrides.topics ?? [],
+    logger: { warn() {}, info() {} },
+    reflectIntervalMs: overrides.reflectIntervalMs ?? SELF_GROWTH_REFLECT_INTERVAL_MS,
+    learnIntervalMs: overrides.learnIntervalMs ?? 90 * 60 * 1000,
+    timeoutMs: overrides.timeoutMs ?? 200,
+    tickIntervalMs: overrides.tickIntervalMs ?? SELF_GROWTH_TICK_MS,
+    now: overrides.now ?? (() => FIXED_NOW.getTime()),
+  })
+  return { dir, state, journal, growth }
+}
+
+test('self-state：路径/默认值/归一化/clamp', () => {
+  assert.equal(resolveSelfStatePath({ DSH_SELF_STATE: '/tmp/self.json' }, '/Users/alice'), '/tmp/self.json')
+  assert.equal(
+    resolveSelfStatePath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'),
+    '/tmp/dsh-home/.dsh-poetry/self-state.json',
+  )
+  assert.equal(resolveSelfStatePath({}, '/Users/alice'), '/Users/alice/.dsh/.dsh-poetry/self-state.json')
+
+  const now = 1700000000000
+  const state = defaultSelfState(now)
+  assert.equal(state.v, 1)
+  for (const [field, value] of Object.entries(SELF_STATE_DEFAULTS)) assert.equal(state[field], value, field)
+  assert.equal(state.lastTickAt, now)
+  assert.equal(state.learnings, 0)
+  assert.equal(state.reflections, 0)
+
+  const normalized = normalizeSelfState(
+    { energy: 999, curiosity: -5, social: 61.26, hunger: 'bad', moodValence: 50, moodArousal: 48.24, learnings: 7, reflections: 3 },
+    now,
+  )
+  assert.equal(normalized.energy, 100)
+  assert.equal(normalized.curiosity, 0)
+  assert.equal(normalized.social, 61.3)
+  assert.equal(normalized.hunger, SELF_STATE_DEFAULTS.hunger)
+  assert.equal(normalized.moodValence, 50)
+  assert.equal(normalized.moodArousal, 48.2)
+  assert.equal(normalized.learnings, 7)
+  assert.equal(normalized.reflections, 3)
+  assert.equal(clampSelfValue(120), 100)
+  assert.equal(clampSelfValue(-3), 0)
+  assert.equal(clampSelfValue('x', 42), 42)
+})
+
+test('self-state：tick 漂移（精力↓好奇↑社交/饥饿↑）与 180min cap', () => {
+  const now = 1700000000000
+  const state = defaultSelfState(now)
+  const after30 = advanceSelfState(state, now + 30 * 60 * 1000)
+  assert.equal(after30.energy, 64) // 70 - 0.2*30
+  assert.equal(after30.curiosity, 63) // 60 + 0.1*30
+  assert.equal(after30.social, 59.5) // 55 + 0.15*30
+  assert.equal(after30.hunger, 42.5) // 35 + 0.25*30
+  assert.equal(after30.lastTickAt, now + 30 * 60 * 1000)
+
+  // 超过 180min 只补算 180min
+  const capped = advanceSelfState(state, now + 300 * 60 * 1000)
+  assert.equal(capped.energy, 34) // 70 - 36
+  assert.equal(capped.hunger, 80) // 35 + 45
+  assert.equal(capped.curiosity, 78)
+  assert.equal(capped.social, 82)
+  assert.equal(SELF_STATE_MAX_TICK_MINUTES, 180)
+
+  // valence/arousal 向中性回落
+  const excited = { ...state, moodValence: 40, moodArousal: 80 }
+  const calmed = advanceSelfState(excited, now + 10 * 60 * 1000)
+  assert.equal(calmed.moodValence, 38) // -0.2*10
+  assert.equal(calmed.moodArousal, 78) // 向 45 回落 0.2*10
+})
+
+test('self-state：applyEvent（meal/play/social/rest/learn/reflect）与 clamp/计数', () => {
+  const now = 1700000000000
+  const base = defaultSelfState(now)
+  const meal = applySelfEvent(base, 'meal', now)
+  assert.equal(meal.hunger, 5)
+  assert.equal(meal.energy, 75)
+  assert.equal(meal.lastMealAt, now)
+
+  const play = applySelfEvent(base, 'play', now)
+  assert.equal(play.moodValence, 15)
+  assert.equal(play.moodArousal, 55)
+  assert.equal(play.curiosity, 65)
+  assert.equal(play.lastPlayAt, now)
+
+  const social = applySelfEvent(base, 'social', now)
+  assert.equal(social.social, 75)
+  assert.equal(social.moodValence, 10)
+  assert.equal(social.lastSocialAt, now)
+
+  const rest = applySelfEvent(base, 'rest', now)
+  assert.equal(rest.energy, 95)
+  assert.equal(rest.moodArousal, 35)
+
+  const learn = applySelfEvent(base, 'learn', now)
+  assert.equal(learn.curiosity, 80)
+  assert.equal(learn.energy, 65)
+  assert.equal(learn.learnings, 1)
+  assert.equal(learn.lastLearnAt, now)
+
+  const reflect = applySelfEvent(base, 'reflect', now)
+  assert.equal(reflect.moodValence, 5)
+  assert.equal(reflect.moodArousal, 40)
+  assert.equal(reflect.reflections, 1)
+  assert.equal(reflect.lastReflectAt, now)
+
+  // clamp 上限
+  const high = { ...base, energy: 99 }
+  assert.equal(applySelfEvent(high, 'rest', now).energy, 100)
+  // 未知事件不变（逐字段断言，避免归一化对象引用差异）
+  const unknown = applySelfEvent(base, 'unknown', now)
+  for (const field of ['energy', 'curiosity', 'social', 'hunger', 'moodValence', 'moodArousal']) {
+    assert.equal(unknown[field], base[field], field)
+  }
+  assert.equal(unknown.lastTickAt, base.lastTickAt)
+})
+
+test('self-state：createSelfState 持久化节流/flush/坏文件回退默认', () => {
+  const dir = makeTmpDir('dshp-self-state')
+  const file = path.join(dir, 'self-state.json')
+  const base = new Date(2026, 9, 23, 21, 0, 0).getTime()
+  let clock = base
+  const state = createSelfState({ file, now: () => clock, logger: { warn() {} }, persistThrottleMs: 60 * 1000 })
+  const initial = state.snapshot()
+  assert.equal(initial.energy, SELF_STATE_DEFAULTS.energy)
+  assert.equal(fs.existsSync(file), false, '仅读取不写盘')
+
+  clock = base + 30 * 60 * 1000
+  state.tick(clock)
+  const persisted = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.equal(persisted.energy, 64)
+  assert.equal(persisted.updatedAt, clock)
+
+  // 节流窗口内（30s < 60s）：内存漂移但文件不写
+  clock = base + 30 * 60 * 1000 + 30 * 1000
+  state.tick(clock)
+  assert.equal(state.snapshot().energy, 63.9)
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, base + 30 * 60 * 1000, '节流窗口内不写盘')
+  state.flush()
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).updatedAt, clock, 'flush 强制写盘')
+
+  // 坏文件 → 默认值、不抛
+  fs.writeFileSync(file, 'not json', 'utf8')
+  const recovered = createSelfState({ file, now: () => clock, logger: { warn() {} } })
+  assert.equal(recovered.snapshot().energy, SELF_STATE_DEFAULTS.energy)
+  state.dispose()
+  recovered.dispose()
+})
+
+test('self-state：describeSelfState/formatSelfStateLine 与 self.json handler', async () => {
+  const state = defaultSelfState(FIXED_NOW.getTime())
+  const describe = describeSelfState({ ...state, energy: 20, curiosity: 85, social: 10, hunger: 80, moodValence: 5, moodArousal: 80 })
+  assert.match(describe, /很疲惫/)
+  assert.match(describe, /好奇心很旺/)
+  assert.match(describe, /只想安静待着/)
+  assert.match(describe, /肚子很饿/)
+  assert.match(describe, /心里有点紧绷/)
+  assert.equal(/\d/.test(describe), false, '定性描述不含数字')
+
+  const line = formatSelfStateLine(state)
+  assert.match(line, /你现在的内在状态：精力 70\/100、好奇 60\/100、社交 55\/100、饥饿 35\/100。/)
+  assert.match(line, /不要把这些数字原样说出来/)
+
+  const handler = createSelfStateHandler({
+    tick: () => {},
+    getSnapshot: () => ({ energy: 70 }),
+    getGrowth: () => ({ lastReflectAt: 1, lastLearnAt: 2, learnings: 3, reflections: 4 }),
+  })
+  async function call({ method = 'GET', headers = { host: '127.0.0.1:57623' } } = {}) {
+    const response = new MockResponse()
+    await handler(mockRequest({ method, url: SELF_STATE_ROUTE, headers }), response)
+    await response.finished()
+    return response
+  }
+  const get = await call({ headers: {} })
+  assert.equal(get.statusCode, 200)
+  assert.equal(get.headers['Cache-Control'], 'no-store')
+  assert.equal(get.json().ok, true)
+  assert.equal(get.json().state.energy, 70)
+  assert.equal(get.json().growth.learnings, 3)
+  const head = await call({ method: 'HEAD' })
+  assert.equal(head.statusCode, 200)
+  assert.equal(Buffer.concat(head.chunks).length, 0)
+  const post = await call({ method: 'POST' })
+  assert.equal(post.statusCode, 405)
+  assert.equal(post.headers.Allow, 'GET, HEAD')
+
+  // tick/snapshot 抛错 → 200 ok:false，不 5xx
+  const failing = createSelfStateHandler({
+    tick: () => {
+      throw new Error('boom')
+    },
+    getSnapshot: () => ({}),
+  })
+  const failedResponse = new MockResponse()
+  await failing(mockRequest({ url: SELF_STATE_ROUTE }), failedResponse)
+  await failedResponse.finished()
+  assert.equal(failedResponse.statusCode, 200)
+  assert.equal(failedResponse.json().ok, false)
+  assert.equal(failedResponse.json().error.code, 'SELF_STATE_UNAVAILABLE')
+})
+
+test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
+  const state = defaultSelfState(FIXED_NOW.getTime())
+  const reflectPrompt = buildReflectPrompt({ now: FIXED_NOW.getTime(), state })
+  assert.match(reflectPrompt, /最近的自省/)
+  assert.match(reflectPrompt, /"thought"/)
+  assert.match(reflectPrompt, /不要提 AI、模型、提示词/)
+  assert.match(reflectPrompt, /内在状态/)
+  // 只读白名单：额外敏感字段不进入 prompt
+  const injectedPrompt = buildReflectPrompt({
+    now: FIXED_NOW.getTime(),
+    state,
+    sessionMessages: ['SECRET_SESSION']
+  })
+  assert.equal(injectedPrompt.includes('SECRET_SESSION'), false)
+
+  const parsedReflect = parseReflectResult('```json\n{"thought":"今天安静地陪着你，心里很稳。"}\n```')
+  assert.equal(parsedReflect.ok, true)
+  assert.equal(parsedReflect.thought, '今天安静地陪着你，心里很稳。')
+  assert.equal(parseReflectResult('{"thought":"太短"}').ok, false)
+  assert.equal(parseReflectResult('not json').ok, false)
+  assert.equal(parseReflectResult('{"thought":"这首诗真好啊，我想到「明月」。"}').ok, false, '含诗词痕迹拒绝')
+
+  const learnPrompt = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
+  assert.match(learnPrompt, /自学/)
+  assert.match(learnPrompt, /\{"question":"…","note":"…","topic":/)
+  assert.match(learnPrompt, /topic 用 null/)
+
+  const validLearn = parseLearnResult(
+    JSON.stringify({
+      question: '鲸落为什么能养活深海？',
+      note: '鲸的尸体沉到海底，会形成持续多年的生态热点。',
+      topic: { id: 'whale-fall-ecosystem', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋', '动物'] },
+    }),
+  )
+  assert.equal(validLearn.ok, true)
+  assert.equal(validLearn.topic.id, 'whale-fall-ecosystem')
+  assert.equal(parseLearnResult(JSON.stringify({ question: '一个小问题', note: '一点点笔记', topic: null })).topic, null)
+  const invalidTopic = parseLearnResult(
+    JSON.stringify({ question: '一个小问题呀', note: '一点点笔记呀', topic: { id: 'Bad ID!', title: 'x', fact: 'y', tags: ['z'] } }),
+  )
+  assert.equal(invalidTopic.ok, true)
+  assert.equal(invalidTopic.topic, null, '非法 topic 被丢弃但自学仍有效')
+  assert.equal(normalizeTopicCandidate({ id: 'ok-topic', title: '标题', fact: '事实', tags: ['tag'] }).id, 'ok-topic')
+  assert.equal(normalizeTopicCandidate({ id: 'X', title: '标题', fact: '事实', tags: ['tag'] }), null)
+  assert.equal(normalizeTopicCandidate({ id: 'ok-topic', title: '', fact: '事实', tags: ['tag'] }), null)
+})
+
+test('self-growth：到点自省写 journal thought、自学写 learning-log 与候选话题（不写 topics.json）', async () => {
+  const now = FIXED_NOW.getTime()
+  const llm = makeGrowthLlm([
+    JSON.stringify({ thought: '今天安静地陪着你，心里很稳。' }),
+    JSON.stringify({
+      question: '鲸落为什么能养活深海？',
+      note: '鲸的尸体沉到海底，会形成持续多年的生态热点。',
+      topic: { id: 'whale-fall-ecosystem', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋', '动物'] },
+    }),
+  ])
+  const { dir, state, journal, growth } = makeGrowthHarness({ llm, topics: [{ id: 'octopus-three-hearts' }], now: () => now })
+
+  const reflect = await growth.reflectNow()
+  assert.equal(reflect.ok, true)
+  assert.equal(journal.entries.length, 1)
+  assert.equal(journal.entries[0].kind, 'thought')
+  assert.match(journal.entries[0].text, /^自省：/)
+  assert.match(journal.entries[0].text, /今天安静地陪着你/)
+  assert.equal(state.snapshot().reflections, 1)
+  assert.equal(growth.snapshot().lastReflectAt, now)
+
+  const learn = await growth.learnNow()
+  assert.equal(learn.ok, true)
+  assert.equal(learn.candidateAdded, true)
+  const learningLog = fs.readFileSync(path.join(dir, 'learning-log.md'), 'utf8')
+  assert.match(learningLog, /· 自学/)
+  assert.match(learningLog, /Q: 鲸落为什么能养活深海？/)
+  assert.match(learningLog, /鲸的尸体沉到海底/)
+  const candidates = JSON.parse(fs.readFileSync(path.join(dir, 'topics-candidates.json'), 'utf8'))
+  assert.equal(candidates.ok, true)
+  assert.deepEqual(candidates.topics.map((topic) => topic.id), ['whale-fall-ecosystem'])
+  assert.equal(state.snapshot().learnings, 1)
+  assert.equal(growth.snapshot().learnings, 1)
+
+  // 同一 topic 再次自学 → 去重，不再新增；learning-log 仍追加
+  const again = await growth.learnNow()
+  assert.equal(again.ok, true)
+  assert.equal(again.candidateAdded, false, '重复 topic 不重复入库')
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'topics-candidates.json'), 'utf8')).topics.length, 1)
+  growth.dispose()
+})
+
+test('self-growth：失败也推迟到下一周期、不重入、tick 到点触发、snapshot', async () => {
+  const now = FIXED_NOW.getTime()
+  const llm = makeGrowthLlm(['not json'])
+  const { growth, journal } = makeGrowthHarness({
+    llm,
+    reflectIntervalMs: 60 * 1000,
+    learnIntervalMs: 1000 * 60 * 60 * 24,
+    now: () => now,
+  })
+  const first = await growth.reflectNow()
+  assert.equal(first.ok, false)
+  assert.equal(journal.entries.length, 0)
+
+  // 不重入：同时再调一次 → busy
+  const slowLlm = makeGrowthLlm([JSON.stringify({ thought: '一句足够长的自省。' })])
+  const slowLlmStream = slowLlm.stream
+  slowLlm.stream = (options) => {
+    const inner = slowLlmStream(options)
+    return (async function* () {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      yield* inner
+    })()
+  }
+  const second = makeGrowthHarness({ llm: slowLlm, reflectIntervalMs: 60 * 1000, now: () => now })
+  const running = second.growth.reflectNow()
+  const busy = await second.growth.reflectNow()
+  assert.equal(busy.ok, false)
+  assert.equal(busy.reason, 'busy')
+  const finished = await running
+  assert.equal(finished.ok, true)
+  second.growth.dispose()
+  growth.dispose()
+})
+
+test('self-growth：tick 的模型失败会推进 lastReflectAt（不在每个 tick 重试）', async () => {
+  let clock = FIXED_NOW.getTime()
+  const llm = makeGrowthLlm(['not json'])
+  const { growth } = makeGrowthHarness({
+    llm,
+    reflectIntervalMs: 60 * 1000,
+    learnIntervalMs: 1000 * 60 * 60 * 24,
+    now: () => clock,
+  })
+  clock += 2 * 60 * 1000
+  growth.tick(clock)
+  assert.equal(growth.snapshot().lastReflectAt, clock)
+  const callsAfterFirst = llm.calls.length
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  // 下一个 tick（未到下一周期）不应再次调用模型
+  clock += 10 * 1000
+  growth.tick(clock)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(llm.calls.length, callsAfterFirst, '失败也推迟到下一周期')
+  growth.dispose()
+})
+
+test('mood-ai / self-talk prompt 注入内在状态行（含数字但要求不原样说出）', () => {
+  const state = { energy: 70, curiosity: 60, social: 55, hunger: 35, moodValence: 0, moodArousal: 45 }
+  const moodPrompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), selfState: state }, makeMoodCatalogFixture())
+  assert.match(moodPrompt, /你现在的内在状态：精力 70\/100、好奇 60\/100、社交 55\/100、饥饿 35\/100。/)
+  assert.match(moodPrompt, /不要把这些数字原样说出来/)
+  assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, makeMoodCatalogFixture()).includes('内在状态'), false)
+
+  const talkPrompt = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), selfState: state })
+  assert.match(talkPrompt, /你现在的内在状态：精力 70\/100/)
+  assert.match(talkPrompt, /不要把这些数字原样说出来/)
+  assert.equal(buildSelfTalkPrompt({ now: FIXED_NOW.getTime() }).includes('内在状态'), false)
+})
+
+test('路由：mood-ai/self-talk 的 generate 上下文带 selfState 快照', async () => {
+  const selfState = { energy: 12, curiosity: 88, social: 30, hunger: 66, moodValence: 5, moodArousal: 60 }
+  const captured = []
+  const moodStub = {
+    async generate(context) {
+      captured.push(context)
+      return { ok: false, error: { code: 'MOOD_AI_UNAVAILABLE', message: 'x' } }
+    },
+  }
+  const talkStub = {
+    async generate(context) {
+      captured.push(context)
+      return { ok: true, lines: [{ text: '这是一句长度足够的碎碎念。', ts: 1 }], model: { provider: 'p', model: 'm' }, generatedAt: 1, cached: false }
+    },
+  }
+  const harness = createHarness({ moodAiService: moodStub, selfTalkService: talkStub, getSelfState: () => selfState })
+  await harness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
+  await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
+  assert.deepEqual(captured[0].selfState, selfState)
+  assert.deepEqual(captured[1].selfState, selfState)
+  assert.equal(SELF_STATE_ROUTE, '/api/dsh-poetry/self.json')
 })
 
 // ---------------------------------------------------------------------------

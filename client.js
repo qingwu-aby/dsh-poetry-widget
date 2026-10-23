@@ -27,6 +27,8 @@ window.__ModuleLoader__.load({
   }
   const h = React.createElement
   const ROUTE = '/api/dsh-poetry/'
+  const SELF_PATH = 'self.json'
+  const SELF_POLL_MS = 60 * 1000
   const ASSET_BASE = ROUTE + 'assets?f='
   const SETTINGS_URL = ROUTE + 'settings.json'
   const WIDGET_ID = 'dsh-poetry-widget'
@@ -1873,6 +1875,49 @@ window.__ModuleLoader__.load({
   })
   }
 
+  /** 自驱成长状态：规范化 host self.json；数据缺失/404 返回 null（整块隐藏）。 */
+  function normalizeSelfStatus(data) {
+  if (!data || data.ok === false || !data.state || typeof data.state !== 'object') return null
+  const state = data.state
+  const clampMetric = (key) => Math.max(0, Math.min(100, Math.round(num(state[key], 0))))
+  const growth = data.growth && typeof data.growth === 'object' ? data.growth : {}
+  const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)))
+  const at = (key) => {
+   const value = num(growth[key], 0)
+   return value > 0 ? value : 0
+  }
+  return {
+   energy: clampMetric('energy'),
+   curiosity: clampMetric('curiosity'),
+   social: clampMetric('social'),
+   hunger: clampMetric('hunger'),
+   moodValence: clampMetric('moodValence'),
+   moodArousal: clampMetric('moodArousal'),
+   updatedAt: num(state.updatedAt, 0),
+   growth: {
+    learnings: count('learnings'),
+    reflections: count('reflections'),
+    lastLearnAt: at('lastLearnAt'),
+    lastReflectAt: at('lastReflectAt'),
+   },
+  }
+  }
+
+  /** 成长摘要：自学/自省次数 + weatherUpdatedLabel 风格时间；无数据「尚未开始」。 */
+  function selfStatusSummary(status) {
+  if (!status) return ''
+  const growth = status.growth || {}
+  const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)))
+  const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)))
+  const lastLearn = weatherUpdatedLabel(growth.lastLearnAt)
+  const lastReflect = weatherUpdatedLabel(growth.lastReflectAt)
+  if (!learnings && !reflections && !lastLearn && !lastReflect) return '尚未开始'
+  const parts = ['自学 ' + learnings + ' 条', '自省 ' + reflections + ' 次']
+  if (lastLearn) parts.push('上次自学 ' + lastLearn)
+  if (lastReflect) parts.push('上次自省 ' + lastReflect)
+  return parts.join(' · ')
+  }
+
   /** 实时心情事件防抖窗口 2–4 秒（合并同分钟多次事件）。 */
   function nextMoodAiDebounceDelay(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
@@ -2996,6 +3041,13 @@ window.__ModuleLoader__.load({
   '.dshp-dizzy-stars{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;animation:dshp-dizzy-float 900ms ease-in-out infinite;pointer-events:none;z-index:3}',
   '@keyframes dshp-dizzy-float{0%,100%{transform:translate(-50%,0);opacity:.75}50%{transform:translate(-50%,-6px);opacity:1}}',
   '.dshp-dizzy-tip{position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--dshp-bg);border:1px solid var(--dshp-border);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--dshp-label);box-shadow:var(--dshp-shadow);pointer-events:none;z-index:3}',
+  '.dshp-self-grid{display:flex;flex-direction:column;gap:5px;margin-top:2px}',
+  '.dshp-self-row{display:flex;align-items:center;gap:8px;font-size:12px}',
+  '.dshp-self-label{width:26px;flex:none;color:var(--dshp-label-2)}',
+  '.dshp-self-bar{flex:1;height:5px;background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:999px;overflow:hidden}',
+  '.dshp-self-fill{display:block;height:100%;background:var(--dshp-accent);border-radius:999px}',
+  '.dshp-self-value{width:26px;flex:none;text-align:right;color:var(--dshp-label-2);font-variant-numeric:tabular-nums}',
+  '.dshp-self-summary{margin-top:6px;font-size:11.5px;line-height:1.5;color:var(--dshp-label-2)}',
   '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;pointer-events:none;user-select:none;-webkit-user-drag:none}',
   '.dshp-mascot-img{object-fit:contain}',
   /* 640x360 的 webm 人物只占画面高约 83%，方形挂件里 contain 会显得小；cover 裁掉两侧透明边并轻微放大，视觉高度与 512x512 静态图对齐 */
@@ -3294,6 +3346,7 @@ window.__ModuleLoader__.load({
   weatherExplainText,
   weatherUpdatedLabel,
   requestWeather,
+  SELF_PATH, SELF_POLL_MS, normalizeSelfStatus, selfStatusSummary,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN, MURMUR_TITLES,
   MURMUR_POOL, MURMUR_TEMPLATES,
@@ -3560,6 +3613,7 @@ window.__ModuleLoader__.load({
   const [moodAiFailure, setMoodAiFailure] = React.useState('')
   const [moodAiFailureCode, setMoodAiFailureCode] = React.useState('')
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
+  const [selfStatus, setSelfStatus] = React.useState(null)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
   const [mealActive, setMealActive] = React.useState(null)
@@ -5616,6 +5670,36 @@ window.__ModuleLoader__.load({
    if (mealTimerRef.current) clearTimeout(mealTimerRef.current)
   }, [])
 
+  // 成长状态：仅设置面板打开时轮询 self.json（隐藏跳过、失败静默、不阻塞其它资源）
+  React.useEffect(() => {
+   if (!panelOpen || settings.hidden) {
+    setSelfStatus(null)
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(SELF_PATH).then((data) => {
+     if (alive) setSelfStatus(normalizeSelfStatus(data))
+    }).catch(() => {
+     if (alive) setSelfStatus(null)
+    })
+   }
+   load()
+   const timer = setInterval(load, SELF_POLL_MS)
+   const onVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    load()
+   }
+   if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', onVisibility)
+   return () => {
+    alive = false
+    clearInterval(timer)
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
+   }
+  }, [panelOpen, settings.hidden])
+
   const syncMascotVideoPlayback = React.useCallback(() => {
    const video = mascotVideoRef.current
    if (!video) return
@@ -5822,6 +5906,7 @@ window.__ModuleLoader__.load({
     moodAiFailure,
     moodAiFailureCode,
     petVideoCount: petMediaRes.entries.length,
+    selfStatus,
     refreshMoodNow,
     previewSpontaneousPoem,
     anthologyRes,
@@ -6425,6 +6510,38 @@ window.__ModuleLoader__.load({
   const version = data.version || '0.1.0'
   const dataVersion = data.dataVersion || '—'
   const source = data.source || {}
+  function renderSelfStatus() {
+   const status = api.selfStatus
+   if (!status) return null
+   const rows = [
+    ['energy', '精力'],
+    ['curiosity', '好奇'],
+    ['social', '社交'],
+    ['hunger', '饥饿'],
+   ]
+   const summary = selfStatusSummary(status)
+   return h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '成长状态'), h('small', null, '自驱成长 · 最近进度')),
+    h(
+     'div',
+     { className: 'dshp-self-grid' },
+     rows.map(([key, label]) => {
+      const value = Math.max(0, Math.min(100, Math.round(num(status[key], 0))))
+      return h(
+       'div',
+       { className: 'dshp-self-row', key },
+       h('span', { className: 'dshp-self-label' }, label),
+       h('span', { className: 'dshp-self-bar' }, h('span', { className: 'dshp-self-fill', style: { width: value + '%' } })),
+       h('span', { className: 'dshp-self-value' }, String(value)),
+      )
+     }),
+     h('div', { className: 'dshp-self-summary' }, summary),
+    ),
+   )
+  }
+
   return h(
    'div',
    { className: 'dshp-settings' },
@@ -6584,6 +6701,7 @@ window.__ModuleLoader__.load({
     }, '刷新心情'),
     ),
    ),
+   renderSelfStatus(),
    h(
     'div',
     { className: 'dshp-field' },

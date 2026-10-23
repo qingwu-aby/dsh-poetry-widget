@@ -35,6 +35,13 @@ import {
   resolvePetMediaDir,
 } from './lib/pet-media.mjs'
 import { createRouteTable } from './lib/routes.mjs'
+import {
+  SELF_STATE_ROUTE,
+  createSelfState,
+  createSelfStateHandler,
+  resolveSelfStatePath,
+} from './lib/self-state.mjs'
+import { createSelfGrowth } from './lib/self-growth.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { loadTopicBank, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
@@ -191,6 +198,38 @@ export async function apply(ctx) {
           `[dsh-poetry-widget] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
         )
       }
+      // v1.28：内在状态 + 自驱成长循环（state 持久化；growth 60s tick 驱动漂移/自省/自学）。
+      const selfState = createSelfState({ file: resolveSelfStatePath(env, home), logger })
+      const growth = createSelfGrowth({
+        state: selfState,
+        getLlm,
+        getSelection,
+        journal,
+        learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
+        candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
+        topics: topicBank,
+        logger,
+      })
+      growth.start()
+      logger?.info?.(
+        `[dsh-poetry-widget] 自驱成长已启动（内在状态：${selfState.file}；自省 60min / 自学 90min）`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            growth.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 自驱成长清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+          try {
+            selfState.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 内在状态清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 自驱成长',
+      )
+
       const routes = createRouteTable({
         dataStore,
         settingsStore,
@@ -203,6 +242,7 @@ export async function apply(ctx) {
         moodAiService,
         journal,
         feihuaFullService,
+        getSelfState: () => selfState.snapshot(),
         env,
         home,
       })
@@ -225,6 +265,18 @@ export async function apply(ctx) {
           handler: createPetMediaHandler({ dir: petMediaDir, logger }),
         }),
       )
+      // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: SELF_STATE_ROUTE,
+          handler: createSelfStateHandler({
+            tick: () => selfState.tick(),
+            getSnapshot: () => selfState.snapshot(),
+            getGrowth: () => growth.snapshot(),
+          }),
+        }),
+      )
       for (const route of routes) disposers.push(webServer.register(route))
 
       hostCtx.effect(
@@ -240,7 +292,7 @@ export async function apply(ctx) {
         'dsh-poetry-widget: HTTP 路由',
       )
       logger?.info?.(
-        `[dsh-poetry-widget] 已挂载 ${routes.length + 2} 条路由（assets + pet-media + ${routes.length} 条 JSON，version ${VERSION}，` +
+        `[dsh-poetry-widget] 已挂载 ${routes.length + 3} 条路由（assets + pet-media + self + ${routes.length} 条 JSON，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
       logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)

@@ -5838,3 +5838,149 @@ test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label
     react._cleanup()
   }
 })
+
+/* ------------------------------------------------------------------ */
+/* 22. M39 设置页成长状态                                               */
+/* ------------------------------------------------------------------ */
+
+test('成长状态：normalize/摘要/缺失或 404 隐藏', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.SELF_PATH, 'self.json')
+  assert.equal(debug.SELF_POLL_MS, 60000)
+  const status = debug.normalizeSelfStatus({
+    ok: true,
+    state: { energy: 72.6, curiosity: -3, social: 55, hunger: 101, moodValence: 60, moodArousal: 40, updatedAt: shanghaiTs(2026, 10, 23, 12, 0) },
+    growth: { learnings: 3, reflections: 2, lastLearnAt: shanghaiTs(2026, 10, 23, 11, 5), lastReflectAt: shanghaiTs(2026, 10, 23, 11, 20) },
+  })
+  assert.ok(status)
+  assert.equal(status.energy, 73, '指标四舍五入')
+  assert.equal(status.curiosity, 0, '负值夹到 0')
+  assert.equal(status.hunger, 100, '超过 100 夹到 100')
+  assert.equal(status.social, 55)
+  const summary = debug.selfStatusSummary(status)
+  assert.match(summary, /自学 3 条/)
+  assert.match(summary, /自省 2 次/)
+  assert.match(summary, /上次自学 11:05/)
+  assert.match(summary, /上次自省 11:20/)
+  assert.equal(debug.normalizeSelfStatus({ ok: false }), null)
+  assert.equal(debug.normalizeSelfStatus({ ok: true }), null)
+  assert.equal(debug.normalizeSelfStatus(null), null)
+  const empty = debug.normalizeSelfStatus({ ok: true, state: { energy: 10 }, growth: {} })
+  assert.ok(empty)
+  assert.equal(debug.selfStatusSummary(empty), '尚未开始')
+  assert.equal(debug.selfStatusSummary(null), '')
+})
+
+test('设置页成长状态：四行指标+摘要渲染，无数据整块隐藏', () => {
+  const { react, debug } = loadClient()
+  const baseApi = {
+    settings: debug.normalizeSettings({}),
+    updateSettings() {},
+    hideWidget() {},
+    resetSettings() {},
+    boot: { data: { version: '0.1.0' } },
+  }
+  const status = debug.normalizeSelfStatus({
+    ok: true,
+    state: { energy: 35, curiosity: 66, social: 48, hunger: 12, moodValence: 50, moodArousal: 50, updatedAt: 1 },
+    growth: { learnings: 5, reflections: 4, lastLearnAt: shanghaiTs(2026, 10, 23, 9, 30), lastReflectAt: shanghaiTs(2026, 10, 23, 10, 0) },
+  })
+  const tree = renderFresh(react, debug.SettingsTab, { api: Object.assign({}, baseApi, { selfStatus: status }) })
+  const text = textOf(tree)
+  assert.match(text, /成长状态/)
+  for (const label of ['精力', '好奇', '社交', '饥饿']) assert.ok(text.includes(label), '缺少指标：' + label)
+  assert.match(text, /自学 5 条/)
+  assert.match(text, /自省 4 次/)
+  assert.match(text, /35/)
+  assert.match(text, /66/)
+  const rows = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-self-row')
+  assert.equal(rows.length, 4, '四行指标')
+  const fills = findAll(tree, (node) => node.type === 'span' && node.props.className === 'dshp-self-fill')
+  assert.equal(fills.length, 4)
+  assert.equal(fills[0].props.style.width, '35%')
+  const hidden = renderFresh(react, debug.SettingsTab, { api: baseApi })
+  assert.ok(!textOf(hidden).includes('成长状态'), '无数据时整块隐藏')
+})
+
+test('成长状态轮询：仅面板打开时请求 self.json、页面隐藏跳过、404 静默隐藏', async () => {
+  const dataVersion = 'test.selfstatus.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: null },
+    counts: { poems: 0, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  let selfMode = 'ok'
+  let selfCalls = 0
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('self.json') >= 0) {
+      selfCalls += 1
+      if (selfMode === '404') return { ok: false, status: 404, json: async () => ({}) }
+      return { ok: true, json: async () => ({ ok: true, state: { energy: 40, curiosity: 50, social: 60, hunger: 70, updatedAt: 1 }, growth: { learnings: 2, reflections: 1, lastLearnAt: 2, lastReflectAt: 3 } }) }
+    }
+    return { ok: false, status: 404, json: async () => ({}) }
+  }
+  const { react, context, debug } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const intervals = []
+  context.setInterval = (fn, ms) => {
+    const item = { fn, ms, cleared: false }
+    intervals.push(item)
+    return item
+  }
+  context.clearInterval = (item) => { if (item) item.cleared = true }
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  const fiftyIntervals = () => intervals.filter((item) => !item.cleared && item.ms === debug.SELF_POLL_MS)
+  const runFifty = async () => {
+    for (const item of fiftyIntervals()) item.fn()
+    await sleep(20)
+    return renderMain()
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    for (let round = 0; round < 5; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    assert.equal(selfCalls, 0, '面板未打开时不应请求 self.json')
+    // 打开面板
+    const stage = findStage(tree)
+    stage.props.onPointerDown(pointerEvent(1))
+    stage.props.onPointerUp(pointerEvent(1))
+    tree = renderMain()
+    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
+    assert.ok(panelButton)
+    panelButton.props.onClick()
+    tree = renderMain()
+    for (let round = 0; round < 2; round += 1) {
+      react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    assert.ok(selfCalls >= 1, '面板打开后应请求 self.json')
+    assert.ok(fiftyIntervals().length >= 1, '面板打开后应有 60s 轮询')
+    const beforeHidden = selfCalls
+    context.document.visibilityState = 'hidden'
+    tree = await runFifty()
+    assert.equal(selfCalls, beforeHidden, '页面隐藏时轮询应跳过')
+    context.document.visibilityState = 'visible'
+    tree = await runFifty()
+    assert.ok(selfCalls > beforeHidden, '回到可见后轮询应继续')
+    // 404：静默、整块隐藏
+    selfMode = '404'
+    tree = await runFifty()
+    assert.ok(!textOf(tree).includes('成长状态'), '404 时成长块应隐藏')
+    assert.ok(!textOf(tree).includes('失败'), '404 不得显示错误')
+  } finally {
+    react._cleanup()
+  }
+})
