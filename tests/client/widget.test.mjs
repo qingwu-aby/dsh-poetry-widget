@@ -2121,10 +2121,10 @@ test('自言自语记录：每日重置 / 7 天去重 / 最多 300 条 / lastTyp
   storage.setItem(debug.SPONT_KEY, '{bad json')
   assert.equal(debug.readSpontState(now).todayCount, 0, '损坏记录安全降级')
 })
-test('自言自语轮询：20–40s 随机、事件唤醒 2–5s、失败重试 10s、卡片关闭 3s', () => {
+test('自言自语轮询：60–120s 随机、事件唤醒 2–5s、失败重试 10s、卡片关闭 3s', () => {
   const { debug } = loadClient()
-  assert.equal(debug.SPONT_POLL_MIN_MS, 20 * 1000)
-  assert.equal(debug.SPONT_POLL_MAX_MS, 40 * 1000)
+  assert.equal(debug.SPONT_POLL_MIN_MS, 60 * 1000)
+  assert.equal(debug.SPONT_POLL_MAX_MS, 120 * 1000)
   assert.equal(debug.SPONT_RETRY_MS, 10 * 1000)
   assert.equal(debug.SPONT_EVENT_MIN_MS, 2000)
   assert.equal(debug.SPONT_EVENT_MAX_MS, 5000)
@@ -2132,8 +2132,8 @@ test('自言自语轮询：20–40s 随机、事件唤醒 2–5s、失败重试 
   const low = debug.nextSpontPollDelay(() => 0)
   const high = debug.nextSpontPollDelay(() => 0.999999)
   const mid = debug.nextSpontPollDelay(() => 0.5)
-  assert.equal(low, 20000)
-  assert.ok(high <= 40000 && high >= 39000)
+  assert.equal(low, 60000)
+  assert.ok(high <= 120000 && high >= 119000)
   assert.ok(mid > low && mid < high)
   const eventLow = debug.nextSpontEventDelay(() => 0)
   const eventHigh = debug.nextSpontEventDelay(() => 0.999999)
@@ -2205,7 +2205,7 @@ test('心情 UI：今日 tab 心情 chip；设置 tab 开关/刷新心情/预览
   }
   const tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
   const text = textOf(tree)
-  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '随时随地可能说一句']) {
+  for (const label of ['心情换装', '自言自语（偶尔说说话）', '刷新心情', '预览一句', '每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数']) {
     assert.ok(text.includes(label), '设置缺少：' + label)
   }
   assert.match(text, /今天聊了 12 句 · 工具调用 128 次 · 天气 小雨/)
@@ -3467,14 +3467,14 @@ test('自言自语只有 murmur：不再调度 poem/hybrid，请求 kind 固定 
     assert.ok(!entry.text.includes('《') && !entry.text.includes('——'))
   }
 })
-test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤5，不含会话内容', () => {
+test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤12（去重去空），不含会话内容', () => {
   const { debug } = loadClient()
   const query = debug.selfTalkQuery({
     kind: 'intro',
     moodKey: 'tired',
     weather: 'rain',
     idleMinutes: 42,
-    recent: ['一', '二', '三', '四', '五', '六'],
+    recent: ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四', '十三', '  '],
   })
   assert.ok(query.indexOf('self-talk.json?') === 0)
   const params = new URLSearchParams(query.slice(query.indexOf('?') + 1))
@@ -3483,8 +3483,8 @@ test('self-talk 请求参数：kind/mood/weather/idleMinutes/recent≤5，不含
   assert.equal(params.get('weather'), 'rain')
   assert.equal(params.get('idleMinutes'), '42')
   const recent = params.get('recent').split('|')
-  assert.equal(recent.length, 5, 'recent 最多 5 条')
-  assertDeep(recent, ['二', '三', '四', '五', '六'])
+  assert.equal(recent.length, 12, 'recent 最多 12 条')
+  assertDeep(recent, ['三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四'])
 
   const encoded = debug.selfTalkQuery({ kind: 'murmur', recent: ['你好 & 再见，今天好吗？'] })
   assert.ok(encoded.includes('recent=' + encodeURIComponent('你好 & 再见，今天好吗？')))
@@ -3734,7 +3734,7 @@ test('设置页显示「当前使用本地句子池」回退状态', () => {
     boot: { data: { version: '0.1.0' } },
   }
   const tree = renderFresh(react, debug.SettingsTab, { api })
-  assert.match(textOf(tree), /随时随地可能说一句/)
+  assert.match(textOf(tree), /每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数/)
   assert.match(textOf(tree), /当前使用本地句子池/)
 })
 

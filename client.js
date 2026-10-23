@@ -153,8 +153,8 @@ window.__ModuleLoader__.load({
   })
   const WEATHER_OVERLAY_STATES = ['rain', 'snow', 'thunder', 'cold', 'night']
   const SPONT_KEY = 'dshp-mood-spont-v1'
-  const SPONT_POLL_MIN_MS = 20 * 1000
-  const SPONT_POLL_MAX_MS = 40 * 1000
+  const SPONT_POLL_MIN_MS = 60 * 1000
+  const SPONT_POLL_MAX_MS = 120 * 1000
   const SPONT_RETRY_MS = 10 * 1000
   const SPONT_EVENT_MIN_MS = 2 * 1000
   const SPONT_EVENT_MAX_MS = 5 * 1000
@@ -166,7 +166,7 @@ window.__ModuleLoader__.load({
   const SPONT_AUTO_CLOSE_MS = 25000
   const SELF_TALK_PATH = 'self-talk.json'
   const SELF_TALK_TIMEOUT_MS = 8 * 1000
-  const SELF_TALK_RECENT_MAX = 5
+  const SELF_TALK_RECENT_MAX = 12
   const MURMUR_TITLES = ['它小声嘀咕：', '（没人理我，我自己说说）', '它自己在念叨：']
   /* 自言自语原创文案池：第一人称、简体、可爱不做作；按 tag 匹配心情/天气/时段。 */
   const MURMUR_POOL = [
@@ -2112,7 +2112,7 @@ window.__ModuleLoader__.load({
   return true
   }
 
-  /** 轮询间隔 20–40 秒（每次重新随机）。 */
+  /** 轮询间隔 60–120 秒（每次重新随机）；事件唤醒仍 2–5s。 */
   function nextSpontPollDelay(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
   const random = typeof opts.random === 'function' ? opts.random : Math.random
@@ -2267,8 +2267,16 @@ window.__ModuleLoader__.load({
   add('mood', opts.moodKey)
   add('weather', opts.weather)
   add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
-  const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-SELF_TALK_RECENT_MAX)
-  if (recent.length) add('recent', recent.join('|'))
+  const seen = {}
+  const recent = []
+  for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
+   const clean = String(text == null ? '' : text).trim()
+   if (!clean || seen[clean]) continue
+   seen[clean] = true
+   recent.push(clean)
+  }
+  const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX)
+  if (recentSlice.length) add('recent', recentSlice.join('|'))
   return SELF_TALK_PATH + (params.length ? '?' + params.join('&') : '')
   }
 
@@ -6534,7 +6542,7 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '随时随地可能说一句（不打扰操作时）；不设每日次数，模型实时生成')),
+    h('div', { className: 'dshp-field-label' }, h('b', null, '自言自语（偶尔说说话）'), h('small', null, '每隔 1–2 分钟可能说一句（事件后会更早）；不设每日次数')),
     switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '自言自语开关'),
     api.selfTalkFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地句子池') : null,
    ),

@@ -91,11 +91,15 @@ import {
   shuffleCopy,
 } from '../lib/mood-ai.mjs'
 import {
+  SELF_TALK_RECENT_MAX,
+  SELF_TALK_TEMPERATURE,
+  SELF_TALK_THEMES,
   SELF_TALK_SYSTEM_PROMPT,
   buildSelfTalkPrompt,
   createSelfTalkService,
   parseRecentQuery,
   parseSelfTalkLines,
+  pickSelfTalkTheme,
 } from '../lib/self-talk.mjs'
 
 // ---------------------------------------------------------------------------
@@ -1868,14 +1872,30 @@ test('self-talk：过滤疑似引诗/报诗名的句子（v1.8b 纯随想）', (
   assert.deepEqual(parseSelfTalkLines('今天的风有点凉，我缩了缩尾巴', {}), ['今天的风有点凉，我缩了缩尾巴'])
 })
 
-test('self-talk：parseRecentQuery（| 分隔 / ≤5 条 / 长度上限）', () => {
-  assert.deepEqual(parseRecentQuery('甲|乙|丙|丁|戊|己|庚'), ['甲', '乙', '丙', '丁', '戊'])
+test('self-talk：parseRecentQuery（| 分隔 / ≤12 条 / 1200 字符上限）', () => {
+  assert.deepEqual(parseRecentQuery('a|b|c'), ['a', 'b', 'c'])
+  // v1.22：5→12 条
+  const thirteen = Array.from({ length: 13 }, (_, index) => `最近说过的话第${index}句`).join('|')
+  const parsed = parseRecentQuery(thirteen)
+  assert.equal(parsed.length, SELF_TALK_RECENT_MAX)
+  assert.equal(parsed.length, 12)
+  assert.equal(parsed[11], '最近说过的话第11句')
+  // 去重/空值
   assert.deepEqual(parseRecentQuery('a|a|b'), ['a', 'b'])
   assert.deepEqual(parseRecentQuery(''), [])
   assert.deepEqual(parseRecentQuery(null), [])
-  const long = parseRecentQuery('x'.repeat(600))
+  // 单条超长截断到 80 字符
+  const long = parseRecentQuery('x'.repeat(1300))
   assert.equal(long.length, 1)
   assert.ok(Array.from(long[0]).length <= 80, '单条被截断到安全长度')
+  // 总长 1200 字符上限：20 段各 100 字 → 只在 1200 字符内解析，最多 12 条
+  const huge = Array.from({ length: 20 }, () => '甲'.repeat(100)).join('|')
+  const hugeParsed = parseRecentQuery(huge)
+  assert.ok(hugeParsed.length <= 12)
+  assert.ok(hugeParsed.length >= 1)
+  // 1200 字符足够容纳 12 条正常长度句子（不再像旧版 500 那样被过早截断）
+  const twelveNormal = Array.from({ length: 12 }, (_, index) => `第${index}句稍微长一点的最近碎碎念内容`).join('|')
+  assert.equal(parseRecentQuery(twelveNormal).length, 12)
 })
 
 test('self-talk 服务：成功生成 2 句并透传模型参数', async () => {
@@ -1907,7 +1927,8 @@ test('self-talk 服务：成功生成 2 句并透传模型参数', async () => {
   assert.equal(options.reasoningEffort, undefined, '短请求不透传 reasoningEffort（避免推理吃光 200 token / 拖过客户端 8s 超时）')
   assert.equal(options.system, SELF_TALK_SYSTEM_PROMPT)
   assert.equal(options.maxTokens, 200)
-  assert.equal(options.temperature, 0.95)
+  assert.equal(options.temperature, SELF_TALK_TEMPERATURE)
+  assert.equal(options.temperature, 1.0, 'v1.22 temperature 0.95→1.0')
   assert.ok(options.signal instanceof AbortSignal, '传入了 AbortSignal（20s 超时）')
   const userText = options.messages[0].content[0].text
   assert.match(userText, /心情：busy/)
@@ -2133,7 +2154,8 @@ test('self-talk 路由：非法 query 安全归一/截断（kind/idleMinutes/rec
   assert.equal(/kind=/.test(userText), false, 'kind 固定 murmur，非法 kind 也不影响 prompt')
   assert.equal(/距上次和用户互动/.test(userText), false, '非法 idleMinutes 忽略（无聚合回退时不输出）')
   const recentLines = userText.split('\n').filter((line) => line.startsWith('- '))
-  assert.ok(recentLines.length <= 5, 'recent 最多 5 条')
+  assert.ok(recentLines.length <= 12, 'recent 最多 12 条（v1.22）')
+  assert.equal(recentLines.length, 7, '7 条合法 recent 全部保留')
 })
 
 test('self-talk 路由：llm 缺失时 200 + SELF_TALK_UNAVAILABLE（不抛）', async () => {
@@ -4298,6 +4320,93 @@ test('memory-journal v1.20：murmur 同文本跳过、3min 限频、thought 永�
   assert.equal(readJournalJsonl(dir).length, 4)
   const thoughtEntries = readJournalJsonl(dir).filter((entry) => entry.kind === 'thought')
   assert.equal(thoughtEntries.length, 2, 'thought 不受限频')
+})
+
+// ---------------------------------------------------------------------------
+// M32：碎碎念降重（recent 12 / 主题轮换 / 反重复 prompt / 表达类型 / 温度 1.0）
+// ---------------------------------------------------------------------------
+
+test('self-talk M32：主题列表与随机挑选（注入 random 可确定）', () => {
+  assert.ok(SELF_TALK_THEMES.length >= 20, '主题列表足够丰富')
+  for (const theme of ['窗外的声音', '杯子', '键盘声', '小时候', '路过的猫', '一首没念出口的诗', '今天没做成的事']) {
+    assert.ok(SELF_TALK_THEMES.includes(theme), `主题列表应包含：${theme}`)
+  }
+  assert.equal(pickSelfTalkTheme(() => 0), SELF_TALK_THEMES[0], 'random=0 → 第一个主题')
+  assert.equal(pickSelfTalkTheme(() => 0.999999), SELF_TALK_THEMES.at(-1), 'random≈1 → 最后一个主题')
+  assert.ok(SELF_TALK_THEMES.includes(pickSelfTalkTheme()), '默认 random 也返回合法主题')
+})
+
+test('self-talk M32：prompt 列出最近 12 条 + 反重复/表达类型指令 + theme 行', () => {
+  const recent12 = Array.from({ length: 12 }, (_, index) => `最近第${index}句随想`)
+  const prompt = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), recent: recent12, theme: '杯子' })
+  const recentLines = prompt.split('\n').filter((line) => line.startsWith('- '))
+  assert.equal(recentLines.length, 12, '列出最近 12 条')
+  assert.equal(recentLines.at(-1), '- 最近第11句随想')
+  assert.match(prompt, /你最近说过的话（不要重复主题\/意象\/开头，也不要改写）：/)
+  assert.ok(prompt.includes('这次试着围绕「杯子」说一句'), '包含本轮 theme 提示')
+  assert.match(prompt, /不要写成命题作文/)
+
+  // 第 13 条不进入 prompt
+  const more = buildSelfTalkPrompt({
+    now: FIXED_NOW.getTime(),
+    recent: [...recent12, '最近第12句多出来的'],
+  })
+  assert.equal(more.includes('最近第12句多出来的'), false, 'recent 最多 12 条')
+  assert.equal(more.includes('这次试着围绕'), false, '未传 theme 时不输出 theme 行')
+
+  // 反重复/话题轮换/表达类型指令（system prompt）
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /每一次都要换一个具体的、新的小主题/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /忙碌、疲惫、等待、尾巴、角落、光、云、数字、周五、一整天/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /不要重复你最近说过的句子的主题、意象或开头/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /避免「今天……」「忙了……」「一整天……」「周五……」这类模板化开头/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /表达类型要轮换/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /一句观察、一句吐槽、一个很小的问题、一两句的小故事、一个具体的细节、一个愿望或念头/)
+  assert.match(SELF_TALK_SYSTEM_PROMPT, /不要每句都是感慨或疲惫/)
+})
+
+test('self-talk M32 服务：temperature=1.0，theme 可注入/随机挑，均进入 prompt', async () => {
+  // 固定 theme
+  const fixedLlm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const fixedService = createSelfTalkService({
+    llm: fixedLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    theme: '台灯',
+  })
+  const fixedResult = await fixedService.generate({})
+  assert.equal(fixedResult.ok, true)
+  assert.equal(fixedLlm.calls[0].temperature, 1.0, 'temperature 0.95→1.0')
+  assert.ok(fixedLlm.calls[0].messages[0].content[0].text.includes('这次试着围绕「台灯」说一句'))
+
+  // 注入 random：确定地挑到第一个/最后一个主题
+  const firstLlm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const firstService = createSelfTalkService({
+    llm: firstLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    random: () => 0,
+  })
+  await firstService.generate({})
+  assert.ok(
+    firstLlm.calls[0].messages[0].content[0].text.includes(`这次试着围绕「${SELF_TALK_THEMES[0]}」说一句`),
+    'random=0 挑第一个主题',
+  )
+
+  const lastLlm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const lastService = createSelfTalkService({
+    llm: lastLlm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    random: () => 0.999999,
+  })
+  await lastService.generate({})
+  assert.ok(
+    lastLlm.calls[0].messages[0].content[0].text.includes(`这次试着围绕「${SELF_TALK_THEMES.at(-1)}」说一句`),
+    'random≈1 挑最后一个主题',
+  )
 })
 
 // ---------------------------------------------------------------------------

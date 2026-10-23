@@ -590,3 +590,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 失败原因透传：host 返回 `error.code` 保留到 client（model/catalog/network/rate/timeout/http/json/image），设置显示具体 code，不再「未知原因」；429/RATE_LIMITED→rate。
 - 事件触发的心情感知加 **20s 最小间隔**（距上次请求开始 <20s 的事件合并延后；手动刷新/force 绕过；失败重试 12–25s 不受限），降低高频工具/事件导致的模型限流/超时。
 - 三套单测 283/283（data 42 / host 135 / client 106）。
+
+## 41. 用户反馈修复（M32/M33，2026-10-23）
+
+用户：「碎碎念的重复度太高了」。journal 78 条 murmur 高频词：角落 32%、尾巴 29%、光 15%、今天/忙/困；只带 recent 5 条，客户端每 20–40 秒说一句。
+- Host：recent 5→12（字符 1200、缓存 30）；system prompt 反重复（禁角落/尾巴/光/云/忙/累/数字/周五/一整天等套话，换新主题、换表达类型、避免模板开头）；user prompt 每轮随机 theme（29 个主题池）；temperature 0.95→1.0。
+- Client：recent 5→12；说话间隔 20–40s→**60–120s**（事件唤醒仍 2–5s）；设置说明更新。
+- 三套单测 286/286（data 42 / host 138 / client 106）。
