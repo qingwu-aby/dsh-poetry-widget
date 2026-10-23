@@ -115,6 +115,14 @@ window.__ModuleLoader__.load({
   const MOTION_MAX_DELAY_MS = 6 * 60 * 1000
   const MOTION_PLAY_MIN_MS = 15 * 1000
   const MOTION_PLAY_MAX_MS = 25 * 1000
+  const DIZZY_MIN_MS = 1500
+  const DIZZY_MAX_MS = 2500
+  const DIZZY_FAST_PX_PER_SEC = 1800
+  const DIZZY_FAST_DISTANCE_PX = 120
+  const DIZZY_FAST_WINDOW_MS = 120
+  const MEAL_KEY = 'dshp-meal-v1'
+  const MEAL_PLAY_MIN_MS = 25 * 1000
+  const MEAL_PLAY_MAX_MS = 40 * 1000
   const MOOD_PANEL_PEEK_FILES = {
   today: 'dsh-whale-home-peek.webp',
   settings: 'dsh-whale-settings-peek.webp',
@@ -1422,10 +1430,125 @@ window.__ModuleLoader__.load({
   return opts.hidden === true || opts.panelOpen === true
   }
 
-  /** 立绘层优先级：pulse > panel > expression > motion > mood。 */
+  /** 快速拖动检测：两点间速度 ≥1800px/s 或 120ms 内位移 >120px。 */
+  function detectFastDrag(previous, next) {
+  const prev = previous && typeof previous === 'object' ? previous : {}
+  const cur = next && typeof next === 'object' ? next : {}
+  const px = num(prev.x, 0)
+  const py = num(prev.y, 0)
+  const cx = num(cur.x, 0)
+  const cy = num(cur.y, 0)
+  const pt = num(prev.t, 0)
+  const ct = num(cur.t, 0)
+  const dt = ct - pt
+  if (!(dt > 0)) return false
+  const distance = Math.hypot(cx - px, cy - py)
+  const speed = distance / dt * 1000
+  if (speed >= DIZZY_FAST_PX_PER_SEC) return true
+  return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS
+  }
+
+  function nextDizzyDuration(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS))
+  }
+
+  function nextMealDuration(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS))
+  }
+
+  function mealMomentFor(now) {
+  const parts = shanghaiParts(num(now, Date.now()))
+  const minutes = parts.minutes
+  const windows = [
+   { meal: 'breakfast', label: '早饭', start: 7 * 60, end: 9 * 60, window: '07:00–09:00' },
+   { meal: 'lunch', label: '午饭', start: 11 * 60 + 30, end: 13 * 60 + 30, window: '11:30–13:30' },
+   { meal: 'dinner', label: '晚饭', start: 17 * 60 + 30, end: 19 * 60 + 30, window: '17:30–19:30' },
+  ]
+  for (const item of windows) {
+   if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey }
+  }
+  return null
+  }
+
+  function normalizeMealState(raw, now) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const dateKey = shanghaiParts(num(now, Date.now())).dateKey
+  const sameDay = source.date === dateKey
+  const meals = {}
+  const previous = sameDay && source.meals && typeof source.meals === 'object' ? source.meals : {}
+  for (const meal of ['breakfast', 'lunch', 'dinner']) if (previous[meal] === true) meals[meal] = true
+  return { date: dateKey, meals }
+  }
+
+  function readMealState(now) {
+  const storage = getStorage()
+  if (!storage) return normalizeMealState(null, now)
+  try {
+   const raw = storage.getItem(MEAL_KEY)
+   return normalizeMealState(raw ? JSON.parse(raw) : null, now)
+  } catch (error) {
+   return normalizeMealState(null, now)
+  }
+  }
+
+  function writeMealState(state) {
+  const storage = getStorage()
+  if (!storage) return
+  try {
+   storage.setItem(MEAL_KEY, JSON.stringify(state))
+  } catch (error) {
+  }
+  }
+
+  function markMealDone(state, meal, now) {
+  const base = normalizeMealState(state, now)
+  const meals = Object.assign({}, base.meals)
+  meals[meal] = true
+  return { date: base.date, meals }
+  }
+
+  /** 是否应触发饭点提醒（纯函数）：窗口内、未 hidden/panel 遮挡、可见、当日该餐未触发。 */
+  function mealTriggerFor(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null
+  const moment = mealMomentFor(opts.now)
+  if (!moment) return null
+  const state = normalizeMealState(opts.state, opts.now)
+  if (state.meals[moment.meal]) return null
+  return moment
+  }
+
+  function pickDizzyMedia(entries) {
+  if (!Array.isArray(entries) || !entries.length) return null
+  const exact = entries.find((entry) => entry && String(entry.label || '').indexOf('小幅度原地360度旋转展示') >= 0)
+  if (exact) return exact
+  return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ''))) || null
+  }
+
+  function pickMealMedia(entries, meal) {
+  if (!Array.isArray(entries) || !entries.length) return null
+  const preferred = { breakfast: '吃早餐', lunch: '吃午餐', dinner: '吃晚餐' }
+  const exact = entries.find((entry) => entry && String(entry.label || '') === preferred[meal])
+  if (exact) return exact
+  for (const label of ['吃白饭', '干饭']) {
+   const match = entries.find((entry) => entry && String(entry.label || '').indexOf(label) >= 0)
+   if (match) return match
+  }
+  return entries.find((entry) => entry && String(entry.label || '').indexOf('吃') >= 0) || null
+  }
+
+  /** 立绘层优先级：pulse > panel > dizzy > meal > expression > motion > mood。 */
   function mascotFilePriority(options) {
   const opts = options && typeof options === 'object' ? options : {}
-  return opts.pulseFile || opts.panelFile || opts.expressionFile || opts.motionFile || opts.moodFile || ''
+  return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.motionFile || opts.moodFile || ''
   }
 
   function moodBasisText(stats, weather) {
@@ -2761,6 +2884,11 @@ window.__ModuleLoader__.load({
   '.dshp-stage:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:4px}',
   '.dshp-mascot{width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center;',
   'filter:drop-shadow(0 10px 22px rgba(0,0,0,.22));animation:dshp-float 4.2s ease-in-out infinite}',
+  '.dshp-stage.dshp-dizzy{animation:dshp-dizzy-wobble 500ms ease-in-out 3}',
+  '@keyframes dshp-dizzy-wobble{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-3px) rotate(-2deg)}75%{transform:translateX(3px) rotate(2deg)}}',
+  '.dshp-dizzy-stars{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;animation:dshp-dizzy-float 900ms ease-in-out infinite;pointer-events:none;z-index:3}',
+  '@keyframes dshp-dizzy-float{0%,100%{transform:translate(-50%,0);opacity:.75}50%{transform:translate(-50%,-6px);opacity:1}}',
+  '.dshp-dizzy-tip{position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--dshp-bg);border:1px solid var(--dshp-border);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--dshp-label);box-shadow:var(--dshp-shadow);pointer-events:none;z-index:3}',
   '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none}',
   '.dshp-mascot-video{background:transparent}',
   '.dshp-mascot-img.dshp-mascot-swap,.dshp-mascot-video.dshp-mascot-swap{animation:dshp-mascot-fade 220ms ease-out}',
@@ -3037,7 +3165,8 @@ window.__ModuleLoader__.load({
   pickDefaultFeihuaChar,
   feihuaStart,
   feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
-  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, mascotFilePriority, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
+  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, mascotFilePriority,
+  DIZZY_MIN_MS, DIZZY_MAX_MS, mealTriggerFor, DIZZY_FAST_PX_PER_SEC, DIZZY_FAST_DISTANCE_PX, DIZZY_FAST_WINDOW_MS, MEAL_KEY, MEAL_PLAY_MIN_MS, MEAL_PLAY_MAX_MS, detectFastDrag, nextDizzyDuration, nextMealDuration, mealMomentFor, normalizeMealState, readMealState, writeMealState, markMealDone, pickDizzyMedia, pickMealMedia, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
   MOTION_ROTATION_KEY, MOTION_MIN_DELAY_MS, MOTION_MAX_DELAY_MS, MOTION_PLAY_MIN_MS, MOTION_PLAY_MAX_MS, readMotionRotation, writeMotionRotation, nextMotionEntry, nextMotionDelay, nextMotionDuration,
   normalizeFeihuaBest,
   feihuaBestUpdate,
@@ -3319,6 +3448,8 @@ window.__ModuleLoader__.load({
   const [moodAiFallback, setMoodAiFallback] = React.useState(false)
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
   const [motionFile, setMotionFile] = React.useState('')
+  const [dizzy, setDizzy] = React.useState(null)
+  const [mealActive, setMealActive] = React.useState(null)
   const [libraryFocus, setLibraryFocus] = React.useState(null)
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const [feihuaIndex, setFeihuaIndex] = React.useState(null)
@@ -3383,6 +3514,11 @@ window.__ModuleLoader__.load({
   const motionIndexRef = React.useRef(readMotionRotation())
   const motionDelayTimerRef = React.useRef(null)
   const motionStopTimerRef = React.useRef(null)
+  const dizzyRef = React.useRef(null)
+  const dizzyTimerRef = React.useRef(null)
+  const mealActiveRef = React.useRef(null)
+  const mealTimerRef = React.useRef(null)
+  const mealPrevPanelRef = React.useRef(false)
   const spontReqRef = React.useRef(0)
   const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] })
   const recentSpokenRef = React.useRef([])
@@ -3391,6 +3527,8 @@ window.__ModuleLoader__.load({
   mascotExpressionRef.current = mascotExpression
   petMediaEntriesRef.current = petMediaRes.entries
   motionFileRef.current = motionFile
+  dizzyRef.current = dizzy
+  mealActiveRef.current = mealActive
 
   const wakeSpontaneous = React.useCallback((delay) => {
    spontWakeDelayRef.current = Math.max(1000, num(delay, nextSpontEventDelay()))
@@ -4257,14 +4395,68 @@ window.__ModuleLoader__.load({
    }
   }
 
+  function triggerDizzy() {
+   if (settingsRef.current.hidden) return
+   const entries = petMediaEntriesRef.current || []
+   const entry = pickDizzyMedia(entries)
+   const file = entry && isVideoMoodFile(entry.file) ? entry.file : ''
+   if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current)
+   setDizzy({ file, label: entry ? String(entry.label || '') : '' })
+   clearMotionTimers()
+   if (motionFileRef.current) setMotionFile('')
+   dizzyTimerRef.current = setTimeout(() => {
+    dizzyTimerRef.current = null
+    setDizzy(null)
+    if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
+     scheduleMotion(nextMotionDelay())
+    }
+   }, nextDizzyDuration())
+   noteInteraction()
+  }
+
+  function maybeTriggerMeal() {
+   if (!settingsRef.current || settingsRef.current.hidden) return
+   if (mealActiveRef.current) return
+   const now = Date.now()
+   const visible = typeof document === 'undefined' ? true : document.visibilityState !== 'hidden'
+   const state = readMealState(now)
+   const moment = mealTriggerFor({ now, hidden: settingsRef.current.hidden, panelOpen: uiRef.current.panelOpen, visible, state })
+   if (!moment) return
+   writeMealState(markMealDone(state, moment.meal, now))
+   const entry = pickMealMedia(petMediaEntriesRef.current || [], moment.meal)
+   const file = entry && entry.file ? entry.file : 'dsh-whale-state-daily-eat.webp'
+   const text = moment.meal === 'lunch'
+    ? '到饭点啦，我去吃午饭，你也记得吃。这顿用 token 换的白饭。'
+    : '到饭点啦，我去吃' + moment.label + '，你也记得吃。'
+   const active = { meal: moment.meal, label: moment.label, file, text }
+   mealActiveRef.current = active
+   setMealActive(active)
+   clearMotionTimers()
+   if (motionFileRef.current) setMotionFile('')
+   if (mealTimerRef.current) clearTimeout(mealTimerRef.current)
+   mealTimerRef.current = setTimeout(() => {
+    mealTimerRef.current = null
+    mealActiveRef.current = null
+    setMealActive(null)
+    if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
+     scheduleMotion(nextMotionDelay())
+    }
+   }, nextMealDuration())
+  }
+
   function handlePointerDown(event) {
    if (event.button !== undefined && event.button !== 0) return
+   const pointerTime = typeof event.timeStamp === 'number' && event.timeStamp > 0 ? event.timeStamp : Date.now()
    dragRef.current = {
     id: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
     baseX: posRef.current.x,
     baseY: posRef.current.y,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    lastT: pointerTime,
+    fast: false,
     moved: false,
    }
    try {
@@ -4281,6 +4473,11 @@ window.__ModuleLoader__.load({
    const dy = event.clientY - drag.startY
    if (!drag.moved && Math.max(Math.abs(dx), Math.abs(dy)) > 3) drag.moved = true
    if (!drag.moved) return
+   const pointerTime = typeof event.timeStamp === 'number' && event.timeStamp > 0 ? event.timeStamp : Date.now()
+   if (detectFastDrag({ x: drag.lastX, y: drag.lastY, t: drag.lastT }, { x: event.clientX, y: event.clientY, t: pointerTime })) drag.fast = true
+   drag.lastX = event.clientX
+   drag.lastY = event.clientY
+   drag.lastT = pointerTime
    setPos(clampPosition({ x: drag.baseX + dx, y: drag.baseY + dy }, mascotSize, viewport))
   }
 
@@ -4299,6 +4496,7 @@ window.__ModuleLoader__.load({
     handleMascotTap()
     return
    }
+   if (drag.fast) triggerDizzy()
    const current = posRef.current
    let snap = 'free'
    if (current.x <= 40) snap = 'left'
@@ -5081,6 +5279,10 @@ window.__ModuleLoader__.load({
    if (!ui.settings.mood || ui.settings.hidden) return
    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
    if (ui.panelOpen) return
+   if (dizzyRef.current || mealActiveRef.current) {
+    scheduleMotion(nextMotionDelay())
+    return
+   }
    if (mascotPulseRef.current || mascotExpressionRef.current) {
     scheduleMotion(nextMotionDelay())
     return
@@ -5099,6 +5301,14 @@ window.__ModuleLoader__.load({
   }
 
   function handleMascotMediaError(file) {
+   if (dizzyRef.current && dizzyRef.current.file && file === dizzyRef.current.file) {
+    setDizzy((current) => (current ? Object.assign({}, current, { file: '' }) : current))
+    return
+   }
+   if (mealActiveRef.current && file === mealActiveRef.current.file) {
+    setMealActive((current) => (current ? Object.assign({}, current, { file: 'dsh-whale-state-daily-eat.webp' }) : current))
+    return
+   }
    if (motionFileRef.current && file === motionFileRef.current) {
     if (motionStopTimerRef.current) {
      clearTimeout(motionStopTimerRef.current)
@@ -5137,6 +5347,60 @@ window.__ModuleLoader__.load({
    }
    document.addEventListener('visibilitychange', onVisibility)
    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  React.useEffect(() => {
+   if (!settings.hidden) {
+    maybeTriggerMeal()
+   }
+   const timer = setInterval(() => {
+    maybeTriggerMeal()
+   }, 60 * 1000)
+   const onVisible = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    maybeTriggerMeal()
+   }
+   const onFocus = () => maybeTriggerMeal()
+   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
+   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('focus', onFocus)
+   return () => {
+    clearInterval(timer)
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener('focus', onFocus)
+   }
+  }, [settings.hidden])
+
+  React.useEffect(() => {
+   if (panelOpen) {
+    mealPrevPanelRef.current = true
+    return
+   }
+   if (mealPrevPanelRef.current) {
+    mealPrevPanelRef.current = false
+    maybeTriggerMeal()
+   }
+  }, [panelOpen])
+
+  React.useEffect(() => {
+   if (!(panelOpen || settings.hidden)) return
+   if (dizzyTimerRef.current) {
+    clearTimeout(dizzyTimerRef.current)
+    dizzyTimerRef.current = null
+   }
+   if (dizzyRef.current) setDizzy(null)
+   if (mealTimerRef.current) {
+    clearTimeout(mealTimerRef.current)
+    mealTimerRef.current = null
+   }
+   if (mealActiveRef.current) {
+    setMealActive(null)
+    mealActiveRef.current = null
+   }
+  }, [panelOpen, settings.hidden])
+
+  React.useEffect(() => () => {
+   if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current)
+   if (mealTimerRef.current) clearTimeout(mealTimerRef.current)
   }, [])
 
   const syncMascotVideoPlayback = React.useCallback(() => {
@@ -5187,15 +5451,17 @@ window.__ModuleLoader__.load({
    const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
    const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
    const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab) : ''
+   const dizzyFile = dizzy && dizzy.file ? dizzy.file : ''
+   const mealFile = mealActive && mealActive.file ? mealActive.file : ''
    const motionVideoFile = motionFile && isVideoMoodFile(motionFile) ? motionFile : ''
-   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : expressionFile ? 'egg:' + expressionFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
-   const desiredFile = mascotFilePriority({ pulseFile, panelFile, expressionFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
+   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : dizzyFile ? 'dizzy:' + dizzyFile : mealFile ? 'meal:' + mealFile : expressionFile ? 'egg:' + expressionFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
+   const desiredFile = mascotFilePriority({ pulseFile, panelFile, dizzyFile, mealFile, expressionFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
    const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
    return h(
     'div',
     {
     key: 'mascot',
-    className: 'dshp-stage',
+    className: cx('dshp-stage', dizzy && 'dshp-dizzy'),
     role: 'button',
     tabIndex: 0,
     'aria-label': '诗词格律挂件：点击查看今日一诗，可拖动',
@@ -5244,7 +5510,26 @@ window.__ModuleLoader__.load({
      onError: () => handleMascotMediaError(desiredFile),
     }),
     ),
+    dizzy ? h('div', { className: 'dshp-dizzy-stars', 'aria-hidden': 'true' }, '💫') : null,
+    dizzy ? h('div', { className: 'dshp-dizzy-tip' }, '别甩啦，头好晕…') : null,
     showHint ? h('div', { className: 'dshp-tip' }, '点我看今日一诗') : null,
+   )
+  }
+
+  function renderMealTip() {
+   if (!mealActive) return null
+   const width = Math.min(288, viewport.w - 16)
+   let left = pos.x + mascotSize / 2 - width / 2
+   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
+   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
+   const placeAbove = pos.y > Math.min(280, viewport.h * 0.45)
+   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
+   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
+   return h(
+    'div',
+    { key: 'meal', className: 'dshp-spont dshp-meal-tip', style, role: 'status', 'aria-live': 'polite' },
+    h('div', { className: 'dshp-spont-title' }, '到饭点啦'),
+    h('div', { className: 'dshp-spont-sentence' }, String(mealActive.text || '')),
    )
   }
 
@@ -5416,6 +5701,8 @@ window.__ModuleLoader__.load({
    if (toastNode) nodes.push(toastNode)
    const spontNode = renderSpontPoem()
    if (spontNode) nodes.push(spontNode)
+   const mealNode = renderMealTip()
+   if (mealNode) nodes.push(mealNode)
   }
   return h(
    'div',

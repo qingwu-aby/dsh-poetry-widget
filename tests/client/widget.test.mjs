@@ -5121,3 +5121,286 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     react._cleanup()
   }
 })
+
+/* ------------------------------------------------------------------ */
+/* 18. M21：快速拖动晕眩 + 饭点吃饭提醒                                  */
+/* ------------------------------------------------------------------ */
+
+test('晕眩/饭点纯函数：快速拖动阈值、时长、选动画、饭点边界/每餐一次/过期不补/优先级', () => {
+  const { debug, storage } = loadClient()
+  // 快速拖动：速度阈值 / 120ms 内 >120px
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 200, y: 0, t: 100 }), true, '200px/100ms = 2000px/s')
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 121, y: 0, t: 100 }), true, '120ms 内位移 >120px')
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 100, y: 0, t: 500 }), false, '慢拖不触发')
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 100, y: 0, t: 0 }), false, '无时间差/点按不触发')
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 200, y: 0, t: 120 }), false, '1666px/s 且 dt 不小于 120ms 不触发')
+  assert.equal(debug.detectFastDrag({ x: 0, y: 0, t: 0 }, { x: 50, y: 0, t: 10 }), true, '瞬时高速也算快拖')
+  assert.equal(debug.DIZZY_FAST_PX_PER_SEC, 1800)
+  assert.equal(debug.DIZZY_FAST_DISTANCE_PX, 120)
+  assert.equal(debug.DIZZY_FAST_WINDOW_MS, 120)
+  assert.equal(debug.nextDizzyDuration(() => 0), 1500)
+  assert.equal(debug.nextDizzyDuration(() => 0.999999), 2500)
+
+  const petEntries = [
+    { file: 'webm/转圈圈.webm', label: '转圈圈' },
+    { file: 'webm/小幅度原地360度旋转展示.webm', label: '小幅度原地360度旋转展示' },
+    { file: 'webm/吃午餐.webm', label: '吃午餐' },
+    { file: 'webm/吃白饭.webm', label: '吃白饭' },
+  ]
+  assert.equal(debug.pickDizzyMedia(petEntries).file, 'webm/小幅度原地360度旋转展示.webm', '优先指定转圈动画')
+  assert.equal(debug.pickDizzyMedia([{ file: 'webm/a.webm', label: '普通' }]), null)
+  assert.equal(debug.pickMealMedia(petEntries, 'lunch').file, 'webm/吃午餐.webm')
+  assert.equal(debug.pickMealMedia([{ file: 'webm/干饭.webm', label: '干饭' }], 'lunch').file, 'webm/干饭.webm', 'fallback 干饭')
+  assert.equal(debug.pickMealMedia([{ file: 'webm/吃零食.webm', label: '吃零食' }], 'dinner').file, 'webm/吃零食.webm', 'fallback 含吃')
+  assert.equal(debug.pickMealMedia([], 'lunch'), null)
+
+  // 饭点窗口边界（含开始、不含结束）
+  const at = (h, m) => shanghaiTs(2026, 10, 23, h, m)
+  assert.equal(debug.mealMomentFor(at(6, 59)), null)
+  assert.equal(debug.mealMomentFor(at(7, 0)).meal, 'breakfast')
+  assert.equal(debug.mealMomentFor(at(8, 59)).meal, 'breakfast')
+  assert.equal(debug.mealMomentFor(at(9, 0)), null)
+  assert.equal(debug.mealMomentFor(at(11, 29)), null)
+  assert.equal(debug.mealMomentFor(at(11, 30)).meal, 'lunch')
+  assert.equal(debug.mealMomentFor(at(13, 29)).meal, 'lunch')
+  assert.equal(debug.mealMomentFor(at(13, 30)), null)
+  assert.equal(debug.mealMomentFor(at(17, 29)), null)
+  assert.equal(debug.mealMomentFor(at(17, 30)).meal, 'dinner')
+  assert.equal(debug.mealMomentFor(at(19, 29)).meal, 'dinner')
+  assert.equal(debug.mealMomentFor(at(19, 30)), null)
+  assert.equal(debug.mealMomentFor(at(14, 0)), null, '过期不补，只有窗口内触发')
+  assert.equal(debug.nextMealDuration(() => 0), 25000)
+  assert.ok(debug.nextMealDuration(() => 0.999999) <= 40000 && debug.nextMealDuration(() => 0.999999) >= 39900)
+
+  // 每天每餐一次 / 跨天重置
+  const day = at(12, 0)
+  const empty = debug.normalizeMealState(null, day)
+  assert.equal(empty.date, '2026-10-23')
+  assert.equal(empty.meals.lunch, undefined)
+  const once = debug.markMealDone(empty, 'lunch', day)
+  assert.equal(once.meals.lunch, true)
+  assert.equal(debug.mealTriggerFor({ now: day, state: once }), null, '同一天同一餐只触发一次')
+  assert.ok(debug.mealTriggerFor({ now: day, state: empty }))
+  assert.equal(debug.mealTriggerFor({ now: day, state: empty, panelOpen: true }), null, '面板开推迟')
+  assert.equal(debug.mealTriggerFor({ now: day, state: empty, hidden: true }), null, '挂件隐藏推迟')
+  assert.equal(debug.mealTriggerFor({ now: day, state: empty, visible: false }), null, '页面隐藏推迟')
+  const nextDay = at(12, 0) + 24 * 60 * 60 * 1000
+  const reset = debug.normalizeMealState(once, nextDay)
+  assert.equal(reset.date, '2026-10-24')
+  assert.equal(reset.meals.lunch, undefined, '跨天自动重置')
+  assert.ok(debug.mealTriggerFor({ now: nextDay, state: reset }))
+
+  debug.writeMealState(once)
+  assert.equal(debug.readMealState(day).meals.lunch, true)
+  storage.setItem(debug.MEAL_KEY, '{bad')
+  assert.equal(debug.readMealState(day).meals.lunch, undefined, '损坏记录安全降级')
+
+  // 优先级 pulse > panel > dizzy > meal > expression > motion > mood
+  const all = { pulseFile: 'p', panelFile: 'pa', dizzyFile: 'd', mealFile: 'me', expressionFile: 'e', motionFile: 'm', moodFile: 'mo' }
+  assert.equal(debug.mascotFilePriority(all), 'p')
+  assert.equal(debug.mascotFilePriority(Object.assign({}, all, { pulseFile: '' })), 'pa')
+  assert.equal(debug.mascotFilePriority(Object.assign({}, all, { pulseFile: '', panelFile: '' })), 'd')
+  assert.equal(debug.mascotFilePriority(Object.assign({}, all, { pulseFile: '', panelFile: '', dizzyFile: '' })), 'me')
+  assert.equal(debug.mascotFilePriority(Object.assign({}, all, { pulseFile: '', panelFile: '', dizzyFile: '', mealFile: '' })), 'e')
+})
+
+test('晕眩集成：快拖播转圈 webm + 摇晃/星星/提示、1.5–2.5s 恢复、慢拖不触发、无 catalog 仍摇晃', async () => {
+  const dataVersion = 'test.dizzy.1'
+  const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'dz-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'dz-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 2, toolCalls: 30 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const makeFetch = (withCatalog) => async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('pet-media') >= 0) {
+      if (!withCatalog) return { ok: false, status: 404, json: async () => ({}) }
+      if (raw.indexOf('catalog.json') >= 0) {
+        return { ok: true, json: async () => ({ ok: true, entries: [{ file: 'webm/转圈圈.webm', label: '转圈圈', media: 'video', scope: 'mood', tags: [] }, { file: 'webm/小幅度原地360度旋转展示.webm', label: '小幅度原地360度旋转展示', media: 'video', scope: 'mood', tags: [] }] }) }
+      }
+      return { ok: true, json: async () => ({}) }
+    }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    if (raw.indexOf('mood-ai.json') >= 0) return { ok: true, json: async () => ({ ok: false }) }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const runClient = async (withCatalog) => {
+    const client = loadClient({
+      seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+      fetch: makeFetch(withCatalog),
+    })
+    const timers = []
+    client.context.setTimeout = (fn, ms) => { const id = timers.length + 1; timers.push({ id, fn, ms }); return id }
+    client.context.clearTimeout = () => {}
+    const renderMain = () => {
+      client.react._beginRender()
+      return client.debug.PoetryWidget({})
+    }
+    let tree = renderFresh(client.react, client.debug.PoetryWidget, {})
+    for (let round = 0; round < 8; round += 1) {
+      client.react._runEffects()
+      await sleep(20)
+      tree = renderMain()
+    }
+    await sleep(20)
+    tree = renderMain()
+    return { client, renderMain, tree, timers, findTimer: (min, max) => { for (let i = timers.length - 1; i >= 0; i -= 1) { if (timers[i].ms >= min && timers[i].ms <= max) return timers[i] } return null } }
+  }
+  const findAnyStage = (tree) => findAll(tree, (node) => node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className.split(' ').includes('dshp-stage'))[0]
+  const dragEvent = (x, t, pointerId) => ({
+    button: 0,
+    pointerId,
+    clientX: x,
+    clientY: 100,
+    timeStamp: t,
+    cancelable: true,
+    preventDefault() {},
+    currentTarget: { setPointerCapture() {}, releasePointerCapture() {} },
+  })
+  let noCat = null
+  let cat = null
+  try {
+    // 无 catalog：快拖仍摇晃+星星+提示，不渲染视频
+    noCat = await runClient(false)
+    let stage = findAnyStage(noCat.tree)
+    stage.props.onPointerDown(dragEvent(100, 1000, 1))
+    stage.props.onPointerMove(dragEvent(320, 1050, 1))
+    stage.props.onPointerUp(dragEvent(320, 1050, 1))
+    noCat.tree = noCat.renderMain()
+    stage = findAnyStage(noCat.tree)
+    assert.ok(String(stage.props.className).includes('dshp-dizzy'), '无 catalog 也要摇晃')
+    assert.match(textOf(noCat.tree), /别甩啦，头好晕…/)
+    assert.match(textOf(noCat.tree), /💫/)
+    assert.equal(findAll(noCat.tree, (node) => node.type === 'video').length, 0, '无 catalog 不播转圈视频')
+    const dizzyTimer = noCat.findTimer(noCat.client.debug.DIZZY_MIN_MS, noCat.client.debug.DIZZY_MAX_MS)
+    assert.ok(dizzyTimer, '晕眩时长 1.5–2.5s')
+    dizzyTimer.fn()
+    noCat.tree = noCat.renderMain()
+    assert.ok(!String(findAnyStage(noCat.tree).props.className).includes('dshp-dizzy'), '结束后恢复')
+    noCat.client.react._cleanup()
+
+    // 有 catalog：快拖优先播「小幅度原地360度旋转展示」，慢拖不触发
+    cat = await runClient(true)
+    stage = findAnyStage(cat.tree)
+    stage.props.onPointerDown(dragEvent(100, 2000, 2))
+    stage.props.onPointerMove(dragEvent(260, 2500, 2))
+    stage.props.onPointerUp(dragEvent(260, 2500, 2))
+    cat.tree = cat.renderMain()
+    assert.ok(!String(findAnyStage(cat.tree).props.className).includes('dshp-dizzy'), '慢拖不触发晕眩')
+    stage = findAnyStage(cat.tree)
+    stage.props.onPointerDown(dragEvent(100, 3000, 3))
+    stage.props.onPointerMove(dragEvent(330, 3050, 3))
+    stage.props.onPointerUp(dragEvent(330, 3050, 3))
+    cat.tree = cat.renderMain()
+    assert.ok(String(findAnyStage(cat.tree).props.className).includes('dshp-dizzy'))
+    const dizzyVideo = findAll(cat.tree, (node) => node.type === 'video')[0]
+    assert.ok(dizzyVideo, '有 catalog 应播转圈 webm')
+    assert.ok(String(dizzyVideo.props.src).includes(encodeURIComponent('webm/小幅度原地360度旋转展示.webm')))
+    assert.match(textOf(cat.tree), /别甩啦，头好晕…/)
+    // 脉冲优先于晕眩
+    const settingsElement = findAll(cat.tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    if (settingsElement) {
+      settingsElement.props.api.pulseMascot('gameThink')
+      cat.tree = cat.renderMain()
+      const pulseImg = findAll(cat.tree, (node) => node.type === 'img')[0]
+      assert.ok(pulseImg && String(pulseImg.props.src).includes('dsh-whale-state-game-think.webp'))
+    }
+  } finally {
+    if (noCat && noCat.client) noCat.client.react._cleanup()
+    if (cat && cat.client) cat.client.react._cleanup()
+  }
+})
+
+test('饭点集成：12:00 播吃午餐动画+提醒文案、25–40s 后恢复、无 catalog 静态 daily-eat、每餐一天一次', async () => {
+  const dataVersion = 'test.meal.1'
+  const settings = { weatherPoem: false, mood: false, spontaneousPoem: false, weatherCity: '北京' }
+  const poems = [{ id: 'ml-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
+  const bootstrap = {
+    ok: true, version: '0.1.0', dataVersion,
+    source: { repo: 'test', commit: 'abc', license: 'MIT' },
+    today: { date: '2026-10-23', poemId: 'ml-1' },
+    counts: { poems: 1, ci: 0, yun: 30, cards: 12, ciCards: 15 },
+    settings,
+  }
+  const responses = {
+    'poems.json': { ok: true, items: poems },
+    'ci.json': { ok: true, items: [] },
+    'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
+    'mood.json': { ok: true, date: '2026-10-23', stats: { userMessages: 0, toolCalls: 0 }, updatedAt: 1 },
+    'settings.json': { ok: true, settings },
+  }
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.indexOf('pet-media') >= 0) return { ok: false, status: 404, json: async () => ({}) }
+    if (raw.indexOf('mood-catalog') >= 0) return { ok: true, json: async () => makeMoodCatalogFixture() }
+    const key = raw.replace('/api/dsh-poetry/', '')
+    const data = responses[key]
+    if (!data) return { ok: false, status: 404, json: async () => ({}) }
+    return { ok: true, json: async () => data }
+  }
+  const { react, context, debug, storage } = loadClient({
+    seed: { [CACHE_KEY]: JSON.stringify({ dataVersion, bootstrap, settings, todayPoem: null }) },
+    fetch: fetchImpl,
+  })
+  const fixedNow = shanghaiTs(2026, 10, 23, 12, 0)
+  const RealDate = Date
+  class FakeDate extends RealDate {
+    constructor(...args) {
+      if (args.length) super(...args)
+      else super(fixedNow)
+    }
+    static now() { return fixedNow }
+  }
+  context.Date = FakeDate
+  const timers = []
+  context.setTimeout = (fn, ms) => { const id = timers.length + 1; timers.push({ id, fn, ms }); return id }
+  context.clearTimeout = () => {}
+  const renderMain = () => {
+    react._beginRender()
+    return debug.PoetryWidget({})
+  }
+  try {
+    let tree = renderFresh(react, debug.PoetryWidget, {})
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.match(textOf(tree), /到饭点啦，我去吃午饭/)
+    assert.match(textOf(tree), /记得吃/)
+    assert.match(textOf(tree), /token/)
+    const mealImg = findAll(tree, (node) => node.type === 'img')[0]
+    assert.ok(mealImg)
+    assert.ok(String(mealImg.props.src).includes('dsh-whale-state-daily-eat.webp'), '无 catalog 用静态 daily-eat 图')
+    const mealState = debug.readMealState(fixedNow)
+    assert.equal(mealState.meals.lunch, true, '触发后标记当天午餐已用')
+    assert.equal(storage.getItem(debug.MEAL_KEY) !== null, true)
+    const stopTimer = timers.find((timer) => timer.ms >= debug.MEAL_PLAY_MIN_MS && timer.ms <= debug.MEAL_PLAY_MAX_MS)
+    assert.ok(stopTimer, '吃饭动画 25–40s')
+    stopTimer.fn()
+    tree = renderMain()
+    assert.ok(!textOf(tree).includes('到饭点啦，我去吃午饭'))
+    // 同一天同一餐不重复触发
+    debug.writeMealState(debug.markMealDone(debug.readMealState(fixedNow), 'lunch', fixedNow))
+    react._runEffects()
+    await sleep(20)
+    tree = renderMain()
+    assert.ok(!textOf(tree).includes('到饭点啦，我去吃午饭'))
+  } finally {
+    react._cleanup()
+  }
+})
