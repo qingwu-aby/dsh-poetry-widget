@@ -4779,24 +4779,32 @@ test('pet-media 失败/旧宿主：mood-ai 返回 webm 时按未知图回退启�
 /* 17. M19：心情 15min 刷新 + 小动作 webm 轮转                          */
 /* ------------------------------------------------------------------ */
 
-test('小动作：3–6min 随机、15–25s、轮转顺序覆盖全部 106 个、持久化、优先级', () => {
+test('小动作：1.5–3.5min、20–30s、首次静态图 10–20s、轮转顺序覆盖全部 106 个、持久化、优先级', () => {
   const { debug, storage } = loadClient()
   assert.equal(typeof debug.MOOD_AI_REFRESH_MS, 'undefined', '定时刷新已删除')
   assert.equal(debug.MOOD_AI_RECENT_IMAGES_MAX, 20, 'recentImages 保留最近 20')
   assert.equal(debug.MOOD_AI_DEBOUNCE_MIN_MS, 2000)
   assert.equal(debug.MOOD_AI_DEBOUNCE_MAX_MS, 4000)
-  assert.equal(debug.MOTION_MIN_DELAY_MS, 3 * 60 * 1000)
-  assert.equal(debug.MOTION_MAX_DELAY_MS, 6 * 60 * 1000)
-  assert.equal(debug.MOTION_PLAY_MIN_MS, 15 * 1000)
-  assert.equal(debug.MOTION_PLAY_MAX_MS, 25 * 1000)
+  assert.equal(debug.MOTION_MIN_DELAY_MS, 90 * 1000)
+  assert.equal(debug.MOTION_MAX_DELAY_MS, 210 * 1000)
+  assert.equal(debug.MOTION_PLAY_MIN_MS, 20 * 1000)
+  assert.equal(debug.MOTION_PLAY_MAX_MS, 30 * 1000)
+  assert.equal(debug.MOTION_FIRST_MIN_DELAY_MS, 10 * 1000)
+  assert.equal(debug.MOTION_FIRST_MAX_DELAY_MS, 20 * 1000)
   const lowDelay = debug.nextMotionDelay(() => 0)
   const highDelay = debug.nextMotionDelay(() => 0.999999)
-  assert.equal(lowDelay, 3 * 60 * 1000)
-  assert.ok(highDelay <= 6 * 60 * 1000 && highDelay >= 6 * 60 * 1000 - 1000)
+  assert.equal(lowDelay, 90 * 1000)
+  assert.ok(highDelay <= 210 * 1000 && highDelay >= 209 * 1000)
   const lowPlay = debug.nextMotionDuration(() => 0)
   const highPlay = debug.nextMotionDuration(() => 0.999999)
-  assert.equal(lowPlay, 15 * 1000)
-  assert.ok(highPlay <= 25 * 1000 && highPlay >= 24 * 1000)
+  assert.equal(lowPlay, 20 * 1000)
+  assert.ok(highPlay <= 30 * 1000 && highPlay >= 29 * 1000)
+  assert.equal(debug.nextMotionFirstDelay(() => 0), 10 * 1000)
+  assert.ok(debug.nextMotionFirstDelay(() => 0.999999) <= 20000 && debug.nextMotionFirstDelay(() => 0.999999) >= 19900)
+  // 静态心情首次 10–20s；有视频心情/非首次按 90–210s
+  assert.equal(debug.nextMotionScheduleDelay({ first: true, moodImage: 'dsh-whale-state-abstract.webp', random: () => 0 }), 10 * 1000)
+  assert.equal(debug.nextMotionScheduleDelay({ first: true, moodImage: 'webm/吃白饭.webm', random: () => 0 }), 90 * 1000)
+  assert.equal(debug.nextMotionScheduleDelay({ first: false, moodImage: 'dsh-whale-state-abstract.webp', random: () => 0 }), 90 * 1000)
 
   const entries = Array.from({ length: 106 }, (_, index) => ({ file: 'webm/动作' + index + '.webm' }))
   let index = 0
@@ -4829,7 +4837,7 @@ test('小动作：3–6min 随机、15–25s、轮转顺序覆盖全部 106 个�
   assert.equal(debug.mascotFilePriority({ moodFile: 'mo' }), 'mo')
 })
 
-test('小动作集成：轮转到下一个 webm 播放 15–25s 后回心情图、onError 跳过、面板暂停结束', async () => {
+test('小动作集成：静态图首次快速轮转 webm、20–30s 后回心情图、onError 跳过、面板暂停结束', async () => {
   const dataVersion = 'test.motion.1'
   const settings = { weatherPoem: false, mood: true, spontaneousPoem: false, weatherCity: '北京' }
   const poems = [{ id: 'mo-1', title: '鹿柴', author: '王维', lines: ['空山不见人。'], tones: ['平平仄仄平。'] }]
@@ -4910,17 +4918,25 @@ test('小动作集成：轮转到下一个 webm 播放 15–25s 后回心情图�
     await sleep(30)
     tree = renderMain()
     assert.equal(videoNode(tree), undefined, '小动作未到时间前应显示心情静态图')
-    let delayTimer = findTimer(debug.MOTION_MIN_DELAY_MS, debug.MOTION_MAX_DELAY_MS)
-    assert.ok(delayTimer, '应安排 3–6min 的轮转动作')
+    let delayTimer = findTimer(debug.MOTION_FIRST_MIN_DELAY_MS, debug.MOTION_FIRST_MAX_DELAY_MS - 1)
+    assert.ok(delayTimer, '静态图首次应在 10–20s 排期：' + JSON.stringify(timers.map((item) => item.ms)))
     fire(delayTimer)
     tree = renderMain()
     let video = videoNode(tree)
-    assert.ok(video, '到达间隔后应播放 pet webm 动作')
+    if (!video) {
+      for (const candidate of timers.filter((item) => !item.used && item.ms >= debug.MOTION_FIRST_MIN_DELAY_MS && item.ms < debug.MOTION_FIRST_MAX_DELAY_MS)) {
+        fire(candidate)
+        tree = renderMain()
+        video = videoNode(tree)
+        if (video) break
+      }
+    }
+    assert.ok(video, '到达间隔后应播放 pet webm 动作；timers=' + JSON.stringify(timers.map((item) => item.ms)))
     assert.ok(String(video.props.src).includes(encodeURIComponent('webm/动作1.webm')), '应按持久化轮转位置取下一个动作：' + video.props.src)
     assert.equal(video.props.className, 'dshp-mascot-video dshp-mascot-swap')
     assert.equal(video.props.autoPlay, true)
     let stopTimer = findTimer(debug.MOTION_PLAY_MIN_MS, debug.MOTION_PLAY_MAX_MS)
-    assert.ok(stopTimer, '动作应有 15–25s 播放时长')
+    assert.ok(stopTimer, '动作应有 20–30s 播放时长')
     fire(stopTimer)
     tree = renderMain()
     video = videoNode(tree)

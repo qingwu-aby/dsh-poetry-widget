@@ -83,6 +83,7 @@ import {
   isWhenActive,
   loadMoodCatalog,
   normalizeMoodCatalog,
+  normalizeRecentImageList,
   parseMoodResult,
   resolveFestivalAvailability,
   resolveMoodCandidates,
@@ -3495,6 +3496,25 @@ function makeMoodCatalogBig(count = 30) {
   })
 }
 
+/** 25 张静态图 + 3 个视频的图鉴（用于验证 recentImages 对视频的排除）。 */
+function makeMoodCatalogWithVideos(staticCount = 25) {
+  const base = normalizeMoodCatalog({
+    ok: true,
+    version: 'multi.1',
+    images: Array.from({ length: staticCount }, (_, index) => ({
+      file: `img-${index}.webp`,
+      label: `静图${index}`,
+      tags: ['img'],
+    })),
+    panelImages: [],
+  })
+  return mergePetMediaIntoMoodCatalog(base, [
+    { file: 'webm/哈欠连天.webm', label: '哈欠连天', media: 'video', scope: 'mood', tags: ['tired'] },
+    { file: 'webm/吃午餐.webm', label: '吃午餐', media: 'video', scope: 'mood', tags: ['food'] },
+    { file: 'webm/写代码.webm', label: '写代码', media: 'video', scope: 'mood', tags: ['code'] },
+  ])
+}
+
 /** 可复现的 LCG random（用于断言打乱顺序）。 */
 function seededRandom(seed = 12345) {
   let state = seed >>> 0
@@ -4022,6 +4042,109 @@ test('mood-ai 路由：读取 experience 状态文件并注入 prompt，journal 
   assert.equal(plain.json().ok, true)
   const plainPrompt = plainMood.llm.calls[0].messages[0].content[0].text
   assert.equal(plainPrompt.includes('你最近在体验'), false, '无体验文件时 prompt 无体验段')
+})
+
+// ---------------------------------------------------------------------------
+// M24：recentImages 视频排除修复（webm/x.webm ↔ basename 归一）
+// ---------------------------------------------------------------------------
+
+test('mood-ai M24：normalizeRecentImageList 把视频 recent 归一成完整 webm/ 路径', () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  // 完整路径
+  const full = normalizeRecentImageList(['webm/哈欠连天.webm'], catalog)
+  assert.deepEqual(full, [{ raw: 'webm/哈欠连天.webm', file: 'webm/哈欠连天.webm' }])
+  // 客户端传 basename（无 webm/ 前缀）
+  const base = normalizeRecentImageList(['哈欠连天.webm'], catalog)
+  assert.deepEqual(base, [{ raw: '哈欠连天.webm', file: 'webm/哈欠连天.webm' }])
+  // 静态图 basename 仍是自身
+  assert.deepEqual(normalizeRecentImageList(['img-3.webp'], catalog), [{ raw: 'img-3.webp', file: 'img-3.webp' }])
+  // 完整路径与 basename 视为同一条，去重
+  const deduped = normalizeRecentImageList(['webm/哈欠连天.webm', '哈欠连天.webm'], catalog)
+  assert.equal(deduped.length, 1)
+  assert.equal(deduped[0].file, 'webm/哈欠连天.webm')
+  // 图鉴外的文件保留 raw、file=null
+  assert.deepEqual(normalizeRecentImageList(['unknown.webp'], catalog), [{ raw: 'unknown.webp', file: null }])
+})
+
+test('mood-ai M24：被排除视频不在候选/prompt 图鉴行，静态图排除不受影响', () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  const total = catalog.moodImages.length
+  const recent = ['webm/哈欠连天.webm', 'img-0.webp']
+  const plan = resolveMoodCandidates(catalog, recent, { random: seededRandom(21) })
+  assert.equal(plan.usedFallback, false)
+  assert.equal(plan.excludedFiles.size, 2)
+  assert.equal(plan.excludedFiles.has('webm/哈欠连天.webm'), true, 'excludedFiles 存完整 file')
+  assert.equal(plan.candidates.length, total - 2)
+  assert.equal(plan.candidates.some((image) => image.file === 'webm/哈欠连天.webm'), false, '被排除视频不在候选')
+  assert.equal(plan.candidates.some((image) => image.file === 'img-0.webp'), false, '被排除静态图不在候选')
+
+  const prompt = buildMoodPrompt({ now: Date.UTC(2026, 9, 23, 8, 0, 0), recentImages: recent }, catalog, { plan })
+  const rows = promptCatalogRowFiles(prompt)
+  assert.equal(rows.includes('webm/哈欠连天.webm'), false, 'prompt 图鉴行不含被排除视频')
+  assert.equal(rows.includes('img-0.webp'), false)
+  assert.equal(rows.includes('webm/吃午餐.webm'), true, '未用过的视频仍在候选')
+  assert.match(prompt, /- webm\/哈欠连天\.webm/, '最近图仍文字列出')
+
+  // 客户端只传 basename 也排除
+  const planBase = resolveMoodCandidates(catalog, ['哈欠连天.webm'], { random: seededRandom(21) })
+  assert.equal(planBase.excludedFiles.has('webm/哈欠连天.webm'), true)
+  assert.equal(planBase.candidates.some((image) => image.file === 'webm/哈欠连天.webm'), false)
+})
+
+test('mood-ai M24：parse 拒绝被排除视频（完整路径或 basename 传入），未排除视频可接受', () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  const excludedVideo = 'webm/哈欠连天.webm'
+  const make = (image) => JSON.stringify({ label: '好困', image, reason: '理由足够长', energy: 40 })
+  const options = { dateKey: '2026-10-21' }
+
+  // 完整 file 传入 excluded
+  assert.equal(
+    parseMoodResult(make(excludedVideo), catalog, { ...options, excludedImages: new Set([excludedVideo]) }).ok,
+    false,
+  )
+  // basename 传入 excluded 也拒绝
+  const baseExcluded = parseMoodResult(make(excludedVideo), catalog, {
+    ...options,
+    excludedImages: ['哈欠连天.webm'],
+  })
+  assert.equal(baseExcluded.ok, false)
+  assert.match(baseExcluded.message, /最近用过/)
+
+  // 未排除的视频（完整路径 / 模型漏写 webm/ 前缀的 basename）都能解析成完整 file
+  const other = parseMoodResult(make('webm/吃午餐.webm'), catalog, {
+    ...options,
+    excludedImages: new Set([excludedVideo]),
+  })
+  assert.equal(other.ok, true)
+  assert.equal(other.mood.image, 'webm/吃午餐.webm')
+
+  const otherBase = parseMoodResult(make('吃午餐.webm'), catalog, {
+    ...options,
+    excludedImages: new Set([excludedVideo]),
+  })
+  assert.equal(otherBase.ok, true, '模型只写 basename 时解析回完整 file')
+  assert.equal(otherBase.mood.image, 'webm/吃午餐.webm')
+})
+
+test('mood-ai M24 服务：模型返回近期用过的视频 → 失败（完整路径与 basename 都生效）', async () => {
+  const catalog = makeMoodCatalogWithVideos(25)
+  const responder = () => JSON.stringify({ label: '好困', image: 'webm/哈欠连天.webm', reason: '理由足够长', energy: 40 })
+  const full = makeMoodAiHarness({ catalog, responder })
+  const rejectedFull = await full.service.generate({ recentImages: ['webm/哈欠连天.webm'] })
+  assert.equal(rejectedFull.ok, false)
+  assert.equal(rejectedFull.error.code, 'MOOD_AI_UNAVAILABLE')
+
+  const base = makeMoodAiHarness({ catalog, responder })
+  const rejectedBase = await base.service.generate({ recentImages: ['哈欠连天.webm'] })
+  assert.equal(rejectedBase.ok, false, 'basename recent 也能阻止重复视频')
+
+  const accepted = makeMoodAiHarness({
+    catalog,
+    responder: () => JSON.stringify({ label: '饿了', image: 'webm/吃午餐.webm', reason: '理由足够长', energy: 50 }),
+  })
+  const okResult = await accepted.service.generate({ recentImages: ['webm/哈欠连天.webm'] })
+  assert.equal(okResult.ok, true)
+  assert.equal(okResult.mood.image, 'webm/吃午餐.webm')
 })
 
 // ---------------------------------------------------------------------------

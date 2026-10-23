@@ -111,10 +111,12 @@ window.__ModuleLoader__.load({
   const PET_MEDIA_CATALOG_FILE = 'catalog.json'
   const PET_MEDIA_TIMEOUT_MS = 9000
   const MOTION_ROTATION_KEY = 'dshp-motion-rotation-v1'
-  const MOTION_MIN_DELAY_MS = 3 * 60 * 1000
-  const MOTION_MAX_DELAY_MS = 6 * 60 * 1000
-  const MOTION_PLAY_MIN_MS = 15 * 1000
-  const MOTION_PLAY_MAX_MS = 25 * 1000
+  const MOTION_MIN_DELAY_MS = 90 * 1000
+  const MOTION_MAX_DELAY_MS = 210 * 1000
+  const MOTION_PLAY_MIN_MS = 20 * 1000
+  const MOTION_PLAY_MAX_MS = 30 * 1000
+  const MOTION_FIRST_MIN_DELAY_MS = 10 * 1000
+  const MOTION_FIRST_MAX_DELAY_MS = 20 * 1000
   const DIZZY_MIN_MS = 1500
   const DIZZY_MAX_MS = 2500
   const DIZZY_FAST_PX_PER_SEC = 1800
@@ -1702,6 +1704,21 @@ window.__ModuleLoader__.load({
   return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS))
   }
 
+  function nextMotionFirstDelay(options) {
+  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const value = Number(random())
+  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
+  return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS))
+  }
+
+  /** 首次且当前心情为静态图时 10–20s 快速补一个动画；其它情况按 90–210s 轮转。 */
+  function nextMotionScheduleDelay(options) {
+  const opts = options && typeof options === 'object' ? options : {}
+  if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts)
+  return nextMotionDelay(opts)
+  }
+
   function nextMotionDuration(options) {
   const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
   const random = typeof opts.random === 'function' ? opts.random : Math.random
@@ -3167,7 +3184,7 @@ window.__ModuleLoader__.load({
   feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
   PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, mascotFilePriority,
   DIZZY_MIN_MS, DIZZY_MAX_MS, mealTriggerFor, DIZZY_FAST_PX_PER_SEC, DIZZY_FAST_DISTANCE_PX, DIZZY_FAST_WINDOW_MS, MEAL_KEY, MEAL_PLAY_MIN_MS, MEAL_PLAY_MAX_MS, detectFastDrag, nextDizzyDuration, nextMealDuration, mealMomentFor, normalizeMealState, readMealState, writeMealState, markMealDone, pickDizzyMedia, pickMealMedia, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
-  MOTION_ROTATION_KEY, MOTION_MIN_DELAY_MS, MOTION_MAX_DELAY_MS, MOTION_PLAY_MIN_MS, MOTION_PLAY_MAX_MS, readMotionRotation, writeMotionRotation, nextMotionEntry, nextMotionDelay, nextMotionDuration,
+  MOTION_ROTATION_KEY, MOTION_MIN_DELAY_MS, MOTION_MAX_DELAY_MS, MOTION_PLAY_MIN_MS, MOTION_PLAY_MAX_MS, MOTION_FIRST_MIN_DELAY_MS, MOTION_FIRST_MAX_DELAY_MS, nextMotionFirstDelay, nextMotionScheduleDelay, readMotionRotation, writeMotionRotation, nextMotionEntry, nextMotionDelay, nextMotionDuration,
   normalizeFeihuaBest,
   feihuaBestUpdate,
   readFeihuaBest,
@@ -3514,6 +3531,8 @@ window.__ModuleLoader__.load({
   const motionIndexRef = React.useRef(readMotionRotation())
   const motionDelayTimerRef = React.useRef(null)
   const motionStopTimerRef = React.useRef(null)
+  const motionFirstScheduledRef = React.useRef(false)
+  const motionFirstPendingRef = React.useRef(false)
   const dizzyRef = React.useRef(null)
   const dizzyTimerRef = React.useRef(null)
   const mealActiveRef = React.useRef(null)
@@ -5264,12 +5283,25 @@ window.__ModuleLoader__.load({
    }
   }
 
+  function currentMoodImageFile() {
+   const view = moodViewRef.current
+   return view && view.image ? String(view.image) : ''
+  }
+
   function scheduleMotion(delay) {
    if (motionDelayTimerRef.current) clearTimeout(motionDelayTimerRef.current)
    motionDelayTimerRef.current = setTimeout(() => {
     motionDelayTimerRef.current = null
     tryStartMotion()
    }, Math.max(1000, num(delay, nextMotionDelay())))
+  }
+
+  function scheduleInitialMotion() {
+   const first = !motionFirstScheduledRef.current
+   const delay = nextMotionScheduleDelay({ first, moodImage: currentMoodImageFile() })
+   motionFirstScheduledRef.current = true
+   motionFirstPendingRef.current = first && !isVideoMoodFile(currentMoodImageFile())
+   scheduleMotion(delay)
   }
 
   function tryStartMotion() {
@@ -5291,6 +5323,7 @@ window.__ModuleLoader__.load({
    const picked = nextMotionEntry(entries, motionIndexRef.current)
    if (!picked.entry) return
    motionIndexRef.current = picked.index
+   motionFirstPendingRef.current = false
    writeMotionRotation(picked.index)
    setMotionFile(picked.entry.file)
    motionStopTimerRef.current = setTimeout(() => {
@@ -5327,7 +5360,7 @@ window.__ModuleLoader__.load({
     if (motionFileRef.current) setMotionFile('')
     return undefined
    }
-   scheduleMotion(nextMotionDelay())
+   scheduleInitialMotion()
    return () => {
     clearMotionTimers()
    }
@@ -5348,6 +5381,15 @@ window.__ModuleLoader__.load({
    document.addEventListener('visibilitychange', onVisibility)
    return () => document.removeEventListener('visibilitychange', onVisibility)
   }, [])
+
+  React.useEffect(() => {
+   if (!motionFirstPendingRef.current) return
+   const image = currentMoodImageFile()
+   if (!isVideoMoodFile(image)) return
+   motionFirstPendingRef.current = false
+   clearMotionTimers()
+   scheduleMotion(nextMotionDelay())
+  }, [moodView])
 
   React.useEffect(() => {
    if (!settings.hidden) {
@@ -6345,7 +6387,7 @@ window.__ModuleLoader__.load({
     { className: 'dshp-field' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '心情'), h('small', null, moodStatusText)),
     api.moodAiFallback ? h('div', { className: 'dshp-card-summary' }, '当前使用本地面部表情（模型心情不可用，回退启发式）') : null,
-    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个；心情之间会自己活动一下（播放动画）。') : null,
+    api.petVideoCount ? h('div', { className: 'dshp-card-summary' }, '心情动画素材 ' + api.petVideoCount + ' 个；心情之间每 1–3 分钟会自己活动一下（播放动画）。') : null,
     h(
     'div',
     { className: 'dshp-field-control' },

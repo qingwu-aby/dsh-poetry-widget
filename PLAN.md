@@ -544,3 +544,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 新增 `$DSH_HOME/.dsh-poetry/experience.json`（title 1–80、kind novel/video/article/music/other、emotion touched/sad/happy/tense/curious/calm/angry/inspired、note≤200、at；>2h 忽略）。
 - mood-ai prompt 注入「你最近在体验：《…》，此刻心情：…」+ note，并明确**情绪匹配优先于活动匹配**（感动→温柔共情；紧张→屏息专注；开心→笑；振奋→有劲…），仍保留 video 优先/避开最近20/不重复。
 - 体验正文不写 journal；三套单测 271/271（data 42 / host 127 / client 102）。
+
+## 35. 用户反馈修复（M24/M25，2026-10-23）
+
+用户：「动图出现的频率很少」。Lead 查 journal：最近 40 条 mood 全是 webm，但 28–31 条都是同一个 `webm/哈欠连天.webm`，唯一动画仅 6 个。
+- 根因：`normalizeRecentImageList` 把 `webm/x.webm` 归一成 basename，`resolveMoodCandidates` 却用完整 `webm/x.webm` 比较 → 视频从不被排除、模型反复选同一动画；静态图正常（文件名就是 basename）。
+- Host 修复（M24）：建 `basename→完整 file` 索引，normalize/resolve/parse 全用完整 file 排除；131 host 测试。
+- Client 调整（M25）：小动作间隔 3–6min→**1.5–3.5min**、播放 15–25s→**20–30s**；若当前心情图是静态图，首次 10–20s 内先补一个 webm；设置说明同步。
+- 三套单测 275/275（data 42 / host 131 / client 102）。
