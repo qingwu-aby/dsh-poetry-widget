@@ -6041,9 +6041,11 @@ test('self-growth v1.33：自学 prompt 带话题种子/最近自学，自省带
     state,
     recentThoughts: ['最近总在想鲸落这件事。', '今天的光很轻。'],
   })
-  assert.match(reflectPrompt, /你最近的自省（可以自然地接着想，但不要复述原句）：/)
+  assert.match(reflectPrompt, /你最近的自省（可以参考，但不要复述原句，也不要重复同一主题\/句式）：/)
   assert.match(reflectPrompt, /- 最近总在想鲸落这件事。/)
   assert.match(reflectPrompt, /- 今天的光很轻。/)
+  assert.match(reflectPrompt, /不要沿用最近自省的句式、开头或主题/)
+  assert.match(reflectPrompt, /换一个更具体的角度/)
   // 无最近 thought 时不出现该段
   assert.equal(buildReflectPrompt({ now: FIXED_NOW.getTime(), state }).includes('你最近的自省'), false)
 })

@@ -108,3 +108,5 @@
 | H5 | EMPTY 诊断 | ✅ | growth 失败记录含 `chunkTypes`/`finishKind`，且不含正文（单测断言） |
 | H6 | 客户端心情超时 | ✅ | 25s→35s（宿主 20s 候选超时 + 兜底余量），client 测试同步 |
 | H7 | 三套单测 | ✅ | data 42 / host 213 / client 117 = **372 / 372 pass** |
+| H8 | 修复后实跑 | ✅ | 13:39 首条 thought；14:09 首条「· 自学」+ `topics-candidates.json` 新增 `base-superstructure-marx`；14:39 第二条 thought；13:50 后 0 条错误；14:10 自行入睡 |
+| H9 | 自省反重复 | ✅ | reflect prompt 增加「不沿用最近自省的句式/开头/主题，换一个具体角度」；host 单测断言 |
