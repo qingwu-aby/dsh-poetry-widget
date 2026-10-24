@@ -735,5 +735,5 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - 用户决定：自学话题「不用审核」。
 - 实现：`mergeLearnedTopicIntoBank` 把校验通过的 topic 直接并入 `agent-memory/topics.json`，带 `learned:true` + `addedAt`；碎碎念选题（`pickSelfTalkTopic`）、随机话题种子、记忆摘要相关话题立即读到。`topics-candidates.json` 继续写，作为审计/回溯日志。
-- 容量：learned 条目上限 300（`LEARNED_TOPIC_MAX`），超出按 addedAt 淘汰最旧 learned；外部维护条目不带标记、永不删除。
+- 容量（v1.47 修正）：**不删除任何学过的话题**，全部保留在 topics.json；选题按 `topicRecencyWeight` 对新学的话题加权（30 天内最高 3 倍，之后平滑回落到基础权重 1），旧知识永远保留基础权重、可被选中。外部维护条目不带标记、永不删除。
 - 单测：data 42 / host 214 / client 117 = 373/373。

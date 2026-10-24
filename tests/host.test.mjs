@@ -190,7 +190,7 @@ import {
   resolveSelfStatePath,
 } from '../lib/self-state.mjs'
 import {
-  LEARNED_TOPIC_MAX,
+  LEARNED_TOPIC_RECENCY_BONUS,
   SELF_TALK_TOPIC_RECENT_MAX,
   SELF_TALK_TOPIC_TOP_N,
   buildTopicPromptLine,
@@ -200,6 +200,7 @@ import {
   pickSelfTalkTopic,
   resolveTopicsPath,
   scoreSelfTalkTopic,
+  topicRecencyWeight,
 } from '../lib/self-talk-topics.mjs'
 import {
   SELF_TALK_RECENT_MAX,
@@ -4674,6 +4675,22 @@ test('self-talk-topics：pickSelfTalkTopic 按心情/天气/活动/体验/时段
   const dir = makeTmpDir('dshp-topics')
   const bank = loadTopicBank({ path: writeTopicsFile(path.join(dir, 'topics.json'), topics), logger: { warn() {} } })
   assert.equal(pickSelfTalkTopic(bank, { weather: 'rain' }, [], { random: () => 0 }).id, 'weather')
+
+  // v1.47：新学话题加权、旧话题不删除仍可选中
+  const now = FIXED_NOW.getTime()
+  const newLearned = { ...makeTopic('new-learned', '新学的', '新事实', ['海洋']), learned: true, addedAt: now }
+  const oldLearned = { ...makeTopic('old-learned', '旧学的', '旧事实', ['海洋']), learned: true, addedAt: now - 90 * 24 * 60 * 60 * 1000 }
+  const plain = makeTopic('plain-topic', '普通话题', '普通事实', ['海洋'])
+  assert.equal(topicRecencyWeight(newLearned, now), 1 + LEARNED_TOPIC_RECENCY_BONUS)
+  assert.equal(topicRecencyWeight(oldLearned, now), 1, '过期后回落到基础权重')
+  assert.equal(topicRecencyWeight(plain, now), 1)
+  const weighted = [newLearned, oldLearned, plain]
+  // 权重：新=3、旧=1、普通=1（总分 5）→ roll=0.1 落在新学；roll=0.9 落在普通/旧但绝不会有消失的
+  assert.equal(pickSelfTalkTopic(weighted, {}, [], { random: () => 0.1, now }).id, 'new-learned')
+  const late = pickSelfTalkTopic(weighted, {}, [], { random: () => 0.9, now })
+  assert.ok(['old-learned', 'plain-topic'].includes(late.id), '旧话题仍在候选池里')
+  // 只有旧话题时仍可选（不因“旧”被停用）
+  assert.equal(pickSelfTalkTopic([oldLearned], {}, [], { random: () => 0.5, now }).id, 'old-learned')
 })
 
 test('self-talk-topics：top8 随机窗口 + buildTopicPromptLine 内容', () => {
@@ -4723,24 +4740,30 @@ test('self-talk-topics：自学话题免审核并入话题库（learned 标记/�
     { ok: true, added: false, reason: 'duplicate', bankSize: 3 },
   )
 
-  // learned 上限：只淘汰最旧 learned，外部条目保留
-  const capped = mergeLearnedTopicIntoBank({
+  // v1.47：学过的所有话题都存储，只增不删（新学旧学都保留在话题库）
+  const many = Array.from({ length: 320 }, (_, index) => ({
+    id: `learned-${index}`,
+    title: `旧知识${index}`,
+    fact: `旧事实${index}`,
+    tags: ['自学'],
+    learned: true,
+    addedAt: 1_600_000_000_000 + index,
+  }))
+  writeBank([{ id: 'curated', title: '外部话题', fact: '外部维护。', tags: ['基础'] }, ...many])
+  const newest = mergeLearnedTopicIntoBank({
     path: bankPath,
     topic: { id: 'newest-topic', title: '新话题', fact: '新的事实。', tags: ['自学'] },
-    maxLearned: 2,
     now: 1_800_000_000_000,
   })
-  assert.equal(capped.ok, true)
-  assert.equal(capped.added, true)
-  const cappedIds = JSON.parse(fs.readFileSync(bankPath, 'utf8')).topics.map((topic) => topic.id)
-  assert.ok(cappedIds.includes('curated'), '外部条目保留')
-  assert.equal(cappedIds.includes('old-learned'), false, '最旧 learned 被淘汰')
-  assert.ok(cappedIds.includes('octopus-hearts') && cappedIds.includes('newest-topic'))
+  assert.equal(newest.ok, true)
+  assert.equal(newest.added, true)
+  const allIds = JSON.parse(fs.readFileSync(bankPath, 'utf8')).topics.map((topic) => topic.id)
+  assert.equal(allIds.length, 322, '外部条目 + 320 条旧知识 + 新知识全部保留')
+  assert.ok(allIds.includes('curated') && allIds.includes('learned-0') && allIds.includes('newest-topic'))
 
   // 非法 topic / 缺路径
   assert.equal(mergeLearnedTopicIntoBank({ path: bankPath, topic: { id: 'broken' } }).ok, false)
   assert.equal(mergeLearnedTopicIntoBank({ path: '', topic: { id: 'x', title: 'x', fact: 'x', tags: ['x'] } }).ok, false)
-  assert.equal(LEARNED_TOPIC_MAX > 0, true)
 })
 
 test('self-talk：prompt 综合心情/天气/活动/体验 + 话题 fact（有 topic 时不再用 theme）', () => {

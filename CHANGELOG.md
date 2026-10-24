@@ -3,7 +3,8 @@
 ## Unreleased
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
-- **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。learned 条目上限 300，超出只淘汰最旧的自学条目，外部维护的条目永不删除。
+- **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **容量保护改为降权而非淘汰（v1.47）**：学过的所有话题**只增不删**、全部保留可调用；新学话题按 `topicRecencyWeight` 加权（30 天内最高 3 倍，平滑回落到基础权重 1），旧知识仍有基础权重、永远能被选中——「想法来自现在学习和既往知识」，不再有“旧话题被停用”。
 - 三套单测：data 42 / host 214 / client 117 = **373 / 373 pass**。
 
 ## 0.1.4 — 2026-10-24
