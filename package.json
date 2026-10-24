@@ -1,6 +1,6 @@
 {
   "name": "dsh-poetry-widget",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "DSH Web 界面诗词格律挂件：每日一诗、逐字平仄、体式解析与格律小课堂",
   "type": "module",
   "main": "index.js",
@@ -24,7 +24,7 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "dsh": "0.2.1-rc.2"
+    "dsh": "^0.2.1-rc.2"
   },
   "dsh": {
     "bundle": {

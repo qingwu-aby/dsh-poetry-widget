@@ -15,7 +15,7 @@
 | 路由前缀 | `/api/dsh-poetry/` |
 | 设置数据目录 | `$DSH_HOME/.dsh-poetry/`（`settings.json`） |
 | 安装形态 | `plugin_manager install_bundle` → profile 内 `link:` 到本项目目录 |
-| 目标宿主 | DSH `0.2.1-rc.2`，desktop profile |
+| 目标宿主 | DSH `^0.2.1-rc.2`（实测 rc.3），desktop profile |
 
 ### 开发期生效方式（M0 实测）
 

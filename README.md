@@ -143,7 +143,7 @@ tests/             node:test 单测 + 集成验收脚本
 ## 兼容性说明：OpenCode Go 适配器（task-71）
 
 `dsh-opencode-go@0.1.24` 是按更新版 DSH 构建的：它的 `lib/index.js` 从
-`@deepseek-ai/dsh-typert-protocol` 导入 `RemoteError`，而 DSH `0.2.1-rc.2` 已移除该导出，
+`@deepseek-ai/dsh-typert-protocol` 导入 `RemoteError`，而 DSH `0.2.1`（rc.2 起）已移除该导出，
 插件会加载失败、provider `dsh-opencode-go` 不注册，插件模型调用只能回落原生 `opencode-go`
 （zen/go 网关已废弃，必然 400）。
 

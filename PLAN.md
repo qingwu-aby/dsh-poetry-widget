@@ -1,7 +1,7 @@
 # 诗词格律挂件（DSH Plugin）—— 任务计划 v0.1
 
 > 状态：**已交付（M0–M8 完成并安装验收）**；M1–M8 的完成记录见文末 §13–§16，剩余可选项见 §17。
-> 目标宿主：DeepSeek Harness **0.2.1-rc.2**，当前 profile = `desktop`，GUI = `http://127.0.0.1:57623`
+> 目标宿主：DeepSeek Harness **0.2.1-rc.3**（engines `^0.2.1-rc.2`），当前 profile = `desktop`，GUI 端口随启动变化
 > 参考项目：`MeteorNOX/DeepSeek-Balance-Whale-Widget`（交互/工程结构参考，代码 MIT；**美术素材不在 MIT 范围，一律不复用**）
 > 数据来源：`chinese-poetry/chinese-poetry` @ `b8594f81`（MIT）＋ 公版诗词文本
 > 调研缓存：`_ref/whale-widget/`（浅克隆）、`_ref/poetry-data/`（blobless 克隆，按需取文件）
@@ -46,7 +46,7 @@
 
 | 项 | 结论 | 证据 |
 |---|---|---|
-| 宿主版本 | DSH `0.2.1-rc.2`；`DSH_PROFILE=desktop`；GUI `127.0.0.1:57623` | `dsh --version`、环境变量 |
+| 宿主版本 | DSH `0.2.1-rc.3`（兼容 `^0.2.1-rc.2`）；`DSH_PROFILE=desktop`；GUI 端口随启动变化 | `dsh --version`、环境变量 |
 | 已装插件 | `dsh-whale-widget@0.4.2`、`dsh-market`、`dsh-context` 等 | `~/.dsh/profiles/desktop/package.json` |
 | 前端扩展点 | **`shell.overlay` 插槽真实存在**：list 类型、frame-wide 浮层、click-through、可加新 id（additive），注册参数 `{id, order, label}`；当前 12 个 occupant | `cordis_inspect_query` Client `Slots.listSubTree` |
 | 官方模板 | 装饰插件模板 = bundle（`dsh.bundle.patch`）+ Client 半区（`dsh.client` + `./client` 导出 + `window.__ModuleLoader__.load`） | 本机 DSH 内置 skill 模板 |
