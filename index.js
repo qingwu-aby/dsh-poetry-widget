@@ -41,6 +41,7 @@ import {
   createSelfStateHandler,
   resolveSelfStatePath,
 } from './lib/self-state.mjs'
+import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import {
   MODEL_ERRORS_ROUTE,
@@ -189,6 +190,17 @@ export async function apply(ctx) {
         /* 归档目录不可写时静默降级 */
       }
       const topicBank = loadTopicBank({ path: topicsPath, logger })
+      // v1.50：自生情绪库——她自己造的感受词（只追加、不删除），供自省/心情/碎碎念使用。
+      const feelingsPath = resolveFeelingsPath(env, home)
+      try {
+        mkdirSync(path.dirname(feelingsPath), { recursive: true })
+        if (!existsSync(feelingsPath)) {
+          writeFileSync(feelingsPath, `${JSON.stringify({ ok: true, v: 1, feelings: [] }, null, 2)}\n`, 'utf8')
+        }
+      } catch {
+        /* 情绪库不可写时静默降级（使用时不报错） */
+      }
+      const feelingBank = loadFeelingBank({ path: feelingsPath, logger })
       const topicSnapshot = topicBank.read()
       if (topicSnapshot.ok === true) {
         logger?.info?.(`[dsh-poetry-widget] 碎碎念话题库：${topicsPath}（${topicSnapshot.entries.length} 个话题）`)
@@ -201,6 +213,7 @@ export async function apply(ctx) {
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         topics: topicBank,
         topicsArchivePath,
+        feelingsPath,
       })
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
       const voiceService = createVoiceService({
@@ -263,6 +276,7 @@ export async function apply(ctx) {
         logger,
         policy: modelPolicy,
         modelErrorsPath,
+        feelings: feelingBank,
       })
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
       // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
@@ -288,6 +302,8 @@ export async function apply(ctx) {
         topicsArchivePath,
         topics: topicBank,
         recall: memoryRecall,
+        feelingsPath,
+        feelings: feelingBank,
         logger,
         policy: modelPolicy,
         modelErrorsPath,

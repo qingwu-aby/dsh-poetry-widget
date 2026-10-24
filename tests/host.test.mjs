@@ -153,6 +153,16 @@ import {
   resolveMemoryHubPaths,
 } from '../lib/memory-hub.mjs'
 import {
+  FEELING_DESC_MAX,
+  FEELING_NAME_MAX,
+  appendFeeling,
+  loadFeelingBank,
+  normalizeFeeling,
+  parseNewFeeling,
+  readFeelingFile,
+  resolveFeelingsPath,
+} from '../lib/feelings.mjs'
+import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
   SELF_GROWTH_TIMEOUT_MS,
@@ -563,6 +573,7 @@ function makeMoodAiHarness(overrides = {}) {
     logger: { warn() {} },
     policy: overrides.policy,
     modelErrorsPath: overrides.modelErrorsPath,
+    feelings: overrides.feelings,
   })
   return { llm, service, state, catalog }
 }
@@ -5204,6 +5215,8 @@ function makeGrowthHarness(overrides = {}) {
     candidatesPath: path.join(dir, 'topics-candidates.json'),
     topicsBankPath: overrides.topicsBankPath,
     topics: overrides.topics ?? [],
+    feelingsPath: overrides.feelingsPath,
+    feelings: overrides.feelings,
     recall: overrides.recall,
     logger: { warn() {}, info() {} },
     reflectIntervalMs: overrides.reflectIntervalMs ?? SELF_GROWTH_REFLECT_INTERVAL_MS,
@@ -5406,6 +5419,114 @@ test('self-state：describeSelfState/formatSelfStateLine 与 self.json handler',
   assert.equal(failedResponse.json().error.code, 'SELF_STATE_UNAVAILABLE')
 })
 
+test('feelings v1.50：自生情绪库 路径/校验/追加去重/读取/名称', () => {
+  const dir = makeTmpDir('dshp-feelings')
+  assert.equal(resolveFeelingsPath({ DSH_POETRY_FEELINGS: '/tmp/f.json' }, '/Users/a'), '/tmp/f.json')
+  assert.equal(resolveFeelingsPath({ DSH_HOME: '/tmp/dsh' }), '/tmp/dsh/agent-memory/feelings.json')
+  const file = path.join(dir, 'feelings.json')
+  fs.writeFileSync(file, '', 'utf8')
+  assert.deepEqual(readFeelingFile(file), [], '空文件 = 还没造过新感受')
+  assert.equal(normalizeFeeling({ name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。' }).name, '雨夜的钝感')
+  assert.equal(normalizeFeeling({ name: 'x', description: '太短' }), null)
+  assert.equal(parseNewFeeling({ name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。' }).ok, true)
+  assert.equal(parseNewFeeling({ name: '雨夜的钝感' }).ok, false)
+
+  const first = appendFeeling({
+    path: file,
+    feeling: { name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。' },
+    now: 1_700_000_000_000,
+  })
+  assert.equal(first.ok, true)
+  assert.equal(first.added, true)
+  const duplicate = appendFeeling({
+    path: file,
+    feeling: { name: '雨夜的钝感', description: '另一句足够长的描述。' },
+    now: 1_800_000_000_000,
+  })
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.added, false)
+  assert.equal(duplicate.reason, 'duplicate')
+  const entries = readFeelingFile(file)
+  assert.equal(entries.length, 1)
+  assert.equal(entries[0].createdAt, 1_700_000_000_000)
+  const bank = loadFeelingBank({ path: file })
+  assert.deepEqual(bank.names(5), ['雨夜的钝感'])
+  assert.equal(bank.recent(2).length, 1)
+  assert.deepEqual(loadFeelingBank({ path: path.join(dir, 'none.json') }).read(), {
+    ok: false,
+    reason: 'missing',
+    entries: [],
+  })
+  assert.equal(FEELING_NAME_MAX >= 2, true)
+  assert.equal(FEELING_DESC_MAX >= 6, true)
+})
+
+test('self-growth v1.50：自省里造出的新感受写入情绪库（重名不重复）', async () => {
+  const dir = makeTmpDir('dshp-growth-feelings')
+  const feelingsPath = path.join(dir, 'feelings.json')
+  fs.writeFileSync(feelingsPath, JSON.stringify({ ok: true, v: 1, feelings: [] }), 'utf8')
+  const llm = makeGrowthLlm([
+    JSON.stringify({
+      thought: '雨声停下来的那一瞬，我有点说不上来的空。',
+      feeling: { name: '雨停后的空', description: '雨声忽然停了，心里像少了一层垫着的东西。' },
+    }),
+    JSON.stringify({
+      thought: '灯亮着，我却想不起刚才在等什么。',
+      feeling: { name: '雨停后的空', description: '重复造同一个词也不该重复入库。' },
+    }),
+  ])
+  const { growth } = makeGrowthHarness({ llm, feelingsPath })
+  const first = await growth.reflectNow()
+  assert.equal(first.ok, true)
+  assert.equal(first.feelingAdded, true)
+  assert.equal(first.feeling.name, '雨停后的空')
+  assert.equal(readFeelingFile(feelingsPath).length, 1)
+  const second = await growth.reflectNow()
+  assert.equal(second.ok, true)
+  assert.equal(second.feelingAdded, false, '重名不重复写入')
+  assert.equal(readFeelingFile(feelingsPath).length, 1)
+  growth.dispose()
+})
+
+test('mood-ai v1.50：自造情绪词进入心情 prompt（可当 label）', async () => {
+  const feelings = [{ name: '雨停后的空', description: '雨声忽然停了，心里像少了一层垫着的东西。' }]
+  const catalog = makeMoodCatalogFixture()
+  const prompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), customFeelings: feelings }, catalog)
+  assert.match(prompt, /你自己造过的感受词/)
+  assert.match(prompt, /雨停后的空/)
+  assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, catalog).includes('你自己造过的感受词'), false)
+
+  const mood = makeMoodAiHarness({ feelings: { recent: () => feelings } })
+  assert.equal((await mood.service.generate({}, { force: true })).ok, true)
+  assert.match(mood.llm.calls[0].messages[0].content[0].text, /雨停后的空/)
+})
+
+test('memory-recall v1.50：自造感受进入记忆摘要', () => {
+  const dir = makeTmpDir('dshp-recall-feelings')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  fs.writeFileSync(journalPath, '', 'utf8')
+  const feelingsPath = path.join(dir, 'feelings.json')
+  fs.writeFileSync(
+    feelingsPath,
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      feelings: [{ name: '雨停后的空', description: '雨声忽然停了，心里像少了一层垫着的东西。', createdAt: 1 }],
+    }),
+    'utf8',
+  )
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    feelingsPath,
+  })
+  const digest = recall.digest({})
+  assert.equal(digest.newFeelings.length, 1)
+  assert.match(digest.newFeelings[0], /雨停后的空/)
+  assert.match(formatMemoryDigest(digest), /你给自己造过的新感受：雨停后的空/)
+})
+
 test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
   const state = defaultSelfState(FIXED_NOW.getTime())
   const reflectPrompt = buildReflectPrompt({ now: FIXED_NOW.getTime(), state })
@@ -5431,9 +5552,29 @@ test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
   })
   assert.equal(injectedPrompt.includes('SECRET_SESSION'), false)
 
+  // v1.50：自造新感受——prompt 说明 + 解析（非法 feeling 忽略，不影响自省）
+  const withFeelings = buildReflectPrompt({ now: FIXED_NOW.getTime(), state, knownFeelings: ['雨夜的钝感', '雨停后的空'] })
+  assert.match(withFeelings, /你已经给自己造过的感受词/)
+  assert.match(withFeelings, /雨夜的钝感、雨停后的空/)
+  assert.match(withFeelings, /"feeling"/)
+  assert.equal(reflectPrompt.includes('你已经给自己造过的感受词'), false, '无已知感受词不注入该段')
+
   const parsedReflect = parseReflectResult('```json\n{"thought":"今天安静地陪着你，心里很稳。"}\n```')
   assert.equal(parsedReflect.ok, true)
   assert.equal(parsedReflect.thought, '今天安静地陪着你，心里很稳。')
+  const parsedWithFeeling = parseReflectResult(
+    JSON.stringify({
+      thought: '雨声停下来的那一瞬，我有点说不上来的空。',
+      feeling: { name: '雨停后的空', description: '雨声忽然停了，心里像少了一层垫着的东西。' },
+    }),
+  )
+  assert.equal(parsedWithFeeling.ok, true)
+  assert.equal(parsedWithFeeling.feeling.name, '雨停后的空')
+  const parsedBadFeeling = parseReflectResult(
+    JSON.stringify({ thought: '今天安静地陪着你，心里很稳。', feeling: { name: 'x' } }),
+  )
+  assert.equal(parsedBadFeeling.ok, true)
+  assert.equal(parsedBadFeeling.feeling, null, '非法 feeling 忽略，不影响自省')
   assert.equal(parseReflectResult('{"thought":"太短"}').ok, false)
   assert.equal(parseReflectResult('not json').ok, false)
   assert.equal(parseReflectResult('{"thought":"这首诗真好啊，我想到「明月」。"}').ok, false, '含诗词痕迹拒绝')
@@ -5709,6 +5850,7 @@ function seedMemoryFiles(paths, overrides = {}) {
     'learning-log.md': '## 2026-10-21 11:00 · 自学\nQ: 为什么？\n笔记\n',
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
     'topics-archive.jsonl': '',
+    'feelings.json': JSON.stringify({ ok: true, v: 1, feelings: [{ name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。', createdAt: 1700000000000 }] }),
     'experience.json': JSON.stringify({ title: '海上钢琴师', kind: 'video', emotion: 'touched', at: 1700000000000 }),
     'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
     'self-actions.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, actions: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 1700000000000 }] }),
@@ -5752,19 +5894,21 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 11 个核心文件（含可选 voice.json/topics-archive.jsonl/self-actions.json）', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 12 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'experience.json', 'self-state.json', 'self-actions.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'feelings.json', 'experience.json', 'self-state.json', 'self-actions.json'],
   )
   assert.equal(paths.files[7].path, '/tmp/dsh-home/agent-memory/topics-archive.jsonl')
   assert.equal(paths.files[7].optional, true)
-  assert.equal(paths.files[8].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
-  assert.equal(paths.files[10].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
+  assert.equal(paths.files[8].path, '/tmp/dsh-home/agent-memory/feelings.json')
+  assert.equal(paths.files[8].optional, true)
+  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
+  assert.equal(paths.files[11].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
   assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
   assert.equal(paths.files[3].optional, true)
@@ -5776,7 +5920,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 11)
+  assert.equal(healthy.files.length, 12)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
@@ -5784,6 +5928,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   assert.equal(byId['learning-log.md'].entries, 1)
   assert.equal(byId['topics-candidates.json'].entries, 1)
   assert.equal(byId['topics-archive.jsonl'].health, 'ok', '空归档文件也算健康')
+  assert.equal(byId['feelings.json'].entries, 1)
   assert.deepEqual(healthy.backups, { count: 0, lastAt: null, latestId: null })
   assert.deepEqual(healthy.recovered, [])
   // 路径脱敏（home 下显示 ~/）
@@ -5810,7 +5955,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 10, '只复制存在的 10 个文件（README 缺失）')
+  assert.equal(first.backup.files, 11, '只复制存在的 11 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -5941,7 +6086,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 11)
+  assert.equal(get.json().files.length, 12)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)

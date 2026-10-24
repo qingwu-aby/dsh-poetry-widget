@@ -114,3 +114,4 @@
 | H11 | 自学免审核入库 | ✅ | 自学合法 topic 直接并入 `topics.json`（learned+addedAt）；候选文件留审计；去重/全部保留不删除/新学加权/旧话题仍可选均有单测 |
 | H12 | 心情标签反重复 | ✅ | 最近 12 个成功标签注入 mood prompt；断言反重复段落/细节切入指令；第二次生成 prompt 带上第一次标签（host 单测） |
 | H13 | L1 冷存储与检索 | ✅ | learned 超 1000 溢出归档（只追加、archivedAt、不删除）；digest 从归档按关键词补 relatedTopics；归档登记记忆中枢（11 文件）并纳入备份；单测覆盖压缩/去重/检索/空关键词 |
+| H14 | 自生情绪库 | ✅ | 自省可输出 feeling（name/description）并写入 `feelings.json`（重名不重复）；mood prompt 注入自造情绪词；digest 含「你给自己造过的新感受」；记忆中枢 12 文件含备份；单测覆盖校验/入库/去重/摘要 |

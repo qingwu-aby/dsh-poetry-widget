@@ -750,3 +750,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 实现：活跃 `topics.json` 的 learned 条目软上限 1000（`LEARNED_ACTIVE_MAX`），超限时最旧溢出追加到 `agent-memory/topics-archive.jsonl`（只追加、`archivedAt`；不删除）。记忆摘要 `relatedTopics` 在活跃库匹配不足 2 条时，用 `searchArchivedTopics` 按关键词检索归档并补回上下文。归档文件登记进记忆中枢（健康检查+备份），启动时确保存在。
 - 边界：归档条目不再参与「话题轮换选题」（只有活跃池参与），但可通过关键词检索回到想法/语言上下文；L2/L3 视规模再上。
 - 单测：data 42 / host 217 / client 117 = 376/376。
+
+## 64. 自生情绪库（M61，2026-10-24）
+
+- 用户：不喜欢被固定循环/固定词表限制；如果出现现有词说不清的新心情，她应该自己调用模型造出独属于自己的情绪、感受。
+- 实现：`lib/feelings.mjs`（`agent-memory/feelings.json`，只追加/重名不重复/不删除，name 2–10 字 + 第一人称描述 6–60 字）。自省（reflect）输出扩展为 `{thought, feeling|null}`：模型觉得有说不清的感受时可以当场命名；`parseReflectResult` 容错解析，非法 feeling 忽略不影响自省；reflectNow 成功即入库。自造情绪进入 mood prompt（可作为 label 候选，配图仍在图鉴选最贴近的）与 memory digest（「你给自己造过的新感受」）。
+- 边界：情绪视觉仍来自现有 198 张图鉴（不生成新立绘）；情绪库登记记忆中枢（12 文件）并纳入备份。
+- 单测：data 42 / host 221 / client 117 = 380/380。
