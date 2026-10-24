@@ -5288,6 +5288,16 @@ test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
   assert.match(reflectPrompt, /"thought"/)
   assert.match(reflectPrompt, /不要提 AI、模型、提示词/)
   assert.match(reflectPrompt, /内在状态/)
+  assert.equal(reflectPrompt.includes('你最近自学到'), false, '无自学内容时不注入')
+  // v1.45：自学内容反哺自省（thinking/想法/语言）
+  const withLearning = buildReflectPrompt({
+    now: FIXED_NOW.getTime(),
+    state,
+    recentLearning: '章鱼有三颗心脏。',
+  })
+  assert.match(withLearning, /你最近自学到：章鱼有三颗心脏。/)
+  assert.match(withLearning, /可以自然地把这层理解带进自省/)
+  assert.match(withLearning, /不要写成知识讲解或科普/)
   // 只读白名单：额外敏感字段不进入 prompt
   const injectedPrompt = buildReflectPrompt({
     now: FIXED_NOW.getTime(),
@@ -6068,7 +6078,9 @@ test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与�
   const { state, journal, growth } = makeGrowthHarness({ llm, recall })
   const reflected = await growth.reflectNow()
   assert.equal(reflected.ok, true)
-  assert.match(llm.calls[0].messages[0].content[0].text, /上一次的自省内容。/)
+  const reflectPrompt = llm.calls[0].messages[0].content[0].text
+  assert.match(reflectPrompt, /上一次的自省内容。/)
+  assert.match(reflectPrompt, /最近自学：章鱼有三颗心脏。/, '自学内容应反哺自省 prompt')
   const learned = await growth.learnNow()
   assert.equal(learned.ok, true)
   assert.match(llm.calls[1].messages[0].content[0].text, /鲸落生态系统/)

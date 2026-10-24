@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
+- 三套单测：data 42 / host 213 / client 117 = **372 / 372 pass**。
+
 ## 0.1.4 — 2026-10-24
 
 - **兼容 DSH 0.2.1-rc.3**：`engines.dsh` 由精确 `0.2.1-rc.2` 改为 `^0.2.1-rc.2`，rc.2/rc.3 及 0.2.x 后续版本都能通过宿主启动兼容检查（DSH 用 `includePrerelease` 校验范围），不再因版本精确匹配被跳过加载；版本号 0.1.3 → 0.1.4。

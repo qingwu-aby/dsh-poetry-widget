@@ -110,3 +110,4 @@
 | H7 | 三套单测 | ✅ | data 42 / host 213 / client 117 = **372 / 372 pass** |
 | H8 | 修复后实跑 | ✅ | 13:39 首条 thought；14:09 首条「· 自学」+ `topics-candidates.json` 新增 `base-superstructure-marx`；14:39 第二条 thought；13:50 后 0 条错误；14:10 自行入睡 |
 | H9 | 自省反重复 | ✅ | reflect prompt 增加「不沿用最近自省的句式/开头/主题，换一个具体角度」；host 单测断言 |
+| H10 | 自学反哺 | ✅ | reflect prompt 注入「最近自学到」；碎碎念 digest 含「你最近自学到的」；单测断言 prompt 与 recall 注入 |

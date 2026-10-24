@@ -723,3 +723,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 修 2：growth 失败诊断记录 `chunkTypes`/`finishKind`（不含正文），下次 tick 可直接看到 dsh 流里到底收到什么。
 - 修 3：客户端心情超时 25s→35s（宿主 20s 候选超时 + deepseek 兜底余量）。
 - 三套单测 372/372（data 42 / host 213 / client 117）。
+
+## 60. 自学反哺闭环（M57，2026-10-24）
+
+- 现状：自学写 learning-log.md + topics-candidates.json；碎碎念的 memory digest 已含「你最近自学到的」最近 1–2 段与相关话题，声音档案从 journal 旧句提炼——想法/语言已有输入；但自省 prompt 只有状态+最近自省，学到的内容进不了「思维」。
+- 修：buildReflectPrompt 增加最近一段自学内容（≤120 字），并给约束「和此刻状态有关才自然带入；不复述原文、不写成知识讲解/科普、不为用而用」；reflectNow 从 memoryRecall.recentLearning(1) 取。
+- 资料流：topics-candidates.json 仍是候选区（审核后并入 topics.json 才进选题轮换）；碎碎念可通过 digest 自然提到最近自学内容。
+- 三套单测 372/372（data 42 / host 213 / client 117）。
