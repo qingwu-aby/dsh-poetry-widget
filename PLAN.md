@@ -766,3 +766,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 新增 `lib/self-drive.mjs`：每 15–30 分钟（启动 30–90s 后首次）把事实交给她自己的模型，输出 `{felt, action, say}`；动作由模型决定（eat/drink/play/socialize/sleep/wake/none），host 只做 3min 间隔与状态一致性防抖；模型失败保持上次状态，不退回数值规则。model-policy 新增 role `drive`（effort low、token 下限 1200）。
 - mood/self-talk/自省/自学 prompt 与成长页全部改为文字状态 + 事实时间线（不再有 /100）；成长页不再画指标条。
 - 单测：data 42 / host 223 / client 117 = 382/382。
+
+## 66. 自主学习：学什么、何时学由她决定（M63，2026-10-24）
+
+- 用户：她可以自主决定去学什么东西吗？
+- 现状：自学每 90min 从话题库随机抽一个 topic 作种子——学什么其实一半由随机决定。
+- 实现：`buildLearnPrompt` 改成“这次学什么由你自己决定”：给最近的自省想法（recentThoughts）、最近自学内容、少量已知小知识（`sampleKnownTopics` 随机抽样，仅作参考，不强制），让她从真正好奇/反复出现的疑问里挑；不再用随机 topic 作命题。
+- 自处动作新增 `learn`：她写状态时可以直接决定“现在想学”，触发一次自学（onLearn → growth.learnNow）；自学内容仍由自学 prompt 里她自己选。
+- 单测：data 42 / host 223 / client 117 = 382/382。

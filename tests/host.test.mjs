@@ -5517,6 +5517,8 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(ok.ok, true)
   assert.equal(ok.action, 'play')
   assert.deepEqual(SELF_DRIVE_ACTIONS.includes('sleep'), true)
+  assert.deepEqual(SELF_DRIVE_ACTIONS.includes('learn'), true)
+  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '忽然很想弄明白潮汐是怎么被月亮拽动的。', action: 'learn', say: '去查查。' })).ok, true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '短', action: 'play' })).ok, false)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: 'banana' })).ok, false)
   assert.equal(parseSelfDriveResult('not json').ok, false)
@@ -5567,6 +5569,36 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
     applyEvent: () => {},
   }
   const failLlm = { stream() { return (async function* () { throw new Error('network down') })() } }
+  // v1.52：她可以选择“现在想学”，触发自学（学什么由自学 prompt 里她自己定）
+  let learnCalled = 0
+  const learnLlm = makeMockLlm(() => JSON.stringify({ felt: '忽然很想知道潮汐是怎么被月亮拽动的。', action: 'learn', say: '去查查潮汐。' }))
+  const learnDrive = createSelfDrive({
+    state: {
+      snapshot: () => ({ sleeping: false, lastActionAt: null }),
+      setFelt() {},
+      markChecked() {},
+      applyEvent() {},
+    },
+    llm: learnLlm,
+    actionsPath: path.join(dir, 'learn-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    onLearn: () => { learnCalled += 1 },
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  learnDrive.load()
+  const learnDecision = await learnDrive.check(1_700_100_000_000)
+  assert.equal(learnDecision.ok, true)
+  assert.equal(learnDecision.action.kind, 'learn')
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(learnCalled, 1, '选择“学”时应触发自学')
+  const learnActions = JSON.parse(fs.readFileSync(path.join(dir, 'learn-actions.json'), 'utf8')).actions
+  assert.equal(learnActions[0].kind, 'learn')
+  assert.equal(learnActions[0].label, '学')
+  learnDrive.dispose()
+
   const failDrive = createSelfDrive({
     state: failState,
     llm: failLlm,
@@ -5746,7 +5778,7 @@ test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
   assert.equal(parseReflectResult('{"thought":"这首诗真好啊，我想到「明月」。"}').ok, false, '含诗词痕迹拒绝')
 
   const learnPrompt = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
-  assert.match(learnPrompt, /自学/)
+  assert.match(learnPrompt, /这次学什么由你自己决定/)
   assert.match(learnPrompt, /\{"question":"…","note":"…","topic":/)
   assert.match(learnPrompt, /topic 用 null/)
 
@@ -6554,17 +6586,29 @@ test('self-talk 服务 v1.33：recall digest 进 prompt，并按 recent 选最�
   assert.equal(plain.ok, true)
 })
 
-test('self-growth v1.33：自学 prompt 带话题种子/最近自学，自省带最近 thought', () => {
+test('self-growth v1.52：学什么由她自己决定（最近想法/已知小知识/最近自学都可参考）', () => {
   const state = defaultSelfState(FIXED_NOW.getTime())
   const learnPrompt = buildLearnPrompt({
     now: FIXED_NOW.getTime(),
     state,
-    topicSeed: { id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' },
+    knownTopics: [
+      { title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' },
+      { title: '章鱼的三颗心脏', fact: '章鱼有三颗心脏。' },
+    ],
+    recentThoughts: ['最近总在想鲸落这件事。', '今天的光很轻。'],
     learningSnippet: '上次自学：章鱼有三颗心脏。',
   })
-  assert.match(learnPrompt, /你最近记下的一个话题：〈鲸落生态系统〉——鲸落可支撑深海生态数十年。/)
+  assert.match(learnPrompt, /这次学什么由你自己决定/)
+  assert.match(learnPrompt, /你已经知道的一些小知识/)
+  assert.match(learnPrompt, /鲸落生态系统：鲸落可支撑深海生态数十年。/)
+  assert.match(learnPrompt, /你最近想过的/)
+  assert.match(learnPrompt, /- 最近总在想鲸落这件事。/)
   assert.match(learnPrompt, /你最近自学到：上次自学：章鱼有三颗心脏。/)
-  assert.match(learnPrompt, /从上面的话题\/你最近自学到的东西出发/)
+  assert.equal(learnPrompt.includes('你最近记下的一个话题'), false, '不再用随机话题当命题')
+  // 没给参考时也能自主选
+  const blank = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
+  assert.match(blank, /从你真正好奇、最近反复冒出来的疑问里挑一个/)
+  assert.equal(blank.includes('你已经知道的一些小知识'), false)
 
   const reflectPrompt = buildReflectPrompt({
     now: FIXED_NOW.getTime(),
@@ -6576,7 +6620,6 @@ test('self-growth v1.33：自学 prompt 带话题种子/最近自学，自省带
   assert.match(reflectPrompt, /- 今天的光很轻。/)
   assert.match(reflectPrompt, /不要沿用最近自省的句式、开头或主题/)
   assert.match(reflectPrompt, /换一个更具体的角度/)
-  // 无最近 thought 时不出现该段
   assert.equal(buildReflectPrompt({ now: FIXED_NOW.getTime(), state }).includes('你最近的自省'), false)
 })
 
@@ -6593,9 +6636,12 @@ test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与�
   const recall = {
     recentThoughts: (limit) => ['上一次的自省内容。'].slice(0, limit),
     recentLearning: (limit) => ['最近自学：章鱼有三颗心脏。'].slice(0, limit),
-    randomTopicSeed: () => ({ id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' }),
   }
-  const { state, journal, growth } = makeGrowthHarness({ llm, recall })
+  const { state, journal, growth } = makeGrowthHarness({
+    llm,
+    recall,
+    topics: [{ id: 'whale-fall', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。' }],
+  })
   const reflected = await growth.reflectNow()
   assert.equal(reflected.ok, true)
   const reflectPrompt = llm.calls[0].messages[0].content[0].text
@@ -6603,8 +6649,11 @@ test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与�
   assert.match(reflectPrompt, /最近自学：章鱼有三颗心脏。/, '自学内容应反哺自省 prompt')
   const learned = await growth.learnNow()
   assert.equal(learned.ok, true)
-  assert.match(llm.calls[1].messages[0].content[0].text, /鲸落生态系统/)
-  assert.match(llm.calls[1].messages[0].content[0].text, /最近自学：章鱼有三颗心脏。/)
+  const learnPromptText = llm.calls[1].messages[0].content[0].text
+  assert.match(learnPromptText, /鲸落生态系统/, '已知话题作为参考')
+  assert.match(learnPromptText, /上一次的自省内容。/, '最近想法进入自学 prompt')
+  assert.match(learnPromptText, /最近自学：章鱼有三颗心脏。/)
+  assert.match(learnPromptText, /这次学什么由你自己决定/)
   assert.equal(state.snapshot().reflections >= 1, true)
   assert.equal(journal.entries[0].kind, 'thought')
   growth.dispose()

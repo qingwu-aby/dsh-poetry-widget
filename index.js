@@ -371,6 +371,7 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
         logger,
+        onLearn: () => growth.learnNow(),
         getRecentMoodLabels: () => {
           try {
             return typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : []
