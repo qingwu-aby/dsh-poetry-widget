@@ -1767,7 +1767,10 @@ window.__ModuleLoader__.load({
   function normalizeSelfStatus(data) {
   if (!data || data.ok === false || !data.state || typeof data.state !== 'object') return null
   const state = data.state
-  const clampMetric = (key) => Math.max(0, Math.min(100, Math.round(num(state[key], 0))))
+  const text = (value, max) => {
+   const raw = String(value == null ? '' : value).trim()
+   return raw.length > max ? raw.slice(0, max) : raw
+  }
   const growth = data.growth && typeof data.growth === 'object' ? data.growth : {}
   const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)))
   const at = (key) => {
@@ -1775,14 +1778,12 @@ window.__ModuleLoader__.load({
    return value > 0 ? value : 0
   }
   const rawActions = data.actions && typeof data.actions === 'object' ? data.actions : {}
+  const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === 'string' && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : []
   return {
-   energy: clampMetric('energy'),
-   curiosity: clampMetric('curiosity'),
-   social: clampMetric('social'),
-   hunger: clampMetric('hunger'),
-   thirst: clampMetric('thirst'),
-   moodValence: clampMetric('moodValence'),
-   moodArousal: clampMetric('moodArousal'),
+   // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
+   felt: text(data.felt || state.felt, 80),
+   context,
+   feltAt: num(state.feltAt, 0),
    sleeping: state.sleeping === true,
    sleepSince: num(state.sleepSince, 0),
    updatedAt: num(state.updatedAt, 0),
@@ -1889,28 +1890,21 @@ window.__ModuleLoader__.load({
   })
   }
 
-  /** 成长指标四行（SettingsTab 与 GrowthTab 共用）。 */
+  /** 她此刻的状态（SettingsTab 与 GrowthTab 共用）：一句话 + 事实时间线，没有分数。 */
   function growthMetricsTree(status) {
-  const rows = [
-   ['energy', '精力'],
-   ['curiosity', '好奇'],
-   ['social', '社交'],
-   ['hunger', '饥饿'],
-   ['thirst', '口渴'],
-  ]
+  const felt = status && typeof status.felt === 'string' ? status.felt : ''
+  const context = status && Array.isArray(status.context) ? status.context : []
   return h(
    'div',
-   { className: 'dshp-self-grid' },
-   rows.map(([key, label]) => {
-    const value = status ? Math.max(0, Math.min(100, Math.round(num(status[key], 0)))) : 0
-    return h(
-     'div',
-     { className: 'dshp-self-row', key },
-     h('span', { className: 'dshp-self-label' }, label),
-     h('span', { className: 'dshp-self-bar' }, h('span', { className: 'dshp-self-fill', style: { width: value + '%' } })),
-     h('span', { className: 'dshp-self-value' }, String(value)),
-    )
-   }),
+   { className: 'dshp-self-being' },
+   h('div', { className: 'dshp-self-felt' }, felt || '还没想好自己此刻是什么感觉。'),
+   context.length > 0
+    ? h(
+       'div',
+       { className: 'dshp-self-context' },
+       context.map((line, index) => h('div', { className: 'dshp-self-context-line', key: 'ctx-' + index }, line)),
+      )
+    : null,
    h('div', { className: 'dshp-self-summary' }, selfStatusSummary(status) || '尚未开始'),
   )
   }
@@ -2925,12 +2919,9 @@ window.__ModuleLoader__.load({
   '.dshp-dizzy-stars{position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:20px;line-height:1;animation:dshp-dizzy-float 900ms ease-in-out infinite;pointer-events:none;z-index:3}',
   '@keyframes dshp-dizzy-float{0%,100%{transform:translate(-50%,0);opacity:.75}50%{transform:translate(-50%,-6px);opacity:1}}',
   '.dshp-dizzy-tip{position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--dshp-bg);border:1px solid var(--dshp-border);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--dshp-label);box-shadow:var(--dshp-shadow);pointer-events:none;z-index:3}',
-  '.dshp-self-grid{display:flex;flex-direction:column;gap:5px;margin-top:2px}',
-  '.dshp-self-row{display:flex;align-items:center;gap:8px;font-size:12px}',
-  '.dshp-self-label{width:26px;flex:none;color:var(--dshp-label-2)}',
-  '.dshp-self-bar{flex:1;height:5px;background:var(--dshp-bg-soft);border:1px solid var(--dshp-border);border-radius:999px;overflow:hidden}',
-  '.dshp-self-fill{display:block;height:100%;background:var(--dshp-accent);border-radius:999px}',
-  '.dshp-self-value{width:26px;flex:none;text-align:right;color:var(--dshp-label-2);font-variant-numeric:tabular-nums}',
+  '.dshp-self-being{display:flex;flex-direction:column;gap:6px;margin-top:2px}',
+  '.dshp-self-felt{font-size:13px;line-height:1.65;color:var(--dshp-label-1)}',
+  '.dshp-self-context{display:flex;flex-direction:column;gap:3px;font-size:11.5px;line-height:1.5;color:var(--dshp-label-2)}',
   '.dshp-self-summary{margin-top:6px;font-size:11.5px;line-height:1.5;color:var(--dshp-label-2)}',
   '.dshp-mascot-img,.dshp-mascot-video{width:100%;height:100%;pointer-events:none;user-select:none;-webkit-user-drag:none}',
   '.dshp-mascot-img{object-fit:contain}',

@@ -153,6 +153,23 @@ import {
   resolveMemoryHubPaths,
 } from '../lib/memory-hub.mjs'
 import {
+  SELF_DRIVE_ACTIONS,
+  buildSelfDrivePrompt,
+  createSelfDrive,
+  parseSelfDriveResult,
+} from '../lib/self-drive.mjs'
+import {
+  SELF_BEING_VERSION,
+  applyBeingEvent,
+  composeElapsed,
+  createSelfBeing,
+  defaultSelfBeing,
+  describeTimeline,
+  formatBeingLine,
+  normalizeSelfBeing,
+  resolveSelfBeingPath,
+} from '../lib/self-being.mjs'
+import {
   FEELING_DESC_MAX,
   FEELING_NAME_MAX,
   appendFeeling,
@@ -5419,6 +5436,154 @@ test('self-state：describeSelfState/formatSelfStateLine 与 self.json handler',
   assert.equal(failedResponse.json().error.code, 'SELF_STATE_UNAVAILABLE')
 })
 
+test('self-being v1.51：只存事实时间线+一句状态，不再有分数', () => {
+  assert.equal(SELF_BEING_VERSION, 2)
+  assert.equal(resolveSelfBeingPath({ DSH_SELF_STATE: '/tmp/s.json' }, '/Users/a'), '/tmp/s.json')
+  assert.equal(resolveSelfBeingPath({ DSH_HOME: '/tmp/dsh' }), '/tmp/dsh/.dsh-poetry/self-state.json')
+  const being = defaultSelfBeing(1_700_000_000_000)
+  assert.equal(being.v, 2)
+  assert.equal(being.felt, '')
+  assert.equal('energy' in being, false, '没有 energy 分数')
+  assert.equal('hunger' in being, false, '没有 hunger 分数')
+
+  // 旧 v1 文件迁移：只保留时间线，数字全部丢弃
+  const migrated = normalizeSelfBeing({ v: 1, energy: 72, hunger: 88, social: 30, lastMealAt: 1_700_000_000_000, lastWakeAt: 1_699_000_000_000 }, 1_701_000_000_000)
+  assert.equal(migrated.v, 2)
+  assert.equal(migrated.lastMealAt, 1_700_000_000_000)
+  assert.equal('energy' in migrated, false)
+  assert.equal(migrated.felt, '')
+
+  // 时长说法不带数字
+  for (const ms of [0, 10 * 60_000, 45 * 60_000, 2 * 3600_000, 15 * 3600_000, 30 * 3600_000]) {
+    assert.equal(/\d/.test(composeElapsed(ms)), false, `时长不应含数字：${composeElapsed(ms)}`)
+  }
+
+  // 事实时间线也不带数字/分数
+  const lines = describeTimeline({ ...being, sleeping: false, lastWakeAt: 1_700_000_000_000, lastMealAt: 1_699_900_000_000 }, 1_700_100_000_000)
+  for (const line of lines) assert.equal(/\d/.test(line), false, `时间线不应含数字：${line}`)
+  assert.ok(lines.some((line) => line.includes('吃东西')))
+
+  // 事件只更新时间线/睡眠
+  const afterEat = applyBeingEvent({ ...being, felt: '有点饿' }, 'eat', 1_700_000_000_000)
+  assert.equal(afterEat.lastMealAt, 1_700_000_000_000)
+  assert.equal(afterEat.lastActionAt, 1_700_000_000_000)
+  const afterSleep = applyBeingEvent(afterEat, 'sleep', 1_700_000_001_000)
+  assert.equal(afterSleep.sleeping, true)
+  assert.equal(afterSleep.sleepSince, 1_700_000_001_000)
+  const afterWake = applyBeingEvent(afterSleep, 'wake', 1_700_000_002_000)
+  assert.equal(afterWake.sleeping, false)
+  assert.equal(afterWake.lastWakeAt, 1_700_000_002_000)
+  assert.equal('hunger' in afterEat, false, '事件不再加减分数')
+
+  // 持久化：她自己写的一句话 + 事实
+  const dir = makeTmpDir('dshp-being')
+  const file = path.join(dir, 'self-state.json')
+  fs.writeFileSync(file, JSON.stringify({ v: 1, energy: 55, lastMealAt: 1_700_000_000_000 }), 'utf8')
+  const store = createSelfBeing({ file, now: () => 1_700_000_500_000, persistThrottleMs: 0 })
+  const snap = store.snapshot()
+  assert.equal(snap.lastMealAt, 1_700_000_000_000)
+  assert.equal(snap.felt, '')
+  store.setFelt('刚睡醒，有点说不上来的空。')
+  assert.equal(store.snapshot().felt, '刚睡醒，有点说不上来的空。')
+  assert.match(formatBeingLine(store.snapshot()), /刚睡醒/)
+  store.markChecked(1_700_000_600_000)
+  assert.equal(store.snapshot().lastCheckAt, 1_700_000_600_000)
+  store.applyEvent('eat', 1_700_000_700_000)
+  store.flush()
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.equal(saved.v, 2)
+  assert.equal(saved.energy, undefined)
+  assert.equal(saved.lastMealAt, 1_700_000_700_000)
+  assert.equal(saved.felt, '刚睡醒，有点说不上来的空。')
+  store.dispose()
+})
+
+test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', async () => {
+  // prompt：只给事实，不含分数
+  const prompt = buildSelfDrivePrompt({
+    now: 1_700_100_000_000,
+    state: { sleeping: false, lastMealAt: 1_699_900_000_000, lastWakeAt: 1_700_000_000_000, felt: '有点乏。' },
+    recentMoodLabels: ['松下来'],
+    latestAction: { text: '刚去喝了口水。' },
+  })
+  assert.match(prompt, /距上次吃东西/)
+  assert.match(prompt, /eat 吃/)
+  assert.match(prompt, /none/)
+  assert.equal(/\d+\/100/.test(prompt), false, 'prompt 不出现分数')
+  assert.equal(/hunger >=|>= 75|阈值/.test(prompt), false, 'prompt 不提阈值')
+
+  // 解析
+  const ok = parseSelfDriveResult(JSON.stringify({ felt: '屋子里静下来，我想翻两页书。', action: 'play', say: '想翻两页书。' }))
+  assert.equal(ok.ok, true)
+  assert.equal(ok.action, 'play')
+  assert.deepEqual(SELF_DRIVE_ACTIONS.includes('sleep'), true)
+  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '短', action: 'play' })).ok, false)
+  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: 'banana' })).ok, false)
+  assert.equal(parseSelfDriveResult('not json').ok, false)
+
+  // 场景：模型说“想冒泡”，drive 记录状态+动作
+  const dir = makeTmpDir('dshp-drive')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  const events = []
+  let felt = ''
+  let checkedAt = 0
+  const state = {
+    snapshot: () => ({ sleeping: false, felt, lastActionAt: null }),
+    setFelt: (text, at) => { felt = text; return { felt } },
+    markChecked: (at) => { checkedAt = at },
+    applyEvent: (kind, at) => { events.push([kind, at]) },
+  }
+  const llm = makeMockLlm(() => JSON.stringify({ felt: '安静下来，想看看外面有没有人。', action: 'socialize', say: '冒个泡。' }))
+  const drive = createSelfDrive({
+    state,
+    llm,
+    actionsPath,
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm', reasoningEffort: 'low' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    checkMinMs: 15 * 60_000,
+    checkMaxMs: 20 * 60_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  const result = await drive.check(1_700_100_000_000)
+  assert.equal(result.ok, true)
+  assert.equal(result.felt, '安静下来，想看看外面有没有人。')
+  assert.equal(felt, '安静下来，想看看外面有没有人。')
+  assert.equal(checkedAt, 1_700_100_000_000)
+  assert.deepEqual(events, [['socialize', 1_700_100_000_000]], '动作由模型决定并落到时间线')
+  const savedActions = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
+  assert.equal(savedActions.length, 1)
+  assert.equal(savedActions[0].kind, 'socialize')
+  assert.equal(savedActions[0].text, '冒个泡。')
+  drive.dispose()
+
+  // 模型失败：保持 felt、不产生动作（不退回阈值）
+  const failState = {
+    snapshot: () => ({ sleeping: false }),
+    setFelt: () => { throw new Error('should not be called') },
+    markChecked: () => {},
+    applyEvent: () => {},
+  }
+  const failLlm = { stream() { return (async function* () { throw new Error('network down') })() } }
+  const failDrive = createSelfDrive({
+    state: failState,
+    llm: failLlm,
+    actionsPath: path.join(dir, 'fail-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  failDrive.load()
+  const failed = await failDrive.check(1_700_100_000_000)
+  assert.equal(failed.ok, false)
+  assert.equal(fs.existsSync(path.join(dir, 'fail-actions.json')), false)
+  failDrive.dispose()
+})
+
 test('feelings v1.50：自生情绪库 路径/校验/追加去重/读取/名称', () => {
   const dir = makeTmpDir('dshp-feelings')
   assert.equal(resolveFeelingsPath({ DSH_POETRY_FEELINGS: '/tmp/f.json' }, '/Users/a'), '/tmp/f.json')
@@ -5533,7 +5698,8 @@ test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
   assert.match(reflectPrompt, /最近的自省/)
   assert.match(reflectPrompt, /"thought"/)
   assert.match(reflectPrompt, /不要提 AI、模型、提示词/)
-  assert.match(reflectPrompt, /内在状态/)
+  assert.match(reflectPrompt, /你此刻的状态/)
+  assert.match(reflectPrompt, /你的事实：/)
   assert.equal(reflectPrompt.includes('你最近自学到'), false, '无自学内容时不注入')
   // v1.45：自学内容反哺自省（thinking/想法/语言）
   const withLearning = buildReflectPrompt({
@@ -5793,17 +5959,18 @@ test('mood-ai v1.48：最近心情标签反重复（prompt 段落 + 服务内存
   assert.deepEqual(mood.service.peekRecentLabels(), ['开心', '失落'])
 })
 
-test('mood-ai / self-talk prompt 注入内在状态行（含数字但要求不原样说出）', () => {
-  const state = { energy: 70, curiosity: 60, social: 55, hunger: 35, moodValence: 0, moodArousal: 45 }
-  const moodPrompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), selfState: state }, makeMoodCatalogFixture())
-  assert.match(moodPrompt, /你现在的内在状态：精力 70\/100、好奇 60\/100、社交 55\/100、饥饿 35\/100。/)
-  assert.match(moodPrompt, /不要把这些数字原样说出来/)
-  assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, makeMoodCatalogFixture()).includes('内在状态'), false)
+test('mood-ai / self-talk prompt 注入她此刻的状态（文字，不出分数）', () => {
+  const selfState = { felt: '刚醒不久，屋子里很安静。', context: ['你醒着。'] }
+  const catalog = makeMoodCatalogFixture()
+  const moodPrompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), selfState }, catalog)
+  assert.match(moodPrompt, /你此刻的状态：刚醒不久，屋子里很安静。/)
+  assert.equal(/\d+\/100/.test(moodPrompt), false, 'prompt 不再出现 0–100 数值')
+  assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, catalog).includes('你此刻的状态'), false)
 
-  const talkPrompt = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), selfState: state })
-  assert.match(talkPrompt, /你现在的内在状态：精力 70\/100/)
-  assert.match(talkPrompt, /不要把这些数字原样说出来/)
-  assert.equal(buildSelfTalkPrompt({ now: FIXED_NOW.getTime() }).includes('内在状态'), false)
+  const talkPrompt = buildSelfTalkPrompt({ now: FIXED_NOW.getTime(), selfState })
+  assert.match(talkPrompt, /你此刻的状态：刚醒不久，屋子里很安静。/)
+  assert.equal(/\d+\/100/.test(talkPrompt), false)
+  assert.equal(buildSelfTalkPrompt({ now: FIXED_NOW.getTime() }).includes('你此刻的状态'), false)
 })
 
 test('路由：mood-ai/self-talk 的 generate 上下文带 selfState 快照', async () => {
@@ -7185,9 +7352,9 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
-  assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, { mood: 'low', selfTalk: 'high', growth: 'high', voice: 'high' })
+  assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, { mood: 'low', selfTalk: 'high', growth: 'high', voice: 'high', drive: 'low' })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
 
@@ -7218,6 +7385,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('selfTalk').reasoningEffort, 'low')
   assert.equal(envPolicy.resolve('growth').reasoningEffort, 'high', '非法 env effort 回退默认')
   assert.equal(envPolicy.resolve('voice').reasoningEffort, 'off')
+  assert.equal(envPolicy.resolve('drive').reasoningEffort, 'low', '自处默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({

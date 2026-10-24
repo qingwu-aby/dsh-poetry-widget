@@ -757,3 +757,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 实现：`lib/feelings.mjs`（`agent-memory/feelings.json`，只追加/重名不重复/不删除，name 2–10 字 + 第一人称描述 6–60 字）。自省（reflect）输出扩展为 `{thought, feeling|null}`：模型觉得有说不清的感受时可以当场命名；`parseReflectResult` 容错解析，非法 feeling 忽略不影响自省；reflectNow 成功即入库。自造情绪进入 mood prompt（可作为 label 候选，配图仍在图鉴选最贴近的）与 memory digest（「你给自己造过的新感受」）。
 - 边界：情绪视觉仍来自现有 198 张图鉴（不生成新立绘）；情绪库登记记忆中枢（12 文件）并纳入备份。
 - 单测：data 42 / host 221 / client 117 = 380/380。
+
+## 65. 内在状态去量化 + 自处决策（M62，2026-10-24）
+
+- 用户：内在状态不应该被量化（碳基硅基都一样），行为也不该由阈值在代码里替她决定。
+- 实现：`self-state.json` v2 = 事实时间线（lastWake/Meal/Drink/Play/Social/Learn/Reflect/Action/Check）+ `felt`（她自己写的一句话，≤60 字），删除全部 0–100 指标与漂移；旧 v1 自动迁移（只保留时间线）。
+- 新增 `lib/self-being.mjs`：时间线→中文事实描述（`composeElapsed` 用中文数字，不出现分数/阿拉伯数字）；`formatBeingLine` 供 prompt；只读 self.json 返回 felt/context。
+- 新增 `lib/self-drive.mjs`：每 15–30 分钟（启动 30–90s 后首次）把事实交给她自己的模型，输出 `{felt, action, say}`；动作由模型决定（eat/drink/play/socialize/sleep/wake/none），host 只做 3min 间隔与状态一致性防抖；模型失败保持上次状态，不退回数值规则。model-policy 新增 role `drive`（effort low、token 下限 1200）。
+- mood/self-talk/自省/自学 prompt 与成长页全部改为文字状态 + 事实时间线（不再有 /100）；成长页不再画指标条。
+- 单测：data 42 / host 223 / client 117 = 382/382。

@@ -35,12 +35,8 @@ import {
   resolvePetMediaDir,
 } from './lib/pet-media.mjs'
 import { createRouteTable } from './lib/routes.mjs'
-import {
-  SELF_STATE_ROUTE,
-  createSelfState,
-  createSelfStateHandler,
-  resolveSelfStatePath,
-} from './lib/self-state.mjs'
+import { SELF_STATE_ROUTE } from './lib/self-state.mjs'
+import { createSelfBeing, createSelfBeingHandler, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import {
@@ -49,7 +45,7 @@ import {
   resolveModelErrorsPath,
 } from './lib/model-errors.mjs'
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
-import { createSelfActions } from './lib/self-actions.mjs'
+import { createSelfDrive } from './lib/self-drive.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
 import {
@@ -289,8 +285,8 @@ export async function apply(ctx) {
           `[dsh-poetry-widget] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
         )
       }
-      // v1.28：内在状态 + 自驱成长循环（state 持久化；growth 60s tick 驱动漂移/自省/自学）。
-      const selfState = createSelfState({ file: resolveSelfStatePath(env, home), logger })
+      // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
+      const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
       const growth = createSelfGrowth({
         state: selfState,
         getLlm,
@@ -310,9 +306,9 @@ export async function apply(ctx) {
       })
       growth.start()
       logger?.info?.(
-        `[dsh-poetry-widget] 自驱成长已启动（内在状态：${selfState.file}；自省 60min / 自学 90min）`,
+        `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive']
         .map((role) => {
           let candidates = []
           try {
@@ -340,7 +336,7 @@ export async function apply(ctx) {
           try {
             selfState.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 内在状态清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-poetry-widget] 状态清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
         'dsh-poetry-widget: 自驱成长',
@@ -367,24 +363,38 @@ export async function apply(ctx) {
         'dsh-poetry-widget: 记忆中枢',
       )
 
-      // M46：自主行为循环（60s tick；按 state 自己决定吃喝玩乐睡/醒，动作环形写 self-actions.json）。
-      const selfActions = createSelfActions({ state: selfState, logger })
-      selfActions.start()
-      const actionSnapshot = selfActions.snapshot()
+      // v1.51：自处循环——每 15–30 分钟把事实交给她自己的模型：写「此刻状态」+ 自己决定想做什么。
+      // 没有阈值、没有需求分数；模型不可用时保持上次状态，什么都不做。
+      const selfDrive = createSelfDrive({
+        state: selfState,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        getRecentMoodLabels: () => {
+          try {
+            return typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : []
+          } catch {
+            return []
+          }
+        },
+      })
+      selfDrive.start()
+      const actionSnapshot = selfDrive.snapshot()
       logger?.info?.(
-        `[dsh-poetry-widget] 自主行为循环已启动（${selfActions.actionsPath}${
+        `[dsh-poetry-widget] 自处循环已启动（${selfDrive.actionsPath}${
           actionSnapshot.latest !== null ? `；上次：${actionSnapshot.latest.text}` : ''
         }）`,
       )
       hostCtx.effect(
         () => () => {
           try {
-            selfActions.dispose()
+            selfDrive.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 自主行为清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-poetry-widget] 自处循环清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 自主行为',
+        'dsh-poetry-widget: 自处',
       )
 
       const routes = createRouteTable({
@@ -444,11 +454,10 @@ export async function apply(ctx) {
         webServer.register({
           kind: 'exact',
           path: SELF_STATE_ROUTE,
-          handler: createSelfStateHandler({
-            tick: () => selfState.tick(),
+          handler: createSelfBeingHandler({
             getSnapshot: () => selfState.snapshot(),
             getGrowth: () => growth.snapshot(),
-            getActions: () => selfActions.snapshot(),
+            getActions: () => selfDrive.snapshot(),
           }),
         }),
       )

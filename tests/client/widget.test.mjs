@@ -5774,14 +5774,15 @@ test('成长状态：normalize/摘要/缺失或 404 隐藏', () => {
   assert.equal(debug.SELF_POLL_MS, 60000)
   const status = debug.normalizeSelfStatus({
     ok: true,
-    state: { energy: 72.6, curiosity: -3, social: 55, hunger: 101, moodValence: 60, moodArousal: 40, updatedAt: shanghaiTs(2026, 10, 23, 12, 0) },
+    felt: '刚睡醒不久，屋子里很安静。',
+    context: ['现在是上午十点前后', '你醒着。', '距上次吃东西大约两个钟头前；距上次喝水大约半个钟头前。'],
+    state: { sleeping: false, feltAt: shanghaiTs(2026, 10, 23, 12, 0), updatedAt: shanghaiTs(2026, 10, 23, 12, 0) },
     growth: { learnings: 3, reflections: 2, lastLearnAt: shanghaiTs(2026, 10, 23, 11, 5), lastReflectAt: shanghaiTs(2026, 10, 23, 11, 20) },
   })
   assert.ok(status)
-  assert.equal(status.energy, 73, '指标四舍五入')
-  assert.equal(status.curiosity, 0, '负值夹到 0')
-  assert.equal(status.hunger, 100, '超过 100 夹到 100')
-  assert.equal(status.social, 55)
+  assert.equal(status.felt, '刚睡醒不久，屋子里很安静。')
+  assert.equal(status.context.length, 3)
+  assert.equal(status.sleeping, false)
   const summary = debug.selfStatusSummary(status)
   assert.match(summary, /自学 3 条/)
   assert.match(summary, /自省 2 次/)
@@ -5790,7 +5791,7 @@ test('成长状态：normalize/摘要/缺失或 404 隐藏', () => {
   assert.equal(debug.normalizeSelfStatus({ ok: false }), null)
   assert.equal(debug.normalizeSelfStatus({ ok: true }), null)
   assert.equal(debug.normalizeSelfStatus(null), null)
-  const empty = debug.normalizeSelfStatus({ ok: true, state: { energy: 10 }, growth: {} })
+  const empty = debug.normalizeSelfStatus({ ok: true, state: { felt: '' }, growth: {} })
   assert.ok(empty)
   assert.equal(debug.selfStatusSummary(empty), '尚未开始')
   assert.equal(debug.selfStatusSummary(null), '')
@@ -5807,22 +5808,22 @@ test('设置页成长状态：五行指标+摘要渲染，无数据整块隐藏'
   }
   const status = debug.normalizeSelfStatus({
     ok: true,
-    state: { energy: 35, curiosity: 66, social: 48, hunger: 12, moodValence: 50, moodArousal: 50, updatedAt: 1 },
+    felt: '下雨天，有点犯困，但心里松下来了。',
+    context: ['现在是下午两点前后', '你醒着。', '距上次吃东西大约三个钟头前。'],
+    state: { sleeping: false, feltAt: 1, updatedAt: 1 },
     growth: { learnings: 5, reflections: 4, lastLearnAt: shanghaiTs(2026, 10, 23, 9, 30), lastReflectAt: shanghaiTs(2026, 10, 23, 10, 0) },
   })
   const tree = renderFresh(react, debug.SettingsTab, { api: Object.assign({}, baseApi, { selfStatus: status }) })
   const text = textOf(tree)
   assert.match(text, /成长状态/)
-  for (const label of ['精力', '好奇', '社交', '饥饿', '口渴']) assert.ok(text.includes(label), '缺少指标：' + label)
+  assert.match(text, /下雨天，有点犯困，但心里松下来了。/)
+  assert.match(text, /距上次吃东西大约三个钟头前。/, '事实时间线也展示')
   assert.match(text, /自学 5 条/)
   assert.match(text, /自省 4 次/)
-  assert.match(text, /35/)
-  assert.match(text, /66/)
+  const felt = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-self-felt')
+  assert.equal(felt.length, 1, '只展示一句话，不再有指标条')
   const rows = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-self-row')
-  assert.equal(rows.length, 5, '五行指标')
-  const fills = findAll(tree, (node) => node.type === 'span' && node.props.className === 'dshp-self-fill')
-  assert.equal(fills.length, 5)
-  assert.equal(fills[0].props.style.width, '35%')
+  assert.equal(rows.length, 0, '不再渲染 0–100 指标行')
   const hidden = renderFresh(react, debug.SettingsTab, { api: baseApi })
   assert.ok(!textOf(hidden).includes('成长状态'), '无数据时整块隐藏')
 })
@@ -5934,7 +5935,9 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   const { react, debug } = loadClient()
   const status = debug.normalizeSelfStatus({
     ok: true,
-    state: { energy: 44, curiosity: 55, social: 66, hunger: 77 },
+    felt: '发呆到一半，忽然有点想笑。',
+    context: ['你现在醒着。', '距上次吃东西大约两个钟头前。'],
+    state: { sleeping: false, feltAt: 1, updatedAt: 1 },
     growth: { learnings: 7, reflections: 3, lastLearnAt: 1000, lastReflectAt: 2000 },
   })
   const calls = []
@@ -5953,7 +5956,8 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   assert.match(text, /发呆出神/)
   assert.match(text, /想发会儿呆/)
   assert.match(text, /来源：模型/)
-  for (const label of ['精力', '好奇', '社交', '饥饿']) assert.ok(text.includes(label))
+  assert.match(text, /发呆到一半，忽然有点想笑。/)
+  assert.match(text, /距上次吃东西大约两个钟头前。/)
   assert.match(text, /自学 7 条/)
   assert.match(text, /自省 3 次/)
   assert.ok(text.includes('「二」') && text.includes('「六」'), '最近话语应显示最后 5 条')
@@ -6170,7 +6174,7 @@ test('自主行为：self.json actions/thirst/sleeping 解析、lastSeen 持久�
   const at2 = shanghaiTs(2026, 10, 23, 22, 5)
   const status = debug.normalizeSelfStatus({
     ok: true,
-    state: { energy: 20, curiosity: 30, social: 40, hunger: 50, thirst: 60, sleeping: true, sleepSince: at1, updatedAt: 1 },
+    state: { felt: '有点困了，先窝一会儿。', sleeping: true, sleepSince: at1, updatedAt: 1 },
     actions: {
       latest: { id: 'a2', label: '喝水', text: '我去喝口水。', at: at2 },
       recent: [
@@ -6183,13 +6187,13 @@ test('自主行为：self.json actions/thirst/sleeping 解析、lastSeen 持久�
       ],
     },
   })
-  assert.equal(status.thirst, 60)
+  assert.equal(status.felt, '有点困了，先窝一会儿。')
   assert.equal(status.sleeping, true)
   assert.equal(status.sleepSince, at1)
   assert.equal(status.actions.latest.id, 'a2')
   assert.equal(status.actions.latest.text, '我去喝口水。')
   assert.equal(status.actions.recent.length, 5, 'recent 最多 5 条')
-  const noActions = debug.normalizeSelfStatus({ ok: true, state: { energy: 1 } })
+  const noActions = debug.normalizeSelfStatus({ ok: true, state: { felt: '' } })
   assert.equal(noActions.actions.latest, null)
   assertDeep(noActions.actions.recent, [])
   assert.equal(debug.readSeenActionId(), '')
@@ -6203,7 +6207,7 @@ test('自主行为：self.json actions/thirst/sleeping 解析、lastSeen 持久�
   const growthApi = { settings: debug.normalizeSettings({}), selfStatus: status, updateSettings() {} }
   const tree = renderFresh(react, debug.GrowthTab, { api: growthApi })
   const text = textOf(tree)
-  assert.match(text, /口渴/)
+  assert.match(text, /有点困了，先窝一会儿。/)
   assert.match(text, /睡眠中/)
   assert.match(text, /自主行为/)
   assert.match(text, /喝水 · 我去喝口水。/)
