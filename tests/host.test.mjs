@@ -190,10 +190,12 @@ import {
   resolveSelfStatePath,
 } from '../lib/self-state.mjs'
 import {
+  LEARNED_TOPIC_MAX,
   SELF_TALK_TOPIC_RECENT_MAX,
   SELF_TALK_TOPIC_TOP_N,
   buildTopicPromptLine,
   loadTopicBank,
+  mergeLearnedTopicIntoBank,
   parseTopicBank,
   pickSelfTalkTopic,
   resolveTopicsPath,
@@ -4689,6 +4691,58 @@ test('self-talk-topics：top8 随机窗口 + buildTopicPromptLine 内容', () =>
   assert.equal(buildTopicPromptLine(null), '')
 })
 
+test('self-talk-topics：自学话题免审核并入话题库（learned 标记/去重/cap/外部条目保留）', () => {
+  const dir = makeTmpDir('dshp-topics-promote')
+  const bankPath = path.join(dir, 'topics.json')
+  const writeBank = (topics) =>
+    fs.writeFileSync(bankPath, JSON.stringify({ ok: true, v: 1, updatedAt: 'x', topics }), 'utf8')
+  writeBank([
+    { id: 'curated', title: '外部话题', fact: '外部维护。', tags: ['基础'] },
+    { id: 'old-learned', title: '旧自学', fact: '旧的。', tags: ['自学'], learned: true, addedAt: 1 },
+  ])
+
+  const first = mergeLearnedTopicIntoBank({
+    path: bankPath,
+    topic: { id: 'octopus-hearts', title: '章鱼三颗心', fact: '章鱼有三颗心脏。', tags: ['海洋'] },
+    now: 1_700_000_000_000,
+  })
+  assert.equal(first.ok, true)
+  assert.equal(first.added, true)
+  const bank = JSON.parse(fs.readFileSync(bankPath, 'utf8'))
+  assert.deepEqual(bank.topics.map((topic) => topic.id), ['curated', 'old-learned', 'octopus-hearts'])
+  assert.equal(bank.topics[2].learned, true)
+  assert.equal(bank.topics[2].addedAt, 1_700_000_000_000)
+  assert.equal(bank.topics[0].learned, undefined, '外部条目不带 learned 标记')
+
+  // 重复 id → 不重复添加
+  assert.deepEqual(
+    mergeLearnedTopicIntoBank({
+      path: bankPath,
+      topic: { id: 'octopus-hearts', title: '章鱼三颗心', fact: '章鱼有三颗心脏。', tags: ['海洋'] },
+    }),
+    { ok: true, added: false, reason: 'duplicate', bankSize: 3 },
+  )
+
+  // learned 上限：只淘汰最旧 learned，外部条目保留
+  const capped = mergeLearnedTopicIntoBank({
+    path: bankPath,
+    topic: { id: 'newest-topic', title: '新话题', fact: '新的事实。', tags: ['自学'] },
+    maxLearned: 2,
+    now: 1_800_000_000_000,
+  })
+  assert.equal(capped.ok, true)
+  assert.equal(capped.added, true)
+  const cappedIds = JSON.parse(fs.readFileSync(bankPath, 'utf8')).topics.map((topic) => topic.id)
+  assert.ok(cappedIds.includes('curated'), '外部条目保留')
+  assert.equal(cappedIds.includes('old-learned'), false, '最旧 learned 被淘汰')
+  assert.ok(cappedIds.includes('octopus-hearts') && cappedIds.includes('newest-topic'))
+
+  // 非法 topic / 缺路径
+  assert.equal(mergeLearnedTopicIntoBank({ path: bankPath, topic: { id: 'broken' } }).ok, false)
+  assert.equal(mergeLearnedTopicIntoBank({ path: '', topic: { id: 'x', title: 'x', fact: 'x', tags: ['x'] } }).ok, false)
+  assert.equal(LEARNED_TOPIC_MAX > 0, true)
+})
+
 test('self-talk：prompt 综合心情/天气/活动/体验 + 话题 fact（有 topic 时不再用 theme）', () => {
   const topic = { id: 't1', title: '章鱼的三颗心脏', fact: '章鱼有三颗心脏。' }
   const prompt = buildSelfTalkPrompt({
@@ -5078,6 +5132,7 @@ function makeGrowthHarness(overrides = {}) {
     journal,
     learningLogPath: path.join(dir, 'learning-log.md'),
     candidatesPath: path.join(dir, 'topics-candidates.json'),
+    topicsBankPath: overrides.topicsBankPath,
     topics: overrides.topics ?? [],
     recall: overrides.recall,
     logger: { warn() {}, info() {} },
@@ -5348,7 +5403,14 @@ test('self-growth：到点自省写 journal thought、自学写 learning-log 与
       topic: { id: 'whale-fall-ecosystem', title: '鲸落生态系统', fact: '鲸落可支撑深海生态数十年。', tags: ['海洋', '动物'] },
     }),
   ])
-  const { dir, state, journal, growth } = makeGrowthHarness({ llm, topics: [{ id: 'octopus-three-hearts' }], now: () => now })
+  const bankDir = makeTmpDir('dshp-growth-bank')
+  const bankPath = path.join(bankDir, 'topics.json')
+  const { dir, state, journal, growth } = makeGrowthHarness({
+    llm,
+    topics: [{ id: 'octopus-three-hearts' }],
+    topicsBankPath: bankPath,
+    now: () => now,
+  })
 
   const reflect = await growth.reflectNow()
   assert.equal(reflect.ok, true)
@@ -5359,9 +5421,21 @@ test('self-growth：到点自省写 journal thought、自学写 learning-log 与
   assert.equal(state.snapshot().reflections, 1)
   assert.equal(growth.snapshot().lastReflectAt, now)
 
+  // v1.46：自学话题免审核直接并入活跃话题库（learned 标记）
+  fs.writeFileSync(
+    bankPath,
+    JSON.stringify({ ok: true, v: 1, topics: [{ id: 'curated-one', title: '已有话题', fact: '外部维护的事实。', tags: ['基础'] }] }),
+    'utf8',
+  )
   const learn = await growth.learnNow()
   assert.equal(learn.ok, true)
   assert.equal(learn.candidateAdded, true)
+  assert.equal(learn.topicPromoted, true)
+  const bank = JSON.parse(fs.readFileSync(bankPath, 'utf8'))
+  assert.deepEqual(bank.topics.map((topic) => topic.id), ['curated-one', 'whale-fall-ecosystem'])
+  assert.equal(bank.topics[1].learned, true)
+  assert.equal(typeof bank.topics[1].addedAt, 'number')
+  assert.equal(bank.topics[0].learned, undefined, '外部话题不被标记/删除')
   const learningLog = fs.readFileSync(path.join(dir, 'learning-log.md'), 'utf8')
   assert.match(learningLog, /· 自学/)
   assert.match(learningLog, /Q: 鲸落为什么能养活深海？/)

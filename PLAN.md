@@ -728,5 +728,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - 现状：自学写 learning-log.md + topics-candidates.json；碎碎念的 memory digest 已含「你最近自学到的」最近 1–2 段与相关话题，声音档案从 journal 旧句提炼——想法/语言已有输入；但自省 prompt 只有状态+最近自省，学到的内容进不了「思维」。
 - 修：buildReflectPrompt 增加最近一段自学内容（≤120 字），并给约束「和此刻状态有关才自然带入；不复述原文、不写成知识讲解/科普、不为用而用」；reflectNow 从 memoryRecall.recentLearning(1) 取。
-- 资料流：topics-candidates.json 仍是候选区（审核后并入 topics.json 才进选题轮换）；碎碎念可通过 digest 自然提到最近自学内容。
+- 资料流：topics-candidates.json 仍是候选区（审核后并入 topics.json 才进选题轮换）；碎碎念可通过 digest 自然提到最近自学内容。（v1.46 起改为免审核自动并入，见 §61。）
 - 三套单测 372/372（data 42 / host 213 / client 117）。
+
+## 61. 自学话题免审核并入活跃话题库（M58，2026-10-24）
+
+- 用户决定：自学话题「不用审核」。
+- 实现：`mergeLearnedTopicIntoBank` 把校验通过的 topic 直接并入 `agent-memory/topics.json`，带 `learned:true` + `addedAt`；碎碎念选题（`pickSelfTalkTopic`）、随机话题种子、记忆摘要相关话题立即读到。`topics-candidates.json` 继续写，作为审计/回溯日志。
+- 容量：learned 条目上限 300（`LEARNED_TOPIC_MAX`），超出按 addedAt 淘汰最旧 learned；外部维护条目不带标记、永不删除。
+- 单测：data 42 / host 214 / client 117 = 373/373。

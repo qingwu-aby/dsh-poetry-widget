@@ -274,6 +274,7 @@ export async function apply(ctx) {
         journal,
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
+        topicsBankPath: topicsPath,
         topics: topicBank,
         recall: memoryRecall,
         logger,
