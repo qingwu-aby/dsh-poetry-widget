@@ -195,11 +195,14 @@ import {
   SELF_TALK_TOPIC_TOP_N,
   buildTopicPromptLine,
   loadTopicBank,
+  compactTopicBankForArchive,
   mergeLearnedTopicIntoBank,
   parseTopicBank,
   pickSelfTalkTopic,
+  resolveTopicsArchivePath,
   resolveTopicsPath,
   scoreSelfTalkTopic,
+  searchArchivedTopics,
   topicRecencyWeight,
 } from '../lib/self-talk-topics.mjs'
 import {
@@ -4693,6 +4696,50 @@ test('self-talk-topics：pickSelfTalkTopic 按心情/天气/活动/体验/时段
   assert.equal(pickSelfTalkTopic([oldLearned], {}, [], { random: () => 0.5, now }).id, 'old-learned')
 })
 
+test('self-talk-topics v1.49：L1 冷存储——最旧 learned 归档、不删除、关键词可检索', () => {
+  const dir = makeTmpDir('dshp-topics-archive')
+  const bankPath = path.join(dir, 'topics.json')
+  const archivePath = path.join(dir, 'topics-archive.jsonl')
+  assert.equal(resolveTopicsArchivePath({ DSH_HOME: dir }, dir), path.join(dir, 'agent-memory', 'topics-archive.jsonl'))
+
+  fs.writeFileSync(
+    bankPath,
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      topics: [
+        { id: 'curated', title: '外部话题', fact: '外部维护。', tags: ['基础'] },
+        { id: 'learned-old', title: '最旧自学', fact: '最旧的事实。', tags: ['海洋'], learned: true, addedAt: 1 },
+        { id: 'learned-mid', title: '中间自学', fact: '中间的事实。', tags: ['动物'], learned: true, addedAt: 2 },
+        { id: 'learned-new', title: '最新自学', fact: '最新的事实。', tags: ['科技'], learned: true, addedAt: 3 },
+      ],
+    }),
+    'utf8',
+  )
+  const compacted = compactTopicBankForArchive({ path: bankPath, archivePath, maxLearned: 2, now: 1_800_000_000_000 })
+  assert.equal(compacted.ok, true)
+  assert.equal(compacted.archived, 1, '只溢出 1 条')
+  assert.equal(compacted.active, 3)
+  const activeIds = JSON.parse(fs.readFileSync(bankPath, 'utf8')).topics.map((topic) => topic.id)
+  assert.deepEqual(activeIds, ['curated', 'learned-mid', 'learned-new'], '外部条目与较新自学保留')
+  const archived = JSON.parse(fs.readFileSync(archivePath, 'utf8').trim().split('\n')[0])
+  assert.equal(archived.id, 'learned-old')
+  assert.equal(archived.archivedAt, 1_800_000_000_000)
+  assert.equal('learned-old' in Object.fromEntries(activeIds.map((id) => [id, true])), false)
+
+  // 归档仍可被关键词检索（旧知识没有消失）
+  const found = searchArchivedTopics({ path: archivePath, keywords: ['海洋'], limit: 2 })
+  assert.equal(found.length, 1)
+  assert.equal(found[0].id, 'learned-old')
+  assert.deepEqual(searchArchivedTopics({ path: archivePath, keywords: ['编程'], limit: 2 }), [])
+  assert.deepEqual(searchArchivedTopics({ path: archivePath, keywords: [], limit: 2 }), [])
+
+  // 再次压缩：learned 未超限 → 不重复归档
+  const again = compactTopicBankForArchive({ path: bankPath, archivePath, maxLearned: 2 })
+  assert.equal(again.ok, true)
+  assert.equal(again.archived, 0)
+})
+
 test('self-talk-topics：top8 随机窗口 + buildTopicPromptLine 内容', () => {
   const topics = Array.from({ length: 10 }, (_, index) => makeTopic(`t${index}`, `标题${index}`, `事实${index}`, ['海洋']))
   // 同分时稳定序 → top8 是前 8 个；random≈0/≈1 分别取 top 内首/尾
@@ -5661,6 +5708,7 @@ function seedMemoryFiles(paths, overrides = {}) {
     'README.md': '# 记忆目录\n',
     'learning-log.md': '## 2026-10-21 11:00 · 自学\nQ: 为什么？\n笔记\n',
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
+    'topics-archive.jsonl': '',
     'experience.json': JSON.stringify({ title: '海上钢琴师', kind: 'video', emotion: 'touched', at: 1700000000000 }),
     'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
     'self-actions.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, actions: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 1700000000000 }] }),
@@ -5704,20 +5752,22 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 10 个核心文件（含可选 voice.json/self-actions.json）', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 11 个核心文件（含可选 voice.json/topics-archive.jsonl/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'experience.json', 'self-state.json', 'self-actions.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'experience.json', 'self-state.json', 'self-actions.json'],
   )
-  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
+  assert.equal(paths.files[7].path, '/tmp/dsh-home/agent-memory/topics-archive.jsonl')
+  assert.equal(paths.files[7].optional, true)
+  assert.equal(paths.files[8].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
+  assert.equal(paths.files[10].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
   assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
   assert.equal(paths.files[3].optional, true)
-  assert.equal(paths.files[7].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
 })
 
 test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () => {
@@ -5726,13 +5776,14 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 10)
+  assert.equal(healthy.files.length, 11)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
   assert.equal(byId['topics.json'].entries, 2)
   assert.equal(byId['learning-log.md'].entries, 1)
   assert.equal(byId['topics-candidates.json'].entries, 1)
+  assert.equal(byId['topics-archive.jsonl'].health, 'ok', '空归档文件也算健康')
   assert.deepEqual(healthy.backups, { count: 0, lastAt: null, latestId: null })
   assert.deepEqual(healthy.recovered, [])
   // 路径脱敏（home 下显示 ~/）
@@ -5759,7 +5810,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 9, '只复制存在的 9 个文件（README 缺失）')
+  assert.equal(first.backup.files, 10, '只复制存在的 10 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -5890,7 +5941,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 10)
+  assert.equal(get.json().files.length, 11)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)
@@ -5991,6 +6042,27 @@ function makeMemoryRecallHarness(overrides = {}) {
   const recall = createMemoryRecall({ journalPath, learningLogPath, topics })
   return { dir, journalPath, learningLogPath, topics, recall }
 }
+
+test('memory-recall v1.49：冷存储归档的旧话题按关键词回到相关话题', () => {
+  const dir = makeTmpDir('dshp-recall-archive')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  fs.writeFileSync(journalPath, '', 'utf8')
+  const archivePath = path.join(dir, 'topics-archive.jsonl')
+  fs.writeFileSync(
+    archivePath,
+    `${JSON.stringify({ id: 'whale-migration', title: '鲸鱼迁徙', fact: '座头鲸每年迁徙数千公里。', tags: ['海洋'] })}\n`,
+    'utf8',
+  )
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    topicsArchivePath: archivePath,
+  })
+  const digest = recall.digest({ recentTexts: ['鲸鱼'] })
+  assert.ok(digest.relatedTopics.some((text) => text.includes('鲸鱼迁徙')), '归档旧话题应能回到上下文')
+  assert.deepEqual(recall.digest({ recentTexts: ['编程'] }).relatedTopics, [])
+})
 
 test('memory-recall：读取最后 300 行/跳过坏行/缺失文件/learning 末段', () => {
   const dir = makeTmpDir('dshp-recall')

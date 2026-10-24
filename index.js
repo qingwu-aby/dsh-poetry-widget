@@ -16,7 +16,7 @@
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
 // data/ 缺失或损坏时优雅降级（200 + DATA_UNAVAILABLE），不会让插件加载失败。
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,7 +57,7 @@ import {
   createMemorySnapshotHandler,
 } from './lib/memory-hub.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
-import { loadTopicBank, resolveTopicsPath } from './lib/self-talk-topics.mjs'
+import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createMoodTracker } from './lib/mood.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -179,6 +179,15 @@ export async function apply(ctx) {
       const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
+      // v1.49：L1 冷存储归档（活跃话题库 learned 超限时最旧的移入这里；仍可关键词检索）。
+      const topicsArchivePath = resolveTopicsArchivePath(env, home)
+      try {
+        mkdirSync(path.dirname(topicsArchivePath), { recursive: true })
+        // 空归档文件也算健康（否则记忆中枢会把可选的“尚未归档”误报为缺失）。
+        if (!existsSync(topicsArchivePath)) writeFileSync(topicsArchivePath, '', 'utf8')
+      } catch {
+        /* 归档目录不可写时静默降级 */
+      }
       const topicBank = loadTopicBank({ path: topicsPath, logger })
       const topicSnapshot = topicBank.read()
       if (topicSnapshot.ok === true) {
@@ -191,6 +200,7 @@ export async function apply(ctx) {
         journalPath: path.join(memoryDir, 'journal.jsonl'),
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         topics: topicBank,
+        topicsArchivePath,
       })
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
       const voiceService = createVoiceService({
@@ -275,6 +285,7 @@ export async function apply(ctx) {
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
         topicsBankPath: topicsPath,
+        topicsArchivePath,
         topics: topicBank,
         recall: memoryRecall,
         logger,
