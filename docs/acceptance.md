@@ -112,3 +112,4 @@
 | H9 | 自省反重复 | ✅ | reflect prompt 增加「不沿用最近自省的句式/开头/主题，换一个具体角度」；host 单测断言 |
 | H10 | 自学反哺 | ✅ | reflect prompt 注入「最近自学到」；碎碎念 digest 含「你最近自学到的」；单测断言 prompt 与 recall 注入 |
 | H11 | 自学免审核入库 | ✅ | 自学合法 topic 直接并入 `topics.json`（learned+addedAt）；候选文件留审计；去重/全部保留不删除/新学加权/旧话题仍可选均有单测 |
+| H12 | 心情标签反重复 | ✅ | 最近 12 个成功标签注入 mood prompt；断言反重复段落/细节切入指令；第二次生成 prompt 带上第一次标签（host 单测） |

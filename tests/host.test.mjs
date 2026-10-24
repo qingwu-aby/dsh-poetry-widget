@@ -5566,6 +5566,45 @@ test('self-growth M55：EMPTY 诊断记录 chunkTypes/finishKind（不含正文�
   growth.dispose()
 })
 
+test('mood-ai v1.48：最近心情标签反重复（prompt 段落 + 服务内存环）', async () => {
+  // 1) prompt：有最近标签时注入列表与反重复指令；无标签时不出现
+  const catalog = makeMoodCatalogFixture()
+  const prompt = buildMoodPrompt(
+    {
+      now: FIXED_NOW.getTime(),
+      recentMoodLabels: ['松弛放空', '饿得发懒', '雨夜微饿'],
+    },
+    catalog,
+  )
+  assert.match(prompt, /你最近生成过的心情标签/)
+  assert.match(prompt, /- 松弛放空/)
+  assert.match(prompt, /- 饿得发懒/)
+  assert.match(prompt, /不要把同一主题换个形容词再说一遍/)
+  assert.match(prompt, /换角度比换词重要/)
+  assert.match(prompt, /label 请尽量从具体细节切入/)
+  assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, catalog).includes('你最近生成过的心情标签'), false)
+
+  // 2) 服务：成功生成后记录标签，下一次 prompt 带上它
+  const labels = [
+    { label: '开心', image: 'dsh-whale-state-happy.webp' },
+    { label: '失落', image: 'dsh-whale-state-sad.webp' },
+  ]
+  let callIndex = 0
+  const llm = makeMockLlm(() => {
+    const entry = labels[Math.min(callIndex, labels.length - 1)]
+    callIndex += 1
+    return JSON.stringify({ label: entry.label, image: entry.image, reason: '今天发生了足够多的事', energy: 50 })
+  })
+  const mood = makeMoodAiHarness({ llm })
+  assert.equal((await mood.service.generate({}, { force: true })).ok, true)
+  assert.deepEqual(mood.service.peekRecentLabels(), ['开心'])
+  assert.equal((await mood.service.generate({}, { force: true })).ok, true)
+  const secondPrompt = mood.llm.calls[1].messages[0].content[0].text
+  assert.match(secondPrompt, /你最近生成过的心情标签/)
+  assert.match(secondPrompt, /- 开心/)
+  assert.deepEqual(mood.service.peekRecentLabels(), ['开心', '失落'])
+})
+
 test('mood-ai / self-talk prompt 注入内在状态行（含数字但要求不原样说出）', () => {
   const state = { energy: 70, curiosity: 60, social: 55, hunger: 35, moodValence: 0, moodArousal: 45 }
   const moodPrompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), selfState: state }, makeMoodCatalogFixture())
