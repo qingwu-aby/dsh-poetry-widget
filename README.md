@@ -37,7 +37,7 @@ DeepSeek Harness（DSH）Web 界面的常驻诗词挂件（默认停在左下角
 - 🧠 **自主记忆**：模型自己生成的心情/碎碎念/自省/自学写入 `$DSH_HOME/agent-memory/`（只追加）；心情每条都保留，碎碎念 journal 3 分钟限频；记忆中枢负责备份/恢复，`journal.raw-2026-10-23.*` 保留整理前原始记录；不写入任何会话消息或用户原文。
 - 🎮 **飞花令**：诗词模块 → 飞花——**自由输入对句**：系统先出一句含令字的诗（带出处），你直接输入一句；校验「有没有出处 / 是否含令字 / 本局是否重复」——出处可在**全量诗词**里查（构建自全唐诗/全宋诗/全宋词/蒙学，按令字分片懒加载；数据在 `_ref/feihua-full/`，不随包，缺失时回退本地句库），接上后系统自动接下一句，能接多少看你的库存（句库 **155,504 句完整句**，含全量宋词；基础 3,244 句，按需并入扩展库）。不再四选一/扣命，只记本字最佳；另有「图鉴」按令字列句与出处。气泡第 6 张卡可直接进入。
 - ⚙️ **设置**：大小、平仄标注、每日/随机、自动轮播、吸附方向、简体/原文、恢复默认；心情/成长状态在成长页，设置持久化到 `$DSH_HOME/.dsh-poetry/settings.json`。
-- 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落 `deepseek-account/deepseek-flash`；原生 `opencode-go` 只在 `dsh-opencode-go` 不可用时兜底；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
+- 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落 `deepseek-account/deepseek-flash`；原生 `opencode-go` 只在 `dsh-opencode-go` 不可用时兜底；若宿主默认模型本身指向原生 `opencode-go`（缺 `x-opencode-session` 头会 400），插件会自动改用 deepseek 账号兜底；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
 
 ## 安装
 

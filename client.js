@@ -112,7 +112,7 @@ window.__ModuleLoader__.load({
   const MOOD_REFRESH_MS = 5 * 60 * 1000
   const MOOD_TICK_MS = 60 * 1000
   const MOOD_AI_PATH = 'mood-ai.json'
-  const MOOD_AI_TIMEOUT_MS = 25000
+  const MOOD_AI_TIMEOUT_MS = 35000
   const MOOD_AI_DEBOUNCE_MIN_MS = 2000
   const MOOD_AI_DEBOUNCE_MAX_MS = 4000
   const MOOD_AI_MIN_GAP_MS = 20000

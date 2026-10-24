@@ -714,3 +714,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 修 2：原生 opencode-go（zen/go 网关已废弃、必然 400）只在 dsh-opencode-go 不可用时进候选链；dsh 可用时链为 dsh → deepseek-account。
 - 修 3：`scripts/patch-dsh-opencode-go.mjs` 复现安装版适配器的 `RemoteError` 兼容补丁（幂等、自动备份），用于插件重装/升级后恢复 provider 注册。
 - 三套单测 370/370（data 42 / host 211 / client 117）。
+
+## 59. 夜间巡护与成长兜底修复（M56，2026-10-24）
+
+- 夜间观察：自主行为正常（吃/喝/玩/冒泡/睡/醒都有记录），mood 22 条（21 张不同图）但 growth 整夜 0 条 thought、0 次 learning。
+- 根因：宿主 selection = 原生 `opencode-go`；该 provider 走 zen/go 网关，网关要求 `x-opencode-session` 头而原生 provider 不发 → 必然 400；dsh 候选 EMPTY 后兜底到它再失败。另：growth 的 dsh 候选 EMPTY 时只记「模型没有返回文本」，无流内诊断。
+- 修 1：dsh 可用时，若 selection 指向原生 `opencode-go`，用 `deepseek-account/deepseek-flash` 兜底（`MODEL_POLICY_SAFE_FALLBACK`）；dsh 不可用/显式关闭订阅时保留宿主选择。
+- 修 2：growth 失败诊断记录 `chunkTypes`/`finishKind`（不含正文），下次 tick 可直接看到 dsh 流里到底收到什么。
+- 修 3：客户端心情超时 25s→35s（宿主 20s 候选超时 + deepseek 兜底余量）。
+- 三套单测 372/372（data 42 / host 213 / client 117）。

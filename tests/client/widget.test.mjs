@@ -3815,8 +3815,8 @@ test('mood-ai 请求：成功/未知图/404/401/ok:false/非法 JSON/超时全�
   timeoutClient.context.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return 1 }
   timeoutClient.context.clearTimeout = () => {}
   const pending = timeoutClient.debug.requestMoodAi({ catalog: normalized })
-  const timer = timers.find((entry) => entry.ms === 25000)
-  assert.ok(timer, '应有 25s 超时（宿主 20s + 余量）')
+  const timer = timers.find((entry) => entry.ms === 35000)
+  assert.ok(timer, '应有 35s 超时（宿主 20s 候选超时 + deepseek 兜底余量）')
   timer.fn()
   assert.equal((await pending).ok, false)
 })
@@ -5375,7 +5375,7 @@ test('饭点集成：12:00 播吃午餐动画+提醒文案、25–40s 后恢复�
 
 test('mood-ai 超时 25s + webm 图片校验放宽：未在图鉴的合法 webm 接受、非法/静态未知拒绝', () => {
   const { debug } = loadClient()
-  assert.equal(debug.MOOD_AI_TIMEOUT_MS, 25000)
+  assert.equal(debug.MOOD_AI_TIMEOUT_MS, 35000, 'dsh 候选 20s 超时后还要留 deepseek 兜底时间')
   const catalog = debug.normalizeMoodCatalog(makeMoodCatalogFixture())
   const makeMood = (image) => ({ ok: true, mood: { label: '实时', image, reason: '测试' } })
   // 合法 webm 即使动画图鉴未加载/未收录也接受（宿主只返回图鉴内文件，视频 404 由 onError 回退）

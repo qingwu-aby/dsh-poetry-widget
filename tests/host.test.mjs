@@ -110,6 +110,7 @@ import {
   MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_OPENCODE_PROVIDER,
   MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS,
+  MODEL_POLICY_SAFE_FALLBACK,
   MODEL_POLICY_DEFAULTS,
   MODEL_POLICY_DEFAULT_EFFORTS,
   MODEL_POLICY_EFFORTS,
@@ -5425,6 +5426,39 @@ test('self-growth：tick 的模型失败会推进 lastReflectAt（不在每个 t
   growth.dispose()
 })
 
+test('self-growth M55：EMPTY 诊断记录 chunkTypes/finishKind（不含正文）', async () => {
+  const dir = makeTmpDir('dshp-growth-diag')
+  const errorsPath = path.join(dir, 'model-errors.jsonl')
+  const reasoningOnlyLlm = {
+    calls: [],
+    stream(options) {
+      this.calls.push(options)
+      return (async function* () {
+        yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+        yield { type: 'reasoning-delta', index: 0, text: '思考中' }
+        yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: '思考中' } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+  const { growth } = makeGrowthHarness({ llm: reasoningOnlyLlm, modelErrorsPath: errorsPath })
+  const result = await growth.reflectNow()
+  assert.equal(result.ok, false)
+  const rows = readModelErrors(errorsPath, 10)
+  const record = rows.find((row) => row.role === 'growth')
+  assert.ok(record, '应写入 growth 诊断')
+  assert.equal(record.code, 'EMPTY_RESPONSE')
+  assert.deepEqual(record.request.chunkTypes, {
+    'block-start': 1,
+    'reasoning-delta': 1,
+    'block-end': 1,
+    finish: 1,
+  })
+  assert.equal(record.request.finishKind, 'stop')
+  assert.equal(JSON.stringify(record).includes('思考中'), false, '诊断不含正文')
+  growth.dispose()
+})
+
 test('mood-ai / self-talk prompt 注入内在状态行（含数字但要求不原样说出）', () => {
   const state = { energy: 70, curiosity: 60, social: 55, hunger: 35, moodValence: 0, moodArousal: 45 }
   const moodPrompt = buildMoodPrompt({ now: FIXED_NOW.getTime(), selfState: state }, makeMoodCatalogFixture())
@@ -7700,6 +7734,41 @@ test('model-policy M54：候选顺序 dsh-opencode-go → deepseek-account（原
   // describe 显示候选顺序
   const described = describeModelPolicy(policy)
   assert.match(described, /心情=dsh-opencode-go\/deepseek-v4\.1-flash\(low\) → deepseek-account\/deepseek-flash\(low\)/)
+})
+
+test('model-policy M55：宿主默认指向原生 opencode-go（缺会话头必然 400）→ 换 deepseek 账号兜底', () => {
+  const brokenSelection = () => ({ provider: 'opencode-go', model: 'deepseek-v4.1-flash' })
+  assert.deepEqual(MODEL_POLICY_SAFE_FALLBACK, { provider: 'deepseek-account', model: 'deepseek-flash' })
+
+  // dsh 可用：候选 = dsh → deepseek-account/deepseek-flash（原生 400 不进链）
+  const withDsh = createModelPolicy({
+    env: {},
+    getSelection: brokenSelection,
+    getProviders: () => ['dsh-opencode-go', 'opencode-go', 'deepseek-account'],
+  }).resolveCandidates('growth')
+  assert.deepEqual(
+    withDsh.map((c) => `${c.provider}/${c.model}`),
+    ['dsh-opencode-go/deepseek-v4.1-flash', 'deepseek-account/deepseek-flash'],
+  )
+  assert.equal(withDsh[1].reasoningEffort, 'high')
+  assert.equal('maxTokensFloor' in withDsh[1], false)
+
+  // dsh 不可用（仅原生）：保留宿主选择（用户显式配置），不强行替换
+  const nativeOnly = createModelPolicy({
+    env: {},
+    getSelection: brokenSelection,
+    getProviders: () => ['opencode-go'],
+  }).resolveCandidates('mood')
+  assert.deepEqual(nativeOnly.map((c) => c.provider), ['opencode-go'])
+  assert.equal(nativeOnly[0].model, 'deepseek-v4.1-flash')
+
+  // 显式关闭 opencode 订阅：同样保留宿主选择
+  const disabled = createModelPolicy({
+    env: { DSH_POETRY_OPENCODE_GO: '0' },
+    getSelection: brokenSelection,
+    getProviders: () => ['dsh-opencode-go', 'opencode-go'],
+  }).resolveCandidates('mood')
+  assert.deepEqual(disabled.map((c) => c.provider), ['opencode-go'])
 })
 
 test('model-policy M54：四服务 dsh 候选不发 temperature、发 reasoningEffort；响应 model 为 dsh', async () => {

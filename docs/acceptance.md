@@ -96,3 +96,15 @@
 | G4 | token 下限 | ✅ | 四服务单测断言 dsh 候选 `maxTokens`：心情/成长/声音 1600、碎碎念 1200；deepseek 候选保持 220/200 |
 | G5 | 兼容补丁脚本 | ✅ | `scripts/patch-dsh-opencode-go.mjs --dry-run` 幂等；临时 profile 上打补丁 → 重跑（无需修改）→ 校验 RemoteError 类与导入均正确 |
 | G6 | 三套单测 | ✅ | data 42 / host 211 / client 117 = **370 / 370 pass** |
+
+## H. M56 夜间巡护与成长兜底（2026-10-24）
+
+| # | 检查 | 结果 | 证据 |
+|---|---|---|---|
+| H1 | 夜间自主行为 | ✅ | `self-actions.json` 记录吃/喝/玩/冒泡/睡/醒 12+ 次；self-state 正常漂移 |
+| H2 | 夜间 journal | ⚠️→已修 | 23:49–12:12 共 26 条：mood 22（21 张不同图）+ murmur 4；**thought 0、learning 0**（growth 整夜失败） |
+| H3 | growth 失败根因 | ✅ | model-errors：dsh growth `EMPTY_RESPONSE`（maxTokens 1600）→ 原生 `opencode-go`（selection）也失败；原生 provider 缺 `x-opencode-session` 头 → 必然 400 |
+| H4 | 兜底修复 | ✅ | 策略单测：selection=原生 opencode-go + dsh 可用 → 候选 `dsh-opencode-go → deepseek-account/deepseek-flash`；dsh 不可用/关闭订阅时保留宿主选择 |
+| H5 | EMPTY 诊断 | ✅ | growth 失败记录含 `chunkTypes`/`finishKind`，且不含正文（单测断言） |
+| H6 | 客户端心情超时 | ✅ | 25s→35s（宿主 20s 候选超时 + 兜底余量），client 测试同步 |
+| H7 | 三套单测 | ✅ | data 42 / host 213 / client 117 = **372 / 372 pass** |

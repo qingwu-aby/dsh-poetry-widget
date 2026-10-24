@@ -9,6 +9,7 @@
 - **接入 dsh-opencode-go 适配器**：插件模型候选改为 `dsh-opencode-go/deepseek-v4.1-flash` → 原生 `opencode-go` → `deepseek-account`；新适配器走 `https://opencode.ai/inference/go/v1`、无 temperature、保留 reasoningEffort；失败诊断写 `model-errors.jsonl`（provider/model/status，无提示词）。
 - **修复 dsh-opencode-go 空响应（task-71）**：Go 网关的 `deepseek-v4.1-flash` 默认开启 thinking、catalog 无 `off` 档无法关闭，推理 token 与正文共享 `max_tokens`；心情 220 / 碎碎念 200 的小预算偶尔被推理吃光 → 正文 0 字符（`EMPTY_RESPONSE`）。策略给 dsh 候选附 `maxTokensFloor`（心情/成长/声音 1600、碎碎念 1200），四服务取 `max(角色预算, floor)`，正文长度仍由提示词约束。
 - **候选链收敛**：原生 `opencode-go` 的 zen/go 网关已废弃、必然 400，现仅在 `dsh-opencode-go` 不可用时兜底；dsh 可用时不再每次调用先浪费一次 400。
+- **夜间自主巡护修复（task-72）**：夜间 journal 只有 mood/murmur、**0 条 thought**——自驱成长整夜失败。根因：宿主 selection 指向原生 `opencode-go`（zen/go 网关要求 `x-opencode-session` 头，原生 provider 不发 → 必然 400），dsh 候选失败后兜底到它再失败。修复：dsh 可用时若 selection 是原生 `opencode-go`，改用 `deepseek-account/deepseek-flash` 兜底；growth 的 `EMPTY_RESPONSE` 诊断新增 `chunkTypes`/`finishKind`（不含正文）；客户端心情超时 25s→35s 给兜底留时间。
 - **兼容补丁脚本** `scripts/patch-dsh-opencode-go.mjs`：`dsh-opencode-go@0.1.24` 从 `@deepseek-ai/dsh-typert-protocol` 导入的 `RemoteError` 在 DSH 0.2.1-rc.2 已移除，导致插件加载失败、provider 不注册；脚本幂等收窄导入并内联等价类，首次修改自动备份，打完重启 DSH 生效。
 - 单测：data 42 / host 211 / client 117 = **370 / 370 pass**。
 
