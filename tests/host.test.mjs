@@ -6605,6 +6605,17 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   assert.match(learnPrompt, /- 最近总在想鲸落这件事。/)
   assert.match(learnPrompt, /你最近自学到：上次自学：章鱼有三颗心脏。/)
   assert.equal(learnPrompt.includes('你最近记下的一个话题'), false, '不再用随机话题当命题')
+  // v1.53：学习范围扩大 + 历史/政治表述约束 + 反重复
+  assert.match(learnPrompt, /人文、历史、百科、哲学、思政/)
+  assert.match(learnPrompt, /小说/)
+  assert.match(learnPrompt, /不站队、不煽动、不编造/)
+  const withRepeat = buildLearnPrompt({
+    now: FIXED_NOW.getTime(),
+    state,
+    recentLearnedTitles: ['雾不拖慢声音', '极光声不在天上', '水里的声音快四倍'],
+  })
+  assert.match(withRepeat, /你最近几轮学的是：雾不拖慢声音、极光声不在天上、水里的声音快四倍。/)
+  assert.match(withRepeat, /换一个完全不同的方向/)
   // 没给参考时也能自主选
   const blank = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
   assert.match(blank, /从你真正好奇、最近反复冒出来的疑问里挑一个/)
