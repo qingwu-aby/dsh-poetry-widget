@@ -5507,27 +5507,37 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
     latestAction: { text: '刚去喝了口水。' },
   })
   assert.match(prompt, /距上次吃东西/)
-  assert.match(prompt, /eat 吃/)
-  assert.match(prompt, /none/)
+  // v1.56：不再给菜单，让她用自己的话生成行为
+  assert.match(prompt, /不要从任何清单里挑/)
+  assert.match(prompt, /"doing"/)
+  assert.match(prompt, /kind 里顺手标一下/)
+  assert.equal(/eat 吃 \/ drink 喝/.test(prompt), false, '不再列动作菜单')
   assert.equal(/\d+\/100/.test(prompt), false, 'prompt 不出现分数')
   assert.equal(/hunger >=|>= 75|阈值/.test(prompt), false, 'prompt 不提阈值')
 
   // 解析
   const ok = parseSelfDriveResult(JSON.stringify({ felt: '屋子里静下来，我想翻两页书。', action: 'play', say: '想翻两页书。' }))
   assert.equal(ok.ok, true)
-  assert.equal(ok.action, 'play')
+  assert.equal(ok.kind, 'play', '兼容旧 action 形状')
+  assert.equal(ok.doing.length > 0, true)
   assert.deepEqual(SELF_DRIVE_ACTIONS.includes('sleep'), true)
   assert.deepEqual(SELF_DRIVE_ACTIONS.includes('learn'), true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '忽然很想弄明白潮汐是怎么被月亮拽动的。', action: 'learn', say: '去查查。' })).ok, true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '短', action: 'play' })).ok, false)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: '吃' })).ok, false)
-  // v1.55：可以自造日常行为 + 中文 label
+  // v1.56：自由生成行为（doing），kind 可选
   const invented = parseSelfDriveResult(
-    JSON.stringify({ felt: '坐太久了，腰有点僵。', action: 'stretch', label: '伸懒腰', say: '起来抻一抻。' }),
+    JSON.stringify({ felt: '坐太久了，腰有点僵。', doing: '把窗台上那盆草转个方向', kind: '', say: '让它也晒晒这一面。' }),
   )
   assert.equal(invented.ok, true)
-  assert.equal(invented.action, 'stretch')
-  assert.equal(invented.label, '伸懒腰')
+  assert.equal(invented.doing, '把窗台上那盆草转个方向')
+  assert.equal(invented.kind, '')
+  const withKind = parseSelfDriveResult(
+    JSON.stringify({ felt: '嗓子有点干。', doing: '去倒杯温水，顺便看看夜里的雨', kind: 'drink' }),
+  )
+  assert.equal(withKind.ok, true)
+  assert.equal(withKind.kind, 'drink')
+  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', doing: '做点事情', kind: 'Bad Kind' })).ok, false)
   assert.equal(parseSelfDriveResult('not json').ok, false)
 
   // 场景：模型说“想冒泡”，drive 记录状态+动作
@@ -5603,12 +5613,12 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(learnCalled, 1, '选择“学”时应触发自学')
   const learnActions = JSON.parse(fs.readFileSync(path.join(dir, 'learn-actions.json'), 'utf8')).actions
   assert.equal(learnActions[0].kind, 'learn')
-  assert.equal(learnActions[0].label, '学')
+  assert.equal(learnActions[0].label.length > 0, true)
   learnDrive.dispose()
 
   // v1.55：自造日常行为（如伸懒腰）只作为“她做了什么”记录，不写时间线
   const stretchLlm = makeMockLlm(() =>
-    JSON.stringify({ felt: '坐久了，腰背有点发僵，想站起来抻一抻。', action: 'stretch', label: '伸懒腰', say: '起來抻一抻。' }),
+    JSON.stringify({ felt: '坐久了，腰背有点发僵，想站起来抻一抻。', doing: '站起来把手臂举过头顶，慢慢把腰拉直', kind: '', say: '起來抻一抻。' }),
   )
   const stretchDrive = createSelfDrive({
     state: {
@@ -5628,10 +5638,10 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   stretchDrive.load()
   const stretchResult = await stretchDrive.check(1_700_100_000_000)
   assert.equal(stretchResult.ok, true)
-  assert.equal(stretchResult.action.kind, 'stretch')
-  assert.equal(stretchResult.action.label, '伸懒腰')
+  assert.equal(stretchResult.action.kind, 'doing', '自由行为默认 kind=doing')
+  assert.equal(stretchResult.action.label, '站起来把手臂举过头顶，慢慢把腰拉直')
   const stretchSaved = JSON.parse(fs.readFileSync(path.join(dir, 'stretch-actions.json'), 'utf8')).actions
-  assert.equal(stretchSaved[0].kind, 'stretch')
+  assert.equal(stretchSaved[0].kind, 'doing')
   assert.equal(stretchSaved[0].text, '起來抻一抻。')
   stretchDrive.dispose()
 
