@@ -6616,6 +6616,11 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   })
   assert.match(withRepeat, /你最近几轮学的是：雾不拖慢声音、极光声不在天上、水里的声音快四倍。/)
   assert.match(withRepeat, /换一个完全不同的方向/)
+  // v1.54：历史建议（软性，不强制）与深挖提醒
+  assert.match(withRepeat, /最近可以多往历史看看/)
+  assert.match(withRepeat, /中国史、世界史都行/)
+  assert.match(withRepeat, /只是建议、不是任务/)
+  assert.match(withRepeat, /不要换问法重复/)
   // 没给参考时也能自主选
   const blank = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
   assert.match(blank, /从你真正好奇、最近反复冒出来的疑问里挑一个/)
@@ -6632,6 +6637,29 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   assert.match(reflectPrompt, /不要沿用最近自省的句式、开头或主题/)
   assert.match(reflectPrompt, /换一个更具体的角度/)
   assert.equal(buildReflectPrompt({ now: FIXED_NOW.getTime(), state }).includes('你最近的自省'), false)
+})
+
+test('self-growth v1.54：历史话题作为软参考进入自学 prompt（不强制）', async () => {
+  const llm = makeGrowthLlm([
+    JSON.stringify({
+      question: '郡县制为什么能取代分封？',
+      note: '郡县由中央任免、不世袭，行政效率与中央控制力都更强。',
+      topic: { id: 'junxian-system', title: '郡县制', fact: '郡县长官由中央任免、不世袭，是中央集权的地方行政基础。', tags: ['历史', '中国史'] },
+    }),
+  ])
+  const { growth } = makeGrowthHarness({
+    llm,
+    topics: [
+      { id: 'junxian', title: '郡县制与分封制', fact: '秦以郡县取代分封。', tags: ['历史', '中国史'] },
+      { id: 'ocean-fact', title: '海水为什么咸', fact: '岩石风化把盐带进海里。', tags: ['海洋'] },
+    ],
+  })
+  const learned = await growth.learnNow()
+  assert.equal(learned.ok, true)
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /最近可以多往历史看看/)
+  assert.match(prompt, /郡县制与分封制/, '历史话题作为参考')
+  growth.dispose()
 })
 
 test('self-growth v1.33：reflectNow/learnNow 从 recall 取最近 thought 与话题种子', async () => {
