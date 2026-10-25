@@ -5520,7 +5520,14 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.deepEqual(SELF_DRIVE_ACTIONS.includes('learn'), true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '忽然很想弄明白潮汐是怎么被月亮拽动的。', action: 'learn', say: '去查查。' })).ok, true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '短', action: 'play' })).ok, false)
-  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: 'banana' })).ok, false)
+  assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: '吃' })).ok, false)
+  // v1.55：可以自造日常行为 + 中文 label
+  const invented = parseSelfDriveResult(
+    JSON.stringify({ felt: '坐太久了，腰有点僵。', action: 'stretch', label: '伸懒腰', say: '起来抻一抻。' }),
+  )
+  assert.equal(invented.ok, true)
+  assert.equal(invented.action, 'stretch')
+  assert.equal(invented.label, '伸懒腰')
   assert.equal(parseSelfDriveResult('not json').ok, false)
 
   // 场景：模型说“想冒泡”，drive 记录状态+动作
@@ -5598,6 +5605,35 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(learnActions[0].kind, 'learn')
   assert.equal(learnActions[0].label, '学')
   learnDrive.dispose()
+
+  // v1.55：自造日常行为（如伸懒腰）只作为“她做了什么”记录，不写时间线
+  const stretchLlm = makeMockLlm(() =>
+    JSON.stringify({ felt: '坐久了，腰背有点发僵，想站起来抻一抻。', action: 'stretch', label: '伸懒腰', say: '起來抻一抻。' }),
+  )
+  const stretchDrive = createSelfDrive({
+    state: {
+      snapshot: () => ({ sleeping: false, lastActionAt: null }),
+      setFelt() {},
+      markChecked() {},
+      applyEvent: () => { throw new Error('should not update timeline for invented action') },
+    },
+    llm: stretchLlm,
+    actionsPath: path.join(dir, 'stretch-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  stretchDrive.load()
+  const stretchResult = await stretchDrive.check(1_700_100_000_000)
+  assert.equal(stretchResult.ok, true)
+  assert.equal(stretchResult.action.kind, 'stretch')
+  assert.equal(stretchResult.action.label, '伸懒腰')
+  const stretchSaved = JSON.parse(fs.readFileSync(path.join(dir, 'stretch-actions.json'), 'utf8')).actions
+  assert.equal(stretchSaved[0].kind, 'stretch')
+  assert.equal(stretchSaved[0].text, '起來抻一抻。')
+  stretchDrive.dispose()
 
   const failDrive = createSelfDrive({
     state: failState,
@@ -7400,7 +7436,13 @@ test('self-actions M46：环形 50 条/load 已有动作/坏文件/快照 latest
   // 校验函数
   assert.equal(normalizeSelfAction({ id: 'x', kind: 'eat', label: '吃', text: 'x', at: 1 }).id, 'x')
   assert.equal(normalizeSelfAction({ id: '', kind: 'eat', at: 1 }), null)
-  assert.equal(normalizeSelfAction({ id: 'x', kind: 'dance', at: 1 }), null)
+  // v1.55：允许自造日常行为 slug（有 label/text 兜底），非法 slug 仍拒绝
+  const invented = normalizeSelfAction({ id: 'x', kind: 'dance', at: 1 })
+  assert.equal(invented.kind, 'dance')
+  assert.equal(invented.label, 'dance')
+  assert.equal(invented.text, '做了点自己的小事。')
+  assert.equal(normalizeSelfAction({ id: 'x', kind: '吃', at: 1 }), null)
+  assert.equal(normalizeSelfAction({ id: 'x', kind: 'has space', at: 1 }), null)
   assert.equal(normalizeSelfActionsFile({ ok: true, v: 1, actions: [{ id: 'a', kind: 'eat', at: 1 }, { bad: true }] }).length, 1)
   assert.deepEqual(normalizeSelfActionsFile({ ok: false, v: 1, actions: [] }), [])
   assert.equal(SELF_ACTIONS_MAX_ENTRIES, 50)
