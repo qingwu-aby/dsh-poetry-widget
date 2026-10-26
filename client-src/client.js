@@ -5246,7 +5246,11 @@ window.__ModuleLoader__.load({
    return libraryTabFactory
   }
   function LibraryTab(props) { return ensureLibraryTab().LibraryTab(props) }
-  function WidgetBoundary(props) { return ensureLibraryTab().WidgetBoundary(props) }
+  // WidgetBoundary 是 class 组件，不能直接当函数调用；用函数包装成正常 React 组件。
+  function WidgetBoundary(props) {
+   const Boundary = ensureLibraryTab().WidgetBoundary
+   return h(Boundary, null, props && props.children)
+  }
 
   function apply(ctx) {
   const host = (props) => h(WidgetBoundary, null, h(PoetryWidget, Object.assign({}, props || {}, { ctx })))
