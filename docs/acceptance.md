@@ -139,3 +139,4 @@
 | H36 | P0 架构重构 | ✅ | 9 处模型调用循环收为 `lib/llm-call.mjs`（单候选 + 角色调用）；12 个记忆文件收为 `lib/memory-registry.mjs`（hub 与各 resolvers 共用）；新增 npm scripts；行为不变、单测 391/391 |
 | H37 | P1 可观测性/架构地图 | ✅ | health.json 增加 runtime 快照（6 个后台服务，只元数据）；docs/architecture.md 模块地图/数据流/扩展点/债务；client 拆分受阻结论记录；单测覆盖 |
 | H38 | P1 收尾（构建/测试/运行时/迁移） | ✅ | client 源码拆 client-src + esbuild 构建单 artifact；虚拟时钟使 client 测试 36s→~2.7s；service runtime 统一生命周期 + health services；记忆 schemaVersion + self-state v1→v2 迁移（幂等）；全套 392/392 |
+| H39 | P2 宿主适配 + client 模块化 | ✅ | dsh-host 适配层（inject/get/effect 转发与降级，含测试）；client-src 拆出 base.js / wander.js，构建与测试不变；全套 393/393 |

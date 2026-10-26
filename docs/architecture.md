@@ -7,13 +7,13 @@
 | 半区 | 文件 | 职责 |
 | --- | --- | --- |
 | Host（Node） | `index.js` + `lib/*.mjs` | 记忆、模型调用、后台循环、HTTP 路由、信任栅栏、静态素材 |
-| Client（浏览器） | `client.js`（由 `client-src/` 构建） | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互；源码 `client-src/client.js` + `client-src/styles.js`，`npm run build:client`（esbuild）生成单 artifact |
+| Client（浏览器） | `client.js`（由 `client-src/` 构建） | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互；源码 `client-src/client.js` + `styles.js` + `base.js` + `wander.js`，`npm run build:client`（esbuild）生成单 artifact |
 
 Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读文件、不持有模型密钥。
 
 ## 2. Host 模块分组
 
-- 入口：`index.js`（组合根）——建服务、注册路由、起定时器、清理。
+- 入口：`index.js`（组合根）——建服务、注册路由、起定时器、清理；宿主 API 经 `dsh-host` 适配层。
 - 数据/契约：`data-store`（诗词 JSON）、`settings-store`（设置+原子写）、`trust`（请求栅栏）、`routes`（全部 JSON 路由表）。
 - 记忆：`memory-journal`（journal 只追加）、`memory-recall`（检索/摘要）、`memory-layers`（情景/语义/自我分层 + 每日整合）、`memory-hub`（12 个文件登记/健康/备份/恢复）、`memory-registry`（记忆文件唯一登记表）、`feelings`、`self-talk-topics`（话题库+冷存储）。
 - “她自己”：`self-being`（L0 状态：felt/在体会/时间线）、`self-drive`（15–30min 自处，决定做什么）、`self-actions`（行为记录）、`self-growth`（自省/自学/试探/成长计数）、`self-talk`（碎碎念）、`mood-ai`（心情+配图）、`voice-memory`（声音档案）。
@@ -42,7 +42,8 @@ Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读
 
 ## 5. 已知约束与债务
 
-- **Client 已是“源码 + 构建”**：`client-src/*.js` → esbuild → `client.js`（单 artifact，IIFE，无运行时 import）。继续拆分功能模块只需往 `client-src/` 加文件并在 `client-src/client.js` 里 import；发布前/测试前必须 `npm run build:client`（`npm test` 已自动先构建）。
+- **Client 已是“源码 + 构建”**：`client-src/*.js` → esbuild → `client.js`（单 artifact，IIFE，无运行时 import）。当前已拆 `styles.js / base.js / wander.js`；继续拆分功能模块只需往 `client-src/` 加文件并在 `client-src/client.js` 里 import；发布前/测试前必须 `npm run build:client`（`npm test` 已自动先构建）。
+- **宿主 API 经 `dsh-host` 适配层**：新增宿主调用请用 `host.inject/get/effect`，不要直接摸 `ctx.inject/hostCtx.get`；缺失/抛错会降级并 warn。
 - **Client 测试已用虚拟时钟**：`sleep()` 推进沙箱内虚拟 setTimeout/setInterval，全套 ~2.7s；新增测试请直接用 `sleep()`，不要用真实 `setTimeout` 等待。
 - **service runtime**：`lib/service-runtime.mjs` 统一注册/停止/健康快照；新增后台服务请注册到它，不要另写 `hostCtx.effect` 清理。
 - **记忆迁移**：`memory-registry` 带 schemaVersion，`memory-migrations` 管迁移链；改 schema 时提高版本并补迁移。

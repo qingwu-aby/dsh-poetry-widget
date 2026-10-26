@@ -1,5 +1,20 @@
 "use strict";
 (() => {
+  // client-src/base.js
+  function num(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function clamp(value, min, max) {
+    const n = num(value, min);
+    if (n < min) return min;
+    if (n > max) return max;
+    return n;
+  }
+  function isVideoMoodFile(file) {
+    return /\.webm$/i.test(String(file == null ? "" : file));
+  }
+
   // client-src/styles.js
   var CSS = [
     ".dshp-root{--dshp-bg:var(--dsw-alias-bg-module-platform,#fff);",
@@ -304,6 +319,69 @@
     "animation-iteration-count:1!important;transition-duration:.01ms!important}}"
   ].join("");
 
+  // client-src/wander.js
+  var WINDOW_WANDER_ENABLED = false;
+  var WANDER_TICK_MS = 60 * 1e3;
+  var WANDER_FIRST_MIN_MS = 45 * 1e3;
+  var WANDER_FIRST_MAX_MS = 2 * 60 * 1e3;
+  var WANDER_MIN_INTERVAL_MS = 2 * 60 * 1e3;
+  var WANDER_MAX_INTERVAL_MS = 5 * 60 * 1e3;
+  var WANDER_WALK_MS = 8 * 1e3;
+  var WANDER_MIN_DISTANCE = 120;
+  var WANDER_INTERACTION_PAUSE_MS = 45 * 1e3;
+  var WANDER_MEDIA_PATTERN = /跑|奔|踏步|踱步|走路|跳跃|踢|抛接|伸懒腰|运动|锻炼|健身/;
+  var WANDER_STATIC_FILE = "dsh-whale-state-running.webp";
+  function pickWanderMedia(entries, random) {
+    const list = Array.isArray(entries) ? entries.filter(
+      (entry) => entry && typeof entry.file === "string" && isVideoMoodFile(entry.file) && WANDER_MEDIA_PATTERN.test(entry.file)
+    ) : [];
+    if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false };
+    const roll = Number(typeof random === "function" ? random() : Math.random());
+    const index = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
+    return { file: list[index].file, video: true };
+  }
+  function nextWanderTarget(input) {
+    const opts = input && typeof input === "object" ? input : {};
+    const viewport = opts.viewport && typeof opts.viewport === "object" ? opts.viewport : {};
+    const size = Math.max(40, Math.round(num(opts.size, 120)));
+    const w = Math.max(size + 40, Math.round(num(viewport.w, 1024)));
+    const h = Math.max(size + 80, Math.round(num(viewport.h, 768)));
+    const margin = 8;
+    const minX = margin;
+    const maxX = Math.max(minX, w - size - margin);
+    const minY = 56;
+    const maxY = Math.max(minY, h - size - margin);
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const rand = () => {
+      const value = Number(random());
+      return Number.isFinite(value) ? Math.min(0.999999, Math.max(0, value)) : 0;
+    };
+    const pick = (lo, hi) => Math.round(lo + (Math.max(lo, hi) - lo) * rand());
+    const current = opts.current && typeof opts.current === "object" ? opts.current : null;
+    const farEnough = (point) => current === null || Math.hypot(point.x - num(current.x, 0), point.y - num(current.y, 0)) >= WANDER_MIN_DISTANCE;
+    const candidates = [];
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const roll = rand();
+      if (roll < 0.3) {
+        candidates.push({ x: minX, y: pick(minY, maxY), edge: "left" });
+      } else if (roll < 0.6) {
+        candidates.push({ x: maxX, y: pick(minY, maxY), edge: "right" });
+      } else if (roll < 0.85) {
+        const leftBand = rand() < 0.5;
+        const xLo = leftBand ? minX : Math.round(w * 0.7);
+        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
+        candidates.push({ x: pick(xLo, xHi), y: maxY, edge: "bottom" });
+      } else {
+        const leftBand = rand() < 0.5;
+        const xLo = leftBand ? minX : Math.round(w * 0.7);
+        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
+        candidates.push({ x: pick(xLo, xHi), y: minY, edge: "top" });
+      }
+    }
+    const chosen = candidates.find(farEnough) || candidates[candidates.length - 1];
+    return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge };
+  }
+
   // client-src/client.js
   window.__ModuleLoader__.load({
     id: "dsh-poetry-widget",
@@ -397,26 +475,6 @@
       });
       const MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
       const MOOD_REFRESH_MS = 5 * 60 * 1e3;
-      const WINDOW_WANDER_ENABLED = false;
-      const WANDER_TICK_MS = 60 * 1e3;
-      const WANDER_FIRST_MIN_MS = 45 * 1e3;
-      const WANDER_FIRST_MAX_MS = 2 * 60 * 1e3;
-      const WANDER_MIN_INTERVAL_MS = 2 * 60 * 1e3;
-      const WANDER_MAX_INTERVAL_MS = 5 * 60 * 1e3;
-      const WANDER_WALK_MS = 8 * 1e3;
-      const WANDER_MIN_DISTANCE = 120;
-      const WANDER_INTERACTION_PAUSE_MS = 45 * 1e3;
-      const WANDER_MEDIA_PATTERN = /跑|奔|踏步|踱步|走路|跳跃|踢|抛接|伸懒腰|运动|锻炼|健身/;
-      const WANDER_STATIC_FILE = "dsh-whale-state-running.webp";
-      function pickWanderMedia(entries, random) {
-        const list = Array.isArray(entries) ? entries.filter(
-          (entry) => entry && typeof entry.file === "string" && isVideoMoodFile(entry.file) && WANDER_MEDIA_PATTERN.test(entry.file)
-        ) : [];
-        if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false };
-        const roll = Number(typeof random === "function" ? random() : Math.random());
-        const index = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
-        return { file: list[index].file, video: true };
-      }
       const MOOD_TICK_MS = 60 * 1e3;
       const MOOD_AI_PATH = "mood-ai.json";
       const MOOD_AI_TIMEOUT_MS = 35e3;
@@ -577,16 +635,6 @@
         yun: "yun.json",
         knowledge: "knowledge.json"
       };
-      function num(value, fallback) {
-        const n = Number(value);
-        return Number.isFinite(n) ? n : fallback;
-      }
-      function clamp(value, min, max) {
-        const n = num(value, min);
-        if (n < min) return min;
-        if (n > max) return max;
-        return n;
-      }
       function cx() {
         let out = "";
         for (let i = 0; i < arguments.length; i++) {
@@ -841,47 +889,6 @@
         if (snap === "left") base.x = 16;
         else if (snap === "right") base.x = Math.max(8, viewport.w - size - 16);
         return base;
-      }
-      function nextWanderTarget(input) {
-        const opts = input && typeof input === "object" ? input : {};
-        const viewport = opts.viewport && typeof opts.viewport === "object" ? opts.viewport : {};
-        const size = Math.max(40, Math.round(num(opts.size, 120)));
-        const w = Math.max(size + 40, Math.round(num(viewport.w, 1024)));
-        const h2 = Math.max(size + 80, Math.round(num(viewport.h, 768)));
-        const margin = 8;
-        const minX = margin;
-        const maxX = Math.max(minX, w - size - margin);
-        const minY = 56;
-        const maxY = Math.max(minY, h2 - size - margin);
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const rand = () => {
-          const value = Number(random());
-          return Number.isFinite(value) ? Math.min(0.999999, Math.max(0, value)) : 0;
-        };
-        const pick = (lo, hi) => Math.round(lo + (Math.max(lo, hi) - lo) * rand());
-        const current = opts.current && typeof opts.current === "object" ? opts.current : null;
-        const farEnough = (point) => current === null || Math.hypot(point.x - num(current.x, 0), point.y - num(current.y, 0)) >= WANDER_MIN_DISTANCE;
-        const candidates = [];
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          const roll = rand();
-          if (roll < 0.3) {
-            candidates.push({ x: minX, y: pick(minY, maxY), edge: "left" });
-          } else if (roll < 0.6) {
-            candidates.push({ x: maxX, y: pick(minY, maxY), edge: "right" });
-          } else if (roll < 0.85) {
-            const leftBand = rand() < 0.5;
-            const xLo = leftBand ? minX : Math.round(w * 0.7);
-            const xHi = leftBand ? Math.round(w * 0.3) : maxX;
-            candidates.push({ x: pick(xLo, xHi), y: maxY, edge: "bottom" });
-          } else {
-            const leftBand = rand() < 0.5;
-            const xLo = leftBand ? minX : Math.round(w * 0.7);
-            const xHi = leftBand ? Math.round(w * 0.3) : maxX;
-            candidates.push({ x: pick(xLo, xHi), y: minY, edge: "top" });
-          }
-        }
-        const chosen = candidates.find(farEnough) || candidates[candidates.length - 1];
-        return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge };
       }
       function describeDataError(error) {
         if (!error) return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
@@ -1685,9 +1692,6 @@
       function moodBasisText(weather) {
         const label = weather && weather.label ? weather.label : "\u672A\u77E5";
         return "\u5929\u6C14\uFF1A" + label;
-      }
-      function isVideoMoodFile(file) {
-        return /\.webm$/i.test(String(file == null ? "" : file));
       }
       function petMediaUrl(file) {
         return ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));

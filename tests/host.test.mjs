@@ -215,6 +215,7 @@ import {
   readingApiUrl,
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
+import { createDshHost } from '../lib/dsh-host.mjs'
 import {
   buildConsolidationPrompt,
   createMemoryConsolidator,
@@ -9236,4 +9237,70 @@ test('assets：200 + MIME + Cache-Control，404 越界/缺失，405 非 GET', as
 
   const wrongMethod = await call({ method: 'POST', url: '/api/dsh-poetry/assets?f=icon.webp' })
   assert.equal(wrongMethod.statusCode, 405)
+})
+
+test('dsh-host v1.75：宿主 API 适配层转发 + 缺失/异常降级', () => {
+  const calls = []
+  const fakeCtx = {
+    inject(keys, callback) {
+      calls.push(['inject', keys])
+      return callback({
+        get(name) {
+          calls.push(['get', name])
+          return name === 'webServer' ? { ok: true } : undefined
+        },
+        effect(fn, label) {
+          calls.push(['effect', label])
+          return fn
+        },
+      })
+    },
+    effect(fn, label) {
+      calls.push(['ctx.effect', label])
+      return fn
+    },
+    logger: { warn() {} },
+  }
+  const host = createDshHost(fakeCtx)
+  host.inject(['webServer', 'connection'], (hostCtx) => {
+    assert.deepEqual(host.get(hostCtx, 'webServer'), { ok: true })
+    assert.equal(host.get(hostCtx, 'connection'), undefined)
+    const disposer = host.effect(hostCtx, () => 'cleanup', 'demo')
+    assert.equal(disposer(), 'cleanup')
+  })
+  assert.deepEqual(calls, [
+    ['inject', ['webServer', 'connection']],
+    ['get', 'webServer'],
+    ['get', 'connection'],
+    ['effect', 'demo'],
+  ])
+
+  const warnings = []
+  const emptyHost = createDshHost({}, { warn: (message) => warnings.push(message) })
+  let callbackRan = false
+  emptyHost.inject(['webServer'], (hostCtx) => {
+    callbackRan = true
+    assert.equal(emptyHost.get(hostCtx, 'webServer'), undefined)
+    assert.equal(emptyHost.effect(hostCtx, () => () => {}, 'x'), undefined)
+  })
+  assert.equal(callbackRan, true)
+  assert.equal(warnings.length, 1)
+
+  const throwingHost = createDshHost({ logger: { warn() {} } })
+  const throwingCtx = {
+    get() {
+      throw new Error('boom')
+    },
+  }
+  assert.equal(throwingHost.get(throwingCtx, 'webServer'), undefined)
+
+  const parentEffects = []
+  const parentHost = createDshHost({
+    effect(fn, label) {
+      parentEffects.push(label)
+      return fn
+    },
+  })
+  parentHost.effect({}, () => () => {}, 'fallback')
+  assert.deepEqual(parentEffects, ['fallback'])
 })

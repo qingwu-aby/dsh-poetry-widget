@@ -60,6 +60,7 @@ import { createSelfReading } from './lib/self-reading.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
+import { createDshHost } from './lib/dsh-host.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -83,6 +84,8 @@ const ASSETS_ROUTE = '/api/dsh-poetry/assets'
  */
 export async function apply(ctx) {
   const logger = ctx?.logger ?? null
+  // v1.75：宿主 API 适配层（inject/get/effect 缺失或抛错时降级，不让 apply 抛未捕获异常）。
+  const host = createDshHost(ctx, logger)
   const env = process.env
   const home = env.HOME || os.homedir()
   const settingsPath = resolveSettingsPath(env, home)
@@ -124,12 +127,12 @@ export async function apply(ctx) {
     logger?.warn?.(`[dsh-poetry-widget] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
 
-  ctx.inject(['webServer', 'connection'], (hostCtx) => {
+  host.inject(['webServer', 'connection'], (hostCtx) => {
     try {
       // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
       const serviceRuntime = createServiceRuntime({ logger })
-      const webServer = hostCtx.get('webServer')
-      const connection = hostCtx.get('connection')
+      const webServer = host.get(hostCtx, 'webServer')
+      const connection = host.get(hostCtx, 'connection')
 
       const dataStore = createDataStore({ dataDir: DATA_DIR })
       const settingsStore = createSettingsStore({
@@ -146,14 +149,14 @@ export async function apply(ctx) {
       // 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
       const getLlm = () => {
         try {
-          return hostCtx.get('llm')
+          return host.get(hostCtx, 'llm')
         } catch {
           return undefined
         }
       }
       const getSelection = () => {
         try {
-          const agentDefaultModel = hostCtx.get('agentDefaultModel')
+          const agentDefaultModel = host.get(hostCtx, 'agentDefaultModel')
           return typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : null
         } catch {
           return null
@@ -615,7 +618,7 @@ export async function apply(ctx) {
         },
       })
       // 所有服务/路由都已挂载：统一标记启动，并挂一个清理入口（v1.73）。
-      hostCtx.effect(
+      host.effect(hostCtx, 
         () => {
           serviceRuntime.startAll()
           return () => {

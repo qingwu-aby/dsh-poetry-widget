@@ -952,3 +952,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - service runtime：`lib/service-runtime.mjs` 注册/启动标记/统一 dispose/健康快照；index 10 段 effect 收成 1 个 effect；health.json 的 runtime 增加 services 列表。
 - 记忆迁移层：`memory-registry` 每个 JSON 文件带 schemaVersion；`lib/memory-migrations.mjs` 按 id 链式迁移（当前 self-state v1→v2，删数值字段、保留事实时间线），启动时就地迁移、幂等、坏文件不阻塞；新增测试。
 - 单测：data 42 / host 231 / client 119 = 392/392（~2.7s）。
+
+## 90. P2：宿主适配层 + client 模块化（M86，2026-10-26）
+
+- 用户：继续（P2）。
+- 宿主适配：`lib/dsh-host.mjs`（inject/get/effect 薄转发 + 缺失/异常降级 + logger.warn）；index 5 处宿主 API 调用改为 `host.*`；测试覆盖正常转发、缺 inject、get 抛错、effect 回退。
+- client 模块化：新增 `client-src/base.js`（num/clamp/isVideoMoodFile）与 `client-src/wander.js`（WANDER_* 常量 + pickWanderMedia + nextWanderTarget）；`client-src/client.js` 改为 import，esbuild 仍打单 artifact；client 测试 119 全过。
+- 剩余 P2（可选）：真实模型集成测试（需凭据/成本，默认不进 npm test）、更多 client 功能块拆分（飞花令/诗库/面板 tab）。
+- 单测：data 42 / host 232 / client 119 = 393/393（~2.7s）。
