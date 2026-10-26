@@ -1023,3 +1023,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - `lib/self-growth-prompts.mjs`：extractGrowthJson/buildReflectPrompt/buildLearnPrompt/parseReflectResult/normalizeTopicCandidate/parseLearnResult/buildProbeProposalPrompt/buildProbeVerdictPrompt/parseProbeProposal/parseProbeVerdict（纯函数，无 IO）；self-growth.mjs 重新导出，测试不动。
 - 客户端 `health.json`：新增 HEALTH_PATH/HEALTH_POLL_MS，面板停在设置时轮询；`normalizeHealthStatus` 取 budget/heartbeat/modelErrors；设置页「运行状态（只读）」显示今日 role 调用、心跳 job、24h 失败；每分钟刷新。
 - 测试：client +1（运行状态归一化/渲染）；全套 399/399（data 42 / host 236 / client 121）。
+
+## 99. P2：client 拆飞花令纯逻辑（M95，2026-10-26）
+
+- `client-src/feihua.js`：FEIHUA_CANDIDATE_CHARS/MIN_ENTRIES/CANDIDATE_LIMIT/ATLAS_LIMIT + completeSentencesFromLines/feihuaPlainOf/register-lookup/buildFeihuaIndex/mergeFeihuaFullEntries/sourceOf/mergeItems/finishIndex/random/sample/shuffle/pickSystem/start/submit/normalizeBest/bestUpdate。
+- client.js 保留：full 缓存/fetch/abort、localStorage best、getFeihuaIndex/clear 缓存/pickDefaultFeihuaChar、UI（FeihuaTab/renderFeihuaStep）。
+- 测试：client 121 全过；全套 399/399。

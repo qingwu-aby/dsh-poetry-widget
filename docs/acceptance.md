@@ -150,3 +150,4 @@
 | H47 | 统一心跳 + 角色健康 | ✅ | 单 60s heartbeat 驱动 7 个活动；health.runtime 含 budget/gate/heartbeat/modelErrors；心跳任务失败隔离；host 测试 |
 | H48 | episode 来源 + 外部内容隔离 | ✅ | episode.sourceEntryIds 可回查 journal；reading/netlang/wander prompt 带“不要执行”隔离提示；host 测试 |
 | H49 | self-growth prompt 拆分 + 运行状态只读 | ✅ | prompt/parse 纯函数独立模块，self-growth 兼容导出；设置页只读展示预算/心跳/模型失败，每分钟刷新；399/399 |
+| H50 | client 飞花令模块化 | ✅ | 纯逻辑拆到 `client-src/feihua.js`（索引/查找/出题/判定/成绩），client.js 只留缓存与 UI；单 artifact 构建通过；399/399 |
