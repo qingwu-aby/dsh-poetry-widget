@@ -137,3 +137,4 @@
 | H34 | 窗口溜达暂时关闭 | ✅ | `WINDOW_WANDER_ENABLED=false`，窗口内不再自动换位置；代码保留可恢复；互联网溜达不受影响；单测断言 |
 | H35 | 人类式分层记忆 | ✅ | L0 工作/L1 情景原文/L2 每日整合概括/L3 自我短句；原文不删除；检索确定性+预算（selfFacts≤6、deepMemories≤2）；失败不落盘；模型角色 consolidate；单测覆盖 |
 | H36 | P0 架构重构 | ✅ | 9 处模型调用循环收为 `lib/llm-call.mjs`（单候选 + 角色调用）；12 个记忆文件收为 `lib/memory-registry.mjs`（hub 与各 resolvers 共用）；新增 npm scripts；行为不变、单测 391/391 |
+| H37 | P1 可观测性/架构地图 | ✅ | health.json 增加 runtime 快照（6 个后台服务，只元数据）；docs/architecture.md 模块地图/数据流/扩展点/债务；client 拆分受阻结论记录；单测覆盖 |

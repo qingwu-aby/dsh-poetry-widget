@@ -936,3 +936,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - P0-3：package.json 增加 `test` / `test:fast` / `test:client` / `check` 脚本。
 - 未完成（留 P1）：client 7,768 行单文件拆分 + client 测试 36s 提速；index 生命周期收口；schemaVersion/迁移层。
 - 单测：data 42 / host 230 / client 119 = 391/391。
+
+## 88. P1 可观测性 + 架构地图（M84，2026-10-26）
+
+- 用户：继续（P1）。
+- 完成：① `health.json` 增加 `runtime` 快照（growth/drive/wander/reading/netlang/consolidate 的 lastRun/nextRun/inFlight 等，只元数据），index 通过 `getRuntime` 注入；默认路由测试不含该字段，索引集成测试断言存在。② 新增 `docs/architecture.md`：半区/模块分组/数据流/扩展改动点/已知债务/测试命令。
+- 调研结论：client 拆分受阻于 DSH 浏览器“单 artifact lazy factory”加载方式（ui-plugin 文档：compiled sources 需用 deployment 的 Client build tooling，非基线 import 只能走 `dsh.client.external`）；要拆必须引入 Client 构建工具（如 esbuild → client.js），改变发布流程，暂缓。client 测试 36s 需虚拟时钟改造，只动 tests；index 9 段 effect 收口、schemaVersion 迁移层留待。
+- 单测：data 42 / host 230 / client 119 = 391/391。

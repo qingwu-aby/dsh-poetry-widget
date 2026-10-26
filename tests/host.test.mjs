@@ -1843,6 +1843,18 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
       '注册了 pet-media 静态路由',
     )
 
+    // v1.73：health.json 带后台服务快照（growth/drive/wander/reading/netlang/consolidate）
+    const healthRoute = routes.find((route) => route.path === '/api/dsh-poetry/health.json')
+    const healthResponse = new MockResponse()
+    await healthRoute.handler(mockRequest({ url: '/api/dsh-poetry/health.json' }), healthResponse)
+    await healthResponse.finished()
+    const healthBody = healthResponse.json()
+    assert.equal(healthBody.ok, true)
+    assert.equal(typeof healthBody.runtime, 'object')
+    for (const key of ['growth', 'drive', 'wander', 'reading', 'netlang', 'consolidate']) {
+      assert.equal(typeof healthBody.runtime[key], 'object', `health.runtime.${key}`)
+    }
+
     // 假 ctx 里没有 llm/agentDefaultModel → mood-ai 路由必须安全降级（200 + ok:false）
     const moodAiRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood-ai.json')
     const moodAiResponse = new MockResponse()

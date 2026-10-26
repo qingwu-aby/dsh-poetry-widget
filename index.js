@@ -534,6 +534,15 @@ export async function apply(ctx) {
         feihuaFullService,
         getSelfState: () => selfState.snapshot(),
         memoryHub,
+        // v1.73：health.json 暴露后台服务快照，方便看 8 个定时器是不是还活着。
+        getRuntime: () => ({
+          growth: growth.snapshot(),
+          drive: selfDrive.snapshot(),
+          wander: selfWander.snapshot(),
+          reading: selfReading.snapshot(),
+          netlang: selfNetlang.snapshot(),
+          consolidate: memoryConsolidator.snapshot(),
+        }),
         env,
         home,
       })
