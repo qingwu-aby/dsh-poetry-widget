@@ -85,7 +85,7 @@ npm run archive:memory:dry   # 预演，看看会搬哪些文件
 npm run archive:memory       # 归档到 ~/.dsh/agent-memory/archives/<时间戳>/
 ```
 
-归档包含 journal、学习日志、话题、感受、声音档案、分层记忆、self-state/actions、各活动状态、模型预算/错误和备份目录；**不删除**，可用 `npm run archive:memory -- --restore <archiveId>` 恢复。`settings.json`（外观/开关/城市）保留。
+归档包含 journal、学习日志、话题、感受、声音档案、分层记忆、self-state/actions、各活动状态、模型预算/错误和备份目录；**不删除**，可用 `npm run archive:memory -- --restore <archiveId>` 恢复。`settings.json`（外观/开关/城市）保留。归档后会自动补齐空白记忆容器，记忆中枢不会因为“空起点”显示异常。
 
 ## 安装
 

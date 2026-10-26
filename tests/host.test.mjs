@@ -221,6 +221,7 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
+import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
 import { createDeepSeekWeb } from '../lib/deepseek-web.mjs'
@@ -10021,4 +10022,27 @@ test('deepseek-web v2.3：Search/Fetch 请求形状、结果映射、错误码�
   const ds = await webAccess.search('测试', { limit: 3 })
   assert.equal(ds[0].title, 'DS 结果')
   assert.equal(webAccess.snapshot().deepseek.enabled, true)
+})
+
+test('memory-baseline v2.6：归档/首次安装后创建空白记忆容器，不覆盖已有文件', () => {
+  const dir = makeTmpDir('dshp-baseline')
+  const env = { DSH_HOME: dir }
+  const first = seedMemoryBaseline({ env, home: dir })
+  assert.ok(first.includes('topics.json'))
+  assert.ok(first.includes('memory-layers.json'))
+  assert.ok(first.includes('self-state.json'))
+  const memoryDir = path.join(dir, 'agent-memory')
+  const stateDir = path.join(dir, '.dsh-poetry')
+  const topics = JSON.parse(fs.readFileSync(path.join(memoryDir, 'topics.json'), 'utf8'))
+  assert.deepEqual(topics.topics, [])
+  const layers = JSON.parse(fs.readFileSync(path.join(memoryDir, 'memory-layers.json'), 'utf8'))
+  assert.deepEqual(layers.episodes, [])
+  const state = JSON.parse(fs.readFileSync(path.join(stateDir, 'self-state.json'), 'utf8'))
+  assert.equal(state.v, 2)
+  assert.equal(state.felt, '')
+  // 不覆盖已有内容
+  fs.writeFileSync(path.join(memoryDir, 'topics.json'), JSON.stringify({ ok: true, v: 1, topics: [{ id: 'x' }] }))
+  const second = seedMemoryBaseline({ env, home: dir })
+  assert.equal(second.includes('topics.json'), false, '已有文件不动')
+  assert.equal(JSON.parse(fs.readFileSync(path.join(memoryDir, 'topics.json'), 'utf8')).topics.length, 1)
 })

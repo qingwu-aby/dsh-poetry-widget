@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, renameSync, statSync, readFileSync, writeFileSyn
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
+import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 
 const home = process.env.HOME || os.homedir()
 const dshHome = process.env.DSH_HOME ? path.resolve(process.env.DSH_HOME) : path.join(home, '.dsh')
@@ -159,4 +160,6 @@ for (const item of manifest.items) {
 }
 writeFileSync(path.join(archiveDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
 console.log(`\n已归档到：${archiveDir}`)
+const seeded = seedMemoryBaseline({ env: process.env, home })
+console.log(`已初始化空白记忆容器：${seeded.length > 0 ? seeded.join('、') : '（无需创建）'}`)
 console.log('插件重新加载后会从空白记忆/状态开始。')

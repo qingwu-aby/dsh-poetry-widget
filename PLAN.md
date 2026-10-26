@@ -1093,3 +1093,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - `package.json` 增加 `archive:memory` / `archive:memory:dry`。
 - 执行：先 remove_bundle 停服务 → 归档 → install_bundle；settings.json 保留（外观/开关/城市），历史全部可在 archives/20261026-173151 找回。
 - 重启后：self-state felt 新生成、计数器 0；journal 新写 2 行；feelings 空；memory-layers 待 2 天后生成；无旧 model-errors。
+
+## 108. 修复归档后记忆中枢异常（M104，2026-10-26）
+
+- 现象：归档后 memory-hub health=error，界面显示记忆中枢异常。
+- 原因：`topics.json` 在登记表里是必选（optional:false），归档搬走后缺失 → error；另有 voice/topics-candidates/memory-layers 可选缺失 → warn。
+- 修复：`lib/memory-baseline.mjs` 的 `seedMemoryBaseline` 在插件启动（apply）和归档脚本结束时创建缺失的空白容器：topics.json `{topics:[]}`、voice.json 空、topics-candidates `{candidates:[]}`、feelings `{feelings:[]}`、memory-layers 空结构、journal/learning-log 空、self-state v2 空、self-actions `{actions:[]}`；只创建不覆盖。
+- 验证：live hub health 从 error → **ok**；测试 411/411（新增空白容器用例）。

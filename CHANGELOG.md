@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **修复归档后记忆中枢异常（v2.6.1）**：原因：归档把必选文件 `topics.json` 和可选 `voice.json/topics-candidates.json/memory-layers.json` 一起搬走，`memory-hub` 把「必选缺失」判为 `error`，于是记忆中枢显示异常。修复：新增 `lib/memory-baseline.mjs`，在归档后/插件启动时为缺失的记忆文件创建**空白容器**（topics 空、layers 空、feelings 空、self-state v2 空等，绝不覆盖已有内容），hub 健康恢复 `ok`；归档脚本也会自动调用。
 - **记忆/状态归档 + 重新开始成长（v2.6）**：新增 `scripts/archive-memory.mjs` + `npm run archive:memory`：把 journal/learning-log/topics/feelings/voice/memory-layers 与 self-state/self-actions/probe/wander/read/netlang 状态、模型预算/错误、备份目录整体搬进 `~/.dsh/agent-memory/archives/<时间戳>/`（含 manifest、sha256；`--dry-run` 预演、`--restore <id>` 可恢复），**不删除**；settings/外观/插件配置保留。已执行一次归档（20261026-173151），小鲸鱼从空白记忆和状态重新开始。
 - **client 纯逻辑继续拆分（v2.5）**：`mood-engine.js`（心情常量/计算/图鉴/query/快照，314 行）和 `self-talk-client.js`（碎碎念/彩蛋触发/句子选择/query/解析，180 行）从 client.js 抽出；client.js 源文件 5,657 → **5,271 行**（相对最初 7,680 行已减约 2,400 行）。
 - **client 继续拆分（v2.4）**：设置页、成长主页、飞花令、诗库四个面板组件从 client.js 拆到 `tabs-settings.js` / `tabs-growth.js` / `tabs-feihua.js` / `tabs-library.js`（各自工厂注入 React/h/共享组件/缓存函数）；client.js 源文件从 6,750 行降到 **5,656 行**，esbuild 仍打单 artifact。DeepSeek key 读取入口集中到 `resolveDeepSeekApiKey`（目前只读环境变量；自动读 DSH 凭据的位置保留但未启用）。

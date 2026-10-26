@@ -41,6 +41,7 @@ import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -98,6 +99,9 @@ export async function apply(ctx) {
   const settingsPath = resolveSettingsPath(env, home)
   // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
   const memoryDir = resolveMemoryDir(env, home)
+  // v2.6：缺失的记忆文件先创建一个空白容器，避免记忆中枢把「空白起点」当成异常。
+  const seededMemory = seedMemoryBaseline({ env, home, logger })
+  if (seededMemory.length > 0) logger?.info?.(`[dsh-little-whale] 已初始化空白记忆容器：${seededMemory.join('、')}`)
   const journal = createMemoryJournal({ dir: memoryDir, logger })
   // v1.81：全局模型预算 + 并发闸门（所有 role 共用；超预算活动安静跳过）。
   const modelBudget = createModelBudget({
