@@ -10442,3 +10442,51 @@ test('self-drive v2.15：把最近动作摊开，提醒她别在同一件事上�
   assert.match(prompt, /再舀半勺尝尝吧/)
   assert.match(prompt, /不要只是把同一个动作换一种说法重复一遍/)
 })
+
+test('self-drive v2.16：她承认打转时这一轮暂停，不继续动作', async () => {
+  const parsed = parseSelfDriveResult(
+    JSON.stringify({
+      felt: '碗沿的水痕干了一圈，我还在想那两口汤。',
+      doing: '',
+      loop: true,
+      loopTheme: '两碗汤的咸淡',
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.loop, true)
+  assert.equal(parsed.loopTheme, '两碗汤的咸淡')
+
+  const dir = makeTmpDir('dshp-drive-loop')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  fs.writeFileSync(
+    actionsPath,
+    JSON.stringify({
+      ok: true, v: 1,
+      actions: [
+        { id: 'a1', kind: 'doing', label: '尝汤', text: '再尝一口两碗汤。', at: 1_700_000_000_000 },
+        { id: 'a2', kind: 'doing', label: '看纸', text: '把纸上的顺序摆清楚。', at: 1_700_000_100_000 },
+      ],
+    }),
+  )
+  const llm = makeMockLlm(() => JSON.stringify({ felt: '我承认自己一直在同一件事上打转。', doing: '再尝一口汤', loop: true, loopTheme: '两碗汤' }))
+  const drive = createSelfDrive({
+    state: { snapshot: () => ({ sleeping: false }), setFelt() {}, markChecked() {}, applyEvent() {} },
+    llm,
+    actionsPath,
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    checkMinMs: 1,
+    checkMaxMs: 2,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  const result = await drive.check(1_700_100_000_000)
+  assert.equal(result.ok, true)
+  assert.equal(result.paused, true)
+  assert.equal(result.action, null, '承认打转时不执行继续动作')
+  const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
+  assert.equal(saved.length, 2, '不新增动作')
+  drive.dispose()
+})

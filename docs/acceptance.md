@@ -169,3 +169,4 @@
 | H66 | 自处预期/结果/取舍实验钩子 | ✅ | expect/outcome/tradeoff 进入自处 prompt 与动作记录；上一动作结果回写；420/420 |
 | H67 | 自处约束（冲突取舍/结果回灌） | ✅ | conflict=true 必须 tradeoff；上次 outcome/tradeoff 进入下一轮并追问是否改变；421/421 |
 | H68 | 自处不再打转 | ✅ | 最近 5 次动作摊开 + 反重复提示 + experiencing 超 2h 提示；422/422 |
+| H69 | 打转自检与暂停 | ✅ | loop/loopTheme 输出；承认打转时暂停动作并允许清空 experiencing；423/423 |
