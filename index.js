@@ -16,7 +16,7 @@
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
 // data/ 缺失或损坏时优雅降级（200 + DATA_UNAVAILABLE），不会让插件加载失败。
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -266,6 +266,30 @@ export async function apply(ctx) {
       }
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
+      // v1.60：用她自己的历史日志校正事实计数（旧版计数器在迁移后冻结，成长页看起来像停止）。
+      try {
+        let learnings = 0
+        let reflections = 0
+        const journalPath = path.join(memoryDir, 'journal.jsonl')
+        if (existsSync(journalPath)) {
+          for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
+            if (line.trim().length === 0) continue
+            try {
+              const entry = JSON.parse(line)
+              if (entry && entry.kind === 'thought') reflections += 1
+            } catch {
+              /* 单行坏 JSON 跳过 */
+            }
+          }
+        }
+        const learningLogPath = path.join(memoryDir, 'learning-log.md')
+        if (existsSync(learningLogPath)) {
+          learnings = (readFileSync(learningLogPath, 'utf8').match(/· 自学/g) || []).length
+        }
+        selfState.setGrowthCounts({ learnings, reflections })
+      } catch (error) {
+        logger?.warn?.(`[dsh-poetry-widget] 成长计数校正失败：${error instanceof Error ? error.message : String(error)}`)
+      }
       const growth = createSelfGrowth({
         state: selfState,
         getLlm,

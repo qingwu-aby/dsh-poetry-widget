@@ -827,3 +827,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 移除：routes 读取 `experience.json` 并注入 mood-ai/self-talk；mood-ai/self-talk prompt 的外部体验段；memory-recall 的 experience 关键词；memory-hub 的 experience.json 登记（12→11 文件）；index 启动改名 `.retired-*`。
 - 改为：self-being 增加 `experiencing/experiencingAt`；自处模型输出可带 `experiencing`（4–40 字，留空沿用上次）；`formatBeingLine` 把 felt 与「最近在体会/琢磨」一起给 mood-ai/self-talk；mood-ai/self-talk prompt 只从 selfState 读。
 - 单测：data 42 / host 223 / client 117 = 382/382。
+
+## 74. 自学“看起来停了”的三处原因 + 修复（M71，2026-10-26）
+
+- 用户：自学行为好像停止了，看原因是自己停了还是代码问题。
+- 诊断：没停——最近一次 10:40（33 分钟前），共 26 条学习日志、20 个 learned 话题；但有三处造成“停了”的观感/真问题：
+  1. learning-log.md 用 ISO/UTC 时间（本地 10:40 显示成 02:40）→ 修复：改用 memory-journal 的本地时间格式。
+  2. 成长页计数在 v1.51 迁移后冻结（applyBeingEvent 只写时间线，不累加 learnings/reflections）→ 修复：learn/reflect 事件事实 +1；启动时按 journal 的 thought 数与 learning-log「· 自学」条数校正（只增不减）。
+  3. 真问题：连续多轮围绕漏刻/水位/流速（最近 8 条 learned 同主题）→ 修复：detectRepeatedTheme 从最近 8 条标题找出现 ≥3 次的二字主题，prompt 点名并强制换完全不同的领域。
+- 单测：data 42 / host 223 / client 117 = 382/382。

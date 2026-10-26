@@ -5360,6 +5360,17 @@ test('self-being v1.51：只存事实时间线+一句状态，不再有分数', 
   store.setExperiencing('在听楼下谁弹琴，想到一段旧事。')
   assert.equal(store.snapshot().experiencing, '在听楼下谁弹琴，想到一段旧事。')
   assert.match(formatBeingLine(store.snapshot()), /你最近在体会\/琢磨：在听楼下谁弹琴/)
+  // v1.60：学习/自省是事实计数，不再冻结
+  store.applyEvent('learn', 1_700_000_600_500)
+  store.applyEvent('learn', 1_700_000_600_600)
+  store.applyEvent('reflect', 1_700_000_600_700)
+  assert.equal(store.snapshot().learnings, 2)
+  assert.equal(store.snapshot().reflections, 1)
+  store.setGrowthCounts({ learnings: 20, reflections: 5 })
+  assert.equal(store.snapshot().learnings, 20)
+  assert.equal(store.snapshot().reflections, 5)
+  store.setGrowthCounts({ learnings: 1, reflections: 1 })
+  assert.equal(store.snapshot().learnings, 20, '只增不减')
   store.markChecked(1_700_000_600_000)
   assert.equal(store.snapshot().lastCheckAt, 1_700_000_600_000)
   store.applyEvent('eat', 1_700_000_700_000)
@@ -5775,6 +5786,7 @@ test('self-growth：到点自省写 journal thought、自学写 learning-log 与
   assert.equal(bank.topics[0].learned, undefined, '外部话题不被标记/删除')
   const learningLog = fs.readFileSync(path.join(dir, 'learning-log.md'), 'utf8')
   assert.match(learningLog, /· 自学/)
+  assert.match(learningLog, /## \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 自学/, 'v1.60：学习日志用本地时间标题')
   assert.match(learningLog, /Q: 鲸落为什么能养活深海？/)
   assert.match(learningLog, /鲸的尸体沉到海底/)
   const candidates = JSON.parse(fs.readFileSync(path.join(dir, 'topics-candidates.json'), 'utf8'))
@@ -6548,6 +6560,13 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   assert.match(withRepeat, /中国史、世界史都行/)
   assert.match(withRepeat, /只是建议、不是任务/)
   assert.match(withRepeat, /不要换问法重复/)
+  const withTheme = buildLearnPrompt({
+    now: 1_700_000_000_000,
+    state: { felt: '' },
+    repeatTheme: { phrases: ['漏刻', '水位', '流速'], titles: 5 },
+  })
+  assert.match(withTheme, /你最近连续几轮都在「漏刻、水位、流速」/)
+  assert.match(withTheme, /这次必须换到完全不同的领域/)
   // 没给参考时也能自主选
   const blank = buildLearnPrompt({ now: FIXED_NOW.getTime(), state })
   assert.match(blank, /从你真正好奇、最近反复冒出来的疑问里挑一个/)
