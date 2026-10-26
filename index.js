@@ -45,6 +45,7 @@ import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
   resolveModelErrorsPath,
+  summarizeModelErrors,
 } from './lib/model-errors.mjs'
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
 import { configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
@@ -62,6 +63,7 @@ import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
+import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
@@ -148,6 +150,8 @@ export async function apply(ctx) {
       host.effect(hostCtx, () => () => resetModelRuntime(), 'dsh-little-whale: 模型运行时')
       // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
       const serviceRuntime = createServiceRuntime({ logger })
+      // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
+      const heartbeat = createHeartbeat({ logger })
       const webServer = host.get(hostCtx, 'webServer')
       const connection = host.get(hostCtx, 'connection')
 
@@ -243,7 +247,8 @@ export async function apply(ctx) {
         logger,
         env,
       })
-      memoryConsolidator.start()
+      memoryConsolidator.start({ heartbeat: true })
+      heartbeat.add('记忆整合', () => memoryConsolidator.tick())
       logger?.info?.(`[dsh-little-whale] 分层记忆：${layersPath}（每日整合）`)
       serviceRuntime.register('记忆整合', {
         dispose: () => {
@@ -371,7 +376,8 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
       })
-      growth.start()
+      growth.start({ heartbeat: true })
+      heartbeat.add('自驱成长', () => growth.tick())
       logger?.info?.(
         `[dsh-little-whale] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
@@ -411,7 +417,8 @@ export async function apply(ctx) {
       // M41：记忆中枢（create → recover → start；所有写入路径不变，中枢只管理/备份/恢复）。
       const memoryHub = createMemoryHub({ env, home, logger })
       const memoryRecovery = memoryHub.recover()
-      memoryHub.start()
+      memoryHub.start({ heartbeat: true })
+      heartbeat.add('记忆中枢', () => memoryHub.maybeBackup())
       const memorySnapshot = memoryHub.snapshot()
       logger?.info?.(
         `[dsh-little-whale] 记忆中枢：${memorySnapshot.files.length} 个文件 / 上次备份 ${
@@ -447,7 +454,8 @@ export async function apply(ctx) {
           }
         },
       })
-      selfDrive.start()
+      selfDrive.start({ heartbeat: true })
+      heartbeat.add('自处', () => selfDrive.tick())
       const actionSnapshot = selfDrive.snapshot()
       logger?.info?.(
         `[dsh-little-whale] 自处循环已启动（${selfDrive.actionsPath}${
@@ -476,7 +484,8 @@ export async function apply(ctx) {
         statePath: path.join(settingsPath.dir, 'wander-state.json'),
         env,
       })
-      selfWander.start()
+      selfWander.start({ heartbeat: true })
+      heartbeat.add('网络溜达', () => selfWander.tick())
       logger?.info?.(
         `[dsh-little-whale] 网络溜达已启动（间隔 3h；${
           String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
@@ -504,7 +513,8 @@ export async function apply(ctx) {
         statePath: path.join(settingsPath.dir, 'read-state.json'),
         env,
       })
-      selfReading.start()
+      selfReading.start({ heartbeat: true })
+      heartbeat.add('读小说', () => selfReading.tick())
       logger?.info?.(
         `[dsh-little-whale] 读小说已启动（间隔 4h；${
           String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
@@ -532,7 +542,8 @@ export async function apply(ctx) {
         statePath: path.join(settingsPath.dir, 'netlang-state.json'),
         env,
       })
-      selfNetlang.start()
+      selfNetlang.start({ heartbeat: true })
+      heartbeat.add('看大家说话', () => selfNetlang.tick())
       logger?.info?.(
         `[dsh-little-whale] 看大家说话已启动（间隔 8h；${
           String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
@@ -546,6 +557,13 @@ export async function apply(ctx) {
             logger?.warn?.(`[dsh-little-whale] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
+      })
+
+      // v1.82：心跳最后启动（等所有活动注册完）。
+      serviceRuntime.register('心跳', {
+        start: () => heartbeat.start(),
+        stop: () => heartbeat.stop(),
+        dispose: () => heartbeat.dispose(),
       })
 
       const routes = createRouteTable({
@@ -572,6 +590,8 @@ export async function apply(ctx) {
           services: serviceRuntime.snapshot(),
           budget: modelBudget.snapshot(),
           gate: modelGate.snapshot(),
+          heartbeat: heartbeat.snapshot(),
+          modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
         }),
         env,
         home,

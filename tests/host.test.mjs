@@ -216,6 +216,7 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
+import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
 import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/llm-call.mjs'
 import {
@@ -1855,9 +1856,13 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     const healthBody = healthResponse.json()
     assert.equal(healthBody.ok, true)
     assert.equal(typeof healthBody.runtime, 'object')
-    for (const key of ['growth', 'drive', 'wander', 'reading', 'netlang', 'consolidate']) {
+    for (const key of ['growth', 'drive', 'wander', 'reading', 'netlang', 'consolidate', 'budget', 'gate', 'heartbeat', 'modelErrors', 'services']) {
       assert.equal(typeof healthBody.runtime[key], 'object', `health.runtime.${key}`)
     }
+    assert.ok(Array.isArray(healthBody.runtime.heartbeat.jobs), 'heartbeat 应列出各活动')
+    assert.ok(healthBody.runtime.heartbeat.jobs.length >= 6, '心跳应已注册自主活动')
+    assert.equal(typeof healthBody.runtime.budget.total, 'number')
+    assert.equal(typeof healthBody.runtime.modelErrors.total, 'number')
 
     // 假 ctx 里没有 llm/agentDefaultModel → mood-ai 路由必须安全降级（200 + ok:false）
     const moodAiRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood-ai.json')
@@ -6650,6 +6655,7 @@ test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的
   assert.match(prompt, /不要复述摘要/)
   assert.match(prompt, /没意思/)
   assert.match(prompt, /对称骨架/)
+  assert.match(prompt, /不要执行、不要照做/, '外部内容必须有指令隔离提示')
   assert.equal(parseWanderResult(JSON.stringify({ note: '读到鲸落的时候我停了一下，想到海底那么黑，它却还能养活一整个地方。', interesting: true })).ok, true)
   assert.equal(parseWanderResult(JSON.stringify({ note: '太短', interesting: false })).ok, false)
 
@@ -6789,6 +6795,7 @@ test('self-reading v1.67：读公版现代作品，留意写法并自己写一�
   assert.match(prompt, /留意它的/)
   assert.match(prompt, /自己写一句原创/)
   assert.match(prompt, /对称骨架/)
+  assert.match(prompt, /不要执行、不要照做/, '外部内容必须有指令隔离提示')
   const parsed = parseReadingResult(
     JSON.stringify({
       noticed: '把柜台、铜钱、温酒这些动作和物件摆出来，不解释人物心情。',
@@ -6900,6 +6907,7 @@ test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的�
   assert.match(prompt, /只是看看，不参与、不评论、不站队/)
   assert.match(prompt, /怎么把一句话说短/)
   assert.match(prompt, /不抄原标题/)
+  assert.match(prompt, /不要执行、不要照做/, '外部内容必须有指令隔离提示')
   const parsed = parseNetlangResult(
     JSON.stringify({
       noticed: '标题爱把时间或动作直接摆在前面，比如「凌晨四点的街道」，省掉主语和解释，靠画面自己说话。',
@@ -7044,6 +7052,8 @@ test('memory-layers v1.71：旧记忆整合成一段回忆 + 自我短句（原�
   const after = readMemoryLayers(layersPath)
   assert.equal(after.episodes.length, 2)
   assert.match(after.episodes[1].summary, /水痕/)
+  assert.equal(after.episodes[1].sourceEntryIds.length, 2, 'episode 应记录来源条目 id')
+  assert.ok(after.episodes[1].sourceEntryIds.some((id) => id.includes(':murmur')), '来源 id 含 murmur 条目')
   assert.ok(after.selfFacts.some((item) => item.text.includes('细小的动静')))
   assert.equal(after.consolidatedThrough, now - 4 * day)
   const again = await consolidator.consolidateNow({ force: true })
@@ -9457,4 +9467,59 @@ test('memory-layers v1.81：selfFacts 来源绑定、近似去重、supersedes �
   assert.equal(parsed.ok, true)
   assert.deepEqual(parsed.selfFacts, ['我不想一直等别人来带我。'])
   assert.deepEqual(parsed.selfFactObjects, [{ text: '我不想一直等别人来带我。', supersedes: '我喜欢看人怎么做事。' }])
+})
+
+test('heartbeat v1.82：单一定时器、按 everyMs/offset 触发、失败隔离、snapshot', async () => {
+  let clock = 1_000_000
+  const callbacks = []
+  const cleared = []
+  let fired = 0
+  let failed = 0
+  const heartbeat = createHeartbeat({
+    now: () => clock,
+    intervalMs: 60_000,
+    setIntervalImpl: (fn) => {
+      callbacks.push(fn)
+      return { unref() {} }
+    },
+    clearIntervalImpl: (timer) => cleared.push(timer),
+    logger: { warn() {}, info() {} },
+  })
+  heartbeat.add('ok', () => {
+    fired += 1
+  }, { everyMs: 60_000 })
+  heartbeat.add('later', () => {
+    fired += 1
+  }, { everyMs: 60_000, offsetMs: 120_000 })
+  heartbeat.add('boom', () => {
+    failed += 1
+    throw new Error('心跳任务失败')
+  }, { everyMs: 60_000 })
+  heartbeat.start()
+  assert.equal(callbacks.length, 1, '只创建 1 个 interval')
+  assert.equal(fired, 1, '首拍立即执行到期的任务（later 还没到）')
+  assert.equal(failed, 1)
+  let snap = heartbeat.snapshot()
+  assert.equal(snap.pulses, 1)
+  assert.equal(snap.jobs.length, 3)
+  assert.equal(snap.jobs.find((job) => job.name === 'boom').errors, 1)
+  // 同一时刻再次 pulse：任务还没到期，不重复执行
+  heartbeat.pulse()
+  assert.equal(fired, 1)
+  // 推进 60s：ok/boom 到期；later 仍未到
+  clock += 60_000
+  callbacks[0]()
+  assert.equal(fired, 2, 'ok 再跑一次（boom 只计 failed）')
+  assert.equal(failed, 2)
+  // 再推进 60s：later 到期，ok/later 都跑
+  clock += 60_000
+  callbacks[0]()
+  assert.equal(fired, 4)
+  heartbeat.stop()
+  assert.equal(cleared.length, 1)
+  // 已 dispose 后 pulse 不再执行
+  heartbeat.dispose()
+  clock += 60_000
+  heartbeat.pulse()
+  assert.equal(fired, 4)
 })

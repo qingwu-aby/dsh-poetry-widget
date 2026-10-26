@@ -147,3 +147,5 @@
 | H44 | 成长状态上下结构 | ✅ | 「成长状态」改为纵向布局（标签在上、内容整行），不再左右挤压；单测断言 stacked 结构；394/394 |
 | H45 | 模型预算与并发闸门 | ✅ | Asia/Shanghai 按日 role 计数 + 总量上限；`DSH_POETRY_DAILY_*` 可调；全局并发 2；预算拒绝不回退候选；`34` tests |
 | H46 | selfFacts 证据绑定 + 访问加权 | ✅ | `sourceEpisodeId`、`status`、`supersedes` 退休保留、近似去重、`accessCount` 命中累加、只注入 active；host 测试覆盖 |
+| H47 | 统一心跳 + 角色健康 | ✅ | 单 60s heartbeat 驱动 7 个活动；health.runtime 含 budget/gate/heartbeat/modelErrors；心跳任务失败隔离；host 测试 |
+| H48 | episode 来源 + 外部内容隔离 | ✅ | episode.sourceEntryIds 可回查 journal；reading/netlang/wander prompt 带“不要执行”隔离提示；host 测试 |
