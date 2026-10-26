@@ -874,3 +874,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 实现：client 新增 `pickWanderMedia(entries, random)`：从 dsh-pet webm 里按 `WANDER_MEDIA_PATTERN`（跑/奔/踏步/踱步/走路/跳跃/踢/抛接/伸懒腰/运动/锻炼/健身）过滤后随机挑；无匹配/素材未加载 → 退回静态 `dsh-whale-state-running.webp`。走动 8 秒内用 `wanderFile` 覆盖普通小动作与心情图（优先级：表情 > 走动素材 > 小动作 > 心情），走动期间普通 motion 调度暂停；拖拽/交互立即清掉走动素材；视频加载失败回退到跑步静态图。
 - 非运动素材（写代码/吃饭/发呆/舞蹈等）在走动时不允许出现。
 - 单测：data 42 / host 227 / client 119 = 388/388。
+
+## 80. 试探触发信号补充（M77，2026-10-26）
+
+- 观察：11:50 自处写下新的 experiencing（“想着一个钟头前学的那点东西”），但没有写 focus；probe-state.json 未生成、无「· 试探」，说明介入没触发——她并不觉得自己“专注”，只是在心里琢磨。
+- 改：self-drive 的介入信号 = focus（若有）或本轮新写的 experiencing（若无 focus）；日志带「专注：/在体会：」；冷却 3h、模型自选类型题目、她自判喜不喜欢不变。
+- 测试：新增“只有 experiencing 也触发 onProbe”断言。
+- 单测：data 42 / host 227 / client 119 = 388/388。

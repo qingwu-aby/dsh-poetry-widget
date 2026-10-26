@@ -5595,6 +5595,41 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.deepEqual(probeFocuses, ['在琢磨漏刻的水位为什么能稳住'])
   focusDrive.dispose()
 
+  // v1.66：没写 focus、但写下了新的 experiencing，也算心落在某件事上 → 触发介入
+  const expProbes = []
+  const expLlm = makeMockLlm(() =>
+    JSON.stringify({
+      felt: '手边那页还没翻，脑子先跑远了。',
+      experiencing: '在想刚才读到的那段旧事。',
+      focus: '',
+      doing: '',
+      kind: '',
+      say: '',
+    }),
+  )
+  const expDrive = createSelfDrive({
+    state: {
+      snapshot: () => ({ sleeping: false, lastActionAt: null }),
+      setFelt() {},
+      setExperiencing() {},
+      markChecked() {},
+      applyEvent() {},
+    },
+    llm: expLlm,
+    actionsPath: path.join(dir, 'exp-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_300_000_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+    onProbe: (focus) => expProbes.push(focus),
+  })
+  expDrive.load()
+  await expDrive.check(1_700_300_000_000)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(expProbes, ['在想刚才读到的那段旧事。'])
+  expDrive.dispose()
+
   const failDrive = createSelfDrive({
     state: failState,
     llm: failLlm,
