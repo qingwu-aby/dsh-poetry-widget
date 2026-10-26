@@ -3029,6 +3029,8 @@
       const MEMORY_PATH = "memory.json";
       const HEALTH_PATH = "health.json";
       const WORKS_PATH = "works.json";
+      const PRESENCE_PATH = "presence.json";
+      const PRESENCE_THROTTLE_MS = 60 * 1e3;
       const WORKS_POLL_MS = 60 * 1e3;
       const HEALTH_POLL_MS = 60 * 1e3;
       const MEMORY_BACKUP_PATH = "memory/backup.json";
@@ -7310,6 +7312,37 @@
             if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
           };
         }, [panelOpen, panelTab, settings.hidden, memoryTick]);
+        React.useEffect(() => {
+          let lastAt = 0;
+          const send = (kind) => {
+            const now = Date.now();
+            if (now - lastAt < PRESENCE_THROTTLE_MS) return;
+            lastAt = now;
+            fetchJson(PRESENCE_PATH, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ kind })
+            }).catch(() => {
+            });
+          };
+          const onPointer = () => send("tap");
+          const onKey = () => send("tap");
+          const onVisibility = () => {
+            if (typeof document !== "undefined" && document.visibilityState === "visible") send("tap");
+          };
+          if (typeof document !== "undefined") {
+            document.addEventListener("pointerdown", onPointer, { passive: true });
+            document.addEventListener("visibilitychange", onVisibility);
+          }
+          if (typeof window !== "undefined") window.addEventListener("keydown", onKey);
+          return () => {
+            if (typeof document !== "undefined") {
+              document.removeEventListener("pointerdown", onPointer);
+              document.removeEventListener("visibilitychange", onVisibility);
+            }
+            if (typeof window !== "undefined") window.removeEventListener("keydown", onKey);
+          };
+        }, []);
         React.useEffect(() => {
           if (!panelOpen || panelTab !== "growth" || settings.hidden) {
             setWorksRes({ status: "idle", data: null });

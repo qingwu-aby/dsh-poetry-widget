@@ -46,6 +46,8 @@ import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs
 import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
 import { createWorldFeedback } from './lib/world-feedback.mjs'
+import { PRESENCE_ROUTE, createPresenceHandler } from './lib/presence.mjs'
+import { createLifecycle, resolveLifecyclePath } from './lib/self-lifecycle.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -128,6 +130,8 @@ export async function apply(ctx) {
   const journal = createMemoryJournal({ dir: memoryDir, logger })
   // v2.23：真实世界反馈账本（只记真实发生的事，模型不能编 outcome）。
   const worldFeedback = createWorldFeedback({ logger })
+  // v2.25：有限世代（轻量）——这一代有起点和计划终点；不自动删除她。
+  const selfLifecycle = createLifecycle({ file: resolveLifecyclePath(env, home), logger, env })
   // v2.22：硅基代谢——每次真实模型调用消耗一点注意力，能量随时间恢复。
   let selfStateRef = null
   const selfMetabolism = createMetabolism({
@@ -549,6 +553,7 @@ export async function apply(ctx) {
         events: selfEvents,
         metabolism: selfMetabolism,
         worldFeedback,
+        lifecycle: selfLifecycle,
         onProjectExpired: (project) => {
           const title = project && typeof project.title === 'string' ? project.title : ''
           if (title.length === 0) return undefined
@@ -744,6 +749,7 @@ export async function apply(ctx) {
           events: selfEvents.snapshot(),
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),
+          lifecycle: selfLifecycle.snapshot(),
         }),
         env,
         home,
@@ -803,6 +809,14 @@ export async function apply(ctx) {
             },
             tokenFile: manualTokenFile,
           }),
+        }),
+      )
+      // 用户在场（他只说“我在”，不记录点击内容）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: PRESENCE_ROUTE,
+          handler: createPresenceHandler({ worldFeedback, logger }),
         }),
       )
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。

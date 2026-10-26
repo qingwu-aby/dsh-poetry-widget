@@ -225,6 +225,8 @@ import { createSelfProjects } from '../lib/self-projects.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
+import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
+import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -1856,7 +1858,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3632,7 +3634,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4969,7 +4971,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10730,4 +10732,50 @@ test('self-projects v2.24：项目有真实期限，错过就记为 missed，不
   assert.equal(projects.snapshot().completedCount, 1)
   const reread = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => clock })
   assert.equal(reread.snapshot().recentCompleted[0].outcome, 'missed')
+})
+
+test('presence v2.25：用户在场只记录“我在”，60s 内不重复', async () => {
+  const dir = makeTmpDir('dshp-presence')
+  const now = FIXED_NOW.getTime()
+  const feedback = createWorldFeedback({ file: path.join(dir, 'world-feedback.jsonl'), now: () => now })
+  const handler = createPresenceHandler({ worldFeedback: feedback, now: () => now })
+  const request = mockRequest({ url: PRESENCE_ROUTE, method: 'POST' })
+  request[Symbol.asyncIterator] = async function* () {
+    yield Buffer.from(JSON.stringify({ kind: 'tap' }))
+  }
+  const res = new MockResponse()
+  await handler(request, res)
+  await res.finished()
+  assert.equal(res.statusCode, 200)
+  const recent = feedback.recent(5)
+  assert.equal(recent.length, 1)
+  assert.equal(recent[0].source, 'user')
+  assert.match(recent[0].summary, /用户在场/)
+  // 60s 内再次上报被跳过
+  const second = mockRequest({ url: PRESENCE_ROUTE, method: 'POST' })
+  second[Symbol.asyncIterator] = async function* () { yield Buffer.from(JSON.stringify({ kind: 'tap' })) }
+  const secondRes = new MockResponse()
+  await handler(second, secondRes)
+  await secondRes.finished()
+  assert.equal(secondRes.json().skipped, true)
+  assert.equal(feedback.recent(5).length, 1)
+})
+
+test('self-lifecycle v2.25：有限世代有起点/终点，结束不自动删除记忆', () => {
+  const dir = makeTmpDir('dshp-lifecycle')
+  let clock = FIXED_NOW.getTime()
+  const lifecycle = createLifecycle({ file: path.join(dir, 'lifecycle.json'), now: () => clock, env: { DSH_POETRY_LIFECYCLE_DAYS: '2' } })
+  const first = lifecycle.snapshot()
+  assert.equal(first.generation, 1)
+  assert.equal(first.status, 'active')
+  assert.match(lifecycle.describe(clock), /这一代/)
+  clock += 3 * 24 * 60 * 60 * 1000
+  assert.ok(['closing', 'ended'].includes(lifecycle.status(clock)))
+  clock += 2 * 24 * 60 * 60 * 1000
+  assert.equal(lifecycle.status(clock), 'ended')
+  assert.match(lifecycle.describe(clock), /已经结束/)
+  const next = lifecycle.startNextGeneration('上一代到期限了')
+  assert.equal(next.generation, 2)
+  assert.equal(next.status, 'active')
+  assert.equal(next.legacy, '上一代到期限了')
 })

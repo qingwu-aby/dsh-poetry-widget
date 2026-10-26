@@ -162,6 +162,8 @@ window.__ModuleLoader__.load({
   const MEMORY_PATH = 'memory.json'
   const HEALTH_PATH = 'health.json'
   const WORKS_PATH = 'works.json'
+  const PRESENCE_PATH = 'presence.json'
+  const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
   const HEALTH_POLL_MS = 60 * 1000
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
@@ -4762,6 +4764,38 @@ window.__ModuleLoader__.load({
     if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') document.removeEventListener('visibilitychange', onVisibility)
    }
   }, [panelOpen, panelTab, settings.hidden, memoryTick])
+
+  // 用户在场（v2.25）：只上报“我在”，不发送点击内容；60s 节流。
+  React.useEffect(() => {
+   let lastAt = 0
+   const send = (kind) => {
+    const now = Date.now()
+    if (now - lastAt < PRESENCE_THROTTLE_MS) return
+    lastAt = now
+    fetchJson(PRESENCE_PATH, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ kind }),
+    }).catch(() => {})
+   }
+   const onPointer = () => send('tap')
+   const onKey = () => send('tap')
+   const onVisibility = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'visible') send('tap')
+   }
+   if (typeof document !== 'undefined') {
+    document.addEventListener('pointerdown', onPointer, { passive: true })
+    document.addEventListener('visibilitychange', onVisibility)
+   }
+   if (typeof window !== 'undefined') window.addEventListener('keydown', onKey)
+   return () => {
+    if (typeof document !== 'undefined') {
+     document.removeEventListener('pointerdown', onPointer)
+     document.removeEventListener('visibilitychange', onVisibility)
+    }
+    if (typeof window !== 'undefined') window.removeEventListener('keydown', onKey)
+   }
+  }, [])
 
   // 作品（v2.11）：面板停在成长 tab 时轮询 works.json，只读展示最近的作品。
   React.useEffect(() => {

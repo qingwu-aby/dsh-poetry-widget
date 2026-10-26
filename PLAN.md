@@ -1238,3 +1238,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive：prompt 显示剩余/过期；项目快照带 due；过期回调 journal。
 - index：onProjectExpired → journal thought。
 - 测试：期限/宽限/错过/missed 持久化；host 268，全套 432/432。
+
+## 127. 他者与有限世代（M123，2026-10-26）
+
+- presence：客户端 pointerdown/keydown/visibility 60s 节流 POST `/presence.json`；主机 60s 限流；只写“用户在场”到世界反馈，不记内容。
+- lifecycle：lifecycle.json generation/startedAt/plannedEndAt/status/legacy；active→closing（到期）→ended（宽限 24h）；describe 给 prompt；startNextGeneration 保留 legacy；不自动归档。
+- index/health/archive 接入；测试：presence 限流、lifecycle 状态/下一代；host 270，全套 434/434。
