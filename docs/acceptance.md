@@ -167,3 +167,4 @@
 | H64 | 她自己的作品 | ✅ | kind=make 生成 SVG/文字，清洗后保存并索引；works.json 只读路由；成长页展示；418/418 |
 | H65 | 递文章给她读 | ✅ | 本地 token 路由；读后 2–5 句第一人称想法写入 journal；实读香农论文并留下想法；419/419 |
 | H66 | 自处预期/结果/取舍实验钩子 | ✅ | expect/outcome/tradeoff 进入自处 prompt 与动作记录；上一动作结果回写；420/420 |
+| H67 | 自处约束（冲突取舍/结果回灌） | ✅ | conflict=true 必须 tradeoff；上次 outcome/tradeoff 进入下一轮并追问是否改变；421/421 |

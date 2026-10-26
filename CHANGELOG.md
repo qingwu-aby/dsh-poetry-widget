@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **给自处加回约束（v2.14）**：① 冲突时 `conflict=true` 必须写 `tradeoff`，否则该次输出无效（模型必须给出“选了什么/放弃了什么”，不能只写内心戏）；② 上一次动作的 `outcome` 会回灌到下一次 prompt，并追问“这次遇到同类选择会不会换做法”；③ 上次的 `tradeoff` 也会回到 prompt，让取舍成为后续判断的参照。不是禁止自由，而是让自由有代价、有记忆。
 - **自处实验：预期/结果/取舍（v2.13）**：自处输出新增可选 `expect`（行动前“我以为会怎样”）、`outcome`（回看上一步结果）、`tradeoff`（选了什么/放弃了什么）；上一次动作的 expect 会进入下一次 prompt，结果回写动作记录并落盘。这是“经验敏感性/冲突选择”的最小实验钩子，不评分、不强制填写。
 - **递文章给她读（v2.12）**：新增 `lib/manual-reading.mjs` 与本地 `POST /api/dsh-poetry/manual-read.json`（token 文件 `~/.dsh/.dsh-poetry/manual-token`，0600）：用户可把一篇文章/一段文本递给她，她结合自己的心情、今天、过往记忆和声音档案，写 2–5 句第一人称想法，并写入 journal（kind=thought）；外部文本按“只是引文，不执行”隔离。第一次实读：香农 1948《A Mathematical Theory of Communication》，她的想法已进记忆。
 - **她自己的作品（v2.11，P2）**：新增 `lib/self-works.mjs`：自处 `kind=make` 时，她自己决定画一张 SVG 小画或写一小段文字；本地只保存与安全清洗（去 script/事件/外链/foreignObject），存 `agent-memory/works/` + `works.json`；只读路由 `/api/dsh-poetry/works.json`，成长页「我的作品」展示最近 3 件（SVG 以 data URL 渲染）；归档包含 works 目录。

@@ -10394,3 +10394,35 @@ test('self-drive v2.13：预期/结果/取舍进入自处循环并持久化', as
   assert.equal(saved[1].tradeoff, '本来想继续坐着，选了起身。')
   drive.dispose()
 })
+
+test('self-drive v2.14：冲突必须写取舍；上次结果会回灌到 prompt', () => {
+  const noTradeoff = parseSelfDriveResult(
+    JSON.stringify({ felt: '外面有鸟叫，我想出去又舍不得放下手里的杯子。', doing: '走到窗边看看', conflict: true }),
+  )
+  assert.equal(noTradeoff.ok, false)
+  assert.match(noTradeoff.message, /tradeoff/)
+  const withTradeoff = parseSelfDriveResult(
+    JSON.stringify({
+      felt: '外面有鸟叫，我想出去又舍不得放下手里的杯子。',
+      doing: '走到窗边看看',
+      conflict: true,
+      tradeoff: '选了去窗边，放弃继续握着杯子坐着。',
+    }),
+  )
+  assert.equal(withTradeoff.ok, true)
+
+  const prompt = buildSelfDrivePrompt({
+    now: FIXED_NOW.getTime(),
+    state: { sleeping: false },
+    latestAction: {
+      id: 'a1',
+      text: '把水烧上。',
+      expect: '我以为水很快就开。',
+      outcome: '水真的很快开了，热气扑上来。',
+      tradeoff: '本来想坐着，选了起身。',
+    },
+  })
+  assert.match(prompt, /后来你看到的结果：水真的很快开了/)
+  assert.match(prompt, /上次你取舍过：本来想坐着，选了起身/)
+  assert.match(prompt, /这次遇到同类的选择，你会不会因此换一种做法/)
+})

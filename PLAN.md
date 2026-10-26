@@ -1158,3 +1158,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-actions：normalizeSelfAction 保留 expect/outcome/tradeoff（长度限制）。
 - 这是文档讨论的最小实验：不评价值偏好，只让“预期—结果—取舍”进入行为记录，供后续观察经验敏感性。
 - 测试：解析/prompt/回写；host 256，全套 420/420。
+
+## 116. 自处约束：冲突必须有取舍、结果必须回灌（M112，2026-10-26）
+
+- self-drive prompt：上次 outcome/tradeoff 进入下一轮；追问“同类选择会不会换做法”。
+- schema/prompt：conflict=true 时 tradeoff 必填；parse 校验，缺失直接 invalid（不再让模型用内心戏代替选择）。
+- 解析仍保留 expect/outcome/tradeoff，动作落盘。
+- 测试：冲突必填/结果回灌；host 257，全套 421/421。
