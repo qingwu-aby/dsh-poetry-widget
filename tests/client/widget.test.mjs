@@ -803,6 +803,48 @@ test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', ()
   assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === '恢复默认').length, 1)
 })
 
+test('运行状态只读块：预算/心跳/模型失败归一化并渲染', () => {
+  const { react, debug } = loadClient()
+  const health = debug.normalizeHealthStatus({
+    ok: true,
+    version: '0.1.4',
+    runtime: {
+      budget: { day: '2026-10-26', total: 5, totalLimit: 600, counts: { mood: 3, selfTalk: 2 } },
+      heartbeat: {
+        pulses: 10,
+        jobs: [
+          { name: '自处', runs: 2, errors: 1, running: false },
+          { name: '读小说', runs: 1, errors: 0, running: true },
+        ],
+      },
+      modelErrors: { total: 2, byRole: { mood: 2 } },
+    },
+  })
+  assert.equal(health.total, 5)
+  assert.equal(health.totalLimit, 600)
+  assertDeep(health.roleCounts.map((item) => item.role), ['mood', 'selfTalk'])
+  assert.equal(health.jobs.length, 2)
+  assert.equal(health.jobs[0].errors, 1)
+  assert.equal(health.modelErrorTotal, 2)
+
+  const tree = renderFresh(react, debug.SettingsTab, {
+    api: {
+      settings: debug.normalizeSettings({}),
+      updateSettings() {},
+      hideWidget() {},
+      resetSettings() {},
+      healthStatus: health,
+      boot: { data: { version: '0.1.0' } },
+    },
+  })
+  const text = textOf(tree)
+  assert.match(text, /运行状态（只读）/)
+  assert.match(text, /今日模型调用 5\/600/)
+  assert.match(text, /心跳：自处\(1错\)/)
+  assert.match(text, /最近 24h 模型失败 2 次/)
+  assert.match(text, /mood×2/)
+})
+
 test('PoetrySettingsTab：诗词配置在二级菜单（平仄/模式/轮播/文字/天气选诗）', () => {
   const { react, debug } = loadClient()
   const tree = renderFresh(react, debug.PoetrySettingsTab, {

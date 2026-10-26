@@ -324,6 +324,7 @@
     ".dshp-field-stacked{flex-direction:column;align-items:stretch;gap:6px}",
     ".dshp-field-stacked .dshp-field-label{flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}",
     ".dshp-field-stack-body{width:100%;min-width:0}",
+    ".dshp-health-line{font-size:11.5px;line-height:1.6;color:var(--dshp-label-2);word-break:break-word}",
     ".dshp-field-label{display:flex;flex-direction:column;gap:1px;min-width:0}",
     ".dshp-field-label b{font-size:13px;font-weight:500}",
     ".dshp-field-label small{color:var(--dshp-label-2);font-size:11.5px}",
@@ -497,6 +498,8 @@
       const SELF_POLL_MS = 60 * 1e3;
       const ACTION_SEEN_KEY = "dshp-action-seen-v1";
       const MEMORY_PATH = "memory.json";
+      const HEALTH_PATH = "health.json";
+      const HEALTH_POLL_MS = 60 * 1e3;
       const MEMORY_BACKUP_PATH = "memory/backup.json";
       const MEMORY_POLL_MS = 60 * 1e3;
       const ASSET_BASE = ROUTE + "assets?f=";
@@ -2168,6 +2171,34 @@
           updatedAt: num(data.updatedAt, 0)
         };
       }
+      function normalizeHealthStatus(raw) {
+        const data = raw && typeof raw === "object" ? raw : {};
+        const runtime = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
+        if (!runtime) return null;
+        const budget = runtime.budget && typeof runtime.budget === "object" ? runtime.budget : null;
+        const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === "object" ? runtime.heartbeat : null;
+        const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === "object" ? runtime.modelErrors : null;
+        const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
+        const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
+        const roleCounts = Object.keys(counts).map((role) => ({ role, count: num(counts[role], 0) })).filter((item) => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 6);
+        return {
+          version: data.version || "",
+          day: budget && typeof budget.day === "string" ? budget.day : "",
+          total: budget ? num(budget.total, 0) : 0,
+          totalLimit: budget ? num(budget.totalLimit, 0) : 0,
+          roleCounts,
+          jobs: jobs.map((job) => ({
+            name: String(job.name || ""),
+            runs: num(job.runs, 0),
+            errors: num(job.errors, 0),
+            running: job.running === true,
+            lastError: typeof job.lastError === "string" ? job.lastError : ""
+          })),
+          activeJobs: num(heartbeat && heartbeat.pulses, 0),
+          modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
+          modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4) : []
+        };
+      }
       function switchNode(checked, onChange, label) {
         return h("button", {
           type: "button",
@@ -3200,7 +3231,8 @@
         CiTab,
         FeihuaTab,
         SettingsTab,
-        PoetrySettingsTab
+        PoetrySettingsTab,
+        normalizeHealthStatus
       };
       try {
         if (typeof globalThis !== "undefined") globalThis.__dshPoetryDebug = DEBUG;
@@ -3432,6 +3464,7 @@
         const [petMediaRes, setPetMediaRes] = React.useState({ status: "idle", entries: [] });
         const [selfStatus, setSelfStatus] = React.useState(null);
         const [memoryStatus, setMemoryStatus] = React.useState(null);
+        const [healthStatus, setHealthStatus] = React.useState(null);
         const [memoryTick, setMemoryTick] = React.useState(0);
         const [motionFile, setMotionFile] = React.useState("");
         const [dizzy, setDizzy] = React.useState(null);
@@ -5472,6 +5505,28 @@
             if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
           };
         }, [panelOpen, panelTab, settings.hidden, memoryTick]);
+        React.useEffect(() => {
+          if (!panelOpen || panelTab !== "settings" || settings.hidden) {
+            setHealthStatus(null);
+            return void 0;
+          }
+          let alive = true;
+          const load = () => {
+            if (!alive) return;
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            fetchJson(HEALTH_PATH).then((data) => {
+              if (alive) setHealthStatus(normalizeHealthStatus(data));
+            }).catch(() => {
+              if (alive) setHealthStatus(null);
+            });
+          };
+          load();
+          const timer = setInterval(load, HEALTH_POLL_MS);
+          return () => {
+            alive = false;
+            clearInterval(timer);
+          };
+        }, [panelOpen, panelTab, settings.hidden]);
         function backupMemory() {
           return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
             showToastRef.current("\u5DF2\u5907\u4EFD");
@@ -5682,6 +5737,7 @@
             petVideoCount: petMediaRes.entries.length,
             selfStatus,
             memoryStatus,
+            healthStatus,
             backupMemory,
             refreshMoodNow,
             previewSpontaneousPoem,
@@ -6383,6 +6439,28 @@
             h("div", { className: "dshp-field-stack-body" }, growthMetricsTree(status))
           );
         }
+        function renderHealthStatus() {
+          const health = api.healthStatus;
+          if (!health) return null;
+          const budgetLine = health.totalLimit > 0 ? `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}/${health.totalLimit}` : "\u6A21\u578B\u8C03\u7528\uFF1A\u6682\u65E0\u6570\u636E";
+          const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(" \xB7 ");
+          const jobs = health.jobs.slice(0, 8);
+          const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}\u9519)` : ""}`).join(" \xB7 ") : "\u5FC3\u8DF3\u672A\u6CE8\u518C";
+          const errorLine = health.modelErrorTotal > 0 ? `\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 ${health.modelErrorTotal} \u6B21` + (health.modelErrorsByRole.length ? "\uFF1A" + health.modelErrorsByRole.map((item) => `${item.role}\xD7${item.count}`).join("\u3001") : "") : "\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 0";
+          return h(
+            "div",
+            { className: "dshp-field dshp-field-stacked" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u8FD0\u884C\u72B6\u6001\uFF08\u53EA\u8BFB\uFF09"), h("small", null, "\u9884\u7B97 \xB7 \u5FC3\u8DF3 \xB7 \u6A21\u578B\u5931\u8D25\uFF1B\u6BCF\u5206\u949F\u5237\u65B0")),
+            h(
+              "div",
+              { className: "dshp-field-stack-body" },
+              h("div", { className: "dshp-health-line" }, budgetLine + (health.day ? " \xB7 " + health.day : "")),
+              roles ? h("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
+              h("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
+              h("div", { className: "dshp-health-line" }, errorLine)
+            )
+          );
+        }
         return h(
           "div",
           { className: "dshp-settings" },
@@ -6470,6 +6548,7 @@
             switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), "\u81EA\u8A00\u81EA\u8BED\u5F00\u5173")
           ),
           renderSelfStatus(),
+          renderHealthStatus(),
           h(
             "div",
             { className: "dshp-field" },

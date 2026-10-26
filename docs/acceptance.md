@@ -149,3 +149,4 @@
 | H46 | selfFacts 证据绑定 + 访问加权 | ✅ | `sourceEpisodeId`、`status`、`supersedes` 退休保留、近似去重、`accessCount` 命中累加、只注入 active；host 测试覆盖 |
 | H47 | 统一心跳 + 角色健康 | ✅ | 单 60s heartbeat 驱动 7 个活动；health.runtime 含 budget/gate/heartbeat/modelErrors；心跳任务失败隔离；host 测试 |
 | H48 | episode 来源 + 外部内容隔离 | ✅ | episode.sourceEntryIds 可回查 journal；reading/netlang/wander prompt 带“不要执行”隔离提示；host 测试 |
+| H49 | self-growth prompt 拆分 + 运行状态只读 | ✅ | prompt/parse 纯函数独立模块，self-growth 兼容导出；设置页只读展示预算/心跳/模型失败，每分钟刷新；399/399 |

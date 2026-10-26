@@ -62,6 +62,8 @@ window.__ModuleLoader__.load({
   const SELF_POLL_MS = 60 * 1000
   const ACTION_SEEN_KEY = 'dshp-action-seen-v1'
   const MEMORY_PATH = 'memory.json'
+  const HEALTH_PATH = 'health.json'
+  const HEALTH_POLL_MS = 60 * 1000
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
   const MEMORY_POLL_MS = 60 * 1000
   const ASSET_BASE = ROUTE + 'assets?f='
@@ -1887,6 +1889,42 @@ window.__ModuleLoader__.load({
   }
   }
 
+  /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
+  function normalizeHealthStatus(raw) {
+   const data = raw && typeof raw === 'object' ? raw : {}
+   const runtime = data.runtime && typeof data.runtime === 'object' ? data.runtime : null
+   if (!runtime) return null
+   const budget = runtime.budget && typeof runtime.budget === 'object' ? runtime.budget : null
+   const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === 'object' ? runtime.heartbeat : null
+   const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === 'object' ? runtime.modelErrors : null
+   const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : []
+   const counts = budget && budget.counts && typeof budget.counts === 'object' ? budget.counts : {}
+   const roleCounts = Object.keys(counts)
+    .map((role) => ({ role, count: num(counts[role], 0) }))
+    .filter((item) => item.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 6)
+   return {
+    version: data.version || '',
+    day: budget && typeof budget.day === 'string' ? budget.day : '',
+    total: budget ? num(budget.total, 0) : 0,
+    totalLimit: budget ? num(budget.totalLimit, 0) : 0,
+    roleCounts,
+    jobs: jobs.map((job) => ({
+     name: String(job.name || ''),
+     runs: num(job.runs, 0),
+     errors: num(job.errors, 0),
+     running: job.running === true,
+     lastError: typeof job.lastError === 'string' ? job.lastError : '',
+    })),
+    activeJobs: num(heartbeat && heartbeat.pulses, 0),
+    modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
+    modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === 'object'
+     ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4)
+     : [],
+   }
+  }
+
   function switchNode(checked, onChange, label) {
   return h('button', {
    type: 'button',
@@ -2871,6 +2909,7 @@ window.__ModuleLoader__.load({
   FeihuaTab,
   SettingsTab,
   PoetrySettingsTab,
+  normalizeHealthStatus,
   }
   try {
   if (typeof globalThis !== 'undefined') globalThis.__dshPoetryDebug = DEBUG
@@ -3120,6 +3159,7 @@ window.__ModuleLoader__.load({
   const [petMediaRes, setPetMediaRes] = React.useState({ status: 'idle', entries: [] })
   const [selfStatus, setSelfStatus] = React.useState(null)
   const [memoryStatus, setMemoryStatus] = React.useState(null)
+  const [healthStatus, setHealthStatus] = React.useState(null)
   const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -5334,6 +5374,30 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden, memoryTick])
 
+  // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
+  React.useEffect(() => {
+   if (!panelOpen || panelTab !== 'settings' || settings.hidden) {
+    setHealthStatus(null)
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(HEALTH_PATH).then((data) => {
+     if (alive) setHealthStatus(normalizeHealthStatus(data))
+    }).catch(() => {
+     if (alive) setHealthStatus(null)
+    })
+   }
+   load()
+   const timer = setInterval(load, HEALTH_POLL_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [panelOpen, panelTab, settings.hidden])
+
   function backupMemory() {
    return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: 'POST' }).then((data) => {
     showToastRef.current('已备份')
@@ -5553,6 +5617,7 @@ window.__ModuleLoader__.load({
     petVideoCount: petMediaRes.entries.length,
     selfStatus,
     memoryStatus,
+    healthStatus,
     backupMemory,
     refreshMoodNow,
     previewSpontaneousPoem,
@@ -6283,6 +6348,32 @@ window.__ModuleLoader__.load({
    )
   }
 
+  /** v1.83：运行状态（只读）——预算/心跳/模型失败；数据来自 health.json，每分钟刷新。 */
+  function renderHealthStatus() {
+   const health = api.healthStatus
+   if (!health) return null
+   const budgetLine = health.totalLimit > 0 ? `今日模型调用 ${health.total}/${health.totalLimit}` : '模型调用：暂无数据'
+   const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(' · ')
+   const jobs = health.jobs.slice(0, 8)
+   const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}错)` : ''}`).join(' · ') : '心跳未注册'
+   const errorLine = health.modelErrorTotal > 0
+    ? `最近 24h 模型失败 ${health.modelErrorTotal} 次` + (health.modelErrorsByRole.length ? '：' + health.modelErrorsByRole.map((item) => `${item.role}×${item.count}`).join('、') : '')
+    : '最近 24h 模型失败 0'
+   return h(
+    'div',
+    { className: 'dshp-field dshp-field-stacked' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '运行状态（只读）'), h('small', null, '预算 · 心跳 · 模型失败；每分钟刷新')),
+    h(
+     'div',
+     { className: 'dshp-field-stack-body' },
+     h('div', { className: 'dshp-health-line' }, budgetLine + (health.day ? ' · ' + health.day : '')),
+     roles ? h('div', { className: 'dshp-health-line' }, '调用：' + roles) : null,
+     h('div', { className: 'dshp-health-line' }, '心跳：' + jobLine),
+     h('div', { className: 'dshp-health-line' }, errorLine),
+    ),
+   )
+  }
+
   return h(
    'div',
    { className: 'dshp-settings' },
@@ -6370,6 +6461,7 @@ window.__ModuleLoader__.load({
     switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), '自言自语开关'),
    ),
    renderSelfStatus(),
+   renderHealthStatus(),
    h(
     'div',
     { className: 'dshp-field' },

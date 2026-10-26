@@ -216,6 +216,7 @@ export const CSS = [
   '.dshp-field-stacked{flex-direction:column;align-items:stretch;gap:6px}',
   '.dshp-field-stacked .dshp-field-label{flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}',
   '.dshp-field-stack-body{width:100%;min-width:0}',
+  '.dshp-health-line{font-size:11.5px;line-height:1.6;color:var(--dshp-label-2);word-break:break-word}',
   '.dshp-field-label{display:flex;flex-direction:column;gap:1px;min-width:0}',
   '.dshp-field-label b{font-size:13px;font-weight:500}',
   '.dshp-field-label small{color:var(--dshp-label-2);font-size:11.5px}',
