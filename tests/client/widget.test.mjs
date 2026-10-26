@@ -2060,6 +2060,7 @@ test('窗口溜达 v1.65：走动只调用跑步/运动类素材，找不到退�
 
 test('窗口溜达 v1.64：目标点在视口内、贴边、避开底部中间输入框', () => {
   const { debug } = loadClient()
+  assert.equal(debug.WINDOW_WANDER_ENABLED, false, 'v1.70：窗口溜达暂时关闭（先别在窗口到处跑）')
   assert.equal(debug.WANDER_TICK_MS, 60 * 1000)
   assert.equal(debug.WANDER_WALK_MS, 8 * 1000)
   assert.equal(debug.WANDER_MIN_DISTANCE, 120)

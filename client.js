@@ -111,6 +111,9 @@ window.__ModuleLoader__.load({
   const MOOD_SWITCH_MIN_MS = 20 * 60 * 1000
   const MOOD_REFRESH_MS = 5 * 60 * 1000
   // v1.64：她可以在窗口里自己溜达（贴边走走，不挡聊天输入框）。
+  // v1.70：用户要求“先别让她在窗口到处跑” → 窗口溜达暂时关掉；改成 true 即可恢复。
+  // （互联网上的溜达不受影响，仍按 3h/8h 的节奏。）
+  const WINDOW_WANDER_ENABLED = false
   const WANDER_TICK_MS = 60 * 1000
   const WANDER_FIRST_MIN_MS = 45 * 1000
   const WANDER_FIRST_MAX_MS = 2 * 60 * 1000
@@ -3292,7 +3295,7 @@ window.__ModuleLoader__.load({
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
   selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
-  WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget, pickWanderMedia, WANDER_STATIC_FILE,
+  WINDOW_WANDER_ENABLED, WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget, pickWanderMedia, WANDER_STATIC_FILE,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
@@ -3975,6 +3978,7 @@ window.__ModuleLoader__.load({
   // v1.64：窗口溜达——每 2–5 分钟贴着边缘换一个位置，互相不挡输入框；
   // 面板打开、用户刚碰过她、页面不可见时不走。
   React.useEffect(() => {
+   if (!WINDOW_WANDER_ENABLED) return undefined
    if (settings.hidden) return undefined
    if (!wanderRef.current.nextAt) {
     wanderRef.current.nextAt = Date.now() + WANDER_FIRST_MIN_MS + Math.random() * (WANDER_FIRST_MAX_MS - WANDER_FIRST_MIN_MS)
