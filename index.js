@@ -297,6 +297,7 @@ export async function apply(ctx) {
         getSelection,
         journal,
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
+        probeStatePath: path.join(settingsPath.dir, 'probe-state.json'),
         candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
         topicsBankPath: topicsPath,
         topicsArchivePath,
@@ -413,6 +414,7 @@ export async function apply(ctx) {
         modelErrorsPath,
         logger,
         learningLogPath: path.join(memoryDir, 'learning-log.md'),
+        statePath: path.join(settingsPath.dir, 'wander-state.json'),
         env,
       })
       selfWander.start()
