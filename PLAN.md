@@ -1072,3 +1072,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - index：从 `DSH_POETRY_DEEPSEEK_API_KEY || DEEPSEEK_API_KEY` 建客户端；无 key 保持 Wikipedia；日志显示当前搜索来源。
 - 计费/限制：Search/Fetch 各 5 元/1000 次成功请求；QPS Search 100 / Fetch 25；密钥仅环境变量。
 - 测试：deepseek-web 请求形状/映射/401/私网过滤/无 key；全套 410/410。
+
+## 105. client 继续拆分 + DeepSeek key 入口（M101，2026-10-26）
+
+- 新模块：`tabs-settings.js`（createSettingsTab）、`tabs-growth.js`（createGrowthTab）、`tabs-feihua.js`（createFeihuaTab + DetectionView）、`tabs-library.js`（createLibraryTab）；全部工厂注入 React/h/共享组件/缓存函数，client 用惰性包装保持 DEBUG 与渲染引用。
+- client.js 源文件 6,750 → 5,656 行（本轮 -1,094）；esbuild 单 artifact 不变。
+- DeepSeek：`resolveDeepSeekApiKey(env)` 作为唯一入口（DSH_POETRY_DEEPSEEK_API_KEY → DEEPSEEK_API_KEY）；自动读 `~/.dsh/.credentials.yaml` 的位置保留注释，未实现（用户要求先不加）。
+- 测试：client 121 / host 247 / 全套 410。

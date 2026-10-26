@@ -64,7 +64,7 @@ import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
 import { resolveAutonomy } from './lib/autonomy.mjs'
-import { createDeepSeekWeb } from './lib/deepseek-web.mjs'
+import { createDeepSeekWeb, resolveDeepSeekApiKey } from './lib/deepseek-web.mjs'
 import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
@@ -160,7 +160,7 @@ export async function apply(ctx) {
       const autonomy = resolveAutonomy(env)
       // v2.1：安全公开网页访问（搜索 + 抓取），给“溜达”用；默认开启，DSH_POETRY_WEB=off 可关。
       // v2.3：有 DeepSeek API Key 时，搜索优先走官方 Search/Fetch（按次计费，可回落）。
-      const deepseekWebKey = env.DSH_POETRY_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY
+      const deepseekWebKey = resolveDeepSeekApiKey(env)
       const deepseekWeb = createDeepSeekWeb({ apiKey: deepseekWebKey, logger })
       const webAccess = createWebAccess({ env, logger, deepseek: deepseekWeb })
       logger?.info?.(

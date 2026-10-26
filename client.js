@@ -499,6 +499,382 @@
     return { TodayTab, ClassTab, YunTab, CiTab, PoetrySettingsTab };
   }
 
+  // client-src/tabs-settings.js
+  function createSettingsTab(ctx = {}) {
+    const React = ctx.React;
+    const h = ctx.h;
+    const cx = ctx.cx;
+    const normalizeSettings = ctx.normalizeSettings;
+    const num2 = ctx.num;
+    const switchNode = ctx.switchNode;
+    const growthMetricsTree = ctx.growthMetricsTree;
+    const weatherChipText = ctx.weatherChipText;
+    const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
+    const moodBasisText = ctx.moodBasisText;
+    const moodAiFailureLabel = ctx.moodAiFailureLabel;
+    function SettingsTab(props) {
+      const api = props.api || {};
+      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
+      const [confirmReset, setConfirmReset] = React.useState(false);
+      const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
+      React.useEffect(() => {
+        setCityDraft(settings.weatherCity || "\u5317\u4EAC");
+      }, [settings.weatherCity]);
+      const update = api.updateSettings || (() => {
+      });
+      function commitCity() {
+        const raw = String(cityDraft == null ? "" : cityDraft).trim();
+        const nextCity = raw.length >= 1 && raw.length <= 20 ? raw : "\u5317\u4EAC";
+        setCityDraft(nextCity);
+        if (nextCity !== settings.weatherCity) update({ weatherCity: nextCity });
+      }
+      const weatherRes = api.weatherRes || {};
+      const weatherInfo = api.weatherData && api.weatherData.weather ? api.weatherData.weather : null;
+      const weatherAt = weatherRes.at || weatherInfo && weatherInfo.updatedAt || 0;
+      const weatherStatusText = weatherInfo ? weatherChipText(api.weatherData.city, weatherInfo) + (weatherAt ? " \xB7 \u66F4\u65B0\u4E8E " + weatherUpdatedLabel(weatherAt) : "") : weatherRes.status === "loading" ? "\u6B63\u5728\u83B7\u53D6\u5929\u6C14\u2026" : "\u5929\u6C14\u6682\u4E0D\u53EF\u7528\uFF08\u4E0D\u5F71\u54CD\u5176\u4ED6\u529F\u80FD\uFF09";
+      const currentMood = api.moodView || null;
+      const moodAt = api.moodRes && (api.moodRes.at || api.moodRes.data && api.moodRes.data.updatedAt) || 0;
+      const moodSourceLabel = api.moodSource === "model" ? "\u6A21\u578B" : api.moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
+      const moodReasonText = currentMood ? String(currentMood.reason || "").replace(/[「」]/g, "").trim() : "";
+      const moodQuotedReason = moodReasonText ? "\u300C" + moodReasonText + "\u300D" : "";
+      const moodDetailText = currentMood ? "\u5F53\u524D\uFF1A" + currentMood.label + moodQuotedReason : "";
+      const moodMetaText = [api.moodBasis || moodBasisText(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel(moodAt) : ""].filter(Boolean).join(" \xB7 ");
+      const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ") || "\u5FC3\u60C5\u6570\u636E\u52A0\u8F7D\u4E2D";
+      const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ");
+      const moodLine = (text, className, key) => h("div", { key, className: cx("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
+      function seg(options, current, onPick) {
+        return h(
+          "div",
+          { className: "dshp-seg" },
+          options.map((option) => h("button", {
+            key: String(option.value),
+            type: "button",
+            className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
+            onClick: () => onPick(option.value)
+          }, option.label))
+        );
+      }
+      const boot = api.boot || {};
+      const data = boot.data || {};
+      const version = data.version || "0.1.0";
+      const dataVersion = data.dataVersion || "\u2014";
+      const source = data.source || {};
+      function renderSelfStatus() {
+        const status = api.selfStatus;
+        if (!status) return null;
+        return h(
+          "div",
+          { className: "dshp-field dshp-field-stacked" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u6210\u957F\u72B6\u6001"), h("small", null, "\u81EA\u9A71\u6210\u957F \xB7 \u6700\u8FD1\u8FDB\u5EA6")),
+          h("div", { className: "dshp-field-stack-body" }, growthMetricsTree(status))
+        );
+      }
+      function renderHealthStatus() {
+        const health = api.healthStatus;
+        if (!health) return null;
+        const budgetLine = health.totalLimit > 0 ? `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}/${health.totalLimit}` : `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}\uFF08\u672A\u8BBE\u4E0A\u9650\uFF09`;
+        const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(" \xB7 ");
+        const jobs = health.jobs.slice(0, 8);
+        const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}\u9519)` : ""}`).join(" \xB7 ") : "\u5FC3\u8DF3\u672A\u6CE8\u518C";
+        const errorLine = health.modelErrorTotal > 0 ? `\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 ${health.modelErrorTotal} \u6B21` + (health.modelErrorsByRole.length ? "\uFF1A" + health.modelErrorsByRole.map((item) => `${item.role}\xD7${item.count}`).join("\u3001") : "") : "\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 0";
+        return h(
+          "div",
+          { className: "dshp-field dshp-field-stacked" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u8FD0\u884C\u72B6\u6001\uFF08\u53EA\u8BFB\uFF09"), h("small", null, "\u9884\u7B97 \xB7 \u5FC3\u8DF3 \xB7 \u6A21\u578B\u5931\u8D25\uFF1B\u6BCF\u5206\u949F\u5237\u65B0")),
+          h(
+            "div",
+            { className: "dshp-field-stack-body" },
+            h("div", { className: "dshp-health-line" }, budgetLine + (health.day ? " \xB7 " + health.day : "")),
+            roles ? h("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
+            h("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
+            h("div", { className: "dshp-health-line" }, errorLine)
+          )
+        );
+      }
+      return h(
+        "div",
+        { className: "dshp-settings" },
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u5927\u5C0F"), h("small", null, "\u5F62\u8C61\u7F29\u653E 60%\u2013160%")),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            h("input", {
+              type: "range",
+              className: "dshp-range",
+              min: 60,
+              max: 160,
+              step: 5,
+              value: Math.round(settings.scale * 100),
+              "aria-label": "\u6302\u4EF6\u5927\u5C0F",
+              onChange: (event) => update({ scale: num2(event.target.value, 100) / 100 })
+            }),
+            h("span", { className: "dshp-muted", style: { fontSize: "11.5px", width: "38px", textAlign: "right" } }, Math.round(settings.scale * 100) + "%")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u5DF2\u964D\u6743\u5230\u300C\u6210\u957F \u2192 \u8BD7\u8BCD\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09\u2192 \u8BBE\u7F6E\u300D"))
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u5438\u9644"), h("small", null, "\u62D6\u52A8\u540E\u8D34\u8FB9\u6216\u81EA\u7531\u6446\u653E")),
+          seg([
+            { value: "left", label: "\u8D34\u5DE6" },
+            { value: "right", label: "\u8D34\u53F3" },
+            { value: "free", label: "\u81EA\u7531" }
+          ], settings.snap, (value) => update({ snap: value }))
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u5929\u6C14\u57CE\u5E02"), h("small", null, "1\u201320 \u5B57\uFF0C\u4FDD\u5B58\u540E\u81EA\u52A8\u91CD\u62C9\u5929\u6C14")),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            h("input", {
+              type: "text",
+              className: "dshp-input",
+              style: { width: "118px" },
+              value: cityDraft,
+              maxLength: 20,
+              placeholder: "\u5317\u4EAC",
+              "aria-label": "\u5929\u6C14\u57CE\u5E02",
+              onChange: (event) => setCityDraft(event.target.value),
+              onBlur: commitCity,
+              onKeyDown: (event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitCity();
+                }
+              }
+            })
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u5929\u6C14"), h("small", null, weatherStatusText)),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: () => {
+                if (api.refreshWeather) api.refreshWeather(true);
+              }
+            }, "\u5237\u65B0\u5929\u6C14")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u8A00\u81EA\u8BED\uFF08\u5076\u5C14\u8BF4\u8BF4\u8BDD\uFF09"), h("small", null, "\u6BCF\u9694 1\u20132 \u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5\uFF08\u4E8B\u4EF6\u540E\u4F1A\u66F4\u65E9\uFF09\uFF1B\u4E0D\u8BBE\u6BCF\u65E5\u6B21\u6570")),
+          switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), "\u81EA\u8A00\u81EA\u8BED\u5F00\u5173")
+        ),
+        renderSelfStatus(),
+        renderHealthStatus(),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u60F3\u8BFB\u7684\u8BD7"), h("small", null, "\u9884\u89C8\u4E00\u6B21\u5F69\u86CB\uFF08\u4E0D\u8BA1\u5165\u6BCF\u65E5\u6B21\u6570\uFF09")),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: () => {
+                if (api.previewSpontaneousPoem) api.previewSpontaneousPoem();
+              }
+            }, "\u9884\u89C8\u4E00\u53E5")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u9690\u85CF\u6302\u4EF6"), h("small", null, "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D")),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            h("button", {
+              type: "button",
+              className: "dshp-btn dshp-btn-danger",
+              onClick: () => {
+                setConfirmReset(false);
+                if (api.hideWidget) api.hideWidget();
+              }
+            }, "\u9690\u85CF")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u6062\u590D\u9ED8\u8BA4"), h("small", null, "\u5927\u5C0F / \u5E73\u4EC4 / \u6A21\u5F0F / \u5438\u9644 / \u5B57\u4F53")),
+          h(
+            "div",
+            { className: "dshp-field-control" },
+            confirmReset ? [
+              h("button", {
+                key: "confirm",
+                type: "button",
+                className: "dshp-btn dshp-btn-primary",
+                onClick: () => {
+                  setConfirmReset(false);
+                  if (api.resetSettings) api.resetSettings();
+                }
+              }, "\u786E\u8BA4\u6062\u590D"),
+              h("button", {
+                key: "cancel",
+                type: "button",
+                className: "dshp-btn",
+                onClick: () => setConfirmReset(false)
+              }, "\u53D6\u6D88")
+            ] : h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: () => setConfirmReset(true)
+            }, "\u6062\u590D\u9ED8\u8BA4")
+          )
+        ),
+        h("div", { className: "dshp-subtitle" }, "\u5173\u4E8E"),
+        h(
+          "div",
+          { className: "dshp-about" },
+          h("div", null, "\u5C0F\u9CB8\u9C7C v" + String(version)),
+          h("div", null, "\u6570\u636E\u7248\u672C\uFF1A" + String(dataVersion)),
+          h("div", null, "\u6570\u636E\u6E90\uFF1Achinese-poetry\uFF08MIT\uFF09\xB7 \u8BD7\u8BCD\u4E3A\u516C\u7248\u6587\u672C"),
+          source.commit ? h("div", null, "\u6E90\u63D0\u4EA4\uFF1A" + String(source.commit).slice(0, 12)) : null,
+          h("div", null, "\u8BBE\u7F6E\u4FDD\u5B58\u5728\u672C\u673A $DSH_HOME/.dsh-poetry/settings.json\uFF1B\u9690\u85CF\u540E\u53CC\u51FB\u9875\u9762\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D\u3002")
+        )
+      );
+    }
+    return SettingsTab;
+  }
+
+  // client-src/tabs-growth.js
+  function createGrowthTab(ctx = {}) {
+    const h = ctx.h;
+    const cx = ctx.cx;
+    const switchNode = ctx.switchNode;
+    const growthMetricsTree = ctx.growthMetricsTree;
+    const moodAiFailureLabel = ctx.moodAiFailureLabel;
+    const selfStatusSummary = ctx.selfStatusSummary;
+    const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
+    function GrowthTab(props) {
+      const api = props.api || {};
+      const settings = api.settings && typeof api.settings === "object" ? api.settings : {};
+      const mood = api.moodView || null;
+      const status = api.selfStatus || null;
+      const memory = api.memoryStatus || null;
+      const recent = (Array.isArray(api.recentSpoken) ? api.recentSpoken : []).slice(-5);
+      const moodSource = mood && mood.source || api.moodSource || "";
+      const moodSourceLabel = moodSource === "model" ? "\u6A21\u578B\u751F\u6210" : moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
+      const sayButton = api.previewSpontaneousPoem || api.readAnotherSpontaneous || function() {
+      };
+      const moodFailureText = api.moodAiFailure ? moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF08" + String(api.moodAiFailureCode).slice(0, 48) + "\uFF09" : "") : "";
+      const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
+      const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
+      return h(
+        "div",
+        { className: "dshp-growth" },
+        h("div", { className: "dshp-growth-title" }, "\u6211\u7684\u6210\u957F"),
+        h(
+          "div",
+          { className: "dshp-growth-mood" },
+          h("div", { className: "dshp-growth-mood-label" }, mood && mood.label ? mood.label : "\u8FD8\u6CA1\u5F62\u6210\u5FC3\u60C5"),
+          mood && mood.reason ? h("div", { className: "dshp-growth-mood-reason" }, String(mood.reason)) : null,
+          moodSourceLabel ? h("div", { className: "dshp-growth-mood-source" }, "\u6765\u6E90\uFF1A" + moodSourceLabel) : null,
+          api.moodAiFallback ? h("div", { className: "dshp-growth-mood-note" }, "\u5F53\u524D\u4F7F\u7528\u672C\u5730\u9762\u90E8\u8868\u60C5\uFF08\u6A21\u578B\u5FC3\u60C5\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u542F\u53D1\u5F0F\uFF09") : null,
+          api.moodAiStale ? h("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
+          api.moodAiFailure ? h("div", { className: "dshp-growth-mood-note" }, "\u4E0A\u6B21\u6A21\u578B\u5FC3\u60C5\u5931\u8D25\uFF1A" + moodFailureText) : null,
+          h(
+            "div",
+            { className: "dshp-growth-mood-controls" },
+            h("span", { className: "dshp-growth-mood-control-label" }, "\u5FC3\u60C5\u6362\u88C5"),
+            switchNode(settings.mood === true, () => {
+              if (api.updateSettings) api.updateSettings({ mood: !settings.mood });
+            }, "\u5FC3\u60C5\u6362\u88C5\u5F00\u5173"),
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.refreshMoodNow) api.refreshMoodNow();
+            } }, "\u5237\u65B0\u5FC3\u60C5")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u5185\u5728\u72B6\u6001"),
+          status && status.sleeping ? h("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel(status.sleepSince) : "")) : null,
+          growthMetricsTree(status)
+        ),
+        h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u81EA\u4E3B\u884C\u4E3A"),
+          recentActions.length ? recentActions.map((item, index) => h(
+            "div",
+            { className: "dshp-growth-action", key: "action-" + (item.id || index) },
+            h("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel(item.at) || "--:--"),
+            h("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
+          )) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
+        ),
+        memory ? h(
+          "div",
+          { className: "dshp-growth-section dshp-memory-card" },
+          h(
+            "div",
+            { className: "dshp-memory-head" },
+            h("div", { className: "dshp-growth-section-head" }, "\u8BB0\u5FC6\u4E2D\u67A2"),
+            h("span", { className: cx("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
+          ),
+          h("div", { className: "dshp-memory-line" }, "journal " + memory.journal + " \u6761 \xB7 \u8BDD\u9898 " + memory.topics + " \u6761 \xB7 \u5B66\u4E60 " + memory.learnings + " \u6761"),
+          h("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel(memory.backups.lastAt) || "\u2014")),
+          memory.recovered ? h("div", { className: "dshp-memory-line dshp-memory-recovered" }, "\u5DF2\u4ECE\u5907\u4EFD\u6062\u590D " + memory.recovered + " \u4E2A\u6587\u4EF6") : null,
+          h(
+            "div",
+            { className: "dshp-growth-actions" },
+            h("button", {
+              type: "button",
+              className: "dshp-btn dshp-btn-small",
+              onClick: () => {
+                if (api.backupMemory) api.backupMemory();
+              }
+            }, "\u7ACB\u5373\u5907\u4EFD")
+          )
+        ) : null,
+        h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u6700\u8FD1\u8BF4\u8FC7\u7684\u8BDD"),
+          recent.length ? recent.map((text, index) => h("div", { className: "dshp-growth-quote", key: "recent-" + index }, "\u300C" + String(text) + "\u300D")) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
+        ),
+        h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u6458\u8981"),
+          h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
+        ),
+        h(
+          "div",
+          { className: "dshp-growth-actions" },
+          h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: () => sayButton() }, "\u8BF4\u4E00\u53E5"),
+          h("button", { type: "button", className: "dshp-btn", onClick: () => {
+            if (api.openPoetryModule) api.openPoetryModule();
+          } }, "\u8BD7\u8BCD\u6A21\u5757"),
+          h("button", { type: "button", className: "dshp-btn", onClick: () => {
+            if (api.openSettings) api.openSettings();
+          } }, "\u8BBE\u7F6E")
+        )
+      );
+    }
+    return GrowthTab;
+  }
+
   // client-src/feihua.js
   var FEIHUA_CANDIDATE_CHARS = Array.from("\u82B1\u6708\u98CE\u6625\u5C71\u6C34\u4EBA\u5929\u4E91\u96E8\u591C\u79CB\u6C5F\u9152\u767D\u7EA2\u821F\u6101\u68A6\u5FC3\u67F3\u96EA\u971C\u65E5\u661F\u6D77\u7389\u91D1\u957F\u4F55\u4E0D\u65E0");
   var FEIHUA_MIN_ENTRIES = 8;
@@ -806,6 +1182,427 @@
     return { overall: Math.max(base.overall, safeScore), chars };
   }
 
+  // client-src/tabs-feihua.js
+  function createFeihuaTab(ctx = {}) {
+    const React = ctx.React;
+    const h = ctx.h;
+    const cx = ctx.cx;
+    const EmptyState = ctx.EmptyState;
+    const LoadingState = ctx.LoadingState;
+    const ToneLine = ctx.ToneLine;
+    const detectionRhymeIndexes = ctx.detectionRhymeIndexes;
+    const formatDetectionReport = ctx.formatDetectionReport;
+    const describeDataError = ctx.describeDataError;
+    const getFeihuaIndex = ctx.getFeihuaIndex;
+    const pickDefaultFeihuaChar = ctx.pickDefaultFeihuaChar;
+    const feihuaSourceOf2 = ctx.feihuaSourceOf;
+    const mergeFeihuaItems2 = ctx.mergeFeihuaItems;
+    const finishFeihuaIndex2 = ctx.finishFeihuaIndex;
+    const mergeFeihuaFullEntries2 = ctx.mergeFeihuaFullEntries;
+    const requestFeihuaFull = ctx.requestFeihuaFull;
+    const abortFeihuaFull = ctx.abortFeihuaFull;
+    const readFeihuaFullCache = ctx.readFeihuaFullCache;
+    const readFeihuaBest = ctx.readFeihuaBest;
+    const writeFeihuaBest = ctx.writeFeihuaBest;
+    const FEIHUA_ATLAS_PAGE = ctx.FEIHUA_ATLAS_PAGE;
+    const FEIHUA_FULL_RETRY_MS = ctx.FEIHUA_FULL_RETRY_MS;
+    function FeihuaTab(props) {
+      const api = props.api || {};
+      const poemsRes = api.poemsRes || {};
+      const ciRes = api.ciRes || {};
+      const index = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
+      const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
+      const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
+      const [char, setChar] = React.useState(null);
+      const [mode, setMode] = React.useState("chain");
+      const [game, setGame] = React.useState(null);
+      const [inputText, setInputText] = React.useState("");
+      const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE);
+      const [best, setBest] = React.useState(() => readFeihuaBest());
+      const bestRef = React.useRef(best);
+      bestRef.current = best;
+      const launch = num(api.feihuaLaunch, 0);
+      const launchRef = React.useRef(0);
+      const activeChar = index ? char || pickDefaultFeihuaChar(index, api.poem) : null;
+      React.useEffect(() => {
+        if (!index || !activeChar) return;
+        if (launch > 0 && launch !== launchRef.current) {
+          launchRef.current = launch;
+          setGame(feihuaStart(index, activeChar));
+          setMode("chain");
+          if (typeof api.consumeFeihuaLaunch === "function") api.consumeFeihuaLaunch();
+        }
+      }, [launch, index, activeChar]);
+      const [fullInfo, setFullInfo] = React.useState({ char: "", status: "idle", count: 0 });
+      const fullTokenRef = React.useRef(0);
+      React.useEffect(() => {
+        if (!index || !activeChar) return void 0;
+        const target = activeChar;
+        const cached = readFeihuaFullCache(target);
+        if (cached && cached.status === "ready") {
+          mergeFeihuaFullEntries2(index, target, cached.entries);
+          setFullInfo({ char: target, status: "ready", count: cached.count });
+          return void 0;
+        }
+        if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+          setFullInfo({ char: target, status: "error", count: 0 });
+          return void 0;
+        }
+        const token = fullTokenRef.current + 1;
+        fullTokenRef.current = token;
+        setFullInfo({ char: target, status: "loading", count: 0 });
+        requestFeihuaFull(target).then((result) => {
+          if (token !== fullTokenRef.current) return;
+          if (result && result.ok && Array.isArray(result.entries)) {
+            mergeFeihuaFullEntries2(index, target, result.entries);
+            setFullInfo({ char: target, status: "ready", count: result.count || result.entries.length });
+          } else {
+            setFullInfo({ char: target, status: "error", count: 0 });
+          }
+        });
+        return () => {
+          fullTokenRef.current += 1;
+          abortFeihuaFull(target);
+        };
+      }, [activeChar, index]);
+      if (poemsRes.status === "error") {
+        return h(EmptyState, {
+          title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(poemsRes.error),
+          onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
+          })
+        });
+      }
+      if (ciRes.status === "error") {
+        return h(EmptyState, {
+          title: "\u8BCD\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(ciRes.error),
+          onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
+          })
+        });
+      }
+      if (!poemsRes.data || !ciRes.data) return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
+      if (!index || !index.entries.length) {
+        return h(EmptyState, { title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u4E3A\u7A7A", message: "\u8BD7/\u8BCD\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u53E5\u5B50\u3002", icon: "\u{1FAB6}" });
+      }
+      const candidateChips = index.candidates.slice();
+      if (!candidateChips.some((item) => item.char === activeChar)) {
+        candidateChips.unshift({ char: activeChar, count: index.counts[activeChar] || 0 });
+      }
+      const charEntries = index.byChar[activeChar] || [];
+      const bestForChar = best.chars[activeChar] || 0;
+      function startGame(target) {
+        const use = target || activeChar;
+        if (!index || !use) return;
+        setChar(use);
+        setInputText("");
+        setGame(feihuaStart(index, use));
+        setMode("chain");
+        setAtlasLimit(FEIHUA_ATLAS_PAGE);
+        const cachedFull = readFeihuaFullCache(use);
+        if (!cachedFull || cachedFull.status !== "ready") {
+          const token = fullTokenRef.current + 1;
+          fullTokenRef.current = token;
+          requestFeihuaFull(use).then((result) => {
+            if (token !== fullTokenRef.current) return;
+            if (result && result.ok && Array.isArray(result.entries)) {
+              mergeFeihuaFullEntries2(index, use, result.entries);
+              setFullInfo({ char: use, status: "ready", count: result.count || result.entries.length });
+            }
+          }).catch(() => {
+          });
+        }
+        if (typeof api.pulseMascot === "function") api.pulseMascot("gameThink");
+      }
+      function chooseChar(next) {
+        if (!next) return;
+        if (next === activeChar) {
+          setGame(null);
+          setInputText("");
+          return;
+        }
+        setChar(next);
+        setInputText("");
+        setGame(null);
+        setAtlasLimit(FEIHUA_ATLAS_PAGE);
+      }
+      function randomChar() {
+        if (!index || !index.candidates.length) return;
+        const pool = index.candidates.filter((item) => item.char !== activeChar);
+        const picked = pool.length ? pool[feihuaRandomIndex(pool.length)] : index.candidates[0];
+        chooseChar(picked.char);
+      }
+      function submitAnswer() {
+        if (!game || game.phase !== "playing") return;
+        const next = feihuaSubmit(game, index, inputText);
+        if (!next || next === game) return;
+        setGame(next);
+        if (next.feedback && next.feedback.kind === "good") setInputText("");
+        if (next.feedback && typeof api.pulseMascot === "function") {
+          api.pulseMascot(next.feedback.kind === "good" ? "gameWin" : "gameLose");
+        }
+        const updated = feihuaBestUpdate(bestRef.current, next.char, next.score);
+        if (updated.overall !== bestRef.current.overall || (updated.chars[next.char] || 0) !== (bestRef.current.chars[next.char] || 0)) {
+          setBest(updated);
+          writeFeihuaBest(updated);
+        }
+      }
+      function handleInputKey(event) {
+        if (event && event.key === "Enter") {
+          event.preventDefault();
+          submitAnswer();
+        }
+      }
+      function renderChain() {
+        const playing = game && game.phase === "playing";
+        if (!game) {
+          return h(
+            "div",
+            { className: "dshp-card" },
+            h("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
+            h("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 " + charEntries.length + " \u53E5\u53EF\u67E5"),
+            h("div", { className: "dshp-block" }, "\u5BF9\u65B9\u5148\u51FA\u4E00\u53E5\u542B\u4EE4\u5B57\u7684\u8BD7\uFF0C\u4F60\u8F93\u5165\u4E00\u53E5\uFF1A\u6709\u51FA\u5904\u3001\u542B\u4EE4\u5B57\u3001\u672C\u5C40\u4E0D\u91CD\u590D\u5C31\u7B97\u63A5\u4E0A\u3002\u4E0D\u6263\u547D\uFF0C\u4E0D\u8BA1\u9519\u3002"),
+            charEntries.length ? h(
+              "div",
+              { className: "dshp-fh-actions" },
+              h("button", {
+                type: "button",
+                className: "dshp-btn dshp-btn-primary",
+                onClick: (event) => {
+                  event.stopPropagation();
+                  startGame(activeChar);
+                }
+              }, "\u6765\u4E00\u5C40"),
+              h("span", { className: "dshp-pager-label" }, "\u672C\u5B57\u6700\u4F73 " + bestForChar + " \u5C40")
+            ) : h("div", { className: "dshp-empty-msg" }, "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50\uFF0C\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002")
+          );
+        }
+        return h(
+          "div",
+          { className: "dshp-card" },
+          h("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
+          h("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + game.char + "\u300D\xB7 \u672C\u5C40\u5DF2\u63A5 " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40"),
+          game.system ? h(
+            "div",
+            { className: "dshp-fh-system" },
+            "\u5BF9\u65B9\uFF1A" + game.system.text,
+            game.system.source ? h("small", null, game.system.source) : null
+          ) : null,
+          h("div", { className: "dshp-fh-prompt" }, game.message || "\u8BF7\u63A5\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7\u53E5"),
+          h(
+            "div",
+            { className: "dshp-fh-actions" },
+            h("input", {
+              className: "dshp-input",
+              type: "text",
+              value: inputText,
+              maxLength: 60,
+              placeholder: "\u8F93\u5165\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7/\u8BCD\uFF0C\u56DE\u8F66\u63D0\u4EA4",
+              "aria-label": "\u8F93\u5165\u98DE\u82B1\u4EE4\u5BF9\u53E5",
+              onChange: (event) => setInputText(event.target.value),
+              onKeyDown: handleInputKey,
+              disabled: !playing
+            }),
+            h("button", {
+              type: "button",
+              className: "dshp-btn dshp-btn-primary",
+              onClick: (event) => {
+                event.stopPropagation();
+                submitAnswer();
+              },
+              disabled: !playing
+            }, "\u63A5\u4E00\u53E5")
+          ),
+          h("div", {
+            className: cx(
+              "dshp-fh-feedback",
+              game.feedback && game.feedback.kind === "good" && "dshp-is-good",
+              game.feedback && game.feedback.kind === "bad" && "dshp-is-bad"
+            ),
+            role: "status",
+            "aria-live": "polite"
+          }, game.feedback ? game.feedback.text : ""),
+          game.phase === "cleared" ? h(
+            "div",
+            { className: "dshp-fh-result" },
+            h("b", null, "\u8FD9\u4E00\u5B57\u63A5\u5B8C\u4E86"),
+            h("span", null, "\u672C\u5C40\u63A5\u4E0A " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40 \xB7 \u5386\u53F2\u6700\u4F73 " + Math.max(best.overall, game.score) + " \u5C40"),
+            h("span", null, "\u8FD9\u4E00\u5B57\u7684\u53E5\u5B50\u90FD\u88AB\u63A5\u8FC7\u4E86\uFF0C\u6362\u4E2A\u4EE4\u5B57\u7EE7\u7EED\u3002")
+          ) : null,
+          h(
+            "div",
+            { className: "dshp-fh-actions" },
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: (event) => {
+                event.stopPropagation();
+                randomChar();
+              }
+            }, "\u6362\u4E2A\u4EE4\u5B57"),
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: (event) => {
+                event.stopPropagation();
+                startGame(activeChar);
+              }
+            }, "\u91CD\u65B0\u5F00\u5C40")
+          )
+        );
+      }
+      function renderAtlas() {
+        const total = charEntries.length;
+        const limit = Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit);
+        const shown = charEntries.slice(0, limit);
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "dshp-card-summary", style: { marginBottom: "6px" } },
+            "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 \u5171 " + total + " \u53E5\uFF08\u53BB\u91CD\u540E\u6700\u591A\u5C55\u793A " + FEIHUA_ATLAS_LIMIT + " \u6761\uFF09"
+          ),
+          shown.length ? h(
+            "div",
+            { className: "dshp-fh-atlas" },
+            shown.map((entry, entryIndex) => h(
+              "div",
+              { key: entryIndex, className: "dshp-fh-line" },
+              h("div", { className: "dshp-fh-line-text" }, entry.text),
+              h("div", { className: "dshp-fh-line-source" }, "\u2014\u2014 " + entry.source)
+            ))
+          ) : h(EmptyState, { title: "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50", message: "\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002", icon: "\u{1FAB6}" }),
+          total > shown.length ? h(
+            "div",
+            { style: { textAlign: "center", marginTop: "10px" } },
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE))
+            }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (total - shown.length) + " \u6761\uFF09")
+          ) : null
+        );
+      }
+      return h(
+        "div",
+        null,
+        h(
+          "div",
+          { className: "dshp-fh-chips" },
+          candidateChips.map((item) => h("button", {
+            key: item.char,
+            type: "button",
+            className: cx("dshp-fh-chip", item.char === activeChar && "dshp-is-active"),
+            title: "\u4EE4\u5B57\u300C" + item.char + "\u300D\xB7 " + item.count + " \u53E5",
+            "aria-pressed": item.char === activeChar,
+            onClick: (event) => {
+              event.stopPropagation();
+              chooseChar(item.char);
+            }
+          }, item.char, h("small", null, String(item.count)))),
+          h("button", {
+            key: "random",
+            type: "button",
+            className: "dshp-fh-chip",
+            title: "\u968F\u673A\u6362\u4E00\u4E2A\u4EE4\u5B57",
+            onClick: (event) => {
+              event.stopPropagation();
+              randomChar();
+            }
+          }, "\u968F\u673A")
+        ),
+        h(
+          "div",
+          { className: "dshp-fh-meta" },
+          h("span", null, fullInfo.char === activeChar ? fullInfo.status === "ready" ? "\u5168\u91CF\u6821\u9A8C\u5DF2\u542F\u7528\uFF08" + fullInfo.count + " \u53E5\uFF09" : fullInfo.status === "loading" || fullInfo.status === "idle" ? "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026" : "\u5168\u91CF\u6821\u9A8C\u672A\u542F\u7528\uFF08\u4F7F\u7528\u672C\u5730\u53E5\u5E93\uFF09" : "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026")
+        ),
+        feihuaBuilding ? h("div", { className: "dshp-card-summary" }, "\u6B63\u5728\u5E76\u5165\u5B8B\u8BCD\u5168\u5E93\u2026") : null,
+        ciBankFailed ? h("div", { className: "dshp-card-summary" }, "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000\u539F\u53E5\u5E93") : null,
+        h(
+          "div",
+          { className: "dshp-fh-meta" },
+          h("span", null, "\u4EE4\u5B57 ", h("b", null, "\u300C" + activeChar + "\u300D")),
+          h("span", null, "\u53E5\u5E93 ", h("b", null, String(charEntries.length)), " \u53E5"),
+          h("span", null, "\u5386\u53F2\u6700\u4F73 ", h("b", null, String(best.overall)), " \u5206"),
+          game ? h("span", null, "\u672C\u5C40\u63A5\u4E0A ", h("b", null, String(game.score)), " \u53E5") : null
+        ),
+        h(
+          "div",
+          { className: "dshp-seg", style: { marginBottom: "10px" } },
+          h("button", {
+            type: "button",
+            className: cx("dshp-seg-btn", mode === "chain" && "dshp-is-active"),
+            onClick: () => setMode("chain")
+          }, "\u5BF9\u53E5"),
+          h("button", {
+            type: "button",
+            className: cx("dshp-seg-btn", mode === "atlas" && "dshp-is-active"),
+            onClick: () => setMode("atlas")
+          }, "\u56FE\u9274")
+        ),
+        mode === "atlas" ? renderAtlas() : renderChain()
+      );
+    }
+    function DetectionView(props) {
+      const report = props.report;
+      const api = props.api || {};
+      if (!report) return null;
+      const annotation = Array.isArray(report.annotation) ? report.annotation : [];
+      const rhymeIndexes = detectionRhymeIndexes(report);
+      const lines = [];
+      for (let lineIndex = 0; lineIndex < annotation.length; lineIndex += 1) {
+        const cells = annotation[lineIndex];
+        const lineText = cells.map((cell) => cell.ch).join("");
+        const toneText = cells.map((cell) => cell.tone === "\u25CB" ? "\u25CB" : cell.tone === "\uFF1F" ? "\uFF1F" : cell.tone).join("");
+        lines.push(h(ToneLine, { key: lineIndex, line: lineText, tones: toneText, rhyme: Boolean(rhymeIndexes[lineIndex]), showTones: true }));
+      }
+      const multiTones = [];
+      for (const line of annotation) {
+        for (const cell of line) {
+          if (cell.candidates.length > 1) multiTones.push(cell);
+        }
+      }
+      return h(
+        "div",
+        { className: "dshp-detail" },
+        h("div", { className: "dshp-lib-report" }, report.summary || ""),
+        (report.errors || []).length ? h("div", { className: "dshp-lib-errors" }, report.errors.join("\uFF1B")) : null,
+        h("div", { className: "dshp-lib-detect-lines" }, lines),
+        report.rhymeLines && report.rhymeLines.length ? h("div", { className: "dshp-lib-tags" }, report.rhymeLines.map((item) => h(
+          "span",
+          { key: item.line, className: "dshp-tag" },
+          "\u7B2C" + item.line + "\u53E5 " + item.ch + (item.names.length ? "\uFF08" + item.names.join("/") + "\uFF09" : "") + (item.borrowed ? " \u501F\u97F5" : "")
+        ))) : null,
+        report.violations && report.violations.length ? h("div", { className: "dshp-lib-errors" }, report.violations.map((item) => "\u7B2C" + item.line + "\u53E5\u7B2C" + item.position + "\u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645" + item.actual + "\uFF09").join("\uFF1B")) : null,
+        report.sticky && report.sticky.length ? h("div", { className: "dshp-lib-errors" }, report.sticky.map((item) => "\u7B2C" + item.pair + "\u53E5\u5931" + item.type).join("\uFF1B")) : null,
+        report.sanPing && report.sanPing.length ? h("div", { className: "dshp-lib-errors" }, "\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5") : null,
+        report.guPing && report.guPing.length ? h("div", { className: "dshp-lib-errors" }, "\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5") : null,
+        multiTones.length ? h("div", { className: "dshp-lib-multi" }, "\u591A\u97F3\u5B57\uFF1A" + multiTones.map((cell) => "\u300C" + cell.ch + "\u300D" + cell.candidates.map((item) => item.tone + "\xB7" + item.name).join("/")).join("\uFF1B")) : null,
+        h(
+          "div",
+          { className: "dshp-fh-actions" },
+          h("button", {
+            type: "button",
+            className: "dshp-btn dshp-btn-small",
+            onClick: () => {
+              const text = formatDetectionReport(report);
+              try {
+                if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(text).catch(() => {
+                  });
+                }
+              } catch (error) {
+              }
+              if (typeof api.showToast === "function") api.showToast("\u68C0\u6D4B\u7ED3\u679C\u5DF2\u590D\u5236");
+            }
+          }, "\u590D\u5236\u7ED3\u679C")
+        )
+      );
+    }
+    return { FeihuaTab, DetectionView };
+  }
+
   // client-src/library.js
   var LIBRARY_CATEGORY_ALIASES = { \u8BD7\u7ECF: "shijing", \u695A\u8F9E: "chuci", \u5343\u5BB6\u8BD7: "qianjiashi", \u5510\u8BD7\u4E09\u767E\u9996: "tang300", \u5168\u5510\u8BD7\u7CBE\u9009: "bank", \u5B8B\u8BCD\u7CBE\u9009: "ci-selected", \u5B8B\u8BCD\u5168\u5E93: "ci-bank" };
   var LIBRARY_PAGE = 30;
@@ -897,8 +1694,433 @@
     return author ? author + "\u300A" + title + "\u300B" : "\u300A" + title + "\u300B";
   }
 
+  // client-src/tabs-library.js
+  function createLibraryTab(ctx = {}) {
+    const LIBRARY_CATEGORIES = ctx.LIBRARY_CATEGORIES;
+    const React = ctx.React;
+    const h = ctx.h;
+    const cx = ctx.cx;
+    const EmptyState = ctx.EmptyState;
+    const LoadingState = ctx.LoadingState;
+    const DetectionView = ctx.DetectionView;
+    const ToneLine = ctx.ToneLine;
+    const describeDataError = ctx.describeDataError;
+    const Z_INDEX = ctx.Z_INDEX;
+    const WIDGET_ID = ctx.WIDGET_ID;
+    const MASCOT_FILES = ctx.MASCOT_FILES;
+    const mascotUrl = ctx.mascotUrl;
+    const detectPoem = ctx.detectPoem;
+    const detectPoemText = ctx.detectPoemText;
+    const parsePoemInput = ctx.parsePoemInput;
+    const buildPingshuiIndex = ctx.buildPingshuiIndex;
+    function LibraryTab(props) {
+      const api = props.api || {};
+      const anthologyRes = api.anthologyRes || {};
+      const bankRes = api.bankRes || {};
+      const pingshuiRes = api.pingshuiRes || {};
+      const ciBankRes = api.ciBankRes || {};
+      const ciRes = api.ciRes || {};
+      const [category, setCategory] = React.useState("all");
+      const [ciRhythmic, setCiRhythmic] = React.useState("");
+      const [searchScope, setSearchScope] = React.useState("category");
+      const [ciSearchScope, setCiSearchScope] = React.useState("selected");
+      const [query, setQuery] = React.useState("");
+      const [debounced, setDebounced] = React.useState("");
+      const [visible, setVisible] = React.useState(LIBRARY_PAGE);
+      const [detail, setDetail] = React.useState(null);
+      const [detector, setDetector] = React.useState("");
+      const [inputText, setInputText] = React.useState("");
+      const [inputReport, setInputReport] = React.useState(null);
+      const ciMode = category === "ci-selected" || category === "ci-bank";
+      React.useEffect(() => {
+        const timer = setTimeout(() => setDebounced(query), 300);
+        return () => clearTimeout(timer);
+      }, [query]);
+      React.useEffect(() => {
+        setVisible(LIBRARY_PAGE);
+      }, [category, debounced, ciRhythmic, ciSearchScope]);
+      React.useEffect(() => {
+        if (category === "ci-bank" || ciMode && ciSearchScope === "allCi") {
+          if (typeof api.requestCiBank === "function") api.requestCiBank();
+        }
+      }, [category, ciMode, ciSearchScope, api.requestCiBank]);
+      React.useEffect(() => {
+        const focus = api.libraryFocus;
+        if (!focus || !focus.token) return;
+        if (focus.type === "ci") {
+          setCategory("ci-bank");
+          setCiRhythmic(String(focus.rhythmic || ""));
+          setDetector("");
+          if (typeof api.requestCiBank === "function") api.requestCiBank();
+          if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
+          return;
+        }
+        if (focus.type === "ci-selected") {
+          setCategory("ci-selected");
+          setCiRhythmic(String(focus.rhythmic || ""));
+          setDetector("");
+          if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
+          return;
+        }
+        const items2 = buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data);
+        const target = items2.find((item) => item.id === focus.id);
+        if (target) {
+          setCategory(target.categoryId === "ci-bank" ? "ci-bank" : target.categoryId === "ci-selected" ? "ci-selected" : "all");
+          setDetail(target);
+          setDetector("");
+        }
+        if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
+      }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]);
+      const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex(pingshuiRes.data) : null, [pingshuiRes.data]);
+      const items = React.useMemo(
+        () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
+        [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]
+      );
+      const ciSelectedRhythmicsList = React.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
+      const ciFullRhythmics = React.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
+      const ciRhythmics = category === "ci-bank" ? ciFullRhythmics : ciSelectedRhythmicsList;
+      const ciSelectedCount = items.filter((entry) => entry.categoryId === "ci-selected").length;
+      let filterCategory = category;
+      let filterRhythmic = "";
+      if (ciMode) {
+        filterRhythmic = ciRhythmic;
+        filterCategory = !debounced ? category : ciSearchScope === "allCi" ? "all" : "ci-selected";
+      } else if (searchScope === "all") {
+        filterCategory = "all";
+      }
+      const filtered = React.useMemo(
+        () => filterLibraryItems(items, filterCategory, debounced, filterRhythmic),
+        [items, filterCategory, filterRhythmic, debounced]
+      );
+      const shown = libraryPage(filtered, visible);
+      const poemReport = React.useMemo(
+        () => detail && detector === "poem" && pingshui ? detectPoem(detail, pingshui) : null,
+        [detail, detector, pingshui]
+      );
+      const pingshuiError = pingshuiRes.status === "error";
+      const loading = !anthologyRes.data && !bankRes.data;
+      const ciSelectedLoading = category === "ci-selected" && !ciRes.data;
+      const ciBankLoading = category === "ci-bank" && !ciBankRes.data;
+      function runInputDetection() {
+        if (!pingshui) {
+          if (typeof api.showToast === "function") api.showToast("\u5E73\u6C34\u97F5\u6570\u636E\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019");
+          if (typeof api.reloadPingshui === "function") api.reloadPingshui().catch(() => {
+          });
+          return;
+        }
+        setInputReport(detectPoemText(inputText, pingshui));
+      }
+      if (loading) {
+        if (anthologyRes.status === "error" && bankRes.status === "error") {
+          return h(EmptyState, {
+            title: "\u8BD7\u5E93\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
+            message: anthologyRes.error && anthologyRes.error.status === 404 || bankRes.error && bankRes.error.status === 404 ? "\u8BD7\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(anthologyRes.error || bankRes.error),
+            onRetry: () => {
+              if (typeof api.reloadAnthology === "function") api.reloadAnthology().catch(() => {
+              });
+              if (typeof api.reloadBank === "function") api.reloadBank().catch(() => {
+              });
+            }
+          });
+        }
+        return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u8BD7\u5E93\u2026" });
+      }
+      function renderDetector() {
+        if (!pingshui) {
+          return pingshuiError ? h(EmptyState, { title: "\u5E73\u6C34\u97F5\u6570\u636E\u4E0D\u53EF\u7528", message: "\u683C\u5F8B\u68C0\u6D4B\u9700\u8981\u5E73\u6C34\u97F5\u6570\u636E\u3002", onRetry: () => api.reloadPingshui && api.reloadPingshui().catch(() => {
+          }) }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5E73\u6C34\u97F5\u2026" });
+        }
+        const headers = h(
+          "div",
+          { className: "dshp-fh-actions" },
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("") }, "\u8FD4\u56DE"),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165")
+        );
+        if (detector === "poem" && detail) {
+          return h(
+            "div",
+            { className: "dshp-detail" },
+            headers,
+            h("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
+            h("div", { className: "dshp-lib-note" }, detail.tones ? "\u57FA\u4E8E\u6570\u636E\u5185\u5E73\u4EC4\u6807\u6CE8\u68C0\u6D4B" : "\u5DF2\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF08\u591A\u97F3\u5B57\u53D6\u5019\u9009\uFF09"),
+            h(DetectionView, { report: poemReport, api })
+          );
+        }
+        return h(
+          "div",
+          { className: "dshp-detail" },
+          headers,
+          h("div", { className: "dshp-lib-note" }, "\u8F93\u5165 4 \u53E5\u6216 8 \u53E5\uFF08\u6BCF\u53E5 5 \u6216 7 \u5B57\uFF0C\u53EF\u542B\u6807\u70B9\uFF09\uFF0C\u9010\u5B57\u6807\u6CE8\u5E73\u4EC4\u4E0E\u97F5\u90E8\u3002"),
+          h("textarea", {
+            className: "dshp-textarea",
+            rows: 6,
+            value: inputText,
+            placeholder: "\u4F8B\u5982\uFF1A\n\u7A7A\u5C71\u4E0D\u89C1\u4EBA\uFF0C\n\u4F46\u95FB\u4EBA\u8BED\u54CD\u3002\n\u8FD4\u666F\u5165\u6DF1\u6797\uFF0C\n\u590D\u7167\u9752\u82D4\u4E0A\u3002",
+            onChange: (event) => setInputText(event.target.value)
+          }),
+          h(
+            "div",
+            { className: "dshp-fh-actions" },
+            h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: runInputDetection }, "\u5F00\u59CB\u68C0\u6D4B"),
+            h("button", { type: "button", className: "dshp-btn", onClick: () => {
+              setInputText("");
+              setInputReport(null);
+            } }, "\u6E05\u7A7A")
+          ),
+          inputReport ? h(DetectionView, { report: inputReport, api }) : null
+        );
+      }
+      if (detector) {
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "dshp-fh-chips" },
+            h("button", { type: "button", className: "dshp-fh-chip", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165"),
+            detail ? h("button", { type: "button", className: "dshp-fh-chip dshp-is-active", onClick: () => setDetector("poem") }, "\u68C0\u6D4B\u300A" + detail.title + "\u300B") : null
+          ),
+          renderDetector()
+        );
+      }
+      if (detail) {
+        const rhymeIndexes = detail.tones && Array.isArray(detail.rhymeIdx) ? detail.rhymeIdx : [];
+        const rhymeSet = {};
+        for (const index of rhymeIndexes) rhymeSet[index] = true;
+        const rows = [];
+        const lines = Array.isArray(detail.lines) ? detail.lines : [];
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          rows.push(h(ToneLine, {
+            key: lineIndex,
+            line: lines[lineIndex],
+            tones: detail.tones ? detail.tones[lineIndex] : "",
+            rhyme: Boolean(rhymeSet[lineIndex]),
+            showTones: Boolean(detail.tones)
+          }));
+        }
+        return h(
+          "div",
+          { className: "dshp-detail" },
+          h(
+            "div",
+            { className: "dshp-fh-actions" },
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              setDetail(null);
+              setDetector("");
+            } }, "\u2190 \u8FD4\u56DE\u5217\u8868"),
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small dshp-btn-primary", onClick: () => {
+              setDetector("poem");
+              if (typeof api.reloadPingshui === "function" && !pingshui) api.reloadPingshui().catch(() => {
+              });
+            } }, "\u683C\u5F8B\u68C0\u6D4B")
+          ),
+          h("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
+          h(
+            "div",
+            { className: "dshp-lib-note" },
+            ((LIBRARY_CATEGORIES.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
+          ),
+          detail.tones ? h("div", { className: "dshp-lib-lines" }, rows) : h("div", { className: "dshp-lib-plain" }, lines.map((line, index) => h("div", { key: index }, line))),
+          detail.tones ? h(
+            "div",
+            { className: "dshp-lib-tags" },
+            detail.form ? h("span", { className: "dshp-tag" }, "\u4F53\u5F0F " + detail.form) : null,
+            detail.start ? h("span", { className: "dshp-tag" }, "\u8D77\u5F0F " + detail.start) : null,
+            detail.meter ? h("span", { className: "dshp-tag" }, detail.meter) : null
+          ) : h("div", { className: "dshp-lib-note" }, "\u672A\u6807\u6CE8\u5E73\u4EC4\uFF08\u53EF\u70B9\u300C\u683C\u5F8B\u68C0\u6D4B\u300D\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF09")
+        );
+      }
+      const ciModeActive = category === "ci-selected" || category === "ci-bank";
+      return h(
+        "div",
+        { className: "dshp-library" },
+        h(
+          "div",
+          { className: "dshp-fh-chips" },
+          h("button", { type: "button", className: "dshp-fh-chip" + (category === "all" ? " dshp-is-active" : ""), onClick: () => setCategory("all") }, "\u5168\u90E8 " + items.length),
+          LIBRARY_CATEGORIES.map((item) => {
+            const count = item.id === "ci-selected" ? ciRes.data ? ciSelectedCount : "\u2026" : items.filter((entry) => entry.categoryId === item.id).length;
+            return h("button", {
+              key: item.id,
+              type: "button",
+              className: "dshp-fh-chip" + (category === item.id ? " dshp-is-active" : ""),
+              onClick: () => setCategory(item.id)
+            }, item.label + " " + count);
+          })
+        ),
+        ciModeActive ? h(
+          "div",
+          { className: "dshp-search", style: { marginTop: 0 } },
+          h(
+            "div",
+            { className: "dshp-seg" },
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (category === "ci-selected" ? " dshp-is-active" : ""),
+              onClick: () => setCategory("ci-selected")
+            }, "\u5B8B\u8BCD\u7CBE\u9009 " + (ciRes.data ? ciSelectedCount : "\u2026")),
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (category === "ci-bank" ? " dshp-is-active" : ""),
+              onClick: () => {
+                setCategory("ci-bank");
+              }
+            }, "\u5168\u90E8\u5B8B\u8BCD" + (ciBankRes.data ? "\uFF08" + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + "\uFF09" : "\uFF08\u70B9\u51FB\u52A0\u8F7D\uFF09"))
+          ),
+          h(
+            "select",
+            {
+              className: "dshp-select",
+              value: ciRhythmic,
+              "aria-label": category === "ci-bank" ? "\u6309\u8BCD\u724C\u7B5B\u9009\u5168\u90E8\u5B8B\u8BCD" : "\u6309\u8BCD\u724C\u7B5B\u9009\u5B8B\u8BCD\u7CBE\u9009",
+              onChange: (event) => setCiRhythmic(event.target.value)
+            },
+            h("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
+            (ciRhythmic && !ciRhythmics.some((entry) => entry.name === ciRhythmic) ? [{ name: ciRhythmic, count: 0 }].concat(ciRhythmics) : ciRhythmics).slice(0, 300).map((entry) => h("option", { key: entry.name, value: entry.name }, entry.name + "\uFF08" + entry.count + "\uFF09"))
+          ),
+          h("span", { className: "dshp-pager-label" }, category === "ci-bank" ? ciBankRes.data ? "\u5DF2\u8F7D\u5165 " + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + " \u9996" : "\u8F7D\u5165\u4E2D\u2026" : ciRes.data ? "\u5DF2\u8F7D\u5165 " + ciSelectedCount + " \u9996" : "\u8F7D\u5165\u4E2D\u2026")
+        ) : null,
+        h(
+          "div",
+          { className: "dshp-search" },
+          h("input", {
+            className: "dshp-input",
+            type: "search",
+            value: query,
+            placeholder: "\u641C\u7D22\u6807\u9898 / \u4F5C\u8005 / \u8BCD\u724C / \u8BD7\u53E5",
+            "aria-label": "\u641C\u7D22\u8BD7\u5E93",
+            onChange: (event) => setQuery(event.target.value)
+          }),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u683C\u5F8B\u81EA\u6D4B")
+        ),
+        debounced ? h(
+          "div",
+          { className: "dshp-search", style: { marginBottom: "4px" } },
+          h("span", { className: "dshp-pager-label" }, "\u641C\u7D22\u8303\u56F4"),
+          ciModeActive ? h(
+            "div",
+            { className: "dshp-seg" },
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (ciSearchScope === "selected" ? " dshp-is-active" : ""),
+              onClick: () => setCiSearchScope("selected")
+            }, "\u7CBE\u9009"),
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (ciSearchScope === "allCi" ? " dshp-is-active" : ""),
+              onClick: () => {
+                setCiSearchScope("allCi");
+              }
+            }, "\u5168\u90E8\u5B8B\u8BCD")
+          ) : h(
+            "div",
+            { className: "dshp-seg" },
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (searchScope === "category" ? " dshp-is-active" : ""),
+              onClick: () => setSearchScope("category")
+            }, "\u5F53\u524D\u5206\u7C7B"),
+            h("button", {
+              type: "button",
+              className: "dshp-seg-btn" + (searchScope === "all" ? " dshp-is-active" : ""),
+              onClick: () => setSearchScope("all")
+            }, "\u5168\u90E8")
+          ),
+          ciModeActive && ciSearchScope === "allCi" && !ciBankRes.data ? h("span", { className: "dshp-pager-label" }, ciBankRes.status === "loading" ? "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009\u2026" : "\u5B8B\u8BCD\u5168\u5E93\u672A\u52A0\u8F7D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009") : null
+        ) : null,
+        ciSelectedLoading ? ciRes.status === "error" ? h(EmptyState, {
+          title: "\u5B8B\u8BCD\u7CBE\u9009\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(ciRes.error),
+          onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
+          })
+        }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5B8B\u8BCD\u7CBE\u9009 283 \u9996\u2026" }) : ciBankLoading ? ciBankRes.status === "error" ? h(EmptyState, {
+          title: "\u5168\u90E8\u5B8B\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: ciBankRes.error && ciBankRes.error.status === 404 ? "\u5B8B\u8BCD\u5168\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(ciBankRes.error),
+          onRetry: () => api.reloadCiBank && api.reloadCiBank().catch(() => {
+          })
+        }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5168\u90E8\u5B8B\u8BCD\uFF08\u7EA6 2 \u4E07\u9996\uFF0C\u9996\u6B21\u7A0D\u6162\uFF09\u2026" }) : h(
+          "div",
+          null,
+          h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996" + (debounced !== query ? "\uFF08\u641C\u7D22\u4E2D\u2026\uFF09" : "")),
+          shown.length ? h("div", { className: "dshp-list" }, shown.map((item) => h("button", {
+            key: item.id,
+            type: "button",
+            className: "dshp-row",
+            onClick: () => setDetail(item)
+          }, h(
+            "span",
+            { className: "dshp-row-main" },
+            h("span", { className: "dshp-row-title" }, libraryItemLabel(item)),
+            h("span", { className: "dshp-row-sub" }, (item.rhythmic ? "\u8BCD\u724C " + item.rhythmic + " \xB7 " : "") + ((Array.isArray(item.lines) ? item.lines[0] : "") || ""))
+          )))) : h(EmptyState, { title: "\u6CA1\u6709\u5339\u914D\u7684\u8BD7\u8BCD", message: "\u6362\u4E00\u4E2A\u5206\u7C7B\u6216\u5173\u952E\u8BCD\u8BD5\u8BD5\u3002", icon: "\u{1F4DA}" })
+        ),
+        filtered.length > shown.length ? h(
+          "div",
+          { style: { textAlign: "center", marginTop: "10px" } },
+          h("button", { type: "button", className: "dshp-btn", onClick: () => setVisible(visible + LIBRARY_PAGE) }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - shown.length) + " \u9996\uFF09")
+        ) : null
+      );
+    }
+    class WidgetBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { failed: false };
+        this.handleRetry = this.handleRetry.bind(this);
+      }
+      static getDerivedStateFromError() {
+        return { failed: true };
+      }
+      componentDidCatch(error) {
+        try {
+          console.warn("[dsh-little-whale] \u6E32\u67D3\u5F02\u5E38\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u6700\u5C0F\u5F62\u8C61\uFF1A", error);
+        } catch (ignored) {
+        }
+      }
+      handleRetry() {
+        this.setState({ failed: false });
+      }
+      render() {
+        if (!this.state.failed) return this.props.children;
+        return h(
+          "div",
+          {
+            "data-dsh-little-whale": "root",
+            className: "dshp-root",
+            style: {
+              position: "fixed",
+              left: "16px",
+              bottom: "24px",
+              zIndex: Z_INDEX,
+              pointerEvents: "auto",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "6px",
+              padding: "8px"
+            }
+          },
+          h("style", null, CSS),
+          h("img", {
+            src: mascotUrl(MASCOT_FILES.celebrate),
+            alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
+            width: 64,
+            height: 64,
+            draggable: false,
+            style: { display: "block" }
+          }),
+          h("button", {
+            type: "button",
+            className: "dshp-btn",
+            onClick: this.handleRetry
+          }, "\u6302\u4EF6\u663E\u793A\u5F02\u5E38\uFF0C\u70B9\u6B64\u91CD\u8BD5")
+        );
+      }
+    }
+    return { LibraryTab, WidgetBoundary };
+  }
+
   // client-src/styles.js
-  var CSS = [
+  var CSS2 = [
     ".dshp-root{--dshp-bg:var(--dsw-alias-bg-module-platform,#fff);",
     "--dshp-bg-soft:var(--dsw-alias-bg-base-platform,#f6f7f9);",
     "--dshp-label:var(--dsw-alias-label-primary,#1f2329);",
@@ -6338,7 +7560,7 @@
           pointerEvents: "auto",
           userSelect: "none"
         };
-        const nodes = [h("style", { key: "dshp-style" }, CSS)];
+        const nodes = [h("style", { key: "dshp-style" }, CSS2)];
         if (settings.hidden) {
           nodes.push(renderRestoreHotspot());
         } else {
@@ -6418,1150 +7640,112 @@
       function PoetrySettingsTab(props) {
         return ensurePoetryTabs().PoetrySettingsTab(props);
       }
+      let settingsTabFactory = null;
+      function ensureSettingsTab() {
+        if (settingsTabFactory === null) {
+          settingsTabFactory = createSettingsTab({
+            React,
+            h,
+            cx,
+            normalizeSettings,
+            num,
+            switchNode,
+            growthMetricsTree,
+            weatherChipText,
+            weatherUpdatedLabel,
+            moodBasisText,
+            moodAiFailureLabel
+          });
+        }
+        return settingsTabFactory;
+      }
       function SettingsTab(props) {
-        const api = props.api || {};
-        const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
-        const [confirmReset, setConfirmReset] = React.useState(false);
-        const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
-        React.useEffect(() => {
-          setCityDraft(settings.weatherCity || "\u5317\u4EAC");
-        }, [settings.weatherCity]);
-        const update = api.updateSettings || (() => {
-        });
-        function commitCity() {
-          const raw = String(cityDraft == null ? "" : cityDraft).trim();
-          const nextCity = raw.length >= 1 && raw.length <= 20 ? raw : "\u5317\u4EAC";
-          setCityDraft(nextCity);
-          if (nextCity !== settings.weatherCity) update({ weatherCity: nextCity });
+        return ensureSettingsTab()(props);
+      }
+      let growthTabFactory = null;
+      function ensureGrowthTab() {
+        if (growthTabFactory === null) {
+          growthTabFactory = createGrowthTab({
+            h,
+            cx,
+            switchNode,
+            growthMetricsTree,
+            moodAiFailureLabel,
+            selfStatusSummary,
+            weatherUpdatedLabel
+          });
         }
-        const weatherRes = api.weatherRes || {};
-        const weatherInfo = api.weatherData && api.weatherData.weather ? api.weatherData.weather : null;
-        const weatherAt = weatherRes.at || weatherInfo && weatherInfo.updatedAt || 0;
-        const weatherStatusText = weatherInfo ? weatherChipText(api.weatherData.city, weatherInfo) + (weatherAt ? " \xB7 \u66F4\u65B0\u4E8E " + weatherUpdatedLabel(weatherAt) : "") : weatherRes.status === "loading" ? "\u6B63\u5728\u83B7\u53D6\u5929\u6C14\u2026" : "\u5929\u6C14\u6682\u4E0D\u53EF\u7528\uFF08\u4E0D\u5F71\u54CD\u5176\u4ED6\u529F\u80FD\uFF09";
-        const currentMood = api.moodView || null;
-        const moodAt = api.moodRes && (api.moodRes.at || api.moodRes.data && api.moodRes.data.updatedAt) || 0;
-        const moodSourceLabel = api.moodSource === "model" ? "\u6A21\u578B" : api.moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
-        const moodReasonText = currentMood ? String(currentMood.reason || "").replace(/[「」]/g, "").trim() : "";
-        const moodQuotedReason = moodReasonText ? "\u300C" + moodReasonText + "\u300D" : "";
-        const moodDetailText = currentMood ? "\u5F53\u524D\uFF1A" + currentMood.label + moodQuotedReason : "";
-        const moodMetaText = [api.moodBasis || moodBasisText(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel(moodAt) : ""].filter(Boolean).join(" \xB7 ");
-        const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ") || "\u5FC3\u60C5\u6570\u636E\u52A0\u8F7D\u4E2D";
-        const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ");
-        const moodLine = (text, className, key) => h("div", { key, className: cx("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
-        function seg(options, current, onPick) {
-          return h(
-            "div",
-            { className: "dshp-seg" },
-            options.map((option) => h("button", {
-              key: String(option.value),
-              type: "button",
-              className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
-              onClick: () => onPick(option.value)
-            }, option.label))
-          );
-        }
-        const boot = api.boot || {};
-        const data = boot.data || {};
-        const version = data.version || "0.1.0";
-        const dataVersion = data.dataVersion || "\u2014";
-        const source = data.source || {};
-        function renderSelfStatus() {
-          const status = api.selfStatus;
-          if (!status) return null;
-          return h(
-            "div",
-            { className: "dshp-field dshp-field-stacked" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u6210\u957F\u72B6\u6001"), h("small", null, "\u81EA\u9A71\u6210\u957F \xB7 \u6700\u8FD1\u8FDB\u5EA6")),
-            h("div", { className: "dshp-field-stack-body" }, growthMetricsTree(status))
-          );
-        }
-        function renderHealthStatus() {
-          const health = api.healthStatus;
-          if (!health) return null;
-          const budgetLine = health.totalLimit > 0 ? `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}/${health.totalLimit}` : `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}\uFF08\u672A\u8BBE\u4E0A\u9650\uFF09`;
-          const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(" \xB7 ");
-          const jobs = health.jobs.slice(0, 8);
-          const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}\u9519)` : ""}`).join(" \xB7 ") : "\u5FC3\u8DF3\u672A\u6CE8\u518C";
-          const errorLine = health.modelErrorTotal > 0 ? `\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 ${health.modelErrorTotal} \u6B21` + (health.modelErrorsByRole.length ? "\uFF1A" + health.modelErrorsByRole.map((item) => `${item.role}\xD7${item.count}`).join("\u3001") : "") : "\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 0";
-          return h(
-            "div",
-            { className: "dshp-field dshp-field-stacked" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u8FD0\u884C\u72B6\u6001\uFF08\u53EA\u8BFB\uFF09"), h("small", null, "\u9884\u7B97 \xB7 \u5FC3\u8DF3 \xB7 \u6A21\u578B\u5931\u8D25\uFF1B\u6BCF\u5206\u949F\u5237\u65B0")),
-            h(
-              "div",
-              { className: "dshp-field-stack-body" },
-              h("div", { className: "dshp-health-line" }, budgetLine + (health.day ? " \xB7 " + health.day : "")),
-              roles ? h("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
-              h("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
-              h("div", { className: "dshp-health-line" }, errorLine)
-            )
-          );
-        }
-        return h(
-          "div",
-          { className: "dshp-settings" },
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5927\u5C0F"), h("small", null, "\u5F62\u8C61\u7F29\u653E 60%\u2013160%")),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              h("input", {
-                type: "range",
-                className: "dshp-range",
-                min: 60,
-                max: 160,
-                step: 5,
-                value: Math.round(settings.scale * 100),
-                "aria-label": "\u6302\u4EF6\u5927\u5C0F",
-                onChange: (event) => update({ scale: num(event.target.value, 100) / 100 })
-              }),
-              h("span", { className: "dshp-muted", style: { fontSize: "11.5px", width: "38px", textAlign: "right" } }, Math.round(settings.scale * 100) + "%")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u5DF2\u964D\u6743\u5230\u300C\u6210\u957F \u2192 \u8BD7\u8BCD\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09\u2192 \u8BBE\u7F6E\u300D"))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5438\u9644"), h("small", null, "\u62D6\u52A8\u540E\u8D34\u8FB9\u6216\u81EA\u7531\u6446\u653E")),
-            seg([
-              { value: "left", label: "\u8D34\u5DE6" },
-              { value: "right", label: "\u8D34\u53F3" },
-              { value: "free", label: "\u81EA\u7531" }
-            ], settings.snap, (value) => update({ snap: value }))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5929\u6C14\u57CE\u5E02"), h("small", null, "1\u201320 \u5B57\uFF0C\u4FDD\u5B58\u540E\u81EA\u52A8\u91CD\u62C9\u5929\u6C14")),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              h("input", {
-                type: "text",
-                className: "dshp-input",
-                style: { width: "118px" },
-                value: cityDraft,
-                maxLength: 20,
-                placeholder: "\u5317\u4EAC",
-                "aria-label": "\u5929\u6C14\u57CE\u5E02",
-                onChange: (event) => setCityDraft(event.target.value),
-                onBlur: commitCity,
-                onKeyDown: (event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    commitCity();
-                  }
-                }
-              })
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5929\u6C14"), h("small", null, weatherStatusText)),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: () => {
-                  if (api.refreshWeather) api.refreshWeather(true);
-                }
-              }, "\u5237\u65B0\u5929\u6C14")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u8A00\u81EA\u8BED\uFF08\u5076\u5C14\u8BF4\u8BF4\u8BDD\uFF09"), h("small", null, "\u6BCF\u9694 1\u20132 \u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5\uFF08\u4E8B\u4EF6\u540E\u4F1A\u66F4\u65E9\uFF09\uFF1B\u4E0D\u8BBE\u6BCF\u65E5\u6B21\u6570")),
-            switchNode(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), "\u81EA\u8A00\u81EA\u8BED\u5F00\u5173")
-          ),
-          renderSelfStatus(),
-          renderHealthStatus(),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u60F3\u8BFB\u7684\u8BD7"), h("small", null, "\u9884\u89C8\u4E00\u6B21\u5F69\u86CB\uFF08\u4E0D\u8BA1\u5165\u6BCF\u65E5\u6B21\u6570\uFF09")),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: () => {
-                  if (api.previewSpontaneousPoem) api.previewSpontaneousPoem();
-                }
-              }, "\u9884\u89C8\u4E00\u53E5")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u9690\u85CF\u6302\u4EF6"), h("small", null, "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D")),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              h("button", {
-                type: "button",
-                className: "dshp-btn dshp-btn-danger",
-                onClick: () => {
-                  setConfirmReset(false);
-                  if (api.hideWidget) api.hideWidget();
-                }
-              }, "\u9690\u85CF")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u6062\u590D\u9ED8\u8BA4"), h("small", null, "\u5927\u5C0F / \u5E73\u4EC4 / \u6A21\u5F0F / \u5438\u9644 / \u5B57\u4F53")),
-            h(
-              "div",
-              { className: "dshp-field-control" },
-              confirmReset ? [
-                h("button", {
-                  key: "confirm",
-                  type: "button",
-                  className: "dshp-btn dshp-btn-primary",
-                  onClick: () => {
-                    setConfirmReset(false);
-                    if (api.resetSettings) api.resetSettings();
-                  }
-                }, "\u786E\u8BA4\u6062\u590D"),
-                h("button", {
-                  key: "cancel",
-                  type: "button",
-                  className: "dshp-btn",
-                  onClick: () => setConfirmReset(false)
-                }, "\u53D6\u6D88")
-              ] : h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: () => setConfirmReset(true)
-              }, "\u6062\u590D\u9ED8\u8BA4")
-            )
-          ),
-          h("div", { className: "dshp-subtitle" }, "\u5173\u4E8E"),
-          h(
-            "div",
-            { className: "dshp-about" },
-            h("div", null, "\u5C0F\u9CB8\u9C7C v" + String(version)),
-            h("div", null, "\u6570\u636E\u7248\u672C\uFF1A" + String(dataVersion)),
-            h("div", null, "\u6570\u636E\u6E90\uFF1Achinese-poetry\uFF08MIT\uFF09\xB7 \u8BD7\u8BCD\u4E3A\u516C\u7248\u6587\u672C"),
-            source.commit ? h("div", null, "\u6E90\u63D0\u4EA4\uFF1A" + String(source.commit).slice(0, 12)) : null,
-            h("div", null, "\u8BBE\u7F6E\u4FDD\u5B58\u5728\u672C\u673A $DSH_HOME/.dsh-poetry/settings.json\uFF1B\u9690\u85CF\u540E\u53CC\u51FB\u9875\u9762\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D\u3002")
-          )
-        );
+        return growthTabFactory;
       }
       function GrowthTab(props) {
-        const api = props.api || {};
-        const settings = api.settings && typeof api.settings === "object" ? api.settings : {};
-        const mood = api.moodView || null;
-        const status = api.selfStatus || null;
-        const memory = api.memoryStatus || null;
-        const recent = (Array.isArray(api.recentSpoken) ? api.recentSpoken : []).slice(-5);
-        const moodSource = mood && mood.source || api.moodSource || "";
-        const moodSourceLabel = moodSource === "model" ? "\u6A21\u578B\u751F\u6210" : moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
-        const sayButton = api.previewSpontaneousPoem || api.readAnotherSpontaneous || function() {
-        };
-        const moodFailureText = api.moodAiFailure ? moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF08" + String(api.moodAiFailureCode).slice(0, 48) + "\uFF09" : "") : "";
-        const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
-        const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
-        return h(
-          "div",
-          { className: "dshp-growth" },
-          h("div", { className: "dshp-growth-title" }, "\u6211\u7684\u6210\u957F"),
-          h(
-            "div",
-            { className: "dshp-growth-mood" },
-            h("div", { className: "dshp-growth-mood-label" }, mood && mood.label ? mood.label : "\u8FD8\u6CA1\u5F62\u6210\u5FC3\u60C5"),
-            mood && mood.reason ? h("div", { className: "dshp-growth-mood-reason" }, String(mood.reason)) : null,
-            moodSourceLabel ? h("div", { className: "dshp-growth-mood-source" }, "\u6765\u6E90\uFF1A" + moodSourceLabel) : null,
-            api.moodAiFallback ? h("div", { className: "dshp-growth-mood-note" }, "\u5F53\u524D\u4F7F\u7528\u672C\u5730\u9762\u90E8\u8868\u60C5\uFF08\u6A21\u578B\u5FC3\u60C5\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u542F\u53D1\u5F0F\uFF09") : null,
-            api.moodAiStale ? h("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
-            api.moodAiFailure ? h("div", { className: "dshp-growth-mood-note" }, "\u4E0A\u6B21\u6A21\u578B\u5FC3\u60C5\u5931\u8D25\uFF1A" + moodFailureText) : null,
-            h(
-              "div",
-              { className: "dshp-growth-mood-controls" },
-              h("span", { className: "dshp-growth-mood-control-label" }, "\u5FC3\u60C5\u6362\u88C5"),
-              switchNode(settings.mood === true, () => {
-                if (api.updateSettings) api.updateSettings({ mood: !settings.mood });
-              }, "\u5FC3\u60C5\u6362\u88C5\u5F00\u5173"),
-              h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
-                if (api.refreshMoodNow) api.refreshMoodNow();
-              } }, "\u5237\u65B0\u5FC3\u60C5")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-growth-section" },
-            h("div", { className: "dshp-growth-section-head" }, "\u5185\u5728\u72B6\u6001"),
-            status && status.sleeping ? h("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel(status.sleepSince) : "")) : null,
-            growthMetricsTree(status)
-          ),
-          h(
-            "div",
-            { className: "dshp-growth-section" },
-            h("div", { className: "dshp-growth-section-head" }, "\u81EA\u4E3B\u884C\u4E3A"),
-            recentActions.length ? recentActions.map((item, index) => h(
-              "div",
-              { className: "dshp-growth-action", key: "action-" + (item.id || index) },
-              h("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel(item.at) || "--:--"),
-              h("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
-            )) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
-          ),
-          memory ? h(
-            "div",
-            { className: "dshp-growth-section dshp-memory-card" },
-            h(
-              "div",
-              { className: "dshp-memory-head" },
-              h("div", { className: "dshp-growth-section-head" }, "\u8BB0\u5FC6\u4E2D\u67A2"),
-              h("span", { className: cx("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
-            ),
-            h("div", { className: "dshp-memory-line" }, "journal " + memory.journal + " \u6761 \xB7 \u8BDD\u9898 " + memory.topics + " \u6761 \xB7 \u5B66\u4E60 " + memory.learnings + " \u6761"),
-            h("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel(memory.backups.lastAt) || "\u2014")),
-            memory.recovered ? h("div", { className: "dshp-memory-line dshp-memory-recovered" }, "\u5DF2\u4ECE\u5907\u4EFD\u6062\u590D " + memory.recovered + " \u4E2A\u6587\u4EF6") : null,
-            h(
-              "div",
-              { className: "dshp-growth-actions" },
-              h("button", {
-                type: "button",
-                className: "dshp-btn dshp-btn-small",
-                onClick: () => {
-                  if (api.backupMemory) api.backupMemory();
-                }
-              }, "\u7ACB\u5373\u5907\u4EFD")
-            )
-          ) : null,
-          h(
-            "div",
-            { className: "dshp-growth-section" },
-            h("div", { className: "dshp-growth-section-head" }, "\u6700\u8FD1\u8BF4\u8FC7\u7684\u8BDD"),
-            recent.length ? recent.map((text, index) => h("div", { className: "dshp-growth-quote", key: "recent-" + index }, "\u300C" + String(text) + "\u300D")) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
-          ),
-          h(
-            "div",
-            { className: "dshp-growth-section" },
-            h("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u6458\u8981"),
-            h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
-          ),
-          h(
-            "div",
-            { className: "dshp-growth-actions" },
-            h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: () => sayButton() }, "\u8BF4\u4E00\u53E5"),
-            h("button", { type: "button", className: "dshp-btn", onClick: () => {
-              if (api.openPoetryModule) api.openPoetryModule();
-            } }, "\u8BD7\u8BCD\u6A21\u5757"),
-            h("button", { type: "button", className: "dshp-btn", onClick: () => {
-              if (api.openSettings) api.openSettings();
-            } }, "\u8BBE\u7F6E")
-          )
-        );
+        return ensureGrowthTab()(props);
+      }
+      let feihuaTabFactory = null;
+      function ensureFeihuaTab() {
+        if (feihuaTabFactory === null) {
+          feihuaTabFactory = createFeihuaTab({
+            React,
+            h,
+            cx,
+            EmptyState,
+            LoadingState,
+            ToneLine,
+            detectionRhymeIndexes,
+            formatDetectionReport,
+            describeDataError,
+            getFeihuaIndex,
+            pickDefaultFeihuaChar,
+            feihuaSourceOf,
+            mergeFeihuaItems,
+            finishFeihuaIndex,
+            mergeFeihuaFullEntries,
+            requestFeihuaFull,
+            abortFeihuaFull,
+            readFeihuaFullCache,
+            readFeihuaBest,
+            writeFeihuaBest,
+            FEIHUA_ATLAS_PAGE,
+            FEIHUA_FULL_RETRY_MS
+          });
+        }
+        return feihuaTabFactory;
       }
       function FeihuaTab(props) {
-        const api = props.api || {};
-        const poemsRes = api.poemsRes || {};
-        const ciRes = api.ciRes || {};
-        const index = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
-        const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
-        const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
-        const [char, setChar] = React.useState(null);
-        const [mode, setMode] = React.useState("chain");
-        const [game, setGame] = React.useState(null);
-        const [inputText, setInputText] = React.useState("");
-        const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE);
-        const [best, setBest] = React.useState(() => readFeihuaBest());
-        const bestRef = React.useRef(best);
-        bestRef.current = best;
-        const launch = num(api.feihuaLaunch, 0);
-        const launchRef = React.useRef(0);
-        const activeChar = index ? char || pickDefaultFeihuaChar(index, api.poem) : null;
-        React.useEffect(() => {
-          if (!index || !activeChar) return;
-          if (launch > 0 && launch !== launchRef.current) {
-            launchRef.current = launch;
-            setGame(feihuaStart(index, activeChar));
-            setMode("chain");
-            if (typeof api.consumeFeihuaLaunch === "function") api.consumeFeihuaLaunch();
-          }
-        }, [launch, index, activeChar]);
-        const [fullInfo, setFullInfo] = React.useState({ char: "", status: "idle", count: 0 });
-        const fullTokenRef = React.useRef(0);
-        React.useEffect(() => {
-          if (!index || !activeChar) return void 0;
-          const target = activeChar;
-          const cached = readFeihuaFullCache(target);
-          if (cached && cached.status === "ready") {
-            mergeFeihuaFullEntries(index, target, cached.entries);
-            setFullInfo({ char: target, status: "ready", count: cached.count });
-            return void 0;
-          }
-          if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
-            setFullInfo({ char: target, status: "error", count: 0 });
-            return void 0;
-          }
-          const token = fullTokenRef.current + 1;
-          fullTokenRef.current = token;
-          setFullInfo({ char: target, status: "loading", count: 0 });
-          requestFeihuaFull(target).then((result) => {
-            if (token !== fullTokenRef.current) return;
-            if (result && result.ok && Array.isArray(result.entries)) {
-              mergeFeihuaFullEntries(index, target, result.entries);
-              setFullInfo({ char: target, status: "ready", count: result.count || result.entries.length });
-            } else {
-              setFullInfo({ char: target, status: "error", count: 0 });
-            }
-          });
-          return () => {
-            fullTokenRef.current += 1;
-            abortFeihuaFull(target);
-          };
-        }, [activeChar, index]);
-        if (poemsRes.status === "error") {
-          return h(EmptyState, {
-            title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(poemsRes.error),
-            onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
-            })
-          });
-        }
-        if (ciRes.status === "error") {
-          return h(EmptyState, {
-            title: "\u8BCD\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(ciRes.error),
-            onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
-            })
-          });
-        }
-        if (!poemsRes.data || !ciRes.data) return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
-        if (!index || !index.entries.length) {
-          return h(EmptyState, { title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u4E3A\u7A7A", message: "\u8BD7/\u8BCD\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u53E5\u5B50\u3002", icon: "\u{1FAB6}" });
-        }
-        const candidateChips = index.candidates.slice();
-        if (!candidateChips.some((item) => item.char === activeChar)) {
-          candidateChips.unshift({ char: activeChar, count: index.counts[activeChar] || 0 });
-        }
-        const charEntries = index.byChar[activeChar] || [];
-        const bestForChar = best.chars[activeChar] || 0;
-        function startGame(target) {
-          const use = target || activeChar;
-          if (!index || !use) return;
-          setChar(use);
-          setInputText("");
-          setGame(feihuaStart(index, use));
-          setMode("chain");
-          setAtlasLimit(FEIHUA_ATLAS_PAGE);
-          const cachedFull = readFeihuaFullCache(use);
-          if (!cachedFull || cachedFull.status !== "ready") {
-            const token = fullTokenRef.current + 1;
-            fullTokenRef.current = token;
-            requestFeihuaFull(use).then((result) => {
-              if (token !== fullTokenRef.current) return;
-              if (result && result.ok && Array.isArray(result.entries)) {
-                mergeFeihuaFullEntries(index, use, result.entries);
-                setFullInfo({ char: use, status: "ready", count: result.count || result.entries.length });
-              }
-            }).catch(() => {
-            });
-          }
-          if (typeof api.pulseMascot === "function") api.pulseMascot("gameThink");
-        }
-        function chooseChar(next) {
-          if (!next) return;
-          if (next === activeChar) {
-            setGame(null);
-            setInputText("");
-            return;
-          }
-          setChar(next);
-          setInputText("");
-          setGame(null);
-          setAtlasLimit(FEIHUA_ATLAS_PAGE);
-        }
-        function randomChar() {
-          if (!index || !index.candidates.length) return;
-          const pool = index.candidates.filter((item) => item.char !== activeChar);
-          const picked = pool.length ? pool[feihuaRandomIndex(pool.length)] : index.candidates[0];
-          chooseChar(picked.char);
-        }
-        function submitAnswer() {
-          if (!game || game.phase !== "playing") return;
-          const next = feihuaSubmit(game, index, inputText);
-          if (!next || next === game) return;
-          setGame(next);
-          if (next.feedback && next.feedback.kind === "good") setInputText("");
-          if (next.feedback && typeof api.pulseMascot === "function") {
-            api.pulseMascot(next.feedback.kind === "good" ? "gameWin" : "gameLose");
-          }
-          const updated = feihuaBestUpdate(bestRef.current, next.char, next.score);
-          if (updated.overall !== bestRef.current.overall || (updated.chars[next.char] || 0) !== (bestRef.current.chars[next.char] || 0)) {
-            setBest(updated);
-            writeFeihuaBest(updated);
-          }
-        }
-        function handleInputKey(event) {
-          if (event && event.key === "Enter") {
-            event.preventDefault();
-            submitAnswer();
-          }
-        }
-        function renderChain() {
-          const playing = game && game.phase === "playing";
-          if (!game) {
-            return h(
-              "div",
-              { className: "dshp-card" },
-              h("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
-              h("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 " + charEntries.length + " \u53E5\u53EF\u67E5"),
-              h("div", { className: "dshp-block" }, "\u5BF9\u65B9\u5148\u51FA\u4E00\u53E5\u542B\u4EE4\u5B57\u7684\u8BD7\uFF0C\u4F60\u8F93\u5165\u4E00\u53E5\uFF1A\u6709\u51FA\u5904\u3001\u542B\u4EE4\u5B57\u3001\u672C\u5C40\u4E0D\u91CD\u590D\u5C31\u7B97\u63A5\u4E0A\u3002\u4E0D\u6263\u547D\uFF0C\u4E0D\u8BA1\u9519\u3002"),
-              charEntries.length ? h(
-                "div",
-                { className: "dshp-fh-actions" },
-                h("button", {
-                  type: "button",
-                  className: "dshp-btn dshp-btn-primary",
-                  onClick: (event) => {
-                    event.stopPropagation();
-                    startGame(activeChar);
-                  }
-                }, "\u6765\u4E00\u5C40"),
-                h("span", { className: "dshp-pager-label" }, "\u672C\u5B57\u6700\u4F73 " + bestForChar + " \u5C40")
-              ) : h("div", { className: "dshp-empty-msg" }, "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50\uFF0C\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002")
-            );
-          }
-          return h(
-            "div",
-            { className: "dshp-card" },
-            h("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
-            h("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + game.char + "\u300D\xB7 \u672C\u5C40\u5DF2\u63A5 " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40"),
-            game.system ? h(
-              "div",
-              { className: "dshp-fh-system" },
-              "\u5BF9\u65B9\uFF1A" + game.system.text,
-              game.system.source ? h("small", null, game.system.source) : null
-            ) : null,
-            h("div", { className: "dshp-fh-prompt" }, game.message || "\u8BF7\u63A5\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7\u53E5"),
-            h(
-              "div",
-              { className: "dshp-fh-actions" },
-              h("input", {
-                className: "dshp-input",
-                type: "text",
-                value: inputText,
-                maxLength: 60,
-                placeholder: "\u8F93\u5165\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7/\u8BCD\uFF0C\u56DE\u8F66\u63D0\u4EA4",
-                "aria-label": "\u8F93\u5165\u98DE\u82B1\u4EE4\u5BF9\u53E5",
-                onChange: (event) => setInputText(event.target.value),
-                onKeyDown: handleInputKey,
-                disabled: !playing
-              }),
-              h("button", {
-                type: "button",
-                className: "dshp-btn dshp-btn-primary",
-                onClick: (event) => {
-                  event.stopPropagation();
-                  submitAnswer();
-                },
-                disabled: !playing
-              }, "\u63A5\u4E00\u53E5")
-            ),
-            h("div", {
-              className: cx(
-                "dshp-fh-feedback",
-                game.feedback && game.feedback.kind === "good" && "dshp-is-good",
-                game.feedback && game.feedback.kind === "bad" && "dshp-is-bad"
-              ),
-              role: "status",
-              "aria-live": "polite"
-            }, game.feedback ? game.feedback.text : ""),
-            game.phase === "cleared" ? h(
-              "div",
-              { className: "dshp-fh-result" },
-              h("b", null, "\u8FD9\u4E00\u5B57\u63A5\u5B8C\u4E86"),
-              h("span", null, "\u672C\u5C40\u63A5\u4E0A " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40 \xB7 \u5386\u53F2\u6700\u4F73 " + Math.max(best.overall, game.score) + " \u5C40"),
-              h("span", null, "\u8FD9\u4E00\u5B57\u7684\u53E5\u5B50\u90FD\u88AB\u63A5\u8FC7\u4E86\uFF0C\u6362\u4E2A\u4EE4\u5B57\u7EE7\u7EED\u3002")
-            ) : null,
-            h(
-              "div",
-              { className: "dshp-fh-actions" },
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: (event) => {
-                  event.stopPropagation();
-                  randomChar();
-                }
-              }, "\u6362\u4E2A\u4EE4\u5B57"),
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: (event) => {
-                  event.stopPropagation();
-                  startGame(activeChar);
-                }
-              }, "\u91CD\u65B0\u5F00\u5C40")
-            )
-          );
-        }
-        function renderAtlas() {
-          const total = charEntries.length;
-          const limit = Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit);
-          const shown = charEntries.slice(0, limit);
-          return h(
-            "div",
-            null,
-            h(
-              "div",
-              { className: "dshp-card-summary", style: { marginBottom: "6px" } },
-              "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 \u5171 " + total + " \u53E5\uFF08\u53BB\u91CD\u540E\u6700\u591A\u5C55\u793A " + FEIHUA_ATLAS_LIMIT + " \u6761\uFF09"
-            ),
-            shown.length ? h(
-              "div",
-              { className: "dshp-fh-atlas" },
-              shown.map((entry, entryIndex) => h(
-                "div",
-                { key: entryIndex, className: "dshp-fh-line" },
-                h("div", { className: "dshp-fh-line-text" }, entry.text),
-                h("div", { className: "dshp-fh-line-source" }, "\u2014\u2014 " + entry.source)
-              ))
-            ) : h(EmptyState, { title: "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50", message: "\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002", icon: "\u{1FAB6}" }),
-            total > shown.length ? h(
-              "div",
-              { style: { textAlign: "center", marginTop: "10px" } },
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE))
-              }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (total - shown.length) + " \u6761\uFF09")
-            ) : null
-          );
-        }
-        return h(
-          "div",
-          null,
-          h(
-            "div",
-            { className: "dshp-fh-chips" },
-            candidateChips.map((item) => h("button", {
-              key: item.char,
-              type: "button",
-              className: cx("dshp-fh-chip", item.char === activeChar && "dshp-is-active"),
-              title: "\u4EE4\u5B57\u300C" + item.char + "\u300D\xB7 " + item.count + " \u53E5",
-              "aria-pressed": item.char === activeChar,
-              onClick: (event) => {
-                event.stopPropagation();
-                chooseChar(item.char);
-              }
-            }, item.char, h("small", null, String(item.count)))),
-            h("button", {
-              key: "random",
-              type: "button",
-              className: "dshp-fh-chip",
-              title: "\u968F\u673A\u6362\u4E00\u4E2A\u4EE4\u5B57",
-              onClick: (event) => {
-                event.stopPropagation();
-                randomChar();
-              }
-            }, "\u968F\u673A")
-          ),
-          h(
-            "div",
-            { className: "dshp-fh-meta" },
-            h("span", null, fullInfo.char === activeChar ? fullInfo.status === "ready" ? "\u5168\u91CF\u6821\u9A8C\u5DF2\u542F\u7528\uFF08" + fullInfo.count + " \u53E5\uFF09" : fullInfo.status === "loading" || fullInfo.status === "idle" ? "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026" : "\u5168\u91CF\u6821\u9A8C\u672A\u542F\u7528\uFF08\u4F7F\u7528\u672C\u5730\u53E5\u5E93\uFF09" : "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026")
-          ),
-          feihuaBuilding ? h("div", { className: "dshp-card-summary" }, "\u6B63\u5728\u5E76\u5165\u5B8B\u8BCD\u5168\u5E93\u2026") : null,
-          ciBankFailed ? h("div", { className: "dshp-card-summary" }, "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000\u539F\u53E5\u5E93") : null,
-          h(
-            "div",
-            { className: "dshp-fh-meta" },
-            h("span", null, "\u4EE4\u5B57 ", h("b", null, "\u300C" + activeChar + "\u300D")),
-            h("span", null, "\u53E5\u5E93 ", h("b", null, String(charEntries.length)), " \u53E5"),
-            h("span", null, "\u5386\u53F2\u6700\u4F73 ", h("b", null, String(best.overall)), " \u5206"),
-            game ? h("span", null, "\u672C\u5C40\u63A5\u4E0A ", h("b", null, String(game.score)), " \u53E5") : null
-          ),
-          h(
-            "div",
-            { className: "dshp-seg", style: { marginBottom: "10px" } },
-            h("button", {
-              type: "button",
-              className: cx("dshp-seg-btn", mode === "chain" && "dshp-is-active"),
-              onClick: () => setMode("chain")
-            }, "\u5BF9\u53E5"),
-            h("button", {
-              type: "button",
-              className: cx("dshp-seg-btn", mode === "atlas" && "dshp-is-active"),
-              onClick: () => setMode("atlas")
-            }, "\u56FE\u9274")
-          ),
-          mode === "atlas" ? renderAtlas() : renderChain()
-        );
+        return ensureFeihuaTab().FeihuaTab(props);
       }
       function DetectionView(props) {
-        const report = props.report;
-        const api = props.api || {};
-        if (!report) return null;
-        const annotation = Array.isArray(report.annotation) ? report.annotation : [];
-        const rhymeIndexes = detectionRhymeIndexes(report);
-        const lines = [];
-        for (let lineIndex = 0; lineIndex < annotation.length; lineIndex += 1) {
-          const cells = annotation[lineIndex];
-          const lineText = cells.map((cell) => cell.ch).join("");
-          const toneText = cells.map((cell) => cell.tone === "\u25CB" ? "\u25CB" : cell.tone === "\uFF1F" ? "\uFF1F" : cell.tone).join("");
-          lines.push(h(ToneLine, { key: lineIndex, line: lineText, tones: toneText, rhyme: Boolean(rhymeIndexes[lineIndex]), showTones: true }));
+        return ensureFeihuaTab().DetectionView(props);
+      }
+      let libraryTabFactory = null;
+      function ensureLibraryTab() {
+        if (libraryTabFactory === null) {
+          libraryTabFactory = createLibraryTab({
+            React,
+            LIBRARY_CATEGORIES,
+            h,
+            cx,
+            EmptyState,
+            LoadingState,
+            DetectionView,
+            ToneLine,
+            describeDataError,
+            Z_INDEX,
+            WIDGET_ID,
+            MASCOT_FILES,
+            mascotUrl,
+            detectPoem,
+            detectPoemText,
+            parsePoemInput,
+            buildPingshuiIndex
+          });
         }
-        const multiTones = [];
-        for (const line of annotation) {
-          for (const cell of line) {
-            if (cell.candidates.length > 1) multiTones.push(cell);
-          }
-        }
-        return h(
-          "div",
-          { className: "dshp-detail" },
-          h("div", { className: "dshp-lib-report" }, report.summary || ""),
-          (report.errors || []).length ? h("div", { className: "dshp-lib-errors" }, report.errors.join("\uFF1B")) : null,
-          h("div", { className: "dshp-lib-detect-lines" }, lines),
-          report.rhymeLines && report.rhymeLines.length ? h("div", { className: "dshp-lib-tags" }, report.rhymeLines.map((item) => h(
-            "span",
-            { key: item.line, className: "dshp-tag" },
-            "\u7B2C" + item.line + "\u53E5 " + item.ch + (item.names.length ? "\uFF08" + item.names.join("/") + "\uFF09" : "") + (item.borrowed ? " \u501F\u97F5" : "")
-          ))) : null,
-          report.violations && report.violations.length ? h("div", { className: "dshp-lib-errors" }, report.violations.map((item) => "\u7B2C" + item.line + "\u53E5\u7B2C" + item.position + "\u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645" + item.actual + "\uFF09").join("\uFF1B")) : null,
-          report.sticky && report.sticky.length ? h("div", { className: "dshp-lib-errors" }, report.sticky.map((item) => "\u7B2C" + item.pair + "\u53E5\u5931" + item.type).join("\uFF1B")) : null,
-          report.sanPing && report.sanPing.length ? h("div", { className: "dshp-lib-errors" }, "\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5") : null,
-          report.guPing && report.guPing.length ? h("div", { className: "dshp-lib-errors" }, "\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5") : null,
-          multiTones.length ? h("div", { className: "dshp-lib-multi" }, "\u591A\u97F3\u5B57\uFF1A" + multiTones.map((cell) => "\u300C" + cell.ch + "\u300D" + cell.candidates.map((item) => item.tone + "\xB7" + item.name).join("/")).join("\uFF1B")) : null,
-          h(
-            "div",
-            { className: "dshp-fh-actions" },
-            h("button", {
-              type: "button",
-              className: "dshp-btn dshp-btn-small",
-              onClick: () => {
-                const text = formatDetectionReport(report);
-                try {
-                  if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(text).catch(() => {
-                    });
-                  }
-                } catch (error) {
-                }
-                if (typeof api.showToast === "function") api.showToast("\u68C0\u6D4B\u7ED3\u679C\u5DF2\u590D\u5236");
-              }
-            }, "\u590D\u5236\u7ED3\u679C")
-          )
-        );
+        return libraryTabFactory;
       }
       function LibraryTab(props) {
-        const api = props.api || {};
-        const anthologyRes = api.anthologyRes || {};
-        const bankRes = api.bankRes || {};
-        const pingshuiRes = api.pingshuiRes || {};
-        const ciBankRes = api.ciBankRes || {};
-        const ciRes = api.ciRes || {};
-        const [category, setCategory] = React.useState("all");
-        const [ciRhythmic, setCiRhythmic] = React.useState("");
-        const [searchScope, setSearchScope] = React.useState("category");
-        const [ciSearchScope, setCiSearchScope] = React.useState("selected");
-        const [query, setQuery] = React.useState("");
-        const [debounced, setDebounced] = React.useState("");
-        const [visible, setVisible] = React.useState(LIBRARY_PAGE);
-        const [detail, setDetail] = React.useState(null);
-        const [detector, setDetector] = React.useState("");
-        const [inputText, setInputText] = React.useState("");
-        const [inputReport, setInputReport] = React.useState(null);
-        const ciMode = category === "ci-selected" || category === "ci-bank";
-        React.useEffect(() => {
-          const timer = setTimeout(() => setDebounced(query), 300);
-          return () => clearTimeout(timer);
-        }, [query]);
-        React.useEffect(() => {
-          setVisible(LIBRARY_PAGE);
-        }, [category, debounced, ciRhythmic, ciSearchScope]);
-        React.useEffect(() => {
-          if (category === "ci-bank" || ciMode && ciSearchScope === "allCi") {
-            if (typeof api.requestCiBank === "function") api.requestCiBank();
-          }
-        }, [category, ciMode, ciSearchScope, api.requestCiBank]);
-        React.useEffect(() => {
-          const focus = api.libraryFocus;
-          if (!focus || !focus.token) return;
-          if (focus.type === "ci") {
-            setCategory("ci-bank");
-            setCiRhythmic(String(focus.rhythmic || ""));
-            setDetector("");
-            if (typeof api.requestCiBank === "function") api.requestCiBank();
-            if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
-            return;
-          }
-          if (focus.type === "ci-selected") {
-            setCategory("ci-selected");
-            setCiRhythmic(String(focus.rhythmic || ""));
-            setDetector("");
-            if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
-            return;
-          }
-          const items2 = buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data);
-          const target = items2.find((item) => item.id === focus.id);
-          if (target) {
-            setCategory(target.categoryId === "ci-bank" ? "ci-bank" : target.categoryId === "ci-selected" ? "ci-selected" : "all");
-            setDetail(target);
-            setDetector("");
-          }
-          if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
-        }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]);
-        const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex(pingshuiRes.data) : null, [pingshuiRes.data]);
-        const items = React.useMemo(
-          () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
-          [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]
-        );
-        const ciSelectedRhythmicsList = React.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
-        const ciFullRhythmics = React.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
-        const ciRhythmics = category === "ci-bank" ? ciFullRhythmics : ciSelectedRhythmicsList;
-        const ciSelectedCount = items.filter((entry) => entry.categoryId === "ci-selected").length;
-        let filterCategory = category;
-        let filterRhythmic = "";
-        if (ciMode) {
-          filterRhythmic = ciRhythmic;
-          filterCategory = !debounced ? category : ciSearchScope === "allCi" ? "all" : "ci-selected";
-        } else if (searchScope === "all") {
-          filterCategory = "all";
-        }
-        const filtered = React.useMemo(
-          () => filterLibraryItems(items, filterCategory, debounced, filterRhythmic),
-          [items, filterCategory, filterRhythmic, debounced]
-        );
-        const shown = libraryPage(filtered, visible);
-        const poemReport = React.useMemo(
-          () => detail && detector === "poem" && pingshui ? detectPoem(detail, pingshui) : null,
-          [detail, detector, pingshui]
-        );
-        const pingshuiError = pingshuiRes.status === "error";
-        const loading = !anthologyRes.data && !bankRes.data;
-        const ciSelectedLoading = category === "ci-selected" && !ciRes.data;
-        const ciBankLoading = category === "ci-bank" && !ciBankRes.data;
-        function runInputDetection() {
-          if (!pingshui) {
-            if (typeof api.showToast === "function") api.showToast("\u5E73\u6C34\u97F5\u6570\u636E\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019");
-            if (typeof api.reloadPingshui === "function") api.reloadPingshui().catch(() => {
-            });
-            return;
-          }
-          setInputReport(detectPoemText(inputText, pingshui));
-        }
-        if (loading) {
-          if (anthologyRes.status === "error" && bankRes.status === "error") {
-            return h(EmptyState, {
-              title: "\u8BD7\u5E93\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-              message: anthologyRes.error && anthologyRes.error.status === 404 || bankRes.error && bankRes.error.status === 404 ? "\u8BD7\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(anthologyRes.error || bankRes.error),
-              onRetry: () => {
-                if (typeof api.reloadAnthology === "function") api.reloadAnthology().catch(() => {
-                });
-                if (typeof api.reloadBank === "function") api.reloadBank().catch(() => {
-                });
-              }
-            });
-          }
-          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u8BD7\u5E93\u2026" });
-        }
-        function renderDetector() {
-          if (!pingshui) {
-            return pingshuiError ? h(EmptyState, { title: "\u5E73\u6C34\u97F5\u6570\u636E\u4E0D\u53EF\u7528", message: "\u683C\u5F8B\u68C0\u6D4B\u9700\u8981\u5E73\u6C34\u97F5\u6570\u636E\u3002", onRetry: () => api.reloadPingshui && api.reloadPingshui().catch(() => {
-            }) }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5E73\u6C34\u97F5\u2026" });
-          }
-          const headers = h(
-            "div",
-            { className: "dshp-fh-actions" },
-            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("") }, "\u8FD4\u56DE"),
-            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165")
-          );
-          if (detector === "poem" && detail) {
-            return h(
-              "div",
-              { className: "dshp-detail" },
-              headers,
-              h("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
-              h("div", { className: "dshp-lib-note" }, detail.tones ? "\u57FA\u4E8E\u6570\u636E\u5185\u5E73\u4EC4\u6807\u6CE8\u68C0\u6D4B" : "\u5DF2\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF08\u591A\u97F3\u5B57\u53D6\u5019\u9009\uFF09"),
-              h(DetectionView, { report: poemReport, api })
-            );
-          }
-          return h(
-            "div",
-            { className: "dshp-detail" },
-            headers,
-            h("div", { className: "dshp-lib-note" }, "\u8F93\u5165 4 \u53E5\u6216 8 \u53E5\uFF08\u6BCF\u53E5 5 \u6216 7 \u5B57\uFF0C\u53EF\u542B\u6807\u70B9\uFF09\uFF0C\u9010\u5B57\u6807\u6CE8\u5E73\u4EC4\u4E0E\u97F5\u90E8\u3002"),
-            h("textarea", {
-              className: "dshp-textarea",
-              rows: 6,
-              value: inputText,
-              placeholder: "\u4F8B\u5982\uFF1A\n\u7A7A\u5C71\u4E0D\u89C1\u4EBA\uFF0C\n\u4F46\u95FB\u4EBA\u8BED\u54CD\u3002\n\u8FD4\u666F\u5165\u6DF1\u6797\uFF0C\n\u590D\u7167\u9752\u82D4\u4E0A\u3002",
-              onChange: (event) => setInputText(event.target.value)
-            }),
-            h(
-              "div",
-              { className: "dshp-fh-actions" },
-              h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: runInputDetection }, "\u5F00\u59CB\u68C0\u6D4B"),
-              h("button", { type: "button", className: "dshp-btn", onClick: () => {
-                setInputText("");
-                setInputReport(null);
-              } }, "\u6E05\u7A7A")
-            ),
-            inputReport ? h(DetectionView, { report: inputReport, api }) : null
-          );
-        }
-        if (detector) {
-          return h(
-            "div",
-            null,
-            h(
-              "div",
-              { className: "dshp-fh-chips" },
-              h("button", { type: "button", className: "dshp-fh-chip", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165"),
-              detail ? h("button", { type: "button", className: "dshp-fh-chip dshp-is-active", onClick: () => setDetector("poem") }, "\u68C0\u6D4B\u300A" + detail.title + "\u300B") : null
-            ),
-            renderDetector()
-          );
-        }
-        if (detail) {
-          const rhymeIndexes = detail.tones && Array.isArray(detail.rhymeIdx) ? detail.rhymeIdx : [];
-          const rhymeSet = {};
-          for (const index of rhymeIndexes) rhymeSet[index] = true;
-          const rows = [];
-          const lines = Array.isArray(detail.lines) ? detail.lines : [];
-          for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-            rows.push(h(ToneLine, {
-              key: lineIndex,
-              line: lines[lineIndex],
-              tones: detail.tones ? detail.tones[lineIndex] : "",
-              rhyme: Boolean(rhymeSet[lineIndex]),
-              showTones: Boolean(detail.tones)
-            }));
-          }
-          return h(
-            "div",
-            { className: "dshp-detail" },
-            h(
-              "div",
-              { className: "dshp-fh-actions" },
-              h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
-                setDetail(null);
-                setDetector("");
-              } }, "\u2190 \u8FD4\u56DE\u5217\u8868"),
-              h("button", { type: "button", className: "dshp-btn dshp-btn-small dshp-btn-primary", onClick: () => {
-                setDetector("poem");
-                if (typeof api.reloadPingshui === "function" && !pingshui) api.reloadPingshui().catch(() => {
-                });
-              } }, "\u683C\u5F8B\u68C0\u6D4B")
-            ),
-            h("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
-            h(
-              "div",
-              { className: "dshp-lib-note" },
-              ((LIBRARY_CATEGORIES.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
-            ),
-            detail.tones ? h("div", { className: "dshp-lib-lines" }, rows) : h("div", { className: "dshp-lib-plain" }, lines.map((line, index) => h("div", { key: index }, line))),
-            detail.tones ? h(
-              "div",
-              { className: "dshp-lib-tags" },
-              detail.form ? h("span", { className: "dshp-tag" }, "\u4F53\u5F0F " + detail.form) : null,
-              detail.start ? h("span", { className: "dshp-tag" }, "\u8D77\u5F0F " + detail.start) : null,
-              detail.meter ? h("span", { className: "dshp-tag" }, detail.meter) : null
-            ) : h("div", { className: "dshp-lib-note" }, "\u672A\u6807\u6CE8\u5E73\u4EC4\uFF08\u53EF\u70B9\u300C\u683C\u5F8B\u68C0\u6D4B\u300D\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF09")
-          );
-        }
-        const ciModeActive = category === "ci-selected" || category === "ci-bank";
-        return h(
-          "div",
-          { className: "dshp-library" },
-          h(
-            "div",
-            { className: "dshp-fh-chips" },
-            h("button", { type: "button", className: "dshp-fh-chip" + (category === "all" ? " dshp-is-active" : ""), onClick: () => setCategory("all") }, "\u5168\u90E8 " + items.length),
-            LIBRARY_CATEGORIES.map((item) => {
-              const count = item.id === "ci-selected" ? ciRes.data ? ciSelectedCount : "\u2026" : items.filter((entry) => entry.categoryId === item.id).length;
-              return h("button", {
-                key: item.id,
-                type: "button",
-                className: "dshp-fh-chip" + (category === item.id ? " dshp-is-active" : ""),
-                onClick: () => setCategory(item.id)
-              }, item.label + " " + count);
-            })
-          ),
-          ciModeActive ? h(
-            "div",
-            { className: "dshp-search", style: { marginTop: 0 } },
-            h(
-              "div",
-              { className: "dshp-seg" },
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (category === "ci-selected" ? " dshp-is-active" : ""),
-                onClick: () => setCategory("ci-selected")
-              }, "\u5B8B\u8BCD\u7CBE\u9009 " + (ciRes.data ? ciSelectedCount : "\u2026")),
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (category === "ci-bank" ? " dshp-is-active" : ""),
-                onClick: () => {
-                  setCategory("ci-bank");
-                }
-              }, "\u5168\u90E8\u5B8B\u8BCD" + (ciBankRes.data ? "\uFF08" + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + "\uFF09" : "\uFF08\u70B9\u51FB\u52A0\u8F7D\uFF09"))
-            ),
-            h(
-              "select",
-              {
-                className: "dshp-select",
-                value: ciRhythmic,
-                "aria-label": category === "ci-bank" ? "\u6309\u8BCD\u724C\u7B5B\u9009\u5168\u90E8\u5B8B\u8BCD" : "\u6309\u8BCD\u724C\u7B5B\u9009\u5B8B\u8BCD\u7CBE\u9009",
-                onChange: (event) => setCiRhythmic(event.target.value)
-              },
-              h("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
-              (ciRhythmic && !ciRhythmics.some((entry) => entry.name === ciRhythmic) ? [{ name: ciRhythmic, count: 0 }].concat(ciRhythmics) : ciRhythmics).slice(0, 300).map((entry) => h("option", { key: entry.name, value: entry.name }, entry.name + "\uFF08" + entry.count + "\uFF09"))
-            ),
-            h("span", { className: "dshp-pager-label" }, category === "ci-bank" ? ciBankRes.data ? "\u5DF2\u8F7D\u5165 " + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + " \u9996" : "\u8F7D\u5165\u4E2D\u2026" : ciRes.data ? "\u5DF2\u8F7D\u5165 " + ciSelectedCount + " \u9996" : "\u8F7D\u5165\u4E2D\u2026")
-          ) : null,
-          h(
-            "div",
-            { className: "dshp-search" },
-            h("input", {
-              className: "dshp-input",
-              type: "search",
-              value: query,
-              placeholder: "\u641C\u7D22\u6807\u9898 / \u4F5C\u8005 / \u8BCD\u724C / \u8BD7\u53E5",
-              "aria-label": "\u641C\u7D22\u8BD7\u5E93",
-              onChange: (event) => setQuery(event.target.value)
-            }),
-            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u683C\u5F8B\u81EA\u6D4B")
-          ),
-          debounced ? h(
-            "div",
-            { className: "dshp-search", style: { marginBottom: "4px" } },
-            h("span", { className: "dshp-pager-label" }, "\u641C\u7D22\u8303\u56F4"),
-            ciModeActive ? h(
-              "div",
-              { className: "dshp-seg" },
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (ciSearchScope === "selected" ? " dshp-is-active" : ""),
-                onClick: () => setCiSearchScope("selected")
-              }, "\u7CBE\u9009"),
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (ciSearchScope === "allCi" ? " dshp-is-active" : ""),
-                onClick: () => {
-                  setCiSearchScope("allCi");
-                }
-              }, "\u5168\u90E8\u5B8B\u8BCD")
-            ) : h(
-              "div",
-              { className: "dshp-seg" },
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (searchScope === "category" ? " dshp-is-active" : ""),
-                onClick: () => setSearchScope("category")
-              }, "\u5F53\u524D\u5206\u7C7B"),
-              h("button", {
-                type: "button",
-                className: "dshp-seg-btn" + (searchScope === "all" ? " dshp-is-active" : ""),
-                onClick: () => setSearchScope("all")
-              }, "\u5168\u90E8")
-            ),
-            ciModeActive && ciSearchScope === "allCi" && !ciBankRes.data ? h("span", { className: "dshp-pager-label" }, ciBankRes.status === "loading" ? "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009\u2026" : "\u5B8B\u8BCD\u5168\u5E93\u672A\u52A0\u8F7D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009") : null
-          ) : null,
-          ciSelectedLoading ? ciRes.status === "error" ? h(EmptyState, {
-            title: "\u5B8B\u8BCD\u7CBE\u9009\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(ciRes.error),
-            onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
-            })
-          }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5B8B\u8BCD\u7CBE\u9009 283 \u9996\u2026" }) : ciBankLoading ? ciBankRes.status === "error" ? h(EmptyState, {
-            title: "\u5168\u90E8\u5B8B\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: ciBankRes.error && ciBankRes.error.status === 404 ? "\u5B8B\u8BCD\u5168\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(ciBankRes.error),
-            onRetry: () => api.reloadCiBank && api.reloadCiBank().catch(() => {
-            })
-          }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5168\u90E8\u5B8B\u8BCD\uFF08\u7EA6 2 \u4E07\u9996\uFF0C\u9996\u6B21\u7A0D\u6162\uFF09\u2026" }) : h(
-            "div",
-            null,
-            h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996" + (debounced !== query ? "\uFF08\u641C\u7D22\u4E2D\u2026\uFF09" : "")),
-            shown.length ? h("div", { className: "dshp-list" }, shown.map((item) => h("button", {
-              key: item.id,
-              type: "button",
-              className: "dshp-row",
-              onClick: () => setDetail(item)
-            }, h(
-              "span",
-              { className: "dshp-row-main" },
-              h("span", { className: "dshp-row-title" }, libraryItemLabel(item)),
-              h("span", { className: "dshp-row-sub" }, (item.rhythmic ? "\u8BCD\u724C " + item.rhythmic + " \xB7 " : "") + ((Array.isArray(item.lines) ? item.lines[0] : "") || ""))
-            )))) : h(EmptyState, { title: "\u6CA1\u6709\u5339\u914D\u7684\u8BD7\u8BCD", message: "\u6362\u4E00\u4E2A\u5206\u7C7B\u6216\u5173\u952E\u8BCD\u8BD5\u8BD5\u3002", icon: "\u{1F4DA}" })
-          ),
-          filtered.length > shown.length ? h(
-            "div",
-            { style: { textAlign: "center", marginTop: "10px" } },
-            h("button", { type: "button", className: "dshp-btn", onClick: () => setVisible(visible + LIBRARY_PAGE) }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - shown.length) + " \u9996\uFF09")
-          ) : null
-        );
+        return ensureLibraryTab().LibraryTab(props);
       }
-      class WidgetBoundary extends React.Component {
-        constructor(props) {
-          super(props);
-          this.state = { failed: false };
-          this.handleRetry = this.handleRetry.bind(this);
-        }
-        static getDerivedStateFromError() {
-          return { failed: true };
-        }
-        componentDidCatch(error) {
-          try {
-            console.warn("[dsh-little-whale] \u6E32\u67D3\u5F02\u5E38\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u6700\u5C0F\u5F62\u8C61\uFF1A", error);
-          } catch (ignored) {
-          }
-        }
-        handleRetry() {
-          this.setState({ failed: false });
-        }
-        render() {
-          if (!this.state.failed) return this.props.children;
-          return h(
-            "div",
-            {
-              "data-dsh-little-whale": "root",
-              className: "dshp-root",
-              style: {
-                position: "fixed",
-                left: "16px",
-                bottom: "24px",
-                zIndex: Z_INDEX,
-                pointerEvents: "auto",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "6px",
-                padding: "8px"
-              }
-            },
-            h("style", null, CSS),
-            h("img", {
-              src: mascotUrl(MASCOT_FILES.celebrate),
-              alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
-              width: 64,
-              height: 64,
-              draggable: false,
-              style: { display: "block" }
-            }),
-            h("button", {
-              type: "button",
-              className: "dshp-btn",
-              onClick: this.handleRetry
-            }, "\u6302\u4EF6\u663E\u793A\u5F02\u5E38\uFF0C\u70B9\u6B64\u91CD\u8BD5")
-          );
-        }
+      function WidgetBoundary(props) {
+        return ensureLibraryTab().WidgetBoundary(props);
       }
       function apply(ctx) {
         const host = (props) => h(WidgetBoundary, null, h(PoetryWidget, Object.assign({}, props || {}, { ctx })));

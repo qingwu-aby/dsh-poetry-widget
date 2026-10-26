@@ -156,3 +156,4 @@
 | H53 | 任意公开网页安全抓取 + 搜索 | ✅ | 私网/保留地址/DNS 全地址/重定向逐跳校验、80/443、2MB/12s、content-type 白名单、HTML 提取、DuckDuckGo 无密钥搜索；接入溜达（先搜 experiencing，失败回落维基）；`DSH_POETRY_WEB=off` 可关；host 241 |
 | H54 | 公网漫游 + 碎碎念去数组化 | ✅ | 溜达记住落脚页并从其链接继续走（失败→搜索→维基）；碎碎念默认不挑主题/话题，由心情+今天+过往综合生成；todayJournal 素材；409/409 |
 | H55 | DeepSeek Search/Fetch 接入 | ✅ | 有 key 时搜索优先官方 API（可直接带正文），失败回落 Wikipedia；抓取失败可 Fetch 兜底；无 key 行为不变；密钥仅环境变量；410/410 |
+| H56 | client 面板组件拆分 + DeepSeek key 入口 | ✅ | Settings/Growth/Feihua/Library 四个面板拆到独立模块；client.js 源文件 5,656 行；DeepSeek key 统一走 `resolveDeepSeekApiKey`（仅环境变量，凭据入口保留未启用）；410/410 |
