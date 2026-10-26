@@ -1231,3 +1231,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - index：works 成功/失败、manual-reading 结果入账；selfDrive 读账本；health/归档。
 - self-drive：prompt 规定 outcome 只能来自真实观测；无观测则丢弃模型编的 outcome。
 - 测试：账本/hasSince/prompt；无观测不写 outcome、有观测才回写；host 267，全套 431/431。
+
+## 126. 项目期限与错过（M122，2026-10-26）
+
+- self-projects：dueAt/dueInHours（4–168h）；dueState；过期+6h 宽限 → expire 记 missed，项目结束不可回滚。
+- self-drive：prompt 显示剩余/过期；项目快照带 due；过期回调 journal。
+- index：onProjectExpired → journal thought。
+- 测试：期限/宽限/错过/missed 持久化；host 268，全套 432/432。

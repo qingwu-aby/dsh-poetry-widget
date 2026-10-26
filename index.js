@@ -549,6 +549,11 @@ export async function apply(ctx) {
         events: selfEvents,
         metabolism: selfMetabolism,
         worldFeedback,
+        onProjectExpired: (project) => {
+          const title = project && typeof project.title === 'string' ? project.title : ''
+          if (title.length === 0) return undefined
+          return journal.append({ kind: 'thought', text: `这件事到期限了，我没做完：${title}` }).catch(() => undefined)
+        },
         onEventClosed: (event) => {
           const text = event && typeof event.topic === 'string' ? `这件事先放下了：${event.topic}` : ''
           if (text.length === 0) return undefined

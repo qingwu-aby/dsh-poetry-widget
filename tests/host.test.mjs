@@ -10146,7 +10146,7 @@ test('self-drive v2.8：自处 prompt 带当前项目，模型输出 project 能
     }),
   )
   assert.equal(parsed.ok, true)
-  assert.deepEqual(parsed.project, { title: '', step: '今天把枯叶剪掉。', status: 'continue' })
+  assert.deepEqual(parsed.project, { title: '', step: '今天把枯叶剪掉。', status: 'continue', dueInHours: null })
 })
 
 test('memory-recall v2.8：当前项目进入碎碎念素材', () => {
@@ -10710,4 +10710,24 @@ test('self-drive v2.23：没有真实观测时，模型不能把猜测写成 out
   saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
   assert.equal(saved[0].outcome, '两碗其实一样咸。', '有真实观测 → outcome 回写')
   drive.dispose()
+})
+
+test('self-projects v2.24：项目有真实期限，错过就记为 missed，不可回滚', () => {
+  const dir = makeTmpDir('dshp-project-due')
+  let clock = FIXED_NOW.getTime()
+  const projects = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => clock, logger: { warn() {} } })
+  projects.apply({ title: '把薄荷养回来', step: '先转个方向。', dueInHours: 4 }, clock)
+  assert.equal(projects.dueState(clock).overdue, false)
+  assert.ok(projects.dueState(clock).remainingMs > 0)
+  clock += 4 * 60 * 60 * 1000 + 60_000
+  assert.equal(projects.dueState(clock).overdue, true)
+  assert.equal(projects.expire(clock), null, '还在宽限期内')
+  clock += 6 * 60 * 60 * 1000 + 60_000
+  const missed = projects.expire(clock)
+  assert.ok(missed)
+  assert.equal(missed.outcome, 'missed')
+  assert.equal(projects.snapshot().current, null)
+  assert.equal(projects.snapshot().completedCount, 1)
+  const reread = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => clock })
+  assert.equal(reread.snapshot().recentCompleted[0].outcome, 'missed')
 })
