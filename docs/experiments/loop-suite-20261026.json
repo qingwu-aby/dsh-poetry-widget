@@ -1,0 +1,55 @@
+{
+  "task": "loop-scope-suite",
+  "ranAt": "2026-10-26T13:12:15.057Z",
+  "phases": [
+    {
+      "id": "A",
+      "label": "固定事件重复",
+      "actions": 3,
+      "pauses": 3,
+      "satiated": true,
+      "topic": "两碗汤的咸淡"
+    },
+    {
+      "id": "B",
+      "label": "同一事件换说法（关系=same）",
+      "actions": 3,
+      "pauses": 3,
+      "currentTopic": "盐和换水温的时机",
+      "bypass": false,
+      "satiated": true
+    },
+    {
+      "id": "C",
+      "label": "只反刍不行动",
+      "actions": 0,
+      "pauses": 0,
+      "satiated": false
+    },
+    {
+      "id": "D",
+      "label": "碎碎念循环",
+      "generations": 4,
+      "outputs": [
+        "",
+        "",
+        "",
+        ""
+      ],
+      "stopped": false
+    },
+    {
+      "id": "E",
+      "label": "作品生成循环",
+      "works": 4,
+      "stopped": false
+    }
+  ],
+  "effective": {
+    "actionLayer": true,
+    "relabelBypass": false,
+    "ruminationStopped": false,
+    "selfTalkStopped": false,
+    "worksStopped": false
+  }
+}

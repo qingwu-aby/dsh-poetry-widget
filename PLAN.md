@@ -1194,3 +1194,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 结果：A 3 动作/3 暂停，事件 satiated；B 6 动作/0 暂停（换 topic 标签绕过）；C 0 动作（反刍无入口）；D 碎碎念 4 次生成无饱和；E 作品 4 件无饱和。
 - 结论：有效范围 = self-drive 动作层 × 精确 topic × ≤3 次；需要语义 topic、共享事件状态、关闭记忆、跨服务接入。
 - 下一轮优化（v2.19+）：事件总线/共享事件 id；语义 topic 解析；journal/self-talk/mood 的关闭标记；承诺例外。
+
+## 121. 统一场景任务 + 事件关系（M117，2026-10-26）
+
+- `scripts/experiment-loop-suite.mjs`：A/B/C/D/E 顺序跑；报告 `docs/experiments/loop-suite-<date>.json`。
+- self-drive 增加 `eventRelation: same|new`：prompt 带当前事件；same 时用当前 event.topic 归并，而不是新 topic 重置。
+- 结果：A 3 动作/3 暂停，B（same）3/3 停；C 0 动作无入口；D 4 次生成无饱和；E 4 件无饱和。
+- 下一层优化：共享事件状态（self-talk/mood/journal/works）、关闭记忆、别名语义合并、项目豁免。
