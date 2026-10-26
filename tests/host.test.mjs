@@ -10242,6 +10242,9 @@ test('self-works v2.11：生成/清洗/保存/索引/只读路由', async () => 
   })
   const result = await works.makeNow({ idea: '傍晚的光' })
   assert.equal(result.ok, true)
+  const duplicate = await works.makeNow({ idea: '傍晚的光' })
+  assert.equal(duplicate.ok, false)
+  assert.equal(duplicate.reason, 'duplicate')
   const file = path.join(dir, result.work.file)
   assert.equal(fs.existsSync(file), true)
   const svg = fs.readFileSync(file, 'utf8')
@@ -10574,7 +10577,7 @@ test('self-talk v2.20：共享事件状态进入 prompt，生成后记 narration
   const now = FIXED_NOW.getTime()
   const events = createSelfEvents({ file: path.join(dir, 'events.json'), now: () => now })
   events.observe('两碗汤的咸淡', now)
-  for (let i = 0; i < 5; i += 1) events.engage('narration', now + i)
+  for (let i = 0; i < 3; i += 1) events.engage('narration', now + i)
   let prompt = ''
   const llm = makeMockLlm((options) => {
     prompt = options.messages[0].content[0].text
@@ -10593,6 +10596,12 @@ test('self-talk v2.20：共享事件状态进入 prompt，生成后记 narration
   const result = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
   assert.equal(result.ok, true)
   assert.match(prompt, /两碗汤的咸淡/)
-  assert.match(prompt, /已经说够了/)
-  assert.equal(events.snapshot().current.channels.narration, 6)
+  assert.equal(events.snapshot().current.channels.narration, 4)
+  // 继续参与到饱和，再生成应被硬停
+  events.engage('narration', now + 10)
+  events.engage('narration', now + 11)
+  assert.equal(events.describe(now + 12).satiated, true)
+  const blocked = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.error.code, 'SELF_TALK_EVENT_SATIATED')
 })

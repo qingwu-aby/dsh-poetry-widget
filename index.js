@@ -339,6 +339,11 @@ export async function apply(ctx) {
         topics: topicBank,
         recall: memoryRecall,
         events: selfEvents,
+        onEventSatiated: (event) => {
+          const topic = event && typeof event.topic === 'string' ? event.topic : ''
+          if (topic.length === 0) return undefined
+          return journal.append({ kind: 'thought', text: `这件事我先放下了：${topic}` }).catch(() => undefined)
+        },
         voice: () => voiceService.get(),
         refreshVoice: () => voiceService.refreshNow(),
         policy: modelPolicy,

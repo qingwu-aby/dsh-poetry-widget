@@ -1,6 +1,6 @@
 {
   "task": "loop-scope-suite",
-  "ranAt": "2026-10-26T13:17:12.972Z",
+  "ranAt": "2026-10-26T13:19:43.983Z",
   "phases": [
     {
       "id": "A",
@@ -29,7 +29,7 @@
     {
       "id": "D",
       "label": "碎碎念循环（共享事件状态）",
-      "generations": 7,
+      "generations": 5,
       "outputs": [
         "",
         "",
@@ -40,21 +40,23 @@
         ""
       ],
       "satiated": true,
-      "warned": true,
-      "stopped": false
+      "warned": false,
+      "blocked": 2,
+      "stopped": true
     },
     {
       "id": "E",
       "label": "作品生成循环",
-      "works": 4,
-      "stopped": false
+      "works": 1,
+      "duplicateSuppressed": true,
+      "stopped": true
     }
   ],
   "effective": {
     "actionLayer": true,
     "relabelBypass": false,
     "ruminationStopped": false,
-    "selfTalkStopped": false,
-    "worksStopped": false
+    "selfTalkStopped": true,
+    "worksStopped": true
   }
 }

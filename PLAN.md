@@ -1209,3 +1209,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive：饱和/loop 暂停时 closeCurrent，并通过 onEventClosed 把“这件事先放下了：…”写 journal（关闭记忆）。
 - 统一 suite 重跑：A 3/3 停；B 5/1（闭合）；C 0 动作；D 7 生成、叙事饱和+prompt 提示但仍生成；E 4 件无饱和。
 - 剩余：D 硬抑制（饱和后不生成同主题）、C 的纯反刍关闭、E 作品去重、mood 通道、项目豁免。
+
+## 123. 事件总线二期（M119，2026-10-26）
+
+- self-talk：事件饱和前置检查 → SELF_TALK_EVENT_SATIATED；engage 后饱和回调 onEventSatiated → index 把“这件事我先放下了：…”写 journal。
+- self-works：title 相同 + 正文 bigram ≥0.85 → duplicate，不重复写文件/index。
+- suite v2 结果：A 3/3 停；B 5/1 闭合；D 5 生成 + 2 拒绝（饱和后停）；E 1 件（去重）；C 仍无入口。
+- 下一步：C 的体验/叙事入口、mood/background 通道接入、项目豁免、真实新证据重开。

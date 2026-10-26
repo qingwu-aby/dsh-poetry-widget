@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **事件总线二期：叙事硬停 + 作品去重（v2.21）**：self-talk 在事件饱和后直接返回 `SELF_TALK_EVENT_SATIATED`（不再生成同主题的碎碎念），叙事通道参与饱和计数并在饱和时回调关闭记忆；作品对同一 title + 高相似正文直接去重，不再重复产出。统一 suite v2：A 停、B 停/闭合、D 饱和后停止生成、E 重复去重；C（纯反刍、不行动）仍无入口，留给下一层“叙事/体验通道”处理。
 - **事件总线第一步：共享事件状态 + 关闭记忆（v2.20）**：`events.json` 升级为 eventId/aliases/channels/status/conclusion；同一事件的动作、叙事、心情、作品通道共同消耗兴趣，总参与度到 6 次或动作 3 次即饱和；self-talk 生成时读取当前事件（饱和后 prompt 明确“已经说够了，别再说它”），生成成功后把 narration 计入事件；self-drive 饱和/loop 暂停时关闭事件并把“这件事先放下了：…”写入 journal（关闭记忆），之后可以换事件或被新证据重开。统一 suite 重跑：A/B 仍停，D 已出现“叙事饱和 + prompt 提示”（但仍会生成，下一步做硬抑制），C/E 仍未闭合。
 - **统一打转场景任务 + 事件关系（v2.19）**：新增 `scripts/experiment-loop-suite.mjs`（`npm run experiment:suite`），一条时间线顺序覆盖 A 固定事件 / B 换说法 / C 纯反刍 / D 碎碎念 / E 作品；并给自处加 `eventRelation: same|new`——同一件事即使换说法，只要她承认还是同一件，就归并到当前事件而不是重置计数。最新结果：A 停；B（关系=same）停；C/D/E 仍无饱和。这说明“语义关系”能修换壳，但叙事/产出层仍需共享事件状态。
 - **打转机制有效范围实验（v2.18）**：新增 `scripts/experiment-loop-scope.mjs`（`npm run experiment:loop`），用脚本化模型驱动真实 self-drive/events/self-talk/works，得到：A 同一 topic 同一动作 → 3 次后停；B 同一事件换 topic 标签 → 6 次全部绕过；C 只反刍不行动 → 无动作可停；D 碎碎念 → 4 次生成无饱和；E 作品 → 4 件无饱和。结论：当前循环只覆盖“动作层 + 精确 topic”，其余场景只是换壳。下一轮优化重点是语义 topic 身份 + 跨层事件状态 + 关闭记忆。

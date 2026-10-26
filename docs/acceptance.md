@@ -174,3 +174,4 @@
 | H71 | 打转机制有效范围实验 | ✅ | A 会停/B 换壳绕过/C 反刍无入口/D 碎碎念无饱和/E 作品无饱和；425/425 |
 | H72 | 统一打转场景任务 + 事件关系 | ✅ | A 停/B same 停/C 无入口/D 无饱和/E 无饱和；eventRelation 归并；425/425 |
 | H73 | 事件总线第一步 | ✅ | eventId/channels/conclusion；self-talk 共享饱和；关闭语写 journal；suite A/B停、D 叙事饱和但仍生成；427/427 |
+| H74 | 事件总线二期 | ✅ | self-talk 饱和后硬停；叙事饱和回调关闭记忆；作品重复去重；suite A/B/D/E 生效、C 待接入；427/427 |

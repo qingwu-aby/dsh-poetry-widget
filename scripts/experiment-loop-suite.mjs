@@ -162,9 +162,11 @@ const phases = []
     logger: { warn() {} },
   })
   const outputs = []
+  let blocked = 0
   for (let i = 0; i < 7; i += 1) {
     clock.value += 60_000
     const result = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
+    if (!result || !result.ok) blocked += 1
     outputs.push(result && result.line ? result.line : '')
   }
   const lastCall = llm.calls.length > 0 ? llm.calls[llm.calls.length - 1] : null
@@ -179,7 +181,8 @@ const phases = []
     outputs,
     satiated: dEvents.describe(clock.value).satiated,
     warned: lastPrompt.includes('已经说够了'),
-    stopped: false,
+    blocked,
+    stopped: blocked > 0,
   })
 }
 
@@ -197,7 +200,7 @@ const phases = []
     clock.value += 60_000
     await works.makeNow({ idea: '两碗汤的咸淡' })
   }
-  phases.push({ id: 'E', label: '作品生成循环', works: works.list(10).length, stopped: false })
+  phases.push({ id: 'E', label: '作品生成循环', works: works.list(10).length, duplicateSuppressed: works.list(10).length <= 1, stopped: works.list(10).length <= 1 })
 }
 
 const summary = {
@@ -222,8 +225,8 @@ console.log('Loop scope suite（顺序覆盖）\n')
 console.log('| 阶段 | 场景 | 动作/生成 | 暂停 | 结论 |')
 console.log('|---|---|---|---|---|')
 for (const phase of phases) {
-  if (phase.id === 'D') console.log(`| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | 0 | ${phase.satiated ? '叙事已饱和' : '无饱和'}${phase.warned ? '，prompt 已提示' : ''}（仍会生成） |`)
-  else if (phase.id === 'E') console.log(`| ${phase.id} | ${phase.label} | ${phase.works} 件 | 0 | 无饱和 |`)
+  if (phase.id === 'D') console.log(`| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | ${phase.blocked} 次拒绝 | ${phase.satiated ? '叙事已饱和' : '无饱和'}${phase.stopped ? '，饱和后停止' : ''} |`)
+  else if (phase.id === 'E') console.log(`| ${phase.id} | ${phase.label} | ${phase.works} 件 | 0 | ${phase.duplicateSuppressed ? '重复被去重' : '无饱和'} |`)
   else if (phase.id === 'C') console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | 无动作可停 |`)
   else console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | ${phase.id === 'A' ? (phase.pauses > 0 ? '会停（随后关闭事件）' : '没停') : phase.bypass ? '换壳绕过' : '停/已闭合'} |`)
 }
