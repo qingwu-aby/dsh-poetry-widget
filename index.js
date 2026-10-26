@@ -45,6 +45,7 @@ import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
 import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
+import { createWorldFeedback } from './lib/world-feedback.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -125,6 +126,8 @@ export async function apply(ctx) {
     projectsPath: resolveProjectsPath(env, home),
   })
   const journal = createMemoryJournal({ dir: memoryDir, logger })
+  // v2.23：真实世界反馈账本（只记真实发生的事，模型不能编 outcome）。
+  const worldFeedback = createWorldFeedback({ logger })
   // v2.22：硅基代谢——每次真实模型调用消耗一点注意力，能量随时间恢复。
   let selfStateRef = null
   const selfMetabolism = createMetabolism({
@@ -202,7 +205,20 @@ export async function apply(ctx) {
       // v2.3：有 DeepSeek API Key 时，搜索优先走官方 Search/Fetch（按次计费，可回落）。
       const deepseekWebKey = resolveDeepSeekApiKey(env)
       const deepseekWeb = createDeepSeekWeb({ apiKey: deepseekWebKey, logger })
-      const webAccess = createWebAccess({ env, logger, deepseek: deepseekWeb })
+      const webAccess = createWebAccess({
+        env,
+        logger,
+        deepseek: deepseekWeb,
+        onFetch: (observation) =>
+          worldFeedback.record({
+            source: 'web',
+            kind: 'fetch',
+            ok: observation.ok === true,
+            summary: observation.ok
+              ? `${observation.title || observation.url}（${observation.status}，${observation.bytes} bytes）`
+              : `${observation.url}：${observation.error || '失败'}`,
+          }),
+      })
       logger?.info?.(
         `[dsh-little-whale] 公网搜索：${deepseekWeb !== null ? 'DeepSeek Search/Fetch（有 key）' : 'Wikipedia（无 key，可用 DSH_POETRY_DEEPSEEK_API_KEY 升级）'}`,
       )
@@ -532,6 +548,7 @@ export async function apply(ctx) {
         projects: selfProjects,
         events: selfEvents,
         metabolism: selfMetabolism,
+        worldFeedback,
         onEventClosed: (event) => {
           const text = event && typeof event.topic === 'string' ? `这件事先放下了：${event.topic}` : ''
           if (text.length === 0) return undefined
@@ -544,7 +561,16 @@ export async function apply(ctx) {
         onLearn: () => growth.learnNow(),
         // v1.62：注意力集中时，她自己会提出一个“可以去看看”的介入；喜不喜欢由她判断。
         onProbe: (focus) => growth.probeNow({ focus }),
-        onMake: (input) => selfWorks.makeNow(input),
+        onMake: async (input) => {
+          const result = await selfWorks.makeNow(input)
+          worldFeedback.record({
+            source: 'works',
+            kind: 'make',
+            ok: result.ok === true,
+            summary: result.ok && result.work ? result.work.title : result.reason || '作品没有写成',
+          })
+          return result
+        },
         checkMinMs: autonomy.driveCheckMinMs,
         checkMaxMs: autonomy.driveCheckMaxMs,
         retryMinMs: autonomy.driveRetryMinMs,
@@ -712,6 +738,7 @@ export async function apply(ctx) {
           works: selfWorks.snapshot(),
           events: selfEvents.snapshot(),
           metabolism: selfMetabolism.snapshot(),
+          worldFeedback: worldFeedback.recent(5),
         }),
         env,
         home,
@@ -756,7 +783,21 @@ export async function apply(ctx) {
         webServer.register({
           kind: 'exact',
           path: '/api/dsh-poetry/manual-read.json',
-          handler: createManualReadHandler({ service: manualReading, tokenFile: manualTokenFile }),
+          handler: createManualReadHandler({
+            service: {
+              read: async (input) => {
+                const result = await manualReading.read(input)
+                worldFeedback.record({
+                  source: 'manual-reading',
+                  kind: 'read',
+                  ok: result.ok === true,
+                  summary: result.ok ? `${result.title}：${String(result.thought || '').slice(0, 80)}` : result.error || '没读成',
+                })
+                return result
+              },
+            },
+            tokenFile: manualTokenFile,
+          }),
         }),
       )
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。

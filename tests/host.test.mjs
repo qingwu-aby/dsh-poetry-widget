@@ -224,6 +224,7 @@ import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
+import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -10649,5 +10650,64 @@ test('self-drive v2.22：力气不够时不执行动作', async () => {
   assert.equal(result.paused, true)
   assert.equal(result.tired, true)
   assert.equal(result.action, null)
+  drive.dispose()
+})
+
+test('world-feedback v2.23：只记真实观测，且能判断某动作之后有没有真实结果', () => {
+  const dir = makeTmpDir('dshp-world-feedback')
+  const now = FIXED_NOW.getTime()
+  const feedback = createWorldFeedback({ file: path.join(dir, 'world-feedback.jsonl'), now: () => now })
+  assert.equal(feedback.hasSince(now - 1000), false)
+  feedback.record({ source: 'web', kind: 'fetch', ok: true, summary: '一篇文章（200，1234 bytes）' })
+  assert.equal(feedback.hasSince(now - 1000), true)
+  feedback.record({ source: 'works', kind: 'make', ok: false, summary: '没写成' })
+  assert.equal(feedback.recent(5).length, 2)
+  const prompt = feedback.formatForPrompt(5)
+  assert.match(prompt, /真实发生的事/)
+  assert.match(prompt, /web\/fetch/)
+  assert.match(prompt, /失败/)
+})
+
+test('self-drive v2.23：没有真实观测时，模型不能把猜测写成 outcome', async () => {
+  const dir = makeTmpDir('dshp-drive-world')
+  const actionsPath = path.join(dir, 'actions.json')
+  const now = FIXED_NOW.getTime()
+  fs.writeFileSync(
+    actionsPath,
+    JSON.stringify({
+      ok: true, v: 1,
+      actions: [{ id: 'a1', kind: 'doing', label: '尝汤', text: '再尝一口汤。', at: now - 10_000, expect: '我以为两碗会不一样。' }],
+    }),
+  )
+  const llm = makeMockLlm(() => JSON.stringify({ felt: '还在想那两碗汤。', doing: '再尝一口', outcome: '两碗其实一样咸。' }))
+  const makeDrive = (hasSince) => createSelfDrive({
+    state: { snapshot: () => ({ sleeping: false }), setFelt() {}, markChecked() {}, applyEvent() {} },
+    llm,
+    actionsPath,
+    worldFeedback: { formatForPrompt: () => '', hasSince: () => hasSince },
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => now,
+    minGapMs: 0,
+    checkMinMs: 1,
+    checkMaxMs: 2,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  let drive = makeDrive(false)
+  drive.load()
+  await drive.check(now)
+  let saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
+  assert.equal(saved[0].outcome, undefined, '没有真实观测 → 不写 outcome')
+  drive.dispose()
+  fs.writeFileSync(
+    actionsPath,
+    JSON.stringify({ ok: true, v: 1, actions: [{ id: 'a1', kind: 'doing', label: '尝汤', text: '再尝一口汤。', at: now - 10_000, expect: '我以为两碗会不一样。' }] }),
+  )
+  drive = makeDrive(true)
+  drive.load()
+  await drive.check(now)
+  saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
+  assert.equal(saved[0].outcome, '两碗其实一样咸。', '有真实观测 → outcome 回写')
   drive.dispose()
 })

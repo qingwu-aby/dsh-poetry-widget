@@ -1223,3 +1223,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive：prompt 带代谢描述；力气不够时动作暂停（tired）。
 - index：代谢在 model-budget 之前创建，健康快照 + 归档包含 metabolism.json。
 - 测试：消耗/恢复/低能量挡动作；host 265，全套 429/429。
+
+## 125. 真实世界反馈账本（M121，2026-10-26）
+
+- `lib/world-feedback.mjs`：JSONL observation 账本（source/kind/ok/summary/ts）；hasSince() 判断动作后是否有真实观测；formatForPrompt。
+- safe-web：onFetch 回调记录真实抓取成功/失败。
+- index：works 成功/失败、manual-reading 结果入账；selfDrive 读账本；health/归档。
+- self-drive：prompt 规定 outcome 只能来自真实观测；无观测则丢弃模型编的 outcome。
+- 测试：账本/hasSince/prompt；无观测不写 outcome、有观测才回写；host 267，全套 431/431。

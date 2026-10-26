@@ -38,6 +38,7 @@ const STATE_FILES = [
   'projects.json',
   'events.json',
   'metabolism.json',
+  'world-feedback.jsonl',
   'probe-state.json',
   'wander-state.json',
   'read-state.json',
