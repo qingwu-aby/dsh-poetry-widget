@@ -1667,71 +1667,23 @@ test('mood：事件防抖落盘与读取时落盘', async () => {
   assert.equal(JSON.parse(fs.readFileSync(file3, 'utf8')).stats.assistantMessages, 1)
 })
 
-test('mood 路由：形状 / 零值 / 累计 / 栅栏 403', async () => {
-  const harness = createHarness()
-  let response = await harness.call('mood.json', mockRequest())
-  assert.equal(response.statusCode, 200)
-  let body = response.json()
-  assert.equal(body.ok, true)
-  assert.equal(body.date, '2026-10-21')
-  assert.equal(body.updatedAt, 0)
-  for (const key of MOOD_STAT_KEYS) assert.equal(body.stats[key], 0, key)
-
-  const base = FIXED_NOW.getTime()
-  harness.moodTracker.record({ id: 's1' }, moodEvent('user/message', base))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('assistant/message', base + 1_000))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/call', base + 2_000))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/result', base + 3_000, { error: { message: 'x' } }))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('turn/start', base + 4_000))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('turn/end', base + 5_000, { reason: { kind: 'completed' } }))
-
-  body = (await harness.call('mood.json', mockRequest())).json()
-  assert.equal(body.ok, true)
-  assert.equal(body.date, '2026-10-21')
-  assert.equal(body.stats.userMessages, 1)
-  assert.equal(body.stats.assistantMessages, 1)
-  assert.equal(body.stats.toolCalls, 1)
-  assert.equal(body.stats.toolErrors, 1)
-  assert.equal(body.stats.turns, 1)
-  assert.equal(body.stats.turnsCompleted, 1)
-  assert.equal(body.stats.activeMs, 5_000)
-  assert.equal(body.stats.sessions, 1)
-  assert.equal(body.stats.firstActivityAt, base)
-  assert.equal(body.stats.lastActivityAt, base + 5_000)
-
-  const crossed = await harness.call(
-    'mood.json',
-    mockRequest({ headers: { host: '127.0.0.1:57623', 'sec-fetch-site': 'cross-site' } }),
-  )
-  assert.equal(crossed.statusCode, 403)
-  assert.equal(crossed.json().error.code, 'FORBIDDEN')
-})
-
-test('mood 路由：未注入 tracker 时返回今日零值（200，不报错）', async () => {
+test('v1.58：mood.json 会话统计接口已移除（路由表不再注册）', () => {
   const dataDir = makeTmpDir('dshp-data')
   writeFixtureData(dataDir)
   const home = makeTmpDir('dshp-home')
   const settingsFile = path.join(home, '.dsh', '.dsh-poetry', 'settings.json')
-  const dataStore = createDataStore({ dataDir })
-  const settingsStore = createSettingsStore({ file: settingsFile })
-  const handlers = new Map(
-    createRouteTable({
-      dataStore,
-      settingsStore,
-      fence: createTrustFence({ getConnection: () => undefined }),
-      version: '0.1.0',
-      settingsFile,
-    }).map((route) => [route.path, route.handler]),
+  const routes = createRouteTable({
+    dataStore: createDataStore({ dataDir }),
+    settingsStore: createSettingsStore({ file: settingsFile }),
+    fence: createTrustFence({ getConnection: () => undefined }),
+    version: '0.1.0',
+    settingsFile,
+  })
+  assert.equal(
+    routes.some((route) => route.path === '/api/dsh-poetry/mood.json'),
+    false,
+    '插件不再提供会话活跃统计接口',
   )
-  const response = new MockResponse()
-  await handlers.get('/api/dsh-poetry/mood.json')(mockRequest(), response)
-  await response.finished()
-  assert.equal(response.statusCode, 200)
-  const body = response.json()
-  assert.equal(body.ok, true)
-  assert.equal(body.date, localDateKey())
-  for (const key of MOOD_STAT_KEYS) assert.equal(body.stats[key], 0, key)
-  assert.equal(body.updatedAt, 0)
 })
 
 test('settings：mood/spontaneousPoem 默认值与校验', async () => {
@@ -1815,22 +1767,21 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
       },
     }
 
+    // v1.58：不再监听会话事件；如果旧版 mood.json 存在，应改名 .retired 而不是继续使用。
+    fs.mkdirSync(path.join(dshHome, '.dsh-poetry'), { recursive: true })
+    fs.writeFileSync(path.join(dshHome, '.dsh-poetry', 'mood.json'), '{"stats":{}}', 'utf8')
     await pluginApply(fakeCtx)
-    assert.equal(listeners.has('session/event'), true, '注册了 session/event 监听')
-    assert.ok(
+    assert.equal(listeners.has('session/event'), false, '不注册 session/event 监听')
+    assert.equal(
       routes.some((route) => route.path === '/api/dsh-poetry/mood.json'),
-      '注册了 mood.json 路由',
+      false,
+      '不再注册 mood.json 路由',
     )
+    const retired = fs.readdirSync(path.join(dshHome, '.dsh-poetry')).filter((name) => name.startsWith('mood.json.retired-'))
+    assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
+    assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    const emit = listeners.get('session/event')
-    const base = new Date(2026, 9, 21, 12, 0, 0).getTime()
-    emit({ id: 'session-a' }, moodEvent('user/message', base))
-    emit({ id: 'session-a' }, moodEvent('assistant/message', base + 1_000))
-    emit({ id: 'session-a' }, moodEvent('tool/call', base + 2_000))
-    emit({ id: 'session-a' }, moodEvent('turn/start', base + 3_000))
-    emit({ id: 'session-a' }, moodEvent('turn/end', base + 4_000, { reason: { kind: 'completed' } }))
-
-    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 条 JSON 路由')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -1878,34 +1829,12 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(selfTalkResponse.json().ok, false)
     assert.equal(selfTalkResponse.json().error.code, 'SELF_TALK_UNAVAILABLE')
 
-    const moodRoute = routes.find((route) => route.path === '/api/dsh-poetry/mood.json')
-    const response = new MockResponse()
-    await moodRoute.handler(mockRequest({ url: '/api/dsh-poetry/mood.json' }), response)
-    await response.finished()
-    assert.equal(response.statusCode, 200)
-    const body = response.json()
-    assert.equal(body.ok, true)
-    assert.equal(body.stats.userMessages, 1)
-    assert.equal(body.stats.assistantMessages, 1)
-    assert.equal(body.stats.toolCalls, 1)
-    assert.equal(body.stats.turnsCompleted, 1)
-    assert.equal(body.stats.activeMs, 4_000)
-
-    // 模拟插件卸载：effect cleanup 必须注销监听、清定时器并落盘
+    // 模拟插件卸载：不应重新写回会话统计文件
     for (const cleanup of cleanups.reverse()) {
       if (typeof cleanup === 'function') cleanup()
     }
-    assert.equal(listeners.has('session/event'), false, '卸载后监听已注销')
-    const moodFile = path.join(dshHome, '.dsh-poetry', 'mood.json')
-    assert.equal(fs.existsSync(moodFile), true, '卸载时落盘 mood.json')
-    const moodText = fs.readFileSync(moodFile, 'utf8')
-    const onDisk = JSON.parse(moodText)
-    assert.equal(onDisk.stats.userMessages, 1)
-    assert.equal(onDisk.stats.turnsCompleted, 1)
-    // 隐私最小化：落盘只存会话 id 的哈希标记，不存原始 session id
-    assert.equal(moodText.includes('session-a'), false, '原始 session id 不落盘')
-    assert.equal(onDisk.sessionKeys.length, 1)
-    assert.match(onDisk.sessionKeys[0], /^[0-9a-f]{16}$/)
+    assert.equal(listeners.has('session/event'), false)
+    assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false, '不再写 mood.json')
   } finally {
     if (previousDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousDshHome
@@ -1951,8 +1880,6 @@ test('self-talk：buildSelfTalkPrompt 只有聚合上下文（无今日诗、无
     now: Date.UTC(2026, 9, 21, 2, 0, 0), // 2026-10-21 10:00 Asia/Shanghai
     weather: 'rain',
     moodKey: 'busy',
-    stats: { userMessages: 12, toolCalls: 34, activeMs: 31 * 60000 },
-    idleMinutes: 8,
     // v1.8b：今日诗元数据不再发送，即使调用方误传也必须丢弃
     poem: { title: '静夜思', author: '李白' },
     recent: ['最近说过的一句话'],
@@ -1965,10 +1892,9 @@ test('self-talk：buildSelfTalkPrompt 只有聚合上下文（无今日诗、无
   assert.match(prompt, /10:00/)
   assert.match(prompt, /雨（rain）/)
   assert.match(prompt, /busy（忙碌）/)
-  assert.match(prompt, /用户消息 12 条/)
-  assert.match(prompt, /工具调用 34 次/)
-  assert.match(prompt, /活跃约 31 分钟/)
-  assert.match(prompt, /8 分钟/)
+  assert.equal(prompt.includes('用户消息'), false, 'v1.58：不注入会话统计')
+  assert.equal(prompt.includes('工具调用'), false)
+  assert.equal(prompt.includes('活跃约'), false)
   assert.match(prompt, /最近说过的一句话/)
   assert.match(prompt, /不要重复/)
   assert.match(prompt, /不要引用/, 'user prompt 也应重申禁止引诗')
@@ -2258,13 +2184,10 @@ test('self-talk：最近 20 条生成文本参与去重（重复结果被丢弃�
 test('self-talk 路由：成功形状 + query 解析 + 隐私白名单 + 栅栏', async () => {
   const { llm, service } = makeSelfTalkHarness({ responder: () => SELF_TALK_LINES_A.join(SELF_TALK_SEP) })
   const harness = createHarness({ selfTalkService: service })
-  const base = FIXED_NOW.getTime()
-  harness.moodTracker.record({ id: 's1' }, moodEvent('user/message', base))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/call', base + 1000))
 
   const recent = encodeURIComponent(['第一句最近说过的话', '第二句最近说过的话'].join('|'))
   const url =
-    `/api/dsh-poetry/self-talk.json?kind=intro&mood=busy&weather=rain&idleMinutes=12&recent=${recent}` +
+    `/api/dsh-poetry/self-talk.json?kind=intro&mood=busy&weather=rain&recent=${recent}` +
     `&sessionMessages=${encodeURIComponent('超级机密对话内容')}`
   const response = await harness.call('self-talk.json', mockRequest({ url }))
   assert.equal(response.statusCode, 200)
@@ -2281,7 +2204,7 @@ test('self-talk 路由：成功形状 + query 解析 + 隐私白名单 + 栅栏'
   assert.equal(/intro/.test(userText), false, 'intro 已废弃')
   assert.match(userText, /busy/)
   assert.match(userText, /rain/)
-  assert.match(userText, /12 分钟/)
+  assert.equal(userText.includes('用户消息'), false, 'v1.58：不注入会话统计')
   assert.match(userText, /第一句最近说过的话/)
   // v1.8b：不再发送今日诗标题/作者（避免诱导背诗）
   assert.equal(/今天的诗/.test(userText), false)
@@ -2307,7 +2230,7 @@ test('self-talk 路由：非法 query 安全归一/截断（kind/idleMinutes/rec
   assert.equal(response.json().ok, true)
   const userText = llm.calls[0].messages[0].content[0].text
   assert.equal(/kind=/.test(userText), false, 'kind 固定 murmur，非法 kind 也不影响 prompt')
-  assert.equal(/距上次和用户互动/.test(userText), false, '非法 idleMinutes 忽略（无聚合回退时不输出）')
+  assert.equal(/距上次和用户互动/.test(userText), false, 'v1.58：不再注入互动间隔')
   const recentLines = userText.split('\n').filter((line) => line.startsWith('- '))
   assert.ok(recentLines.length <= 12, 'recent 最多 12 条（v1.22）')
   assert.equal(recentLines.length, 7, '7 条合法 recent 全部保留')
@@ -2372,18 +2295,6 @@ test('mood-ai：buildMoodPrompt 含图鉴清单+当天情境，无会话原文/�
       now: Date.UTC(2026, 9, 21, 2, 0, 0), // 2026-10-21 10:00 Asia/Shanghai
       weather: 'rain',
       moodKey: 'busy',
-      stats: {
-        userMessages: 12,
-        assistantMessages: 20,
-        toolCalls: 45,
-        toolErrors: 3,
-        turns: 6,
-        turnsCompleted: 5,
-        turnsErrored: 1,
-        activeMs: 33 * 60000,
-        sessions: 2,
-      },
-      idleMinutes: 8,
       recent: ['刚刚在发呆', '看到窗外下雨了'],
       recentImages: ['dsh-whale-state-tired.webp', 'dsh-whale-state-sad.webp'],
       // 误传/注入的敏感内容必须被白名单丢弃：
@@ -2397,11 +2308,9 @@ test('mood-ai：buildMoodPrompt 含图鉴清单+当天情境，无会话原文/�
   assert.match(prompt, /2026-10-21/)
   assert.match(prompt, /当前天气：rain/)
   assert.match(prompt, /busy（忙碌）/)
-  assert.match(prompt, /用户消息 12 条/)
-  assert.match(prompt, /工具调用 45 次（其中报错 3 次）/)
-  assert.match(prompt, /回合 6 个（完成 5 \/ 出错 1）/)
-  assert.match(prompt, /活跃约 33 分钟/)
-  assert.match(prompt, /8 分钟/)
+  assert.equal(prompt.includes('用户消息'), false, 'v1.58：不注入会话统计')
+  assert.equal(prompt.includes('工具调用'), false)
+  assert.equal(prompt.includes('活跃约'), false)
   assert.match(prompt, /刚刚在发呆/)
   assert.match(prompt, /最近用过的图片/)
   assert.match(prompt, /dsh-whale-state-happy\.webp｜开心｜happy,celebrate/)
@@ -2670,14 +2579,11 @@ test('mood-ai 路由：成功形状 + query 解析 + 隐私白名单 + force + �
       }),
   })
   const harness = createHarness({ moodAiService: service })
-  const base = FIXED_NOW.getTime()
-  harness.moodTracker.record({ id: 's1' }, moodEvent('user/message', base))
-  harness.moodTracker.record({ id: 's1' }, moodEvent('tool/call', base + 1000))
 
   const recent = encodeURIComponent('刚刚在发呆|看到窗外下雨了')
   const recentImages = encodeURIComponent('dsh-whale-state-tired.webp|dsh-whale-state-sad.webp')
   const url =
-    `/api/dsh-poetry/mood-ai.json?mood=busy&weather=rain&idleMinutes=12&recent=${recent}&recentImages=${recentImages}` +
+    `/api/dsh-poetry/mood-ai.json?mood=busy&weather=rain&recent=${recent}&recentImages=${recentImages}` +
     `&sessionMessages=${encodeURIComponent('超级机密对话内容')}`
   const response = await harness.call('mood-ai.json', mockRequest({ url }))
   assert.equal(response.statusCode, 200)
@@ -2696,7 +2602,7 @@ test('mood-ai 路由：成功形状 + query 解析 + 隐私白名单 + force + �
   const userText = llm.calls[0].messages[0].content[0].text
   assert.match(userText, /busy（忙碌）/)
   assert.match(userText, /当前天气：rain/)
-  assert.match(userText, /12 分钟/)
+  assert.equal(userText.includes('用户消息'), false, 'v1.58：不注入会话统计')
   assert.match(userText, /刚刚在发呆/)
   assert.match(userText, /dsh-whale-state-tired\.webp/)
   assert.match(userText, /不是随机抽图/)
@@ -2733,7 +2639,7 @@ test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一
   const harness = createHarness({ moodAiService: stubService })
   const manyRecent = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `第${index}句最近自述`).join('|'))
   const manyImages = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `dsh-whale-state-${index}.webp`).join('|'))
-  const url = `/api/dsh-poetry/mood-ai.json?idleMinutes=abc&recent=${manyRecent}&recentImages=${manyImages}&force=1`
+  const url = `/api/dsh-poetry/mood-ai.json?recent=${manyRecent}&recentImages=${manyImages}&force=1`
   const response = await harness.call('mood-ai.json', mockRequest({ url }))
   assert.equal(response.statusCode, 200)
   const body = response.json()
@@ -2743,7 +2649,7 @@ test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一
   const captured = seen[0]
   assert.equal(captured.context.recent.length, 3, 'recent 最多 3 条')
   assert.equal(captured.context.recentImages.length, 7, 'v1.13：上限 20，7 条全部保留')
-  assert.equal(captured.context.idleMinutes, null, '非法 idleMinutes 忽略')
+  assert.equal('idleMinutes' in captured.context, false, 'v1.58：不再传入互动间隔')
   assert.deepEqual(captured.options, { force: true })
 
   const noService = createHarness({ moodAiService: undefined })
@@ -3627,7 +3533,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 条 JSON')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -3979,32 +3885,25 @@ test('mood 活动：ring buffer ≤12、只存名称+时间、绝不泄漏 argum
   tracker.dispose()
 })
 
-test('mood-ai：prompt 含「你最近在做」与活动匹配指令，不含工具参数', () => {
+test('mood-ai v1.58：不再从工具活动推断情境，误传 activity 也不进入 prompt', () => {
   const catalog = makeMoodCatalogFixture()
-  const now = Date.UTC(2026, 9, 23, 4, 0, 0)
-  const watchPrompt = buildMoodPrompt({ now, activity: { kind: 'watch', label: '看视频' } }, catalog, {
-    random: seededRandom(3),
-  })
-  assert.match(watchPrompt, /你最近在做：看视频\/逛网页（watch）/)
-  assert.match(watchPrompt, /选图时优先匹配你最近在做的事/)
-  assert.match(watchPrompt, /看视频\/逛网页 → 专注观看、东张西望、好奇类的动画/)
-  assert.match(watchPrompt, /查资料\/学习 → 专注、思考/)
-
-  const idlePrompt = buildMoodPrompt({ now }, catalog)
-  assert.match(idlePrompt, /你最近在做：发呆\/等待/)
-  assert.match(MOOD_AI_SYSTEM_PROMPT, /如果提供了「你最近在做」的活动/)
-
-  const injected = buildMoodPrompt(
+  const now = FIXED_NOW.getTime()
+  const prompt = buildMoodPrompt(
     {
       now,
-      activity: { kind: 'code', label: '写代码', arguments: { command: 'SECRET_ARG_VALUE' }, toolArguments: 'SECRET_ARG_VALUE' },
+      activity: { kind: 'read', label: '查资料' },
+      stats: { userMessages: 12, toolCalls: 34 },
+      idleMinutes: 8,
+      recent: ['刚刚在发呆'],
     },
     catalog,
   )
-  assert.equal(injected.includes('SECRET_ARG_VALUE'), false, 'activity 只取白名单字段')
+  assert.equal(prompt.includes('你最近在做'), false, 'activity 忽略')
+  assert.equal(prompt.includes('用户消息'), false, 'stats 忽略')
+  assert.match(prompt, /刚刚在发呆/)
 })
 
-test('mood-ai 路由：最近活动来自工具名并写入 prompt，不泄漏参数', async () => {
+test('mood-ai 路由 v1.58：即使宿主记录了工具事件，prompt 也不包含活动/参数', async () => {
   const { llm, service } = makeMoodAiHarness({
     responder: () =>
       JSON.stringify({ label: '在查资料', image: 'dsh-whale-state-happy.webp', reason: '看到有用的东西', energy: 60 }),
@@ -4023,7 +3922,8 @@ test('mood-ai 路由：最近活动来自工具名并写入 prompt，不泄漏�
   assert.equal(response.statusCode, 200)
   assert.equal(response.json().ok, true)
   const prompt = llm.calls[0].messages[0].content[0].text
-  assert.match(prompt, /你最近在做：查资料\/学习/)
+  assert.equal(prompt.includes('你最近在做'), false, '不注入工具活动')
+  assert.equal(prompt.includes('查资料/学习'), false)
   assert.equal(prompt.includes(sensitive), false)
   assert.equal(JSON.stringify(llm.calls[0]).includes(sensitive), false, '工具参数不出现在模型请求里')
 })
@@ -4161,17 +4061,15 @@ test('mood-ai：prompt 含体验标题/情绪标签/情绪匹配指令；无 exp
   assert.match(prompt, /你记下的感受：结尾那段琴声听得眼眶发热/)
   assert.match(prompt, /感动\/鼻酸 → 温柔、共情、眼眶发热类/)
   assert.match(prompt, /紧张 → 屏息、专注、好奇类/)
-  assert.match(prompt, /情绪匹配优先于活动匹配/)
-  assert.match(MOOD_AI_SYSTEM_PROMPT, /情绪匹配优先于活动匹配/)
+  assert.match(prompt, /情绪匹配优先/)
 
-  // 无体验：不出现体验段
+  // v1.58：即使调用方误传 activity，也应被忽略（她的情境不来自对话）
   const plain = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' } }, catalog)
   assert.equal(plain.includes('你最近在体验'), false)
-  assert.match(plain, /你最近在做：查资料\/学习/)
+  assert.equal(plain.includes('你最近在做'), false, 'activity 不再进入 mood prompt')
 
-  // 同时有活动 + 体验：两段都在
   const both = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' }, experience }, catalog)
-  assert.match(both, /你最近在做：查资料\/学习/)
+  assert.equal(both.includes('你最近在做'), false)
   assert.match(both, /你最近在体验：《海上钢琴师》/)
   // 只取白名单字段：note 之外的额外字段不注入
   const injected = buildMoodPrompt(
@@ -4841,7 +4739,7 @@ test('self-talk-topics：自学话题免审核并入话题库（learned 标记/�
   assert.equal(mergeLearnedTopicIntoBank({ path: '', topic: { id: 'x', title: 'x', fact: 'x', tags: ['x'] } }).ok, false)
 })
 
-test('self-talk：prompt 综合心情/天气/活动/体验 + 话题 fact（有 topic 时不再用 theme）', () => {
+test('self-talk：prompt 综合心情/天气/体验 + 话题 fact（对话数据不进入）', () => {
   const topic = { id: 't1', title: '章鱼的三颗心脏', fact: '章鱼有三颗心脏。' }
   const prompt = buildSelfTalkPrompt({
     now: FIXED_NOW.getTime(),
@@ -4849,17 +4747,21 @@ test('self-talk：prompt 综合心情/天气/活动/体验 + 话题 fact（有 t
     moodKey: 'curious',
     moodLabel: '好奇',
     activity: { kind: 'read', label: '查资料/学习' },
+    stats: { userMessages: 12, toolCalls: 34 },
+    idleMinutes: 8,
     experience: { title: '海上钢琴师', kind: 'video', emotion: 'touched', note: '结尾很感动' },
     topic,
     theme: '杯子',
     recent: ['最近说过的一句话'],
   })
-  assert.match(prompt, /你最近在做：查资料\/学习/)
+  assert.equal(prompt.includes('你最近在做'), false, 'v1.58：activity 不进入 prompt')
+  assert.equal(prompt.includes('用户消息'), false, 'v1.58：stats 不进入 prompt')
+  assert.equal(prompt.includes('距上次和用户互动'), false, 'v1.58：idle 不进入 prompt')
   assert.match(prompt, /你最近在体验：《海上钢琴师》（视频），此刻心里有点感动鼻酸/)
   assert.match(prompt, /你记下的感受：结尾很感动/)
   assert.match(prompt, /章鱼的三颗心脏/)
   assert.match(prompt, /章鱼有三颗心脏。/)
-  assert.match(prompt, /综合你此刻的心情、天气、最近在做的事、最近在体验的内容（如有）以及上面的小知识/)
+  assert.match(prompt, /综合你此刻的心情、天气、最近在体验的内容（如有）以及上面的小知识/)
   assert.match(prompt, /不要变成科普/)
   assert.equal(prompt.includes('这次试着围绕'), false, '有 topic 时 theme 仅作 fallback 不输出')
 
@@ -4906,7 +4808,7 @@ test('self-talk 服务：每次挑一个 topic、成功后记 recent、下次排
   assert.deepEqual(service.recentTopics(), ['t1', 't2'], '失败不记 topic')
 })
 
-test('self-talk 路由：传入 activity/experience（仅名称/状态文件），不含工具参数', async () => {
+test('self-talk 路由：只传入 experience（状态文件），不读任何工具/对话数据', async () => {
   const captured = []
   const stub = {
     async generate(context) {
@@ -4935,7 +4837,8 @@ test('self-talk 路由：传入 activity/experience（仅名称/状态文件）�
   const response = await harness.call('self-talk.json', mockRequest({ url: '/api/dsh-poetry/self-talk.json' }))
   assert.equal(response.statusCode, 200)
   assert.equal(response.json().ok, true)
-  assert.equal(captured[0].activity.kind, 'read')
+  assert.equal('activity' in captured[0], false, 'v1.58：不传工具活动')
+  assert.equal('stats' in captured[0], false, 'v1.58：不传会话统计')
   assert.equal(captured[0].experience.title, '海上钢琴师')
   assert.equal(JSON.stringify(captured[0]).includes(sensitive), false, '工具参数不进入 service 上下文')
 })
@@ -4995,7 +4898,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 19, 'assets + pet-media + self + memory + model-errors + 14 JSON')
+    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -6504,7 +6407,7 @@ test('memory-recall：readRecent/extractKeywords/bigram 工具', () => {
   assert.ok(keywords.includes('好奇'))
   assert.ok(keywords.includes('rain'))
   assert.ok(keywords.includes('海洋'))
-  assert.ok(keywords.includes('查资料'))
+  assert.equal(keywords.includes('查资料'), false, 'v1.58：activity 不再提供检索关键词')
 
   assert.equal(bigramJaccard('今天的小雨让我有点想窝在窗边看雨', '今天的小雨让我有点想窝在窗边看雨'), 1)
   assert.equal(bigramJaccard('今天的小雨让我有点想窝在窗边看雨', '完全不同的句子在说别的事情'), 0)

@@ -122,3 +122,4 @@
 | H19 | 自主行为丰富化 | ✅ | 自处动作菜单扩到生活/精神/情绪 30+ 项，支持自造 kebab 动作 + label/text 兜底；自造行为只记录不写时间线；非法 slug 拒绝；单测覆盖解析/记录/兜底 |
 | H20 | 行为自由生成 | ✅ | 自处改为自由 `doing`（4–20 字第一人称行为）+ 可选 kind；prompt 无动作菜单（示例声明为举例）；仅本质为吃喝睡学/冒泡时写时间线；记录 label=doing、气泡=say；旧 action 兼容 |
 | H21 | 情绪累积提示（E-STEER 迁移） | ✅ | 自处 prompt 增加“情绪会累积、别被上一轮推着走”；阅读笔记 `docs/reading/e-steer.md` 记录论文结论、矛盾论分析与不采用项；单测断言 |
+| H22 | 上下文/记忆与对话解耦 | ✅ | 无 session/event 监听、无 mood.json 路由；prompt 无 stats/activity/idle；客户端不拉 mood.json、启发式只依赖天气/时间/本地信号；旧 mood.json 改名 .retired；单测覆盖路由缺席、prompt 不含会话数据、index 不注册监听 |

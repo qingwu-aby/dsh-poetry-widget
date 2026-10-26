@@ -1230,16 +1230,13 @@ window.__ModuleLoader__.load({
   return stats
   }
 
-  /** 心情引擎：stats + 天气 + 本地信号 → {key,label,image,reason,strong}（Asia/Shanghai）。 */
+  /** 心情引擎：天气 + 时间 + 本地小信号 → {key,label,image,reason,strong}；不读任何对话数据（v1.58）。 */
   function computeMood(input) {
   const opts = input && typeof input === 'object' ? input : {}
-  const stats = normalizeMoodStats(opts.stats)
   const weather = opts.weather && typeof opts.weather === 'object' ? opts.weather : null
   const signals = opts.signals && typeof opts.signals === 'object' ? opts.signals : {}
   const now = num(signals.now, Date.now())
   const local = shanghaiParts(now)
-  const lastKnown = Math.max(num(stats.lastActivityAt, 0), num(signals.lastInteractionAt, 0))
-  const idleMs = lastKnown > 0 ? Math.max(0, now - lastKnown) : 0
   const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)))
   const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)))
   const minutes = local.minutes
@@ -1251,33 +1248,26 @@ window.__ModuleLoader__.load({
   const rainy = category === 'rain' || category === 'snow' || category === 'thunder'
   const tempC = weather ? Number(weather.tempC) : NaN
   const coolNight = Boolean(weather) && weather.isDay === false && Number.isFinite(tempC) && tempC <= 22
-  const worksHard = stats.toolCalls >= 80 || stats.activeMs >= 3 * 60 * 60 * 1000 || stats.turnsErrored >= 2
   let key = 'calm'
-  let reason = '今天平平稳稳'
-  if (worksHard) {
-   key = 'tired'
-   reason = stats.toolCalls >= 80 ? '工具调用 ' + stats.toolCalls + ' 次 · 今天辛苦啦' : '忙了很久 · 有点累'
-  } else if (night || idleMs >= 3 * 60 * 60 * 1000) {
+  let reason = '平平常常的一阵'
+  if (night) {
    key = 'sleepy'
-   reason = night ? '夜深了 · 早点休息' : '好久没动了 · 打个盹'
+   reason = '夜深了 · 有点困'
   } else if (wins >= 3) {
    key = 'proud'
    reason = '飞花令赢了 ' + wins + ' 次 · 好得意'
-  } else if (stats.userMessages >= 10 || wins >= 1) {
+  } else if (wins >= 1) {
    key = 'happy'
-   reason = wins >= 1 ? '飞花令赢了 · 心情不错' : '今天聊了 ' + stats.userMessages + ' 句 · 心情不错'
-  } else if (meal && idleMs >= 60 * 60 * 1000) {
+   reason = '飞花令赢了 · 心情不错'
+  } else if (meal) {
    key = 'hungry'
    reason = '到饭点啦 · 有点饿'
-  } else if (stats.userMessages === 0 && idleMs >= 90 * 60 * 1000) {
-   key = 'lonely'
-   reason = '好一阵没人说话了 · 有点孤单'
   } else if (rainy || coolNight) {
    key = 'cozy'
    reason = category === 'snow' ? '下雪了 · 适合读诗' : (category === 'rain' || category === 'thunder' ? '外面有雨 · 适合读诗' : '夜色凉凉 · 很惬意')
-  } else if ((stats.userMessages > 0 || stats.turns > 0) && clicks === 0) {
+  } else if (clicks === 0) {
    key = 'curious'
-   reason = '你一直在忙 · 我在旁边看着'
+   reason = '安静着 · 四处看看'
   }
   return {
    key,
@@ -1448,10 +1438,9 @@ window.__ModuleLoader__.load({
   return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.motionFile || opts.moodFile || ''
   }
 
-  function moodBasisText(stats, weather) {
-  const normalized = normalizeMoodStats(stats)
+  function moodBasisText(weather) {
   const label = weather && weather.label ? weather.label : '未知'
-  return '今天聊了 ' + normalized.userMessages + ' 句 · 工具调用 ' + normalized.toolCalls + ' 次 · 天气 ' + label
+  return '天气：' + label
   }
 
   function isVideoMoodFile(file) {
@@ -1681,7 +1670,6 @@ window.__ModuleLoader__.load({
   if (opts.force === true) add('force', '1')
   add('mood', opts.moodKey)
   add('weather', opts.weather)
-  add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
   const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX)
   if (recent.length) add('recent', recent.join('|'))
   const imageSeen = {}
@@ -1986,12 +1974,8 @@ window.__ModuleLoader__.load({
   return period + '|' + (meal ? 'meal' : 'offmeal')
   }
 
-  function moodAiSnapshot(stats, weather, feihuaWins, feihuaLosses) {
-  const normalized = normalizeMoodStats(stats)
+  function moodAiSnapshot(weather, feihuaWins, feihuaLosses) {
   return {
-   userMessages: normalized.userMessages,
-   toolCalls: normalized.toolCalls,
-   toolErrors: normalized.toolErrors,
    weatherCategory: weather && typeof weather.category === 'string' ? weather.category : '',
    feihuaWins: Math.max(0, Math.floor(num(feihuaWins, 0))),
    feihuaLosses: Math.max(0, Math.floor(num(feihuaLosses, 0))),
@@ -2000,28 +1984,9 @@ window.__ModuleLoader__.load({
 
   function isMoodAiSignificant(previous, current) {
   if (!previous || !current) return false
-  if (current.userMessages - previous.userMessages >= 3) return true
-  if (current.toolCalls - previous.toolCalls >= 50) return true
-  if (current.toolErrors > previous.toolErrors) return true
   if (current.weatherCategory !== previous.weatherCategory) return true
   if (current.feihuaWins > previous.feihuaWins || current.feihuaLosses > previous.feihuaLosses) return true
   return false
-  }
-
-  function requestMood() {
-  return fetchJson('mood.json').then(
-   (data) => {
-    const normalized = {
-    ok: true,
-    date: data && data.date ? String(data.date) : '',
-    stats: normalizeMoodStats(data && data.stats),
-    updatedAt: num(data && data.updatedAt, 0),
-    }
-    moodCache = { data: normalized, at: Date.now() }
-    return normalized
-   },
-   () => ({ ok: false, date: '', stats: emptyMoodStats(), updatedAt: 0 }),
-  )
   }
 
   function normalizeSpontState(raw, now) {
@@ -3257,7 +3222,7 @@ window.__ModuleLoader__.load({
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
   selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
-  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, requestMood, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
+  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
   TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
@@ -3734,12 +3699,10 @@ window.__ModuleLoader__.load({
     return null
    }
    const next = computeMood({
-    stats: moodStatsRef.current,
     weather: weatherRef.current,
     signals: {
     now: Date.now(),
     clicks: clicksRef.current,
-    lastInteractionAt: lastInteractionRef.current,
     feihuaWins: feihuaWinsRef.current,
     feihuaLosses: 0,
     panelOpens: panelOpensRef.current,
@@ -3839,15 +3802,13 @@ window.__ModuleLoader__.load({
    const token = moodAiTokenRef.current + 1
    moodAiTokenRef.current = token
    moodAiInFlightRef.current = true
-   const stats = moodStatsRef.current
    const weather = weatherRef.current || null
    const currentMoodKey = moodViewRef.current && moodViewRef.current.key && moodViewRef.current.key !== 'ai'
     ? moodViewRef.current.key
     : 'calm'
    const recent = recentSpokenRef.current.slice(-MOOD_AI_RECENT_MAX)
    const recentImages = recentImagesRef.current.slice(-MOOD_AI_RECENT_IMAGES_MAX)
-   const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now - lastInteractionRef.current) / 60000)) : 0
-   moodAiSnapshotRef.current = moodAiSnapshot(stats, weather, feihuaWinsRef.current, feihuaLossesRef.current)
+   moodAiSnapshotRef.current = moodAiSnapshot(weather, feihuaWinsRef.current, feihuaLossesRef.current)
    const finish = () => {
     if (token !== moodAiTokenRef.current) return
     moodAiInFlightRef.current = false
@@ -3860,7 +3821,6 @@ window.__ModuleLoader__.load({
     force: true,
     moodKey: currentMoodKey,
     weather: weather ? String(weather.category || weather.label || '') : '',
-    idleMinutes,
     recent,
     recentImages,
     catalog,
@@ -3906,12 +3866,9 @@ window.__ModuleLoader__.load({
   const refreshMoodNow = React.useCallback(() => {
    moodForceRef.current = true
    scheduleMoodAiRefresh({ immediate: true })
-   return requestMood().then((data) => {
-    moodStatsRef.current = data.stats
-    setMoodRes({ status: data.ok ? 'ready' : 'error', data, at: Date.now() })
-    return data
-   })
-  }, [requestModelMood])
+   setMoodTick((tick) => tick + 1)
+   return Promise.resolve({ ok: true })
+  }, [scheduleMoodAiRefresh])
 
   function showMascotExpression(file) {
    if (!file) return
@@ -3988,23 +3945,6 @@ window.__ModuleLoader__.load({
    return () => clearInterval(timer)
   }, [settings.weatherPoem, settings.mood, settings.weatherCity, refreshWeather])
 
-  React.useEffect(() => {
-   if (!(settings.mood || settings.spontaneousPoem)) return undefined
-   let alive = true
-   const load = () => {
-    requestMood().then((data) => {
-    if (!alive) return
-    moodStatsRef.current = data.stats
-    setMoodRes({ status: data.ok ? 'ready' : 'error', data, at: Date.now() })
-    })
-   }
-   load()
-   const timer = setInterval(load, MOOD_REFRESH_MS)
-   return () => {
-    alive = false
-    clearInterval(timer)
-   }
-  }, [settings.mood, settings.spontaneousPoem])
 
   React.useEffect(() => {
    if (!(settings.mood || settings.spontaneousPoem)) return undefined
@@ -4057,13 +3997,12 @@ window.__ModuleLoader__.load({
   const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : ''
   const weatherNote = weatherActive ? weatherExplainText(weather) : ''
   weatherRef.current = weather
-  const moodStats = moodRes.data ? moodRes.data.stats : emptyMoodStats()
   const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data])
   const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries])
   moodCatalogRef.current = moodCatalog
   const moodChip = settings.mood && moodView ? '心情：' + moodView.label : ''
   const moodChipTitle = settings.mood && moodView ? String(moodView.reason || '') : ''
-  const moodBasis = moodBasisText(moodStats, weather)
+  const moodBasis = moodBasisText(weather)
   uiRef.current = {
    settings: settingsRef.current,
    panelOpen,
@@ -4183,23 +4122,15 @@ window.__ModuleLoader__.load({
    scheduleMoodAiRefresh()
   }, [settings.mood, moodCatalog, petMediaRes.status])
 
-  // 实时事件 1：mood stats 任意增量（消息/工具/报错/活跃分钟）
+  // v1.58：模型心情按她自己的节奏刷新（不随会话事件）；页面可见时每 5 分钟一次。
   React.useEffect(() => {
-   if (!settings.mood) return
-   const stats = moodStatsRef.current
-   const next = { userMessages: stats.userMessages, toolCalls: stats.toolCalls, toolErrors: stats.toolErrors, activeMs: stats.activeMs }
-   const prev = moodStatsSnapshotRef.current
-   if (!prev) {
-    moodStatsSnapshotRef.current = next
-    return
-   }
-   const changed = next.userMessages > prev.userMessages
-    || next.toolCalls > prev.toolCalls
-    || next.toolErrors > prev.toolErrors
-    || next.activeMs > prev.activeMs
-   moodStatsSnapshotRef.current = next
-   if (changed) scheduleMoodAiRefresh()
-  }, [moodRes, moodTick, settings.mood])
+   if (!settings.mood) return undefined
+   const timer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    scheduleMoodAiRefresh()
+   }, MOOD_REFRESH_MS)
+   return () => clearInterval(timer)
+  }, [settings.mood, scheduleMoodAiRefresh])
 
   // 实时事件 2：面板打开/关闭/切 tab
   React.useEffect(() => {
@@ -5883,7 +5814,6 @@ window.__ModuleLoader__.load({
     pulseMascot,
     moodView,
     moodRes,
-    moodStats,
     moodChip,
     moodChipTitle,
     moodBasis,
@@ -6480,14 +6410,13 @@ window.__ModuleLoader__.load({
    ? weatherChipText(api.weatherData.city, weatherInfo)
     + (weatherAt ? ' · 更新于 ' + weatherUpdatedLabel(weatherAt) : '')
    : (weatherRes.status === 'loading' ? '正在获取天气…' : '天气暂不可用（不影响其他功能）')
-  const moodStats = api.moodStats || emptyMoodStats()
   const currentMood = api.moodView || null
   const moodAt = (api.moodRes && (api.moodRes.at || (api.moodRes.data && api.moodRes.data.updatedAt))) || 0
   const moodSourceLabel = api.moodSource === 'model' ? '模型' : api.moodSource === 'heuristic' ? '启发式' : ''
   const moodReasonText = currentMood ? String(currentMood.reason || '').replace(/[「」]/g, '').trim() : ''
   const moodQuotedReason = moodReasonText ? '「' + moodReasonText + '」' : ''
   const moodDetailText = currentMood ? '当前：' + currentMood.label + moodQuotedReason : ''
-  const moodMetaText = [api.moodBasis || moodBasisText(moodStats, api.weather), moodSourceLabel ? '来源：' + moodSourceLabel : '', moodAt ? '更新于 ' + weatherUpdatedLabel(moodAt) : '']
+  const moodMetaText = [api.moodBasis || moodBasisText(api.weather), moodSourceLabel ? '来源：' + moodSourceLabel : '', moodAt ? '更新于 ' + weatherUpdatedLabel(moodAt) : '']
    .filter(Boolean)
    .join(' · ')
   const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(' · ') || '心情数据加载中'

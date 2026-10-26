@@ -43,9 +43,8 @@
 | `/api/dsh-poetry/settings.json` | PUT | 部分设置合并写入；仅回环来源；`{ok:true, settings:{...合并后完整...}}` |
 | `/api/dsh-poetry/pet-media` | GET/HEAD | **静态心情动画素材**（不套栅栏，与 assets 同类）：`?f=catalog.json` → dsh-pet 106 个 webm 图鉴（`{ok,entries:[{file:"webm/…",label,media:"video",tags}]}`）；`?f=webm/<名>.webm` → `video/webm`（含 ATTRIBUTION）；素材位于 `_ref/pet-media/`，不随包；缺失时 404，客户端回退 92 张静态图 |
 | `/api/dsh-poetry/feihua-full.json` | GET | 飞花令**全量校验句库**按令字分片：`?char=花` → `{ok:true,char,count,entries:[[句子,出处],…]}`（来自全量 chinese-poetry 语料构建的 `_ref/feihua-full/<char>.json`，不随包）；缺失/旧宿主 → `FEIHUA_FULL_UNAVAILABLE`（200+JSON）。用于把飞花令的「有没有出处」判定扩到全量诗词 |
-| `/api/dsh-poetry/mood-ai.json` | GET | 让模型根据当天情境（活跃统计/天气/时段/自述/最近用过图）从 92 张本地立绘图鉴里**自主决定心情与配图**（非随机）；返回心情标签/理由/图片文件名；失败 `MOOD_AI_UNAVAILABLE`（200+JSON，永不 5xx） |
+| `/api/dsh-poetry/mood-ai.json` | GET | 让模型根据她自己的情境（她的状态/天气/时段/自述/最近用过图）从 92 张本地立绘图鉴里**自主决定心情与配图**（非随机）；返回心情标签/理由/图片文件名；失败 `MOOD_AI_UNAVAILABLE`（200+JSON，永不 5xx） |
 | `/api/dsh-poetry/self-talk.json` | GET | 让挂件用当前默认模型实时生成一句「自言自语」（诗句/随想/引出句）；宿主侧 `ctx.llm.stream` + `agentDefaultModel.currentSelection()`，2 句/批、20s 超时、失败返回 `SELF_TALK_UNAVAILABLE`（200+JSON，永不 5xx）；只使用聚合统计/天气/时间/今日诗元数据，不读会话内容 |
-| `/api/dsh-poetry/mood.json` | GET | 当日会话活跃统计（用户/助手消息数、工具调用、回合、活跃时长、最后活动时间），用于挂件心情系统；`$DSH_HOME/.dsh-poetry/mood.json` 持久化、按本地日滚动，失败返回零值，永不 5xx |
 | `/api/dsh-poetry/weather.json` | GET | 按 `settings.weatherCity` 取当前天气（Open-Meteo 地理编码+forecast；20 分钟缓存；`?refresh=1` 强制绕过缓存；失败返回 `{ok:false,error:{code:"WEATHER_UNAVAILABLE"}}`，永不 5xx） |
 | `/api/dsh-poetry/about.json` | GET | 版本、数据版本、数据源 commit/许可、脱敏后的数据文件状态 |
 
@@ -458,3 +457,5 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 - **v1.4（2026-10-21，M8）**：`client.js` 体积预算 150→165KB；新增心情系统——Host `GET /api/dsh-poetry/mood.json`（监听 session/event 统计当日活跃/工作强度，日滚动持久化）；settings 增加 `mood`/`spontaneousPoem`；Client 用心智（聊天数/工具调用/失败/活跃时长/天气/时段/饭点/闲置/飞花战绩）计算心情并映射立绘（限频 ≥20min；飞花瞬时反馈除外），并以 45–90min 随机间隔、每日 ≤3 次、7 天内不重句的低频彩蛋展示「它想读的诗」。
 - **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
 - **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。
+
+- **v1.58（2026-10-26，M69）**：插件上下文与记忆和对话彻底解耦——移除 `GET /api/dsh-poetry/mood.json` 与 `session/event` 监听；不再统计/传递会话活跃数据（消息数、工具调用、回合、活跃时长、最近活动、互动间隔）；mood-ai/self-talk prompt 与客户端启发式心情不再读取这些数据；旧 `mood.json` 启动时改名为 `.retired-*` 保留、不参与记忆中枢。心情/自处/碎碎念只依赖她自己的状态、天气、时间、记忆与 experience 文件。

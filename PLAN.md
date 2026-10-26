@@ -813,3 +813,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 对项目有用的是机制性结论，不是方法本身（黑盒 API 无 hidden state；且本项目拒绝量化内在状态）。迁移：自处 prompt 增加“情绪会累积、别被上一轮推着走”。
 - 阅读笔记：`docs/reading/e-steer.md`（含矛盾论视角的主要矛盾/内因外因/同一性条件与不采用项）。
 - 单测：data 42 / host 224 / client 117 = 383/383。
+
+## 72. 上下文/记忆与对话彻底解耦（M69，2026-10-26）
+
+- 用户：小鲸鱼插件的上下文和记忆应完全独立，不应与任何对话强行关联。
+- 移除：index.js 的 `session/event` 监听与 createMoodTracker；`GET /api/dsh-poetry/mood.json` 路由；routes 中 mood-ai/self-talk 的 stats/activity/idleMinutes 上下文；mood-ai/self-talk prompt 的活跃统计/最近在做/互动间隔；memory-recall 的 activity 关键词；客户端 mood.json 拉取、stats 触发与统计型启发式/心情依据。
+- 改为：mood-ai/self-talk 只用她自己的状态（felt/时间线）、天气、时间、最近自述、记忆摘要、话题、experience 文件；客户端启发式心情只用天气/时间/本地点击/飞花战绩；模型心情按独立定时 + 本地事件刷新（不随会话事件）；旧 mood.json 启动改名 `.retired-*`（保留但不再读写）。
+- 单测：data 42 / host 223 / client 117 = 382/382。

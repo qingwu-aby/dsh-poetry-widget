@@ -5,9 +5,9 @@
 //   · 数据接口：GET health / bootstrap / poems / ci / yun / knowledge / settings / weather / about；
 //   · 设置接口：GET/PUT settings.json（PUT 仅回环来源、白名单校验、原子写 $DSH_HOME/.dsh-poetry/）；
 //   · 天气接口：GET weather.json（Open-Meteo 地理编码 + forecast，20min 缓存，失败降级永 200）；
-//   · 心情统计：监听 session/event 累计当日活跃数据，GET mood.json；防抖原子写 mood.json；
+//   · v1.58：不监听任何会话事件、不统计对话活跃度；插件上下文/记忆与对话完全独立；
 //   · 实时自言自语：GET self-talk.json，用宿主当前默认模型生成（llm/agentDefaultModel 可选，缺失安全降级）；
-//     结合心情/天气/最近活动/体验，并从 $DSH_HOME/agent-memory/topics.json 话题库挑一个小知识自然融入；
+//     结合心情/天气/她的状态/体验，并从 $DSH_HOME/agent-memory/topics.json 话题库挑一个小知识自然融入；
 //   · 模型心情：GET mood-ai.json，模型读本地 92 张心情图鉴 + 当天情境自主决定心情/配图（缺失安全降级）；
 //   · 心情动画素材：GET/HEAD pet-media?f=…（dsh-pet MIT webm，不随包；不套栅栏，与 assets 并列）；
 //   · 自主记忆：self-talk / mood-ai 新生成成功时，把模型输出**只追加**写入 $DSH_HOME/agent-memory/；
@@ -16,7 +16,7 @@
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
 // data/ 缺失或损坏时优雅降级（200 + DATA_UNAVAILABLE），不会让插件加载失败。
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -56,7 +56,6 @@ import {
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
-import { createMoodTracker } from './lib/mood.mjs'
 import { createTrustFence } from './lib/trust.mjs'
 import { createWeatherService } from './lib/weather.mjs'
 
@@ -85,47 +84,16 @@ export async function apply(ctx) {
   const memoryDir = resolveMemoryDir(env, home)
   const journal = createMemoryJournal({ dir: memoryDir, logger })
 
-  // —— 当日心情统计：尽早注册 session/event 监听（webServer 就绪前也累计）——
-  // moodTracker 防抖写 $DSH_HOME/.dsh-poetry/mood.json；插件卸载时落盘并清定时器。
-  const moodTracker = createMoodTracker({
-    file: path.join(settingsPath.dir, 'mood.json'),
-    persistDebounceMs: 15000,
-    onWarn: (message) => logger?.warn?.(`[dsh-poetry-widget] ${message}`),
-  })
-  const disposeMoodEffect = () => {
-    try {
-      moodTracker.dispose()
-    } catch (error) {
-      logger?.warn?.(`[dsh-poetry-widget] mood 落盘失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
+  // v1.58：插件不再监听任何会话事件、也不统计对话活跃度——她的上下文/记忆与对话完全独立。
+  // 旧 mood.json（会话活跃统计）不再写入；启动时如存在则改名为 .retired 保留，不参与记忆中枢。
   try {
-    ctx.effect(() => {
-      let disposeListener = null
-      try {
-        // DSH session/event 为 emit 广播：参数 (session, event)；同一日志事件对所有监听者各发一次。
-        disposeListener = ctx.on('session/event', (session, event) => {
-          try {
-            moodTracker.record(session, event)
-          } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] mood 事件处理异常：${error instanceof Error ? error.message : String(error)}`)
-          }
-        })
-      } catch (error) {
-        logger?.warn?.(`[dsh-poetry-widget] session/event 监听注册失败（mood.json 将只返回零值）：${error instanceof Error ? error.message : String(error)}`)
-      }
-      return () => {
-        try {
-          disposeListener?.()
-        } catch {
-          /* ignore */
-        }
-        disposeMoodEffect()
-      }
-    }, 'dsh-poetry-widget: 心情统计（session/event）')
+    const legacyMoodFile = path.join(settingsPath.dir, 'mood.json')
+    if (existsSync(legacyMoodFile)) {
+      renameSync(legacyMoodFile, `${legacyMoodFile}.retired-${Date.now()}`)
+      logger?.info?.('[dsh-poetry-widget] 已停用会话统计 mood.json（改名为 .retired）')
+    }
   } catch (error) {
-    // effect 注册失败（极旧宿主）：至少保证卸载时落盘不抛出。
-    logger?.warn?.(`[dsh-poetry-widget] mood effect 注册失败：${error instanceof Error ? error.message : String(error)}`)
+    logger?.warn?.(`[dsh-poetry-widget] 旧 mood.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
 
   ctx.inject(['webServer', 'connection'], (hostCtx) => {
@@ -405,7 +373,6 @@ export async function apply(ctx) {
         version: VERSION,
         settingsFile: settingsPath.file,
         weatherService,
-        moodTracker,
         selfTalkService,
         moodAiService,
         journal,

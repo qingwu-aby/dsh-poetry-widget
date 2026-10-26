@@ -1987,42 +1987,34 @@ function baseMoodInput(overrides) {
   return { stats, signals, weather: overrides ? overrides.weather : null }
 }
 
-test('心情引擎 computeMood：各分类 + 优先级（tired/sleepy/proud > happy > hungry/lonely > cozy > curious > calm）', () => {
+test('心情引擎 computeMood：天气/时间/本地信号（不再读会话统计，v1.58）', () => {
   const { debug } = loadClient()
   const moodOf = (overrides) => debug.computeMood(baseMoodInput(overrides))
 
   assert.equal(moodOf({}).key, 'calm')
-  assert.equal(debug.computeMood({ signals: { now: shanghaiTs(2026, 10, 21, 10, 0), lastInteractionAt: shanghaiTs(2026, 10, 21, 9, 0) } }).key, 'calm', '未知数据按 0 → calm（固定时钟，避免夜间误判 sleepy）')
-  assert.equal(moodOf({ stats: { toolCalls: 100 } }).key, 'tired')
-  assert.equal(moodOf({ stats: { activeMs: 4 * 3600 * 1000 } }).key, 'tired')
-  assert.equal(moodOf({ stats: { turnsErrored: 2 } }).key, 'tired')
-  assert.equal(moodOf({ signals: { now: shanghaiTs(2026, 10, 21, 2, 0), lastInteractionAt: shanghaiTs(2026, 10, 21, 1, 59) } }).key, 'sleepy')
-  assert.equal(moodOf({ signals: { lastInteractionAt: shanghaiTs(2026, 10, 21, 5, 0) } }).key, 'sleepy')
+  assert.equal(
+    moodOf({ stats: { toolCalls: 100, userMessages: 12, activeMs: 4 * 3600 * 1000 } }).key,
+    'calm',
+    'v1.58：会话统计不参与心情',
+  )
+  const at = (hour, minute = 0) => shanghaiTs(2026, 10, 21, hour, minute)
+  assert.equal(moodOf({ signals: { now: at(2) } }).key, 'sleepy', '凌晨 sleepy')
+  assert.equal(moodOf({ signals: { now: at(23, 30) } }).key, 'sleepy', '深夜 sleepy')
   assert.equal(moodOf({ signals: { feihuaWins: 3 } }).key, 'proud')
   assert.equal(moodOf({ signals: { feihuaWins: 1 } }).key, 'happy')
-  assert.equal(moodOf({ stats: { userMessages: 12 } }).key, 'happy')
-  assert.equal(moodOf({
-    signals: { now: shanghaiTs(2026, 10, 21, 12, 10), lastInteractionAt: shanghaiTs(2026, 10, 21, 10, 0) },
-    stats: { userMessages: 1 },
-  }).key, 'hungry')
-  assert.equal(moodOf({
-    signals: { lastInteractionAt: shanghaiTs(2026, 10, 21, 8, 0) },
-    stats: { userMessages: 0 },
-  }).key, 'lonely')
+  assert.equal(moodOf({ signals: { now: at(12, 10) } }).key, 'hungry', '饭点 hungry')
   assert.equal(moodOf({ weather: { category: 'rain', isDay: true } }).key, 'cozy')
   assert.equal(moodOf({ weather: { category: 'clear', isDay: false, tempC: 15 } }).key, 'cozy')
-  assert.equal(moodOf({ signals: { clicks: 0 }, stats: { userMessages: 3 } }).key, 'curious')
+  assert.equal(moodOf({ signals: { clicks: 0 } }).key, 'curious')
 
-  // 优先级
-  assert.equal(moodOf({ stats: { toolCalls: 100, userMessages: 20 }, weather: { category: 'rain', isDay: true } }).key, 'tired')
-  assert.equal(moodOf({ signals: { now: shanghaiTs(2026, 10, 21, 23, 30), lastInteractionAt: shanghaiTs(2026, 10, 21, 23, 29), feihuaWins: 5 } }).key, 'sleepy')
-  assert.equal(moodOf({ signals: { feihuaWins: 5 }, stats: { userMessages: 20 } }).key, 'proud')
-  assert.equal(moodOf({ stats: { userMessages: 20 }, weather: { category: 'rain', isDay: true } }).key, 'happy')
-  assert.equal(moodOf({ signals: { clicks: 0 }, stats: { userMessages: 3 }, weather: { category: 'rain', isDay: true } }).key, 'cozy')
+  // 优先级：深夜 > 飞花令 > 饭点 > 天气 > 好奇 > calm
+  assert.equal(moodOf({ signals: { now: at(23, 30), feihuaWins: 5 } }).key, 'sleepy')
+  assert.equal(moodOf({ signals: { feihuaWins: 5 }, weather: { category: 'rain', isDay: true } }).key, 'proud')
+  assert.equal(moodOf({ signals: { now: at(12, 10) }, weather: { category: 'rain', isDay: true } }).key, 'hungry')
+  assert.equal(moodOf({ weather: { category: 'rain', isDay: true }, signals: { clicks: 0 } }).key, 'cozy')
 
-  // label/image/reason 完整；图片映射文件均来自 92 张本地立绘
   for (const key of ['happy', 'proud', 'tired', 'sleepy', 'hungry', 'lonely', 'curious', 'cozy', 'calm']) {
-    const mood = debug.computeMood(baseMoodInput({ stats: {} }))
+    const mood = debug.computeMood(baseMoodInput({}))
     assert.equal(typeof debug.MOOD_LABELS[key], 'string')
     const file = debug.moodImageFor(key)
     assert.ok(file.endsWith('.webp'))
@@ -2279,7 +2271,6 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     'poems.json': { ok: true, dataVersion, items: poems },
     'ci.json': { ok: true, dataVersion, items: [] },
     'weather.json': { ok: true, city: '北京', weather: { category: 'clear', label: '晴', tempC: 20, isDay: true }, stale: false },
-    'mood.json': { ok: true, date: '2026-10-21', stats: { userMessages: 2, toolCalls: 100 }, updatedAt: shanghaiTs(2026, 10, 21, 10, 0) },
     'settings.json': { ok: true, settings },
     'self-talk.json': { ok: true, lines: [{ text: '今天也辛苦啦，我陪着你。' }, { text: '夜深了，记得早点休息。' }], model: { provider: 'test', model: 'test' } },
   }
@@ -2309,11 +2300,11 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
 
     // 补充要求 3：weatherPoem=false 但 mood=true 时仍拉天气（心情也要天气）
     assert.ok(fetchUrls.some((url) => url.includes('weather.json')), 'mood 开启也应拉取天气')
-    assert.ok(fetchUrls.some((url) => url.includes('mood.json')), '应拉取心情统计')
+    assert.equal(fetchUrls.some((url) => url.includes('mood.json')), false, 'v1.58：不再拉取会话心情统计')
 
-    // 心情 tired（工具调用 100）→ work-sleep 立绘（天气晴不是强制 overlay）
+    // 心情启发式只来自时间/天气/本地信号 → 任意本地立绘都可以
     let mascot = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(String(mascot.props.src).includes('dsh-whale-state-work-sleep.webp'), '心情立绘应为 work-sleep，实际：' + mascot.props.src)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-state-'), '应有心情立绘，实际：' + mascot.props.src)
 
     // 气泡第 1 张：心情 chip（天气诗被关闭，无天气 chip）
     const stage = findStage(tree)
@@ -2323,7 +2314,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     let bubble = findBubble(tree)
     assert.ok(bubble)
     let bubbleText = textOf(bubble)
-    assert.match(bubbleText, /心情：有点累/)
+    assert.match(bubbleText, /心情：/)
     assert.ok(!bubbleText.includes('℃'), 'weatherPoem=false 不应显示天气 chip')
 
     // 补充要求 1：预览心情诗立即弹出，且不写 lastShownAt/todayCount
@@ -3731,13 +3722,12 @@ test('心情图鉴 helpers：92 张口径、任意 moodImages 可接受、3 张 
   assert.equal(debug.normalizeMoodCatalog(null), null)
 })
 
-test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentImages≤20（去重），不含会话内容', () => {
+test('mood-ai 请求参数：force/mood/weather/recent≤3/recentImages≤20（去重），不含会话内容', () => {
   const { debug } = loadClient()
   const query = debug.moodAiQuery({
     force: true,
     moodKey: 'tired',
     weather: 'rain',
-    idleMinutes: 23,
     recent: ['一', '二', '三', '四'],
     recentImages: Array.from({ length: 25 }, (_, index) => 'img' + index + '.webp').concat(['img24.webp', 'img0.webp']),
   })
@@ -3746,11 +3736,10 @@ test('mood-ai 请求参数：force/mood/weather/idleMinutes/recent≤3/recentIma
   assert.equal(params.get('force'), '1')
   assert.equal(params.get('mood'), 'tired')
   assert.equal(params.get('weather'), 'rain')
-  assert.equal(params.get('idleMinutes'), '23')
   assert.equal(params.get('recent').split('|').length, 3)
   assertDeep(params.get('recentImages').split('|'), Array.from({ length: 20 }, (_, index) => 'img' + (index + 5) + '.webp'))
   const names = Array.from(params.keys()).sort()
-  assertDeep(names, ['force', 'idleMinutes', 'mood', 'recent', 'recentImages', 'weather'], '只允许聚合上下文参数')
+  assertDeep(names, ['force', 'mood', 'recent', 'recentImages', 'weather'], 'v1.58：不再带互动间隔等会话参数')
   const noForce = debug.moodAiQuery({ moodKey: 'calm' })
   assert.ok(!noForce.includes('force='))
 
@@ -3785,8 +3774,9 @@ test('实时心情：2–4s 防抖、无 15min/10min 定时常量、时段/饭�
   assert.match(noon, /noon\|meal/)
   assert.match(night, /night\|offmeal/)
   assert.notEqual(morning, noon, '时段/饭点切换应可触发事件')
-  const base = debug.moodAiSnapshot({ userMessages: 2, toolCalls: 10, toolErrors: 0 }, { category: 'clear' }, 0, 0)
-  assert.equal(base.userMessages, 2)
+  const base = debug.moodAiSnapshot({ category: 'clear' }, 0, 0)
+  assert.equal(base.weatherCategory, 'clear')
+  assert.equal('userMessages' in base, false, 'v1.58：快照不含会话统计')
 })
 test('mood-ai 请求：成功/未知图/404/401/ok:false/非法 JSON/超时全部静默回退', async () => {
   const catalog = makeMoodCatalogFixture()
@@ -4123,12 +4113,12 @@ test('模型心情图鉴加载失败：不请求 mood-ai、回退启发式心情
     assert.equal(moodAiCalls, 0, '图鉴不可用时不应请求 mood-ai')
     const mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(mascot)
-    assert.ok(String(mascot.props.src).includes('dsh-whale-state-work-sleep.webp'), '应回退启发式心情立绘（tired），实际 ' + mascot.props.src)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-state-'), '应回退启发式心情立绘，实际 ' + mascot.props.src)
     const stage = findStage(tree)
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
-    assert.match(textOf(tree), /心情：有点累/)
+    assert.match(textOf(tree), /心情：/)
   } finally {
     react._cleanup()
   }
@@ -4712,7 +4702,7 @@ test('pet-media 失败/旧宿主：mood-ai 返回 webm 时按未知图回退启�
     assert.equal(findAll(tree, (node) => node.type === 'video').length, 0, '未知动画不可渲染')
     const img = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(img)
-    assert.ok(String(img.props.src).includes('dsh-whale-state-work-sleep.webp'), '应回退启发式 tired 图片')
+    assert.ok(String(img.props.src).includes('dsh-whale-state-'), '应回退启发式图片')
     assert.equal(debug.mascotVideoShouldPause({ hidden: true }), true)
     assert.equal(debug.mascotVideoShouldPause({ panelOpen: true }), true)
     assert.equal(debug.mascotVideoShouldPause({}), false)
