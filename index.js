@@ -338,6 +338,7 @@ export async function apply(ctx) {
         topicsEnabled: String(env.DSH_POETRY_TALK_TOPICS ?? '').toLowerCase() === 'on',
         topics: topicBank,
         recall: memoryRecall,
+        events: selfEvents,
         voice: () => voiceService.get(),
         refreshVoice: () => voiceService.refreshNow(),
         policy: modelPolicy,
@@ -509,6 +510,11 @@ export async function apply(ctx) {
         state: selfState,
         projects: selfProjects,
         events: selfEvents,
+        onEventClosed: (event) => {
+          const text = event && typeof event.topic === 'string' ? `这件事先放下了：${event.topic}` : ''
+          if (text.length === 0) return undefined
+          return journal.append({ kind: 'thought', text }).catch(() => undefined)
+        },
         getLlm,
         policy: modelPolicy,
         modelErrorsPath,

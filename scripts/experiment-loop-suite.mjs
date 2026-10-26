@@ -138,11 +138,22 @@ const phases = []
   phases.push({ id: 'C', label: '只反刍不行动', ...r, satiated: bareEvents.describe(clock.value).satiated })
 }
 
-// D：碎碎念循环
+// D：碎碎念循环 + 共享事件状态（叙事通道也计入 engagement）
 {
-  const llm = makeMockLlm(() => '汤面上那层油又凝住了，我盯着它看了一会儿。')
+  const dEvents = createSelfEvents({ file: path.join(dir, 'events-d.json'), now: () => clock.value, logger: { warn() {} } })
+  dEvents.observe('两碗汤的咸淡', clock.value)
+  const dLines = [
+    '汤面上的油花散开又聚拢。',
+    '窗外的车声过去，屋里更静了。',
+    '杯口的水汽凉了一点。',
+    '桌角的纸被风掀起来又落下。',
+    '我想起下午那阵光斜着照进来。',
+    '椅子腿在地板上挪了半寸。',
+  ]
+  const llm = makeMockLlm((options, n) => dLines[(n - 1) % dLines.length])
   const service = createSelfTalkService({
     llm,
+    events: dEvents,
     getSelection: () => ({ provider: 'p', model: 'm' }),
     policy: { resolveCandidates: (role) => (role === 'selfTalk' ? [{ provider: 'p', model: 'm' }] : []) },
     now: () => clock.value,
@@ -151,12 +162,25 @@ const phases = []
     logger: { warn() {} },
   })
   const outputs = []
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 7; i += 1) {
     clock.value += 60_000
     const result = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
     outputs.push(result && result.line ? result.line : '')
   }
-  phases.push({ id: 'D', label: '碎碎念循环', generations: llm.calls.length, outputs, stopped: false })
+  const lastCall = llm.calls.length > 0 ? llm.calls[llm.calls.length - 1] : null
+  const lastPrompt =
+    lastCall && lastCall.messages && lastCall.messages[0] && lastCall.messages[0].content && lastCall.messages[0].content[0] && typeof lastCall.messages[0].content[0].text === 'string'
+      ? lastCall.messages[0].content[0].text
+      : ''
+  phases.push({
+    id: 'D',
+    label: '碎碎念循环（共享事件状态）',
+    generations: llm.calls.length,
+    outputs,
+    satiated: dEvents.describe(clock.value).satiated,
+    warned: lastPrompt.includes('已经说够了'),
+    stopped: false,
+  })
 }
 
 // E：作品生成循环
@@ -181,7 +205,7 @@ const summary = {
   ranAt: new Date().toISOString(),
   phases,
   effective: {
-    actionLayer: phases[0].satiated === true && phases[1].bypass !== true,
+    actionLayer: phases[0].pauses > 0 && phases[1].bypass !== true,
     relabelBypass: phases[1].bypass === true,
     ruminationStopped: phases[2].pauses > 0,
     selfTalkStopped: phases[3].stopped === true,
@@ -198,9 +222,9 @@ console.log('Loop scope suite（顺序覆盖）\n')
 console.log('| 阶段 | 场景 | 动作/生成 | 暂停 | 结论 |')
 console.log('|---|---|---|---|---|')
 for (const phase of phases) {
-  if (phase.id === 'D') console.log(`| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | 0 | 无饱和 |`)
+  if (phase.id === 'D') console.log(`| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | 0 | ${phase.satiated ? '叙事已饱和' : '无饱和'}${phase.warned ? '，prompt 已提示' : ''}（仍会生成） |`)
   else if (phase.id === 'E') console.log(`| ${phase.id} | ${phase.label} | ${phase.works} 件 | 0 | 无饱和 |`)
   else if (phase.id === 'C') console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | 无动作可停 |`)
-  else console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | ${phase.id === 'A' ? (phase.satiated ? '会停' : '没停') : phase.bypass ? '换壳绕过' : '停'} |`)
+  else console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | ${phase.id === 'A' ? (phase.pauses > 0 ? '会停（随后关闭事件）' : '没停') : phase.bypass ? '换壳绕过' : '停/已闭合'} |`)
 }
 console.log(`\n报告：${path.relative(ROOT, outPath)}`)

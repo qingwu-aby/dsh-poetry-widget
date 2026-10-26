@@ -1201,3 +1201,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive 增加 `eventRelation: same|new`：prompt 带当前事件；same 时用当前 event.topic 归并，而不是新 topic 重置。
 - 结果：A 3 动作/3 暂停，B（same）3/3 停；C 0 动作无入口；D 4 次生成无饱和；E 4 件无饱和。
 - 下一层优化：共享事件状态（self-talk/mood/journal/works）、关闭记忆、别名语义合并、项目豁免。
+
+## 122. 事件总线第一步（P0，M118，2026-10-26）
+
+- self-events v2：eventId/aliases/channels{action,narration,mood,work}/status/conclusion；engage(channel) 让叙事/心情/作品参与总兴趣；total>=6 或 action attempts>=3 饱和；closeCurrent(conclusion) 写入 closed。
+- self-talk：options.events；prompt 带当前事件；饱和提示“已经说够了”；成功后 engage('narration')。
+- self-drive：饱和/loop 暂停时 closeCurrent，并通过 onEventClosed 把“这件事先放下了：…”写 journal（关闭记忆）。
+- 统一 suite 重跑：A 3/3 停；B 5/1（闭合）；C 0 动作；D 7 生成、叙事饱和+prompt 提示但仍生成；E 4 件无饱和。
+- 剩余：D 硬抑制（饱和后不生成同主题）、C 的纯反刍关闭、E 作品去重、mood 通道、项目豁免。

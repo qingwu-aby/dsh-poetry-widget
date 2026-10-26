@@ -10554,3 +10554,45 @@ test('self-drive v2.17：饱和事件这一轮不执行动作', async () => {
   assert.equal(savedActions.length, 0)
   drive.dispose()
 })
+
+test('self-events v2.20：叙事通道参与饱和、关闭事件写入结论', () => {
+  const dir = makeTmpDir('dshp-events-v2')
+  const now = FIXED_NOW.getTime()
+  const events = createSelfEvents({ file: path.join(dir, 'events.json'), now: () => now })
+  events.observe('两碗汤的咸淡', now)
+  for (let i = 0; i < 5; i += 1) events.engage('narration', now + i)
+  assert.equal(events.describe(now + 10).satiated, true, '动作 + 叙事总参与到阈值')
+  const closed = events.closeCurrent('在现在的条件下分不出咸淡，先放下。', now + 11, 'satiated')
+  assert.ok(closed)
+  assert.equal(closed.conclusion, '在现在的条件下分不出咸淡，先放下。')
+  assert.equal(events.snapshot().current, null)
+  assert.equal(events.snapshot().closedCount, 1)
+})
+
+test('self-talk v2.20：共享事件状态进入 prompt，生成后记 narration', async () => {
+  const dir = makeTmpDir('dshp-talk-events')
+  const now = FIXED_NOW.getTime()
+  const events = createSelfEvents({ file: path.join(dir, 'events.json'), now: () => now })
+  events.observe('两碗汤的咸淡', now)
+  for (let i = 0; i < 5; i += 1) events.engage('narration', now + i)
+  let prompt = ''
+  const llm = makeMockLlm((options) => {
+    prompt = options.messages[0].content[0].text
+    return '汤面上的油花散开又聚拢。'
+  })
+  const service = createSelfTalkService({
+    llm,
+    events,
+    getSelection: () => ({ provider: 'p', model: 'm' }),
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    now: () => now,
+    minIntervalMs: 0,
+    timeoutMs: 300,
+    logger: { warn() {} },
+  })
+  const result = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
+  assert.equal(result.ok, true)
+  assert.match(prompt, /两碗汤的咸淡/)
+  assert.match(prompt, /已经说够了/)
+  assert.equal(events.snapshot().current.channels.narration, 6)
+})
