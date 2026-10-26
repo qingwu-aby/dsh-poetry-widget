@@ -145,3 +145,5 @@
 | H42 | 心情自动刷新限流 | ✅ | 自动刷新忽略 force 走 10min 缓存；只有手动刷新带 manual=1 才强制生成；服务端 effectiveForce=force&&manual；路由/写记忆测试更新；394/394 |
 | H43 | 更名小鲸鱼 + 诗词入口到底部 | ✅ | package/loader id/widget id/locale 更名 dsh-little-whale·小鲸鱼；路由与数据目录保留兼容；面板头只留标题+关闭，诗词入口与返回/逐页看移到面板底部；394/394 |
 | H44 | 成长状态上下结构 | ✅ | 「成长状态」改为纵向布局（标签在上、内容整行），不再左右挤压；单测断言 stacked 结构；394/394 |
+| H45 | 模型预算与并发闸门 | ✅ | Asia/Shanghai 按日 role 计数 + 总量上限；`DSH_POETRY_DAILY_*` 可调；全局并发 2；预算拒绝不回退候选；`34` tests |
+| H46 | selfFacts 证据绑定 + 访问加权 | ✅ | `sourceEpisodeId`、`status`、`supersedes` 退休保留、近似去重、`accessCount` 命中累加、只注入 active；host 测试覆盖 |

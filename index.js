@@ -47,6 +47,7 @@ import {
   resolveModelErrorsPath,
 } from './lib/model-errors.mjs'
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
+import { configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
 import { createSelfDrive } from './lib/self-drive.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
@@ -61,6 +62,7 @@ import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
+import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -92,6 +94,19 @@ export async function apply(ctx) {
   // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
   const memoryDir = resolveMemoryDir(env, home)
   const journal = createMemoryJournal({ dir: memoryDir, logger })
+  // v1.81：全局模型预算 + 并发闸门（所有 role 共用；超预算活动安静跳过）。
+  const modelBudget = createModelBudget({
+    file: path.join(settingsPath.dir, 'model-budget.json'),
+    env,
+    home,
+    logger,
+  })
+  const modelGate = createModelGate({ maxConcurrent: 2, logger })
+  configureModelRuntime({ budget: modelBudget, gate: modelGate })
+  logger?.info?.(
+    `[dsh-little-whale] 模型预算：${modelBudget.snapshot().total}/${modelBudget.snapshot().totalLimit}（今日，亚洲/上海）`,
+  )
+
   // v1.73：启动时把旧 schema 的记忆文件就地迁移（失败只 warn，不阻塞启动）。
   try {
     const migrationReport = runMemoryMigrations({ env, home, logger })
@@ -129,6 +144,8 @@ export async function apply(ctx) {
 
   host.inject(['webServer', 'connection'], (hostCtx) => {
     try {
+      // v1.81：插件停用/测试清理时释放全局模型运行时。
+      host.effect(hostCtx, () => () => resetModelRuntime(), 'dsh-little-whale: 模型运行时')
       // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
       const serviceRuntime = createServiceRuntime({ logger })
       const webServer = host.get(hostCtx, 'webServer')
@@ -553,6 +570,8 @@ export async function apply(ctx) {
           netlang: selfNetlang.snapshot(),
           consolidate: memoryConsolidator.snapshot(),
           services: serviceRuntime.snapshot(),
+          budget: modelBudget.snapshot(),
+          gate: modelGate.snapshot(),
         }),
         env,
         home,

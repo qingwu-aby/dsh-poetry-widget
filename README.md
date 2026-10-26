@@ -49,6 +49,15 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 - ⚙️ **设置**：大小、平仄标注、每日/随机、自动轮播、吸附方向、简体/原文、恢复默认；心情/成长状态在成长页，设置持久化到 `$DSH_HOME/.dsh-poetry/settings.json`。
 - 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落 `deepseek-account/deepseek-flash`；原生 `opencode-go` 只在 `dsh-opencode-go` 不可用时兜底；若宿主默认模型本身指向原生 `opencode-go`（缺 `x-opencode-session` 头会 400），插件会自动改用 deepseek 账号兜底；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
 
+### 模型预算（v1.81）
+
+所有后台活动的模型调用共用一份按日预算（Asia/Shanghai）：默认每 role 有每日上限，总量 600 次；超预算的活动安静跳过，第二天恢复，不删除任何记忆。可用环境变量覆盖：
+
+- `DSH_POETRY_DAILY_TOTAL`：每日总调用上限
+- `DSH_POETRY_DAILY_MOOD` / `DSH_POETRY_DAILY_SELF_TALK` / `DSH_POETRY_DAILY_GROWTH` / `DSH_POETRY_DAILY_DRIVE` / `DSH_POETRY_DAILY_PROBE` / `DSH_POETRY_DAILY_WANDER` / `DSH_POETRY_DAILY_READ` / `DSH_POETRY_DAILY_NETLANG` / `DSH_POETRY_DAILY_VOICE` / `DSH_POETRY_DAILY_CONSOLIDATE`
+
+同时全局最多 2 个模型调用并发，避免多个自主活动同时打模型。
+
 ## 安装
 
 ### 官方桌面端（Electron 客户端，当前主要形态）

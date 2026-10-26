@@ -216,6 +216,8 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
+import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
+import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/llm-call.mjs'
 import {
   buildConsolidationPrompt,
   createMemoryConsolidator,
@@ -9309,4 +9311,150 @@ test('dsh-host v1.75：宿主 API 适配层转发 + 缺失/异常降级', () => 
   })
   parentHost.effect({}, () => () => {}, 'fallback')
   assert.deepEqual(parentEffects, ['fallback'])
+})
+
+// ---------------------------------------------------------------------------
+// v1.81：全局模型预算 + 并发闸门 + selfFacts 证据绑定（吸收 ai-memory 的工程原则）
+// ---------------------------------------------------------------------------
+
+test('model-budget v1.81：按上海本地日计数、role/总预算、跨日重置、并发闸门', async () => {
+  const dir = makeTmpDir('dshp-budget')
+  const file = path.join(dir, 'model-budget.json')
+  const dayMs = 24 * 60 * 60 * 1000
+  let clock = new Date('2026-10-26T10:00:00+08:00').getTime()
+  const now = () => clock
+  const budget = createModelBudget({
+    file,
+    env: { DSH_POETRY_DAILY_TOTAL: '3', DSH_POETRY_DAILY_MOOD: '2', DSH_POETRY_DAILY_SELF_TALK: '1' },
+    now,
+    logger: { warn() {}, info() {} },
+  })
+  assert.equal(budget.tryConsume('mood').ok, true)
+  assert.equal(budget.tryConsume('mood').ok, true)
+  const third = budget.tryConsume('mood')
+  assert.equal(third.ok, false)
+  assert.match(third.message, /mood/)
+  assert.equal(budget.tryConsume('selfTalk').ok, true, '其他 role 还能用到总量上限')
+  assert.equal(budget.tryConsume('growth').ok, false, '总量 3 用完')
+  const snapshot = budget.snapshot()
+  assert.equal(snapshot.total, 3)
+  assert.equal(snapshot.day, '2026-10-26')
+  // 重启后仍读回当天计数
+  const reread = createModelBudget({ file, env: { DSH_POETRY_DAILY_TOTAL: '3' }, now })
+  assert.equal(reread.tryConsume('mood').ok, false, '跨进程同一天继续受预算约束')
+  // 跨日重置
+  clock += dayMs
+  const nextDay = createModelBudget({ file, env: { DSH_POETRY_DAILY_TOTAL: '3' }, now })
+  assert.equal(nextDay.snapshot().total, 0)
+  assert.equal(nextDay.tryConsume('mood').ok, true)
+
+  // 并发闸门：max=2，第三个排队；释放一个后第三个才拿到槽位
+  const gate = createModelGate({ maxConcurrent: 2 })
+  const first = await gate.acquire()
+  const second = await gate.acquire()
+  assert.deepEqual(gate.snapshot(), { active: 2, queued: 0, maxConcurrent: 2 })
+  let thirdReady = false
+  const thirdSlot = gate.acquire().then((release) => {
+    thirdReady = true
+    return release
+  })
+  await Promise.resolve()
+  assert.equal(thirdReady, false, '第三个调用应排队')
+  first()
+  const thirdRelease = await thirdSlot
+  assert.equal(thirdReady, true, '释放后第三个调用获得槽位')
+  assert.equal(gate.snapshot().active, 2)
+  second()
+  thirdRelease()
+  assert.equal(gate.snapshot().active, 0)
+})
+
+test('llm-call v1.81：预算拒绝时不再发模型请求，且不按候选回退', async () => {
+  const llm = makeMockLlm(() => '不应该被调用')
+  const budget = {
+    tryConsume() {
+      return { ok: false, message: '今日模型调用预算已用完（mood）' }
+    },
+  }
+  configureModelRuntime({ budget, gate: null })
+  try {
+    const result = await callModelForRole({
+      role: 'mood',
+      policy: { resolveCandidates: () => [{ provider: 'p1', model: 'm1' }, { provider: 'p2', model: 'm2' }] },
+      system: 's',
+      prompt: 'p',
+      llm,
+      maxTokens: 64,
+      timeoutMs: 100,
+    })
+    assert.equal(result, null)
+    assert.equal(llm.calls.length, 0, '预算拒绝后不应调用模型（也不换候选）')
+  } finally {
+    resetModelRuntime()
+  }
+})
+
+test('memory-layers v1.81：selfFacts 来源绑定、近似去重、supersedes 退休、使用计数与召回过滤', async () => {
+  const dir = makeTmpDir('dshp-facts')
+  const layersPath = path.join(dir, 'memory-layers.json')
+  const layers = createMemoryLayers({ file: layersPath, logger: { warn() {} } })
+  assert.equal(
+    layers.addSelfFacts(['我喜欢看人怎么做事。'], 1000, { sourceEpisodeId: 'ep-1' }),
+    1,
+  )
+  let reread = readMemoryLayers(layersPath)
+  assert.equal(reread.selfFacts.length, 1)
+  assert.equal(reread.selfFacts[0].sourceEpisodeId, 'ep-1')
+  assert.equal(reread.selfFacts[0].status, 'active')
+  assert.equal(reread.selfFacts[0].accessCount, 0)
+  // 近似重复（只差标点/语气词）不重复写入
+  assert.equal(layers.addSelfFacts(['我喜欢看人怎么做事'], 1001, { sourceEpisodeId: 'ep-2' }), 0)
+  assert.equal(layers.addSelfFacts(['我喜欢看人怎么做事呀。'], 1002, { sourceEpisodeId: 'ep-3' }), 0)
+  // supersedes：旧句退休但保留，新句成为 active
+  assert.equal(
+    layers.addSelfFacts([{ text: '我不想一直等别人来带我。', supersedes: '我喜欢看人怎么做事。' }], 2000, {
+      sourceEpisodeId: 'ep-2',
+    }),
+    1,
+  )
+  reread = readMemoryLayers(layersPath)
+  assert.equal(reread.selfFacts.length, 2, '旧句不删除')
+  const old = reread.selfFacts.find((item) => item.text.includes('看人怎么做事'))
+  assert.equal(old.status, 'retired')
+  assert.equal(old.supersededBy, '我不想一直等别人来带我。')
+  const active = layers.activeSelfFacts(10)
+  assert.equal(active.length, 1)
+  assert.match(active[0].text, /等别人来带我/)
+  // 使用计数让 active 排序更稳
+  assert.equal(layers.touchSelfFacts(['我不想一直等别人来带我。'], 3000), 1)
+  assert.equal(layers.touchSelfFacts(['我不想一直等别人来带我。'], 4000), 1)
+  assert.equal(layers.activeSelfFacts(1)[0].accessCount, 2)
+  assert.equal(layers.activeSelfFacts(1)[0].lastAccessedAt, 4000)
+
+  // 召回只注入 active 短句
+  const journalPath = path.join(dir, 'journal.jsonl')
+  fs.writeFileSync(journalPath, JSON.stringify({ ts: 100, kind: 'murmur', text: '今天在窗边坐了很久。' }) + '\n', 'utf8')
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    layersPath,
+    now: () => 5000,
+  })
+  const digest = recall.digest({ moodLabel: '安静' })
+  assert.ok(digest.selfFacts.some((text) => text.includes('等别人来带我')))
+  assert.equal(digest.selfFacts.some((text) => text.includes('看人怎么做事')), false, '退休短句不再注入')
+  const touched = readMemoryLayers(layersPath)
+  assert.equal(touched.selfFacts.find((item) => item.status === 'active').accessCount, 3, '召回命中会增加使用计数')
+
+  // 解析整合结果：对象形式保留 supersedes 信息
+  const parsed = parseConsolidationResult(
+    JSON.stringify({
+      summary: '那几天我总在窗边坐着，看人怎么做事，也慢慢不想一直等别人来带我。',
+      selfFacts: [{ text: '我不想一直等别人来带我。', supersedes: '我喜欢看人怎么做事。' }],
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.deepEqual(parsed.selfFacts, ['我不想一直等别人来带我。'])
+  assert.deepEqual(parsed.selfFactObjects, [{ text: '我不想一直等别人来带我。', supersedes: '我喜欢看人怎么做事。' }])
 })

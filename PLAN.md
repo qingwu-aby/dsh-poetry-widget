@@ -995,3 +995,15 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户：成长状态的样式稍微改一下，不要左右结构了。
 - 实现：SettingsTab 的成长状态块加 `dshp-field-stacked`，flex 改为纵向；标签行换成横排小标题（成长状态 + 说明），`growthMetricsTree` 放进 `dshp-field-stack-body` 占满整行；新增 CSS 三条。
 - 测试：SettingsTab 断言存在 stacked 块；client 120 / host 232 / data 42 = 394/394。
+
+## 96. 阅读 ai-memory + P0（预算/闸门/selfFacts 证据）（M92，2026-10-26）
+
+- 用户：看 https://github.com/akitaonrails/ai-memory，批判性吸收，然后做 P0。
+- 结论：吸收“真源可重建、维护零 LLM、访问加权、可逆压缩、矛盾标记”五条原则中的三条落地；拒绝服务化/hook 捕捉对话/硬删除/团队机制。
+- 实现：
+  1. `lib/model-budget.mjs`：按 Asia/Shanghai 本地日统计 role 调用，默认 limits（mood 180/selfTalk 260/growth 70/drive 90/probe 12/wander 12/read 3/netlang 6/voice 6/consolidate 2），总上限 600；env 可调；预算文件 `.dsh-poetry/model-budget.json`；`createModelGate` 限制并发 2。
+  2. `lib/llm-call.mjs`：候选调用前先过预算、再排队；预算拒绝返回 `retryable:false`，不回退候选；index 装配并在 dispose 时 reset。
+  3. `lib/memory-layers.mjs`：selfFacts 加 `sourceEpisodeId/status/accessCount/lastAccessedAt/supersededBy`；`addSelfFacts` 支持 `supersedes`、近似去重（bigram Jaccard）、证据绑定；`activeSelfFacts`/`selectActiveSelfFacts`/`touchSelfFacts`；整合 prompt/解析支持对象形式；旧数据读取时补默认值。
+  4. `lib/memory-recall.mjs`：只注入 active 短句；命中后累加使用计数（读路径轻写）。
+- 测试：host +3（预算/闸门、llm-call 拒绝、selfFacts 全链路）；全套 397/397（data 42 / host 235 / client 120）。
+- 未做：完整心跳调度器（P1，当前用并发闸门+预算托底）；episode 存 sourceEntryIds（P1）。
