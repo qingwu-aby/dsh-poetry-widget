@@ -1127,3 +1127,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - `startSpontaneousCard`：record=true 且非 preview 时先比较指纹；同指纹 20 分钟内直接安静；失败后 60s 冷却；手动预览/再说一句/关闭后重试不受限。
 - normalizeSelfStatus 增加 experiencing；selfStatusRef/selfTalkNoveltyRef。
 - 测试：指纹稳定性/项目/心情变化 + 原有轮询/关闭用例；client 122，全套 416/416。
+
+## 112. 成长质量指标（M108，2026-10-26，P2）
+
+- `lib/growth-metrics.mjs`：只读 journal/layers/learning-log/projects；计算 daysAlive、journal{total,today,last7d,byKind}、memory{episodes,episodeEntries,consolidatedThrough,coverage}、selfFacts{active,retired}、learning{sections,distinctTopics}、project{current,completed}、repetition{recentSample,maxSimilarity}；60s 缓存。
+- index：health.runtime.growthMetrics。
+- client：normalizeHealthStatus 取 growthMetrics；设置页运行状态显示一行成长概览。
+- 测试：指标计算/缓存；全套 417/417。

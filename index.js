@@ -43,6 +43,7 @@ import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
+import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -105,6 +106,13 @@ export async function apply(ctx) {
   if (seededMemory.length > 0) logger?.info?.(`[dsh-little-whale] 已初始化空白记忆容器：${seededMemory.join('、')}`)
   // v2.8：她自己的持续项目/章节（由自处决定起、推进、收尾）。
   const selfProjects = createSelfProjects({ file: resolveProjectsPath(env, home), logger })
+  // v2.10：成长质量指标（只读、60s 缓存；不写记忆）。
+  const growthMetrics = createGrowthMetrics({
+    journalPath: path.join(memoryDir, 'journal.jsonl'),
+    layersPath: resolveMemoryLayersPath(env, home),
+    learningLogPath: path.join(memoryDir, 'learning-log.md'),
+    projectsPath: resolveProjectsPath(env, home),
+  })
   const journal = createMemoryJournal({ dir: memoryDir, logger })
   // v1.81：全局模型预算 + 并发闸门（所有 role 共用；超预算活动安静跳过）。
   const modelBudget = createModelBudget({
@@ -639,6 +647,7 @@ export async function apply(ctx) {
           heartbeat: heartbeat.snapshot(),
           web: webAccess.snapshot(),
           modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
+          growthMetrics: growthMetrics.snapshot(),
         }),
         env,
         home,

@@ -1453,6 +1453,7 @@ window.__ModuleLoader__.load({
    const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === 'object' ? runtime.heartbeat : null
    const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === 'object' ? runtime.modelErrors : null
    const consolidate = runtime.consolidate && typeof runtime.consolidate === 'object' ? runtime.consolidate : null
+   const growth = runtime.growthMetrics && typeof runtime.growthMetrics === 'object' ? runtime.growthMetrics : null
    const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === 'object' ? consolidate.backlog : null
    const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : []
    const counts = budget && budget.counts && typeof budget.counts === 'object' ? budget.counts : {}
@@ -1478,6 +1479,15 @@ window.__ModuleLoader__.load({
     modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
     memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
     memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === 'number' ? memoryBacklog.oldestAt : null,
+    growthMetrics: growth ? {
+     daysAlive: num(growth.daysAlive, 0),
+     journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
+     episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
+     coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
+     learning: growth.learning ? num(growth.learning.sections, 0) : 0,
+     repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
+     project: growth.project && typeof growth.project.current === 'string' ? growth.project.current : '',
+    } : null,
     modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === 'object'
      ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4)
      : [],

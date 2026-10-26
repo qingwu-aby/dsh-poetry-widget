@@ -1077,6 +1077,7 @@
             roles ? h("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
             h("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
             health.memoryBacklog !== null ? h("div", { className: "dshp-health-line" }, health.memoryBacklog === 0 ? "\u8BB0\u5FC6\u6574\u5408\uFF1A\u5DF2\u8FFD\u5E73" : "\u8BB0\u5FC6\u6574\u5408 backlog\uFF1A" + health.memoryBacklog + " \u6761" + (health.memoryBacklogOldestAt ? "\uFF08\u6700\u65E9 " + new Date(health.memoryBacklogOldestAt).toLocaleTimeString("zh-CN", { hour12: false }) + "\uFF09" : "")) : null,
+            health.growthMetrics ? h("div", { className: "dshp-health-line" }, "\u6210\u957F\uFF1A\u7B2C " + health.growthMetrics.daysAlive + " \u5929 \xB7 journal " + health.growthMetrics.journalTotal + " \u6761 \xB7 \u56DE\u5FC6 " + health.growthMetrics.episodes + " \u6BB5\uFF08\u8986\u76D6 " + Math.round(health.growthMetrics.coverage * 100) + "%\uFF09\xB7 \u5B66\u4E60 " + health.growthMetrics.learning + " \u6761 \xB7 \u91CD\u590D " + health.growthMetrics.repetition.toFixed(2) + (health.growthMetrics.project ? " \xB7 \u5728\u505A\uFF1A" + health.growthMetrics.project : "")) : null,
             h("div", { className: "dshp-health-line" }, errorLine)
           )
         );
@@ -4133,6 +4134,7 @@
         const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === "object" ? runtime.heartbeat : null;
         const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === "object" ? runtime.modelErrors : null;
         const consolidate = runtime.consolidate && typeof runtime.consolidate === "object" ? runtime.consolidate : null;
+        const growth = runtime.growthMetrics && typeof runtime.growthMetrics === "object" ? runtime.growthMetrics : null;
         const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === "object" ? consolidate.backlog : null;
         const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
         const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
@@ -4154,6 +4156,15 @@
           modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
           memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
           memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === "number" ? memoryBacklog.oldestAt : null,
+          growthMetrics: growth ? {
+            daysAlive: num(growth.daysAlive, 0),
+            journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
+            episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
+            coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
+            learning: growth.learning ? num(growth.learning.sections, 0) : 0,
+            repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
+            project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
+          } : null,
           modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4) : []
         };
       }

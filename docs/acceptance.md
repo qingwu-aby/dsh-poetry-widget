@@ -163,3 +163,4 @@
 | H60 | 记忆整合吞吐/backlog | ✅ | 6h/800/2 批 + 输入聚合；`health.runtime.consolidate.backlog`；设置页显示 backlog；412/412 |
 | H61 | 持续项目/章节层 | ✅ | 自处可起/推进/收尾项目；self.json/成长页/碎碎念素材可见；项目持久化并随归档；415/415 |
 | H62 | 碎碎念降噪 | ✅ | 自动轮询按状态/项目/心情/天气/20min 桶去重；手动预览与关闭后重说不受限；失败 60s 冷却；416/416 |
+| H63 | 成长质量指标 | ✅ | 活跃天数/journal/回忆覆盖/selfFacts/学习/项目/重复度；health.runtime.growthMetrics + 设置页概览；417/417 |

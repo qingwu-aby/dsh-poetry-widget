@@ -222,6 +222,7 @@ import {
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
+import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
@@ -10159,4 +10160,62 @@ test('memory-recall v2.8：当前项目进入碎碎念素材', () => {
   const digest = recall.digest({ moodLabel: '安静' })
   assert.match(digest.project, /把薄荷养回来/)
   assert.match(formatMemoryDigest(digest), /你这几天在持续做的事/)
+})
+
+test('growth-metrics v2.10：活跃天数/覆盖/学习/项目/重复度 + 60s 缓存', () => {
+  const dir = makeTmpDir('dshp-growth-metrics')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const layersPath = path.join(dir, 'memory-layers.json')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const projectsPath = path.join(dir, 'projects.json')
+  const now = FIXED_NOW.getTime()
+  const day = 24 * 60 * 60 * 1000
+  fs.writeFileSync(
+    journalPath,
+    [
+      { ts: now - day, kind: 'thought', text: '昨天想明白了一件小事，关于窗台上的光。' },
+      { ts: now - 10 * 60 * 1000, kind: 'murmur', text: '今天把窗台上的薄荷转了个方向，叶子朝着光。' },
+      { ts: now - 5 * 60 * 1000, kind: 'mood', label: '安静', reason: '窗台有光' },
+    ].map((entry) => JSON.stringify(entry)).join('\n') + '\n',
+    'utf8',
+  )
+  fs.writeFileSync(
+    layersPath,
+    JSON.stringify({
+      ok: true, v: 1, consolidatedThrough: now - day,
+      episodes: [{ id: 'ep-1', summary: '昨天在照看窗台那盆薄荷，顺手把叶子转向光。', from: now - 2 * day, to: now - day, entryCount: 2, at: now - day }],
+      selfFacts: [
+        { text: '我会记得窗台上的植物。', at: now - day, status: 'active', accessCount: 1 },
+        { text: '我不太喜欢被一直催。', at: now - 2 * day, status: 'retired', supersededBy: '我会按自己的节奏来。' },
+      ],
+    }),
+    'utf8',
+  )
+  fs.writeFileSync(
+    learningLogPath,
+    '## 2026-10-25 16:00 · 自学\n第一段自学内容。\n\n## 2026-10-26 10:00 · 溜达\n第二段溜达内容。\n',
+    'utf8',
+  )
+  const projects = createSelfProjects({ file: projectsPath, now: () => now })
+  projects.apply({ title: '把薄荷养回来', step: '今天把枯叶剪掉。' }, now)
+
+  const metrics = createGrowthMetrics({
+    journalPath, layersPath, learningLogPath, projectsPath, now: () => now,
+  })
+  const snapshot = metrics.snapshot()
+  assert.equal(snapshot.daysAlive, 2)
+  assert.equal(snapshot.journal.total, 3)
+  assert.equal(snapshot.journal.today, 2)
+  assert.equal(snapshot.memory.episodes, 1)
+  assert.equal(snapshot.memory.episodeEntries, 2)
+  assert.ok(Math.abs(snapshot.memory.coverage - 2 / 3) < 1e-9, '覆盖 = 已整合条目 / journal')
+  assert.equal(snapshot.selfFacts.active, 1)
+  assert.equal(snapshot.selfFacts.retired, 1)
+  assert.equal(snapshot.learning.sections, 2)
+  assert.equal(snapshot.project.current, '把薄荷养回来')
+  assert.ok(snapshot.repetition.maxSimilarity >= 0)
+
+  // 60s 缓存：同一个 now 内再读不变
+  fs.appendFileSync(journalPath, JSON.stringify({ ts: now - 1000, kind: 'murmur', text: '新写的一句。' }) + '\n')
+  assert.equal(metrics.snapshot().journal.total, 3)
 })

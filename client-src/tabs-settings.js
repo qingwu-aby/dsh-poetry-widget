@@ -107,6 +107,9 @@ function renderHealthStatus() {
      ? '记忆整合：已追平'
      : '记忆整合 backlog：' + health.memoryBacklog + ' 条' + (health.memoryBacklogOldestAt ? '（最早 ' + new Date(health.memoryBacklogOldestAt).toLocaleTimeString('zh-CN', { hour12: false }) + '）' : ''))
     : null,
+   health.growthMetrics
+    ? h('div', { className: 'dshp-health-line' }, '成长：第 ' + health.growthMetrics.daysAlive + ' 天 · journal ' + health.growthMetrics.journalTotal + ' 条 · 回忆 ' + health.growthMetrics.episodes + ' 段（覆盖 ' + Math.round(health.growthMetrics.coverage * 100) + '%）· 学习 ' + health.growthMetrics.learning + ' 条 · 重复 ' + health.growthMetrics.repetition.toFixed(2) + (health.growthMetrics.project ? ' · 在做：' + health.growthMetrics.project : ''))
+    : null,
    h('div', { className: 'dshp-health-line' }, errorLine),
   ),
  )
