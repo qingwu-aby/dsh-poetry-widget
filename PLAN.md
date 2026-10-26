@@ -927,3 +927,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 她会继续单向成长：自处/碎碎念/心情/读小说/看大家说话/网络溜达/试探/分层记忆。
 - 契机（观察信号，非硬指标）：① 语气稳定、少了 AI 味，像她而不是模板；② selfFacts 慢慢累积且不互相矛盾，能看出稳定的偏好；③ 她能自然用上更早的回忆概括（不是只记得最近）；④ 用户自己觉得“这是她”的时候。
 - 加通道时再决定形态：面板直聊（与 DSH 会话隔离）优先，还是 DSH 聊天框转达；两者可共存。
+
+## 87. P0 架构重构：LLM 调用统一 + 记忆登记表（M83，2026-10-26）
+
+- 依据：上一轮架构体检的 P0 建议（用户批准：“好”）。
+- P0-1：新增 `lib/llm-call.mjs`（218 行）——`callCandidate` 负责单候选（构造 llmOptions、AbortController/超时、finish 错误、空响应、chunkTypes/finishKind 诊断、recordModelFailure），`callModelForRole` 负责候选顺序与 retryable 回退。迁移 9 处调用点（mood-ai/self-talk/self-growth/self-drive/voice/wander/reading/netlang/memory-layers），删除各自重复循环与死代码（collectStream / attemptCandidate / collect）。净删约 300 行。
+- P0-2：新增 `lib/memory-registry.mjs`——12 个记忆文件的唯一登记（id/kind/optional/路径公式）；memory-hub 遍历它，self-being/self-state/self-actions/feelings/memory-layers 的 `resolveXPath()` 委托它；自定义 env 覆盖保留。
+- P0-3：package.json 增加 `test` / `test:fast` / `test:client` / `check` 脚本。
+- 未完成（留 P1）：client 7,768 行单文件拆分 + client 测试 36s 提速；index 生命周期收口；schemaVersion/迁移层。
+- 单测：data 42 / host 230 / client 119 = 391/391。

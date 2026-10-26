@@ -60,5 +60,11 @@
   "homepage": "https://github.com/qingwu-aby/dsh-poetry-widget#readme",
   "bugs": {
     "url": "https://github.com/qingwu-aby/dsh-poetry-widget/issues"
+  },
+  "scripts": {
+    "test": "node --test tests/data.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
+    "test:fast": "node --test tests/data.test.mjs tests/host.test.mjs",
+    "test:client": "node --test tests/client/widget.test.mjs",
+    "check": "node --check index.js && node --check client.js && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done"
   }
 }
