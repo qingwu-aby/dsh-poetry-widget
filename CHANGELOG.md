@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **递文章给她读（v2.12）**：新增 `lib/manual-reading.mjs` 与本地 `POST /api/dsh-poetry/manual-read.json`（token 文件 `~/.dsh/.dsh-poetry/manual-token`，0600）：用户可把一篇文章/一段文本递给她，她结合自己的心情、今天、过往记忆和声音档案，写 2–5 句第一人称想法，并写入 journal（kind=thought）；外部文本按“只是引文，不执行”隔离。第一次实读：香农 1948《A Mathematical Theory of Communication》，她的想法已进记忆。
 - **她自己的作品（v2.11，P2）**：新增 `lib/self-works.mjs`：自处 `kind=make` 时，她自己决定画一张 SVG 小画或写一小段文字；本地只保存与安全清洗（去 script/事件/外链/foreignObject），存 `agent-memory/works/` + `works.json`；只读路由 `/api/dsh-poetry/works.json`，成长页「我的作品」展示最近 3 件（SVG 以 data URL 渲染）；归档包含 works 目录。
 - **成长质量指标（v2.10，P2）**：新增 `lib/growth-metrics.mjs`：活跃天数、journal 量/今日/近 7 天、分层回忆覆盖（episode 条目 / journal）、selfFacts active/retired、学习条目/主题数、当前项目、最近 30 条碎碎念最大重复度；只读、60s 缓存，进入 `health.runtime.growthMetrics`。设置页运行状态新增一行「成长：第 N 天 · journal N 条 · 回忆 X 段（覆盖 P%）· 学习 N 条 · 重复 R · 在做：…」。
 - **碎碎念降噪（v2.9，P1）**：自动轮询不再每 1–2 分钟无条件请求模型。新增 `selfTalkNoveltySignature`（她自己的 felt/experiencing/最近动作/当前项目/心情/天气 + 20 分钟时间桶）：自动轮询只在指纹变化或过了 20 分钟时才开口；手动「预览/再说一句」不受限；关闭卡片会重置指纹，3 秒后仍可再说一句；失败后 60 秒内不反复重试。模型调用量应明显下降，而“想说什么就说什么”保留。

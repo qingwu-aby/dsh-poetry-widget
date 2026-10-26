@@ -1143,3 +1143,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - client：GrowthTab「我的作品」最近 3 件，SVG data URL / 文字；works.json 在成长 tab 打开时 60s 轮询。
 - archive：works 目录。
 - 测试：作品生成/清洗/索引/路由；全套 418/418。
+
+## 114. 递文章给她读（M110，2026-10-26）
+
+- `lib/manual-reading.mjs`：read({title,url,text}) → 结合 selfState/recall/voice，role=read，输出 {thought,liked}，journal.append({kind:'thought',text:'读《…》：…'})；text 200–60000 字。
+- 路由：POST /api/dsh-poetry/manual-read.json，token 文件保护（0600）。
+- index：apply 时创建 token、装配服务与路由。
+- 首次实读香农 1948 论文前 45000 字；她的想法已写入 journal。
+- 测试：服务/ token 路由；host 255，全套 419/419。

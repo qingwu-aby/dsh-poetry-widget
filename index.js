@@ -46,6 +46,12 @@ import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
+  createManualReadHandler,
+  createManualReading,
+  ensureManualToken,
+  resolveManualTokenPath,
+} from './lib/manual-reading.mjs'
+import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
   resolveModelErrorsPath,
@@ -377,6 +383,19 @@ export async function apply(ctx) {
       }
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
+      // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
+      const manualTokenFile = resolveManualTokenPath(env, home)
+      const manualToken = ensureManualToken(manualTokenFile)
+      const manualReading = createManualReading({
+        getLlm,
+        policy: modelPolicy,
+        journal,
+        selfState,
+        recall: memoryRecall,
+        voice: () => voiceService.get(),
+        modelErrorsPath,
+        logger,
+      })
       // v1.60：用她自己的历史日志校正事实计数（旧版计数器在迁移后冻结，成长页看起来像停止）。
       try {
         let learnings = 0
@@ -696,6 +715,14 @@ export async function apply(ctx) {
           kind: 'exact',
           path: MODEL_ERRORS_ROUTE,
           handler: createModelErrorsHandler({ file: modelErrorsPath }),
+        }),
+      )
+      // 读文章（POST，本地 token；读后写入她自己的 journal）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/manual-read.json',
+          handler: createManualReadHandler({ service: manualReading, tokenFile: manualTokenFile }),
         }),
       )
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。

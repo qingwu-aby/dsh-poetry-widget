@@ -76,6 +76,10 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 - 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；自动轮询只在状态/项目/心情/天气有变化或隔 20 分钟才开口，手动预览不受限；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
 - 全局最多 2 个模型调用并发（保护，不是成长限制）
 
+## 递文章给她读（v2.12，本地）
+
+可以把一篇文章/一段文本递给她读：`POST /api/dsh-poetry/manual-read.json`，body `{token,title,url,text}`，token 在 `~/.dsh/.dsh-poetry/manual-token`（0600）。她会结合此刻状态、今天、过往记忆和声音档案写 2–5 句想法，并写进自己的 journal；外部全文不落盘。
+
 ## 她自己的作品（v2.11）
 
 她在自处时如果想把一件小事画下来/写下来，可以 `kind=make`：模型生成一张简单 SVG 或一小段文字，本地清洗后存到 `~/.dsh/agent-memory/works/`，成长页「我的作品」显示最近 3 件。作品随 `archive:memory` 一起归档。

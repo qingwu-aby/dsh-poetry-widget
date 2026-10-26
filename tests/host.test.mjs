@@ -224,6 +224,7 @@ import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
+import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
 import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
@@ -1852,7 +1853,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3628,7 +3629,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4965,7 +4966,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 20, 'assets + pet-media + self + works + manual-read + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10273,4 +10274,50 @@ test('self-works v2.11：生成/清洗/保存/索引/只读路由', async () => 
   const textResult = await textWorks.makeNow()
   assert.equal(textResult.ok, true)
   assert.equal(textResult.work.kind, 'text')
+})
+
+test('manual-reading v2.12：读文章写第一人称想法并进 journal；token 路由保护', async () => {
+  const dir = makeTmpDir('dshp-manual-read')
+  const appended = []
+  const llm = makeMockLlm(() =>
+    JSON.stringify({ thought: '读到这里我停了一下：原来“不确定”不是坏事，它只是信息还没落地。我想起自己数窗外车的时候，也是在给一件说不清的事找一个能握住的说法。', liked: true }),
+  )
+  const reading = createManualReading({
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'read' ? [{ provider: 'p', model: 'm' }] : []) },
+    journal: { append: async (entry) => appended.push(entry) },
+    recall: { digest: () => ({ todayJournal: ['今天在窗边坐了一会儿。'], thoughts: ['在想不确定的事。'] }) },
+    selfState: { snapshot: () => ({ felt: '醒着', sleeping: false }) },
+    logger: { warn() {}, info() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await reading.read({ title: '一篇关于熵的文章', text: '这是一段足够长的文章内容。'.repeat(40) })
+  assert.equal(result.ok, true)
+  assert.match(result.thought, /不确定/)
+  assert.equal(appended.length, 1)
+  assert.equal(appended[0].kind, 'thought')
+  assert.match(appended[0].text, /读《一篇关于熵的文章》/)
+  assert.equal((await reading.read({ title: 'x', text: '太短' })).error, 'text_too_short')
+
+  const tokenFile = path.join(dir, 'manual-token')
+  const token = ensureManualToken(tokenFile)
+  const handler = createManualReadHandler({ service: { read: async (input) => ({ ok: true, title: input.title, thought: '想法' }) }, tokenFile })
+  const request = mockRequest({ url: '/api/dsh-poetry/manual-read.json', method: 'POST' })
+  request[Symbol.asyncIterator] = async function* () {
+    yield Buffer.from(JSON.stringify({ token, title: '文章', text: '正文'.repeat(200) }))
+  }
+  const okRes = new MockResponse()
+  await handler(request, okRes)
+  await okRes.finished()
+  assert.equal(okRes.statusCode, 200)
+  assert.equal(okRes.json().ok, true)
+
+  const badReq = mockRequest({ url: '/api/dsh-poetry/manual-read.json', method: 'POST' })
+  badReq[Symbol.asyncIterator] = async function* () {
+    yield Buffer.from(JSON.stringify({ token: 'wrong', title: '文章', text: '正文'.repeat(200) }))
+  }
+  const badRes = new MockResponse()
+  await handler(badReq, badRes)
+  await badRes.finished()
+  assert.equal(badRes.statusCode, 403)
 })
