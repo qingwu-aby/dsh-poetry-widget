@@ -1,4 +1,73 @@
 import { clamp, isVideoMoodFile, num } from './base.js'
+import {
+  SELF_TALK_PATH,
+  SELF_TALK_RECENT_MAX,
+  SELF_TALK_TIMEOUT_MS,
+  SPONT_AUTO_CLOSE_MS,
+  SPONT_CLOSE_RECHECK_MS,
+  SPONT_EVENT_MAX_MS,
+  SPONT_EVENT_MIN_MS,
+  SPONT_KEY,
+  SPONT_MAX_SEEN,
+  SPONT_POLL_MAX_MS,
+  SPONT_POLL_MIN_MS,
+  SPONT_QUIET_MS,
+  SPONT_REPEAT_MS,
+  SPONT_RETRY_MS,
+  SPONT_SEEN_DAYS,
+  canShowSpontaneous,
+  countSpontHits,
+  nextSpontEventDelay,
+  nextSpontPollDelay,
+  normalizeSpontState,
+  parseSelfTalkResponse,
+  pickSentenceFromLines,
+  recordSpontShown,
+  selfTalkKindFor,
+  selfTalkQuery,
+  splitCompleteSentences,
+} from './self-talk-client.js'
+import {
+  MOOD_AI_DEBOUNCE_MAX_MS,
+  MOOD_AI_DEBOUNCE_MIN_MS,
+  MOOD_AI_KEEP_MS,
+  MOOD_AI_MAX_RETRIES,
+  MOOD_AI_MIN_GAP_MS,
+  MOOD_AI_PATH,
+  MOOD_AI_RECENT_IMAGES_MAX,
+  MOOD_AI_RECENT_MAX,
+  MOOD_AI_RETRY_MAX_MS,
+  MOOD_AI_RETRY_MIN_MS,
+  MOOD_AI_TIMEOUT_MS,
+  MOOD_IMAGES,
+  MOOD_LABELS,
+  MOOD_PANEL_PEEK_FILES,
+  MOOD_REFRESH_MS,
+  MOOD_STRONG,
+  MOOD_SWITCH_MIN_MS,
+  MOOD_TICK_MS,
+  SHANGHAI_OFFSET_MS,
+  computeMood,
+  emptyMoodStats,
+  isMoodAiSignificant,
+  moodAiEventDelay,
+  moodAiFailureLabel,
+  moodAiKeepDecision,
+  moodAiQuery,
+  moodAiSnapshot,
+  moodBasisText,
+  moodCatalogAllows,
+  moodTimeBucket,
+  nextMoodAiDebounceDelay,
+  nextMoodAiRetryDelay,
+  normalizeMoodAiFailure,
+  normalizeMoodCatalog,
+  normalizeMoodStats,
+  panelPeekFile,
+  parseMoodAiResponse,
+  shanghaiParts,
+  throttleMoodSwitch,
+} from './mood-engine.js'
 import { createPoetryTabs } from './tabs-poetry.js'
 import { createSettingsTab } from './tabs-settings.js'
 import { createGrowthTab } from './tabs-growth.js'
@@ -165,21 +234,6 @@ window.__ModuleLoader__.load({
   cold: '今日寒冷，为你选了写霜寒的这首',
   unknown: '今日天气应景，为你选了应景的这首',
   })
-  /* 心情系统（M8）：心情引擎限频 + 低频「想读的诗」彩蛋。 */
-  const MOOD_SWITCH_MIN_MS = 20 * 60 * 1000
-  const MOOD_REFRESH_MS = 5 * 60 * 1000
-  const MOOD_TICK_MS = 60 * 1000
-  const MOOD_AI_PATH = 'mood-ai.json'
-  const MOOD_AI_TIMEOUT_MS = 35000
-  const MOOD_AI_DEBOUNCE_MIN_MS = 2000
-  const MOOD_AI_DEBOUNCE_MAX_MS = 4000
-  const MOOD_AI_MIN_GAP_MS = 20000
-  const MOOD_AI_RETRY_MIN_MS = 12000
-  const MOOD_AI_RETRY_MAX_MS = 25000
-  const MOOD_AI_KEEP_MS = 30 * 60 * 1000
-  const MOOD_AI_MAX_RETRIES = 5
-  const MOOD_AI_RECENT_MAX = 3
-  const MOOD_AI_RECENT_IMAGES_MAX = 20
   const PET_MEDIA_PATH = 'pet-media'
   const PET_MEDIA_CATALOG_FILE = 'catalog.json'
   const PET_MEDIA_TIMEOUT_MS = 9000
@@ -198,43 +252,7 @@ window.__ModuleLoader__.load({
   const MEAL_KEY = 'dshp-meal-v1'
   const MEAL_PLAY_MIN_MS = 25 * 1000
   const MEAL_PLAY_MAX_MS = 40 * 1000
-  const MOOD_PANEL_PEEK_FILES = {
-  today: 'dsh-whale-home-peek.webp',
-  settings: 'dsh-whale-settings-peek.webp',
-  other: 'dsh-whale-workbench-peek.webp',
-  }
-  const MOOD_STRONG = ['tired', 'sleepy', 'proud']
-  const MOOD_LABELS = Object.freeze({
-  happy: '开心', proud: '得意', tired: '有点累', sleepy: '困了', hungry: '有点饿',
-  lonely: '有点孤单', curious: '好奇', cozy: '惬意', calm: '平静',
-  })
-  const MOOD_IMAGES = Object.freeze({
-  happy: ['dsh-whale-state-game-happy.webp', 'dsh-whale-state-celebrate.webp'],
-  proud: ['dsh-whale-state-achievement.webp', 'dsh-whale-state-levelup.webp'],
-  tired: ['dsh-whale-state-work-sleep.webp', 'dsh-whale-state-daily-melt.webp'],
-  sleepy: ['dsh-whale-state-sleep.webp', 'dsh-whale-state-night.webp'],
-  hungry: ['dsh-whale-state-daily-eat.webp', 'dsh-whale-state-daily-cooking.webp'],
-  lonely: ['dsh-whale-state-waiting.webp', 'dsh-whale-state-idle-cute.webp'],
-  curious: ['dsh-whale-state-curious.webp', 'dsh-whale-state-thinking.webp'],
-  cozy: ['dsh-whale-state-daily-coffee.webp', 'dsh-whale-state-weather-rain-happy.webp', 'dsh-whale-state-weather-snow.webp'],
-  calm: ['dsh-whale-state-idle-cute.webp'],
-  })
   const WEATHER_OVERLAY_STATES = ['rain', 'snow', 'thunder', 'cold', 'night']
-  const SPONT_KEY = 'dshp-mood-spont-v1'
-  const SPONT_POLL_MIN_MS = 60 * 1000
-  const SPONT_POLL_MAX_MS = 120 * 1000
-  const SPONT_RETRY_MS = 10 * 1000
-  const SPONT_EVENT_MIN_MS = 2 * 1000
-  const SPONT_EVENT_MAX_MS = 5 * 1000
-  const SPONT_CLOSE_RECHECK_MS = 3 * 1000
-  const SPONT_QUIET_MS = 3 * 1000
-  const SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1000
-  const SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1000
-  const SPONT_MAX_SEEN = 300
-  const SPONT_AUTO_CLOSE_MS = 25000
-  const SELF_TALK_PATH = 'self-talk.json'
-  const SELF_TALK_TIMEOUT_MS = 35 * 1000
-  const SELF_TALK_RECENT_MAX = 12
   /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
   const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json', moodCatalog: 'data/mood-catalog.json' }
   const LIBRARY_CATEGORIES = [
@@ -926,97 +944,13 @@ window.__ModuleLoader__.load({
   }
 
   let moodCache = null
-  const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000
 
-  function shanghaiParts(now) {
-  const date = new Date(num(now, Date.now()) + SHANGHAI_OFFSET_MS)
-  const hour = date.getUTCHours()
-  return {
-   hour,
-   minutes: hour * 60 + date.getUTCMinutes(),
-   dateKey: date.toISOString().slice(0, 10),
-  }
-  }
 
-  function emptyMoodStats() {
-  return {
-   userMessages: 0, assistantMessages: 0, toolCalls: 0, toolErrors: 0,
-   turns: 0, turnsCompleted: 0, turnsErrored: 0, activeMs: 0, sessions: 0,
-   firstActivityAt: 0, lastActivityAt: 0,
-  }
-  }
 
-  function normalizeMoodStats(raw) {
-  const stats = emptyMoodStats()
-  const src = raw && typeof raw === 'object' ? raw : {}
-  for (const key of ['userMessages', 'assistantMessages', 'toolCalls', 'toolErrors', 'turns', 'turnsCompleted', 'turnsErrored', 'activeMs', 'sessions', 'firstActivityAt', 'lastActivityAt']) {
-   stats[key] = Math.max(0, Math.floor(num(src[key], 0)))
-  }
-  return stats
-  }
 
   /** 心情引擎：天气 + 时间 + 本地小信号 → {key,label,image,reason,strong}；不读任何对话数据（v1.58）。 */
-  function computeMood(input) {
-  const opts = input && typeof input === 'object' ? input : {}
-  const weather = opts.weather && typeof opts.weather === 'object' ? opts.weather : null
-  const signals = opts.signals && typeof opts.signals === 'object' ? opts.signals : {}
-  const now = num(signals.now, Date.now())
-  const local = shanghaiParts(now)
-  const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)))
-  const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)))
-  const minutes = local.minutes
-  const meal = (minutes >= 7 * 60 && minutes < 9 * 60)
-   || (minutes >= 11 * 60 + 30 && minutes < 13 * 60)
-   || (minutes >= 17 * 60 + 30 && minutes < 19 * 60 + 30)
-  const night = local.hour >= 23 || local.hour < 6
-  const category = weather && typeof weather.category === 'string' ? weather.category : ''
-  const rainy = category === 'rain' || category === 'snow' || category === 'thunder'
-  const tempC = weather ? Number(weather.tempC) : NaN
-  const coolNight = Boolean(weather) && weather.isDay === false && Number.isFinite(tempC) && tempC <= 22
-  let key = 'calm'
-  let reason = '平平常常的一阵'
-  if (night) {
-   key = 'sleepy'
-   reason = '夜深了 · 有点困'
-  } else if (wins >= 3) {
-   key = 'proud'
-   reason = '飞花令赢了 ' + wins + ' 次 · 好得意'
-  } else if (wins >= 1) {
-   key = 'happy'
-   reason = '飞花令赢了 · 心情不错'
-  } else if (meal) {
-   key = 'hungry'
-   reason = '到饭点啦 · 有点饿'
-  } else if (rainy || coolNight) {
-   key = 'cozy'
-   reason = category === 'snow' ? '下雪了 · 适合读诗' : (category === 'rain' || category === 'thunder' ? '外面有雨 · 适合读诗' : '夜色凉凉 · 很惬意')
-  } else if (clicks === 0) {
-   key = 'curious'
-   reason = '安静着 · 四处看看'
-  }
-  return {
-   key,
-   label: MOOD_LABELS[key] || key,
-   image: (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
-   reason,
-   strong: MOOD_STRONG.indexOf(key) >= 0,
-  }
-  }
 
   /** 心情立绘限频：同 key 只更新文案；换 key 需 ≥20min，strong 变化/force 可破例。 */
-  function throttleMoodSwitch(previous, next, now, force) {
-  const time = num(now, Date.now())
-  if (!next) return previous || null
-  if (!previous) return Object.assign({}, next, { changed: true, switchedAt: time })
-  if (next.key === previous.key) {
-   return Object.assign({}, next, { changed: false, switchedAt: num(previous.switchedAt, time) })
-  }
-  const elapsed = Math.max(0, time - num(previous.switchedAt, 0))
-  if (next.strong === true || force === true || elapsed >= MOOD_SWITCH_MIN_MS) {
-   return Object.assign({}, next, { changed: true, switchedAt: time })
-  }
-  return Object.assign({}, previous, { changed: false, pendingKey: next.key })
-  }
 
   /** 天气 + 心情合成立绘：恶劣天气（rain/snow/thunder/cold/night）优先，其次心情，最后默认。 */
   function mascotImageFor(options) {
@@ -1163,10 +1097,6 @@ window.__ModuleLoader__.load({
   return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || ''
   }
 
-  function moodBasisText(weather) {
-  const label = weather && weather.label ? weather.label : '未知'
-  return '天气：' + label
-  }
 
 
   function petMediaUrl(file) {
@@ -1334,102 +1264,11 @@ window.__ModuleLoader__.load({
   }
 
   /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
-  function normalizeMoodCatalog(data) {
-  if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null
-  const moodImages = []
-  const seen = {}
-  for (const item of data.moodImages) {
-   const file = item && typeof item.file === 'string' ? item.file.trim() : ''
-   if (!file || seen[file]) continue
-   seen[file] = true
-   moodImages.push({ file, label: String(item.label || ''), tags: Array.isArray(item.tags) ? item.tags : [], media: item.media || 'image' })
-  }
-  if (!moodImages.length) return null
-  const panel = Object.assign({}, MOOD_PANEL_PEEK_FILES)
-  const applyPanel = (item) => {
-   const file = item && typeof item.file === 'string' ? item.file.trim() : ''
-   if (!file) return
-   const tags = Array.isArray(item.tags) ? item.tags.join('|') : ''
-   if (tags.indexOf('home') >= 0) panel.today = file
-   else if (tags.indexOf('settings') >= 0) panel.settings = file
-   else if (tags.indexOf('workbench') >= 0 || tags.indexOf('poetry') >= 0) panel.other = file
-  }
-  for (const item of Array.isArray(data.panelImages) ? data.panelImages : []) applyPanel(item)
-  for (const item of Array.isArray(data.images) ? data.images : []) {
-   if (item && item.scope === 'panel') applyPanel(item)
-  }
-  const byFile = {}
-  for (const item of moodImages) byFile[item.file] = item
-  return {
-   version: String(data.version || data.dataVersion || ''),
-   moodImages,
-   moodFiles: moodImages.map((item) => item.file),
-   byFile,
-   panel,
-  }
-  }
 
-  function panelPeekFile(catalog, tabId) {
-  const panel = catalog && catalog.panel ? catalog.panel : MOOD_PANEL_PEEK_FILES
-  if (tabId === 'today') return panel.today || MOOD_PANEL_PEEK_FILES.today
-  if (tabId === 'settings') return panel.settings || MOOD_PANEL_PEEK_FILES.settings
-  return panel.other || MOOD_PANEL_PEEK_FILES.other
-  }
 
-  function moodCatalogAllows(catalog, image) {
-  if (!catalog || !Array.isArray(catalog.moodFiles) || typeof image !== 'string' || !image) return false
-  return catalog.moodFiles.indexOf(image) >= 0
-  }
 
   /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤20)，不含会话内容。 */
-  function moodAiQuery(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const params = []
-  const add = (key, value) => {
-   if (value == null || value === '') return
-   params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))
-  }
-  if (opts.force === true) add('force', '1')
-  // v1.78：只有用户手动「刷新心情」才带 manual=1；自动刷新由宿主按缓存限流，避免多标签/重载叠加刷模型。
-  if (opts.manual === true) add('manual', '1')
-  add('mood', opts.moodKey)
-  add('weather', opts.weather)
-  const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX)
-  if (recent.length) add('recent', recent.join('|'))
-  const imageSeen = {}
-  const recentImages = []
-  for (const file of Array.isArray(opts.recentImages) ? opts.recentImages : []) {
-   const clean = String(file == null ? '' : file).trim()
-   if (!clean || imageSeen[clean]) continue
-   imageSeen[clean] = true
-   recentImages.push(clean)
-  }
-  if (recentImages.length) add('recentImages', recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join('|'))
-  return MOOD_AI_PATH + (params.length ? '?' + params.join('&') : '')
-  }
 
-  function parseMoodAiResponse(data, catalog) {
-  const errorCode = data && data.error && typeof data.error.code === 'string' ? data.error.code : ''
-  if (!data || data.ok === false || !data.mood || typeof data.mood !== 'object') return { ok: false, reason: 'invalid', code: errorCode }
-  const raw = data.mood
-  const label = String(raw.label == null ? '' : raw.label).trim()
-  const reason = String(raw.reason == null ? '' : raw.reason).trim()
-  const image = String(raw.image == null ? '' : raw.image).trim()
-  const videoImage = /^webm\/[^/]+\.webm$/.test(image)
-  if (!label || (!videoImage && !moodCatalogAllows(catalog, image))) return { ok: false, reason: 'image', code: errorCode }
-  return {
-   ok: true,
-   mood: {
-    key: 'ai',
-    label: label.slice(0, 24),
-    image,
-    reason: reason.slice(0, 80),
-    energy: num(raw.energy, 0),
-    source: 'model',
-    ai: true,
-   },
-  }
-  }
 
   /** 请求 host 模型心情；25s 超时（宿主 20s，客户端留余量）；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */
   function requestMoodAi(options) {
@@ -1658,125 +1497,20 @@ window.__ModuleLoader__.load({
   }
 
   /** 自动刷新前的短暂提示延时 300–800ms。 */
-  function nextMoodAiDebounceDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MOOD_AI_DEBOUNCE_MIN_MS + ratio * (MOOD_AI_DEBOUNCE_MAX_MS - MOOD_AI_DEBOUNCE_MIN_MS))
-  }
 
   /** 模型心情失败后的自动重试延时 12–25s。 */
-  function nextMoodAiRetryDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MOOD_AI_RETRY_MIN_MS + ratio * (MOOD_AI_RETRY_MAX_MS - MOOD_AI_RETRY_MIN_MS))
-  }
 
   /** 失败时是否保留上一次模型心情：当前是模型来源且距上次成功 <30min。 */
-  function moodAiKeepDecision(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (opts.source !== 'model') return false
-  const last = num(opts.lastSuccessAt, 0)
-  if (last <= 0) return false
-  return num(opts.now, Date.now()) - last < MOOD_AI_KEEP_MS
-  }
 
   /** 归一化失败原因，便于设置页显示。 */
-  function normalizeMoodAiFailure(result) {
-  const reason = result && typeof result.reason === 'string' ? result.reason : ''
-  const code = result && typeof result.code === 'string' ? result.code : ''
-  if (result && result.status === 429) return 'rate'
-  if (reason === 'timeout' || reason === 'http' || reason === 'json' || reason === 'image' || reason === 'network' || reason === 'rate') return reason
-  if (reason === 'no-fetch') return 'network'
-  if (reason === 'catalog') return 'catalog'
-  if (code) {
-   if (/RATE|LIMIT/i.test(code)) return 'rate'
-   if (/TIMEOUT/i.test(code)) return 'timeout'
-   if (/JSON|PARSE/i.test(code)) return 'json'
-   if (/IMAGE/i.test(code)) return 'image'
-   if (/CATALOG/i.test(code)) return 'catalog'
-   if (/NETWORK|OFFLINE/i.test(code)) return 'network'
-  }
-  if (reason === 'host' || reason === 'invalid') return 'model'
-  return 'unknown'
-  }
 
-  function moodAiFailureLabel(reason) {
-  const labels = { timeout: '超时', http: 'HTTP 错误', json: '响应格式错误', image: '图片无效', network: '网络错误', rate: '请求过频', model: '模型返回错误', catalog: '图鉴未加载', unknown: '未知原因' }
-  return labels[reason] || labels.unknown
-  }
 
   /** 事件触发请求距上次请求开始  /** 事件触发请求距上次请求开始不足 20s 时，延后到剩余时间（合并事件）。 */
-  function moodAiEventDelay(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const last = num(opts.lastRequestAt, 0)
-  const now = num(opts.now, Date.now())
-  if (last > 0) {
-   const remaining = MOOD_AI_MIN_GAP_MS - (now - last)
-   if (remaining > 0) return remaining
-  }
-  return nextMoodAiDebounceDelay(opts)
-  }
 
   /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */
-  function moodTimeBucket(now) {
-  const parts = shanghaiParts(num(now, Date.now()))
-  const hour = parts.hour
-  let period = 'night'
-  if (hour >= 6 && hour < 11) period = 'morning'
-  else if (hour >= 11 && hour < 14) period = 'noon'
-  else if (hour >= 14 && hour < 18) period = 'afternoon'
-  else if (hour >= 18 && hour < 22) period = 'evening'
-  const meal = hour === 7 || hour === 8 || hour === 11 || hour === 12 || hour === 17 || hour === 18
-  return period + '|' + (meal ? 'meal' : 'offmeal')
-  }
 
-  function moodAiSnapshot(weather, feihuaWins, feihuaLosses) {
-  return {
-   weatherCategory: weather && typeof weather.category === 'string' ? weather.category : '',
-   feihuaWins: Math.max(0, Math.floor(num(feihuaWins, 0))),
-   feihuaLosses: Math.max(0, Math.floor(num(feihuaLosses, 0))),
-  }
-  }
 
-  function isMoodAiSignificant(previous, current) {
-  if (!previous || !current) return false
-  if (current.weatherCategory !== previous.weatherCategory) return true
-  if (current.feihuaWins > previous.feihuaWins || current.feihuaLosses > previous.feihuaLosses) return true
-  return false
-  }
 
-  function normalizeSpontState(raw, now) {
-  const src = raw && typeof raw === 'object' ? raw : {}
-  const dateKey = shanghaiParts(now).dateKey
-  const seen = []
-  if (Array.isArray(src.seenIds)) {
-   for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
-    let id = ''
-    let at = 0
-    if (typeof entry === 'string') id = entry
-    else if (entry && typeof entry === 'object' && typeof entry.id === 'string') {
-    id = entry.id
-    at = num(entry.at, 0)
-    }
-    if (!id) continue
-    if (at > 0 && now - at > SPONT_SEEN_DAYS) continue
-    seen.push({ id, at })
-   }
-  }
-  const sameDay = src.date === dateKey
-  return {
-   date: dateKey,
-   lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
-   todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
-   seenIds: seen,
-   lastType: typeof src.lastType === 'string' ? src.lastType : '',
-   lastTag: typeof src.lastTag === 'string' ? src.lastTag : '',
-  }
-  }
 
   function readSpontState(now) {
   const storage = getStorage()
@@ -1799,97 +1533,18 @@ window.__ModuleLoader__.load({
   }
   }
 
-  function recordSpontShown(state, id, now, type, tag) {
-  const base = normalizeSpontState(state, now)
-  const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now }]).slice(-SPONT_MAX_SEEN)
-  return {
-   date: base.date,
-   lastShownAt: num(now, Date.now()),
-   todayCount: base.todayCount + 1,
-   seenIds: seen,
-   lastType: typeof type === 'string' ? type : base.lastType,
-   lastTag: typeof tag === 'string' ? tag : base.lastTag,
-  }
-  }
 
-  function countSpontHits(text, tags) {
-  let hits = 0
-  for (const tag of Array.isArray(tags) ? tags : []) {
-   if (!tag) continue
-   hits += String(text || '').split(tag).length - 1
-  }
-  return hits
-  }
 
   /** 彩蛋触发条件（纯函数）：开关/可见/隐藏/面板/气泡/30s 闲置/45min 间隔/每日 3 次。 */
   /** 把连续文本按句末标点（。！？）切成完整句，保留标点（不吃掉逗号等句中标点）。 */
-  function splitCompleteSentences(text) {
-  const value = String(text == null ? '' : text)
-  const out = []
-  let start = 0
-  for (let i = 0; i < value.length; i += 1) {
-   const ch = value.charAt(i)
-   if (ch === '。' || ch === '！' || ch === '？') {
-    const sentence = value.slice(start, i + 1).trim()
-    if (sentence) out.push(sentence)
-    start = i + 1
-   }
-  }
-  return out
-  }
 
   /** 从若干行里挑一个完整句：优先 8–40 字且命中心情 tag；无句末标点则回退最后一个完整 line。 */
-  function pickSentenceFromLines(lines, tags, random) {
-  const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? '' : value)).filter((value) => value.length > 0)
-  const sentences = splitCompleteSentences(list.join(''))
-  if (!sentences.length) {
-   if (!list.length) return ''
-   let fallback = list[list.length - 1]
-   if (/[，,]$/.test(fallback)) {
-    fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, '。')
-   }
-   return fallback
-  }
-  const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }))
-  const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0)
-  const medium = scored.filter((item) => item.length >= 8 && item.length <= 40)
-  const withTag = scored.filter((item) => item.hits > 0)
-  const pool = (preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored)
-  if (!pool.length) return ''
-  const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === 'function' ? random() : Math.random(), 0) * pool.length)))
-  return pool[index].sentence
-  }
 
   /** 触发条件（纯函数）：开关/可见/隐藏/面板/气泡/最近 3s 无交互；不再有任何时间/次数闸门。 */
-  function canShowSpontaneous(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (opts.enabled !== true) return false
-  if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false
-  const now = num(opts.now, Date.now())
-  const lastInteraction = num(opts.lastInteractionAt, 0)
-  const quietMs = num(opts.quietMs, SPONT_QUIET_MS)
-  const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY
-  if (idleMs < quietMs) return false
-  return true
-  }
 
   /** 轮询间隔 60–120 秒（每次重新随机）；事件唤醒仍 2–5s。 */
-  function nextSpontPollDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS))
-  }
 
   /** 事件唤醒后的尝试延迟 2–5 秒。 */
-  function nextSpontEventDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS))
-  }
   function murmurPeriod(hour) {
   if (hour >= 5 && hour < 9) return '早上'
   if (hour >= 9 && hour < 11) return '上午'
@@ -1899,50 +1554,9 @@ window.__ModuleLoader__.load({
   return '深夜'
   }
 
-  function selfTalkKindFor() {
-  return 'murmur'
-  }
 
   /** 构建 self-talk GET：只带聚合上下文（mood/weather/idleMinutes/recent），不含会话内容。 */
-  function selfTalkQuery(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const params = []
-  const add = (key, value) => {
-   if (value == null || value === '') return
-   params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))
-  }
-  add('kind', 'murmur')
-  add('mood', opts.moodKey)
-  add('moodLabel', opts.moodLabel)
-  add('moodReason', opts.moodReason)
-  add('image', opts.image)
-  add('imageLabel', opts.imageLabel)
-  add('weather', opts.weather)
-  add('idleMinutes', Math.max(0, Math.floor(num(opts.idleMinutes, 0))))
-  const seen = {}
-  const recent = []
-  for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
-   const clean = String(text == null ? '' : text).trim()
-   if (!clean || seen[clean]) continue
-   seen[clean] = true
-   recent.push(clean)
-  }
-  const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX)
-  if (recentSlice.length) add('recent', recentSlice.join('|'))
-  return SELF_TALK_PATH + (params.length ? '?' + params.join('&') : '')
-  }
 
-  function parseSelfTalkResponse(data) {
-  if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: 'invalid' }
-  const texts = []
-  for (const line of data.lines) {
-   const text = typeof line === 'string' ? line : line && typeof line.text === 'string' ? line.text : ''
-   const clean = text.trim()
-   if (clean && texts.indexOf(clean) < 0) texts.push(clean)
-  }
-  if (!texts.length) return { ok: false, reason: 'empty' }
-  return { ok: true, line: texts[0], next: texts[1] || '' }
-  }
 
   /** 请求 host 实时自言自语；35s 超时（与宿主 high 推理对齐）；所有失败都 resolve 成 {ok:false}，由调用方静默处理。 */
   function requestSelfTalk(options) {

@@ -1079,3 +1079,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - client.js 源文件 6,750 → 5,656 行（本轮 -1,094）；esbuild 单 artifact 不变。
 - DeepSeek：`resolveDeepSeekApiKey(env)` 作为唯一入口（DSH_POETRY_DEEPSEEK_API_KEY → DEEPSEEK_API_KEY）；自动读 `~/.dsh/.credentials.yaml` 的位置保留注释，未实现（用户要求先不加）。
 - 测试：client 121 / host 247 / 全套 410。
+
+## 106. client 纯逻辑拆分（M102，2026-10-26）
+
+- `client-src/mood-engine.js`：SHANGHAI_OFFSET_MS/MOOD_* 常量、shanghaiParts、empty/normalizeMoodStats、computeMood、throttleMoodSwitch、moodBasisText、normalizeMoodCatalog、panelPeekFile、moodCatalogAllows、moodAiQuery/parse、retry/keep/failure/event/debounce 计算、moodTimeBucket、moodAiSnapshot、isMoodAiSignificant（纯函数，无 fetch/React）。
+- `client-src/self-talk-client.js`：SPONT_*/SELF_TALK_* 常量、normalizeSpontState、recordSpontShown、countSpontHits、splitCompleteSentences、pickSentenceFromLines、canShowSpontaneous、nextSpontPollDelay/EventDelay、selfTalkKindFor、selfTalkQuery、parseSelfTalkResponse；storage/fetch 仍留在 client。
+- client.js 源文件 5,657 → 5,271 行；构建仍单 artifact。
+- 测试：全套 410/410。

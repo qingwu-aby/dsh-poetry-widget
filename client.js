@@ -15,6 +15,476 @@
     return /\.webm$/i.test(String(file == null ? "" : file));
   }
 
+  // client-src/mood-engine.js
+  var SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
+  var MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
+  var MOOD_REFRESH_MS = 5 * 60 * 1e3;
+  var MOOD_TICK_MS = 60 * 1e3;
+  var MOOD_AI_PATH = "mood-ai.json";
+  var MOOD_AI_TIMEOUT_MS = 35e3;
+  var MOOD_AI_DEBOUNCE_MIN_MS = 2e3;
+  var MOOD_AI_DEBOUNCE_MAX_MS = 4e3;
+  var MOOD_AI_MIN_GAP_MS = 2e4;
+  var MOOD_AI_RETRY_MIN_MS = 12e3;
+  var MOOD_AI_RETRY_MAX_MS = 25e3;
+  var MOOD_AI_KEEP_MS = 30 * 60 * 1e3;
+  var MOOD_AI_MAX_RETRIES = 5;
+  var MOOD_AI_RECENT_MAX = 3;
+  var MOOD_AI_RECENT_IMAGES_MAX = 20;
+  var MOOD_PANEL_PEEK_FILES = Object.freeze({
+    today: "dsh-whale-home-peek.webp",
+    settings: "dsh-whale-settings-peek.webp",
+    other: "dsh-whale-workbench-peek.webp"
+  });
+  var MOOD_STRONG = Object.freeze(["tired", "sleepy", "proud"]);
+  var MOOD_LABELS = Object.freeze({
+    happy: "\u5F00\u5FC3",
+    proud: "\u5F97\u610F",
+    tired: "\u6709\u70B9\u7D2F",
+    sleepy: "\u56F0\u4E86",
+    hungry: "\u6709\u70B9\u997F",
+    lonely: "\u6709\u70B9\u5B64\u5355",
+    curious: "\u597D\u5947",
+    cozy: "\u60EC\u610F",
+    calm: "\u5E73\u9759"
+  });
+  var MOOD_IMAGES = Object.freeze({
+    happy: ["dsh-whale-state-game-happy.webp", "dsh-whale-state-celebrate.webp"],
+    proud: ["dsh-whale-state-achievement.webp", "dsh-whale-state-levelup.webp"],
+    tired: ["dsh-whale-state-work-sleep.webp", "dsh-whale-state-daily-melt.webp"],
+    sleepy: ["dsh-whale-state-sleep.webp", "dsh-whale-state-night.webp"],
+    hungry: ["dsh-whale-state-daily-eat.webp", "dsh-whale-state-daily-cooking.webp"],
+    lonely: ["dsh-whale-state-waiting.webp", "dsh-whale-state-idle-cute.webp"],
+    curious: ["dsh-whale-state-curious.webp", "dsh-whale-state-thinking.webp"],
+    cozy: ["dsh-whale-state-daily-coffee.webp", "dsh-whale-state-weather-rain-happy.webp", "dsh-whale-state-weather-snow.webp"],
+    calm: ["dsh-whale-state-idle-cute.webp"]
+  });
+  function shanghaiParts(now) {
+    const date = new Date(num(now, Date.now()) + SHANGHAI_OFFSET_MS);
+    const hour = date.getUTCHours();
+    return {
+      hour,
+      minutes: hour * 60 + date.getUTCMinutes(),
+      dateKey: date.toISOString().slice(0, 10)
+    };
+  }
+  function emptyMoodStats() {
+    return {
+      userMessages: 0,
+      assistantMessages: 0,
+      toolCalls: 0,
+      toolErrors: 0,
+      turns: 0,
+      turnsCompleted: 0,
+      turnsErrored: 0,
+      activeMs: 0,
+      sessions: 0,
+      firstActivityAt: 0,
+      lastActivityAt: 0
+    };
+  }
+  function normalizeMoodStats(raw) {
+    const stats = emptyMoodStats();
+    const src = raw && typeof raw === "object" ? raw : {};
+    for (const key of ["userMessages", "assistantMessages", "toolCalls", "toolErrors", "turns", "turnsCompleted", "turnsErrored", "activeMs", "sessions", "firstActivityAt", "lastActivityAt"]) {
+      stats[key] = Math.max(0, Math.floor(num(src[key], 0)));
+    }
+    return stats;
+  }
+  function computeMood(input) {
+    const opts = input && typeof input === "object" ? input : {};
+    const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
+    const signals = opts.signals && typeof opts.signals === "object" ? opts.signals : {};
+    const now = num(signals.now, Date.now());
+    const local = shanghaiParts(now);
+    const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)));
+    const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)));
+    const minutes = local.minutes;
+    const meal = minutes >= 7 * 60 && minutes < 9 * 60 || minutes >= 11 * 60 + 30 && minutes < 13 * 60 || minutes >= 17 * 60 + 30 && minutes < 19 * 60 + 30;
+    const night = local.hour >= 23 || local.hour < 6;
+    const category = weather && typeof weather.category === "string" ? weather.category : "";
+    const rainy = category === "rain" || category === "snow" || category === "thunder";
+    const tempC = weather ? Number(weather.tempC) : NaN;
+    const coolNight = Boolean(weather) && weather.isDay === false && Number.isFinite(tempC) && tempC <= 22;
+    let key = "calm";
+    let reason = "\u5E73\u5E73\u5E38\u5E38\u7684\u4E00\u9635";
+    if (night) {
+      key = "sleepy";
+      reason = "\u591C\u6DF1\u4E86 \xB7 \u6709\u70B9\u56F0";
+    } else if (wins >= 3) {
+      key = "proud";
+      reason = "\u98DE\u82B1\u4EE4\u8D62\u4E86 " + wins + " \u6B21 \xB7 \u597D\u5F97\u610F";
+    } else if (wins >= 1) {
+      key = "happy";
+      reason = "\u98DE\u82B1\u4EE4\u8D62\u4E86 \xB7 \u5FC3\u60C5\u4E0D\u9519";
+    } else if (meal) {
+      key = "hungry";
+      reason = "\u5230\u996D\u70B9\u5566 \xB7 \u6709\u70B9\u997F";
+    } else if (rainy || coolNight) {
+      key = "cozy";
+      reason = category === "snow" ? "\u4E0B\u96EA\u4E86 \xB7 \u9002\u5408\u8BFB\u8BD7" : category === "rain" || category === "thunder" ? "\u5916\u9762\u6709\u96E8 \xB7 \u9002\u5408\u8BFB\u8BD7" : "\u591C\u8272\u51C9\u51C9 \xB7 \u5F88\u60EC\u610F";
+    } else if (clicks === 0) {
+      key = "curious";
+      reason = "\u5B89\u9759\u7740 \xB7 \u56DB\u5904\u770B\u770B";
+    }
+    return {
+      key,
+      label: MOOD_LABELS[key] || key,
+      image: (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
+      reason,
+      strong: MOOD_STRONG.indexOf(key) >= 0
+    };
+  }
+  function throttleMoodSwitch(previous, next, now, force) {
+    const time = num(now, Date.now());
+    if (!next) return previous || null;
+    if (!previous) return Object.assign({}, next, { changed: true, switchedAt: time });
+    if (next.key === previous.key) {
+      return Object.assign({}, next, { changed: false, switchedAt: num(previous.switchedAt, time) });
+    }
+    const elapsed = Math.max(0, time - num(previous.switchedAt, 0));
+    if (next.strong === true || force === true || elapsed >= MOOD_SWITCH_MIN_MS) {
+      return Object.assign({}, next, { changed: true, switchedAt: time });
+    }
+    return Object.assign({}, previous, { changed: false, pendingKey: next.key });
+  }
+  function moodBasisText(weather) {
+    const label = weather && weather.label ? weather.label : "\u672A\u77E5";
+    return "\u5929\u6C14\uFF1A" + label;
+  }
+  function normalizeMoodCatalog(data) {
+    if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null;
+    const moodImages = [];
+    const seen = {};
+    for (const item of data.moodImages) {
+      const file = item && typeof item.file === "string" ? item.file.trim() : "";
+      if (!file || seen[file]) continue;
+      seen[file] = true;
+      moodImages.push({ file, label: String(item.label || ""), tags: Array.isArray(item.tags) ? item.tags : [], media: item.media || "image" });
+    }
+    if (!moodImages.length) return null;
+    const panel = Object.assign({}, MOOD_PANEL_PEEK_FILES);
+    const applyPanel = (item) => {
+      const file = item && typeof item.file === "string" ? item.file.trim() : "";
+      if (!file) return;
+      const tags = Array.isArray(item.tags) ? item.tags.join("|") : "";
+      if (tags.indexOf("home") >= 0) panel.today = file;
+      else if (tags.indexOf("settings") >= 0) panel.settings = file;
+      else if (tags.indexOf("workbench") >= 0 || tags.indexOf("poetry") >= 0) panel.other = file;
+    };
+    for (const item of Array.isArray(data.panelImages) ? data.panelImages : []) applyPanel(item);
+    for (const item of Array.isArray(data.images) ? data.images : []) {
+      if (item && item.scope === "panel") applyPanel(item);
+    }
+    const byFile = {};
+    for (const item of moodImages) byFile[item.file] = item;
+    return {
+      version: String(data.version || data.dataVersion || ""),
+      moodImages,
+      moodFiles: moodImages.map((item) => item.file),
+      byFile,
+      panel
+    };
+  }
+  function panelPeekFile(catalog, tabId) {
+    const panel = catalog && catalog.panel ? catalog.panel : MOOD_PANEL_PEEK_FILES;
+    if (tabId === "today") return panel.today || MOOD_PANEL_PEEK_FILES.today;
+    if (tabId === "settings") return panel.settings || MOOD_PANEL_PEEK_FILES.settings;
+    return panel.other || MOOD_PANEL_PEEK_FILES.other;
+  }
+  function moodCatalogAllows(catalog, image) {
+    if (!catalog || !Array.isArray(catalog.moodFiles) || typeof image !== "string" || !image) return false;
+    return catalog.moodFiles.indexOf(image) >= 0;
+  }
+  function moodAiQuery(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const params = [];
+    const add = (key, value) => {
+      if (value == null || value === "") return;
+      params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
+    };
+    if (opts.force === true) add("force", "1");
+    if (opts.manual === true) add("manual", "1");
+    add("mood", opts.moodKey);
+    add("weather", opts.weather);
+    const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? "" : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX);
+    if (recent.length) add("recent", recent.join("|"));
+    const imageSeen = {};
+    const recentImages = [];
+    for (const file of Array.isArray(opts.recentImages) ? opts.recentImages : []) {
+      const clean = String(file == null ? "" : file).trim();
+      if (!clean || imageSeen[clean]) continue;
+      imageSeen[clean] = true;
+      recentImages.push(clean);
+    }
+    if (recentImages.length) add("recentImages", recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join("|"));
+    return MOOD_AI_PATH + (params.length ? "?" + params.join("&") : "");
+  }
+  function parseMoodAiResponse(data, catalog) {
+    const errorCode = data && data.error && typeof data.error.code === "string" ? data.error.code : "";
+    if (!data || data.ok === false || !data.mood || typeof data.mood !== "object") return { ok: false, reason: "invalid", code: errorCode };
+    const raw = data.mood;
+    const label = String(raw.label == null ? "" : raw.label).trim();
+    const reason = String(raw.reason == null ? "" : raw.reason).trim();
+    const image = String(raw.image == null ? "" : raw.image).trim();
+    const videoImage = /^webm\/[^/]+\.webm$/.test(image);
+    if (!label || !videoImage && !moodCatalogAllows(catalog, image)) return { ok: false, reason: "image", code: errorCode };
+    return {
+      ok: true,
+      mood: {
+        key: "ai",
+        label: label.slice(0, 24),
+        image,
+        reason: reason.slice(0, 80),
+        energy: num(raw.energy, 0),
+        source: "model",
+        ai: true
+      }
+    };
+  }
+  function nextMoodAiDebounceDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOOD_AI_DEBOUNCE_MIN_MS + ratio * (MOOD_AI_DEBOUNCE_MAX_MS - MOOD_AI_DEBOUNCE_MIN_MS));
+  }
+  function nextMoodAiRetryDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOOD_AI_RETRY_MIN_MS + ratio * (MOOD_AI_RETRY_MAX_MS - MOOD_AI_RETRY_MIN_MS));
+  }
+  function moodAiKeepDecision(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.source !== "model") return false;
+    const last = num(opts.lastSuccessAt, 0);
+    if (last <= 0) return false;
+    return num(opts.now, Date.now()) - last < MOOD_AI_KEEP_MS;
+  }
+  function normalizeMoodAiFailure(result) {
+    const reason = result && typeof result.reason === "string" ? result.reason : "";
+    const code = result && typeof result.code === "string" ? result.code : "";
+    if (result && result.status === 429) return "rate";
+    if (reason === "timeout" || reason === "http" || reason === "json" || reason === "image" || reason === "network" || reason === "rate") return reason;
+    if (reason === "no-fetch") return "network";
+    if (reason === "catalog") return "catalog";
+    if (code) {
+      if (/RATE|LIMIT/i.test(code)) return "rate";
+      if (/TIMEOUT/i.test(code)) return "timeout";
+      if (/JSON|PARSE/i.test(code)) return "json";
+      if (/IMAGE/i.test(code)) return "image";
+      if (/CATALOG/i.test(code)) return "catalog";
+      if (/NETWORK|OFFLINE/i.test(code)) return "network";
+    }
+    if (reason === "host" || reason === "invalid") return "model";
+    return "unknown";
+  }
+  function moodAiFailureLabel(reason) {
+    const labels = { timeout: "\u8D85\u65F6", http: "HTTP \u9519\u8BEF", json: "\u54CD\u5E94\u683C\u5F0F\u9519\u8BEF", image: "\u56FE\u7247\u65E0\u6548", network: "\u7F51\u7EDC\u9519\u8BEF", rate: "\u8BF7\u6C42\u8FC7\u9891", model: "\u6A21\u578B\u8FD4\u56DE\u9519\u8BEF", catalog: "\u56FE\u9274\u672A\u52A0\u8F7D", unknown: "\u672A\u77E5\u539F\u56E0" };
+    return labels[reason] || labels.unknown;
+  }
+  function moodAiEventDelay(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const last = num(opts.lastRequestAt, 0);
+    const now = num(opts.now, Date.now());
+    if (last > 0) {
+      const remaining = MOOD_AI_MIN_GAP_MS - (now - last);
+      if (remaining > 0) return remaining;
+    }
+    return nextMoodAiDebounceDelay(opts);
+  }
+  function moodTimeBucket(now) {
+    const parts = shanghaiParts(num(now, Date.now()));
+    const hour = parts.hour;
+    let period = "night";
+    if (hour >= 6 && hour < 11) period = "morning";
+    else if (hour >= 11 && hour < 14) period = "noon";
+    else if (hour >= 14 && hour < 18) period = "afternoon";
+    else if (hour >= 18 && hour < 22) period = "evening";
+    const meal = hour === 7 || hour === 8 || hour === 11 || hour === 12 || hour === 17 || hour === 18;
+    return period + "|" + (meal ? "meal" : "offmeal");
+  }
+  function moodAiSnapshot(weather, feihuaWins, feihuaLosses) {
+    return {
+      weatherCategory: weather && typeof weather.category === "string" ? weather.category : "",
+      feihuaWins: Math.max(0, Math.floor(num(feihuaWins, 0))),
+      feihuaLosses: Math.max(0, Math.floor(num(feihuaLosses, 0)))
+    };
+  }
+  function isMoodAiSignificant(previous, current) {
+    if (!previous || !current) return false;
+    if (current.weatherCategory !== previous.weatherCategory) return true;
+    if (current.feihuaWins > previous.feihuaWins || current.feihuaLosses > previous.feihuaLosses) return true;
+    return false;
+  }
+
+  // client-src/self-talk-client.js
+  var SPONT_KEY = "dshp-mood-spont-v1";
+  var SPONT_POLL_MIN_MS = 60 * 1e3;
+  var SPONT_POLL_MAX_MS = 120 * 1e3;
+  var SPONT_RETRY_MS = 10 * 1e3;
+  var SPONT_EVENT_MIN_MS = 2 * 1e3;
+  var SPONT_EVENT_MAX_MS = 5 * 1e3;
+  var SPONT_CLOSE_RECHECK_MS = 3 * 1e3;
+  var SPONT_QUIET_MS = 3 * 1e3;
+  var SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1e3;
+  var SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1e3;
+  var SPONT_MAX_SEEN = 300;
+  var SPONT_AUTO_CLOSE_MS = 25e3;
+  var SELF_TALK_PATH = "self-talk.json";
+  var SELF_TALK_TIMEOUT_MS = 35 * 1e3;
+  var SELF_TALK_RECENT_MAX = 12;
+  function normalizeSpontState(raw, now) {
+    const src = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(now).dateKey;
+    const seen = [];
+    if (Array.isArray(src.seenIds)) {
+      for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
+        let id = "";
+        let at = 0;
+        if (typeof entry === "string") id = entry;
+        else if (entry && typeof entry === "object" && typeof entry.id === "string") {
+          id = entry.id;
+          at = num(entry.at, 0);
+        }
+        if (!id) continue;
+        if (at > 0 && now - at > SPONT_SEEN_DAYS) continue;
+        seen.push({ id, at });
+      }
+    }
+    const sameDay = src.date === dateKey;
+    return {
+      date: dateKey,
+      lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
+      todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
+      seenIds: seen,
+      lastType: typeof src.lastType === "string" ? src.lastType : "",
+      lastTag: typeof src.lastTag === "string" ? src.lastTag : ""
+    };
+  }
+  function recordSpontShown(state, id, now, type, tag) {
+    const base = normalizeSpontState(state, now);
+    const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now }]).slice(-SPONT_MAX_SEEN);
+    return {
+      date: base.date,
+      lastShownAt: num(now, Date.now()),
+      todayCount: base.todayCount + 1,
+      seenIds: seen,
+      lastType: typeof type === "string" ? type : base.lastType,
+      lastTag: typeof tag === "string" ? tag : base.lastTag
+    };
+  }
+  function countSpontHits(text, tags) {
+    let hits = 0;
+    for (const tag of Array.isArray(tags) ? tags : []) {
+      if (!tag) continue;
+      hits += String(text || "").split(tag).length - 1;
+    }
+    return hits;
+  }
+  function splitCompleteSentences(text) {
+    const value = String(text == null ? "" : text);
+    const out = [];
+    let start = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value.charAt(i);
+      if (ch === "\u3002" || ch === "\uFF01" || ch === "\uFF1F") {
+        const sentence = value.slice(start, i + 1).trim();
+        if (sentence) out.push(sentence);
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+  function pickSentenceFromLines(lines, tags, random) {
+    const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? "" : value)).filter((value) => value.length > 0);
+    const sentences = splitCompleteSentences(list.join(""));
+    if (!sentences.length) {
+      if (!list.length) return "";
+      let fallback = list[list.length - 1];
+      if (/[，,]$/.test(fallback)) {
+        fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, "\u3002");
+      }
+      return fallback;
+    }
+    const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }));
+    const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0);
+    const medium = scored.filter((item) => item.length >= 8 && item.length <= 40);
+    const withTag = scored.filter((item) => item.hits > 0);
+    const pool = preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored;
+    if (!pool.length) return "";
+    const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
+    return pool[index].sentence;
+  }
+  function canShowSpontaneous(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.enabled !== true) return false;
+    if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false;
+    const now = num(opts.now, Date.now());
+    const lastInteraction = num(opts.lastInteractionAt, 0);
+    const quietMs = num(opts.quietMs, SPONT_QUIET_MS);
+    const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY;
+    if (idleMs < quietMs) return false;
+    return true;
+  }
+  function nextSpontPollDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS));
+  }
+  function nextSpontEventDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS));
+  }
+  function selfTalkKindFor() {
+    return "murmur";
+  }
+  function selfTalkQuery(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const params = [];
+    const add = (key, value) => {
+      if (value == null || value === "") return;
+      params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
+    };
+    add("kind", "murmur");
+    add("mood", opts.moodKey);
+    add("moodLabel", opts.moodLabel);
+    add("moodReason", opts.moodReason);
+    add("image", opts.image);
+    add("imageLabel", opts.imageLabel);
+    add("weather", opts.weather);
+    add("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
+    const seen = {};
+    const recent = [];
+    for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
+      const clean = String(text == null ? "" : text).trim();
+      if (!clean || seen[clean]) continue;
+      seen[clean] = true;
+      recent.push(clean);
+    }
+    const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX);
+    if (recentSlice.length) add("recent", recentSlice.join("|"));
+    return SELF_TALK_PATH + (params.length ? "?" + params.join("&") : "");
+  }
+  function parseSelfTalkResponse(data) {
+    if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: "invalid" };
+    const texts = [];
+    for (const line of data.lines) {
+      const text = typeof line === "string" ? line : line && typeof line.text === "string" ? line.text : "";
+      const clean = text.trim();
+      if (clean && texts.indexOf(clean) < 0) texts.push(clean);
+    }
+    if (!texts.length) return { ok: false, reason: "empty" };
+    return { ok: true, line: texts[0], next: texts[1] || "" };
+  }
+
   // client-src/tabs-poetry.js
   function createPoetryTabs(ctx = {}) {
     const React = ctx.React;
@@ -510,8 +980,8 @@
     const growthMetricsTree = ctx.growthMetricsTree;
     const weatherChipText = ctx.weatherChipText;
     const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
-    const moodBasisText = ctx.moodBasisText;
-    const moodAiFailureLabel = ctx.moodAiFailureLabel;
+    const moodBasisText2 = ctx.moodBasisText;
+    const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
     function SettingsTab(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
@@ -538,7 +1008,7 @@
       const moodReasonText = currentMood ? String(currentMood.reason || "").replace(/[「」]/g, "").trim() : "";
       const moodQuotedReason = moodReasonText ? "\u300C" + moodReasonText + "\u300D" : "";
       const moodDetailText = currentMood ? "\u5F53\u524D\uFF1A" + currentMood.label + moodQuotedReason : "";
-      const moodMetaText = [api.moodBasis || moodBasisText(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel(moodAt) : ""].filter(Boolean).join(" \xB7 ");
+      const moodMetaText = [api.moodBasis || moodBasisText2(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel(moodAt) : ""].filter(Boolean).join(" \xB7 ");
       const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ") || "\u5FC3\u60C5\u6570\u636E\u52A0\u8F7D\u4E2D";
       const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ");
       const moodLine = (text, className, key) => h("div", { key, className: cx("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
@@ -763,7 +1233,7 @@
     const cx = ctx.cx;
     const switchNode = ctx.switchNode;
     const growthMetricsTree = ctx.growthMetricsTree;
-    const moodAiFailureLabel = ctx.moodAiFailureLabel;
+    const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
     const selfStatusSummary = ctx.selfStatusSummary;
     const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
     function GrowthTab(props) {
@@ -777,7 +1247,7 @@
       const moodSourceLabel = moodSource === "model" ? "\u6A21\u578B\u751F\u6210" : moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
       const sayButton = api.previewSpontaneousPoem || api.readAnotherSpontaneous || function() {
       };
-      const moodFailureText = api.moodAiFailure ? moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF08" + String(api.moodAiFailureCode).slice(0, 48) + "\uFF09" : "") : "";
+      const moodFailureText = api.moodAiFailure ? moodAiFailureLabel2(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF08" + String(api.moodAiFailureCode).slice(0, 48) + "\uFF09" : "") : "";
       const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
       const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
       return h(
@@ -791,7 +1261,7 @@
           mood && mood.reason ? h("div", { className: "dshp-growth-mood-reason" }, String(mood.reason)) : null,
           moodSourceLabel ? h("div", { className: "dshp-growth-mood-source" }, "\u6765\u6E90\uFF1A" + moodSourceLabel) : null,
           api.moodAiFallback ? h("div", { className: "dshp-growth-mood-note" }, "\u5F53\u524D\u4F7F\u7528\u672C\u5730\u9762\u90E8\u8868\u60C5\uFF08\u6A21\u578B\u5FC3\u60C5\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u542F\u53D1\u5F0F\uFF09") : null,
-          api.moodAiStale ? h("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
+          api.moodAiStale ? h("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel2(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
           api.moodAiFailure ? h("div", { className: "dshp-growth-mood-note" }, "\u4E0A\u6B21\u6A21\u578B\u5FC3\u60C5\u5931\u8D25\uFF1A" + moodFailureText) : null,
           h(
             "div",
@@ -2585,20 +3055,6 @@
         cold: "\u4ECA\u65E5\u5BD2\u51B7\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u971C\u5BD2\u7684\u8FD9\u9996",
         unknown: "\u4ECA\u65E5\u5929\u6C14\u5E94\u666F\uFF0C\u4E3A\u4F60\u9009\u4E86\u5E94\u666F\u7684\u8FD9\u9996"
       });
-      const MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
-      const MOOD_REFRESH_MS = 5 * 60 * 1e3;
-      const MOOD_TICK_MS = 60 * 1e3;
-      const MOOD_AI_PATH = "mood-ai.json";
-      const MOOD_AI_TIMEOUT_MS = 35e3;
-      const MOOD_AI_DEBOUNCE_MIN_MS = 2e3;
-      const MOOD_AI_DEBOUNCE_MAX_MS = 4e3;
-      const MOOD_AI_MIN_GAP_MS = 2e4;
-      const MOOD_AI_RETRY_MIN_MS = 12e3;
-      const MOOD_AI_RETRY_MAX_MS = 25e3;
-      const MOOD_AI_KEEP_MS = 30 * 60 * 1e3;
-      const MOOD_AI_MAX_RETRIES = 5;
-      const MOOD_AI_RECENT_MAX = 3;
-      const MOOD_AI_RECENT_IMAGES_MAX = 20;
       const PET_MEDIA_PATH = "pet-media";
       const PET_MEDIA_CATALOG_FILE = "catalog.json";
       const PET_MEDIA_TIMEOUT_MS = 9e3;
@@ -2617,50 +3073,7 @@
       const MEAL_KEY = "dshp-meal-v1";
       const MEAL_PLAY_MIN_MS = 25 * 1e3;
       const MEAL_PLAY_MAX_MS = 40 * 1e3;
-      const MOOD_PANEL_PEEK_FILES = {
-        today: "dsh-whale-home-peek.webp",
-        settings: "dsh-whale-settings-peek.webp",
-        other: "dsh-whale-workbench-peek.webp"
-      };
-      const MOOD_STRONG = ["tired", "sleepy", "proud"];
-      const MOOD_LABELS = Object.freeze({
-        happy: "\u5F00\u5FC3",
-        proud: "\u5F97\u610F",
-        tired: "\u6709\u70B9\u7D2F",
-        sleepy: "\u56F0\u4E86",
-        hungry: "\u6709\u70B9\u997F",
-        lonely: "\u6709\u70B9\u5B64\u5355",
-        curious: "\u597D\u5947",
-        cozy: "\u60EC\u610F",
-        calm: "\u5E73\u9759"
-      });
-      const MOOD_IMAGES = Object.freeze({
-        happy: ["dsh-whale-state-game-happy.webp", "dsh-whale-state-celebrate.webp"],
-        proud: ["dsh-whale-state-achievement.webp", "dsh-whale-state-levelup.webp"],
-        tired: ["dsh-whale-state-work-sleep.webp", "dsh-whale-state-daily-melt.webp"],
-        sleepy: ["dsh-whale-state-sleep.webp", "dsh-whale-state-night.webp"],
-        hungry: ["dsh-whale-state-daily-eat.webp", "dsh-whale-state-daily-cooking.webp"],
-        lonely: ["dsh-whale-state-waiting.webp", "dsh-whale-state-idle-cute.webp"],
-        curious: ["dsh-whale-state-curious.webp", "dsh-whale-state-thinking.webp"],
-        cozy: ["dsh-whale-state-daily-coffee.webp", "dsh-whale-state-weather-rain-happy.webp", "dsh-whale-state-weather-snow.webp"],
-        calm: ["dsh-whale-state-idle-cute.webp"]
-      });
       const WEATHER_OVERLAY_STATES = ["rain", "snow", "thunder", "cold", "night"];
-      const SPONT_KEY = "dshp-mood-spont-v1";
-      const SPONT_POLL_MIN_MS = 60 * 1e3;
-      const SPONT_POLL_MAX_MS = 120 * 1e3;
-      const SPONT_RETRY_MS = 10 * 1e3;
-      const SPONT_EVENT_MIN_MS = 2 * 1e3;
-      const SPONT_EVENT_MAX_MS = 5 * 1e3;
-      const SPONT_CLOSE_RECHECK_MS = 3 * 1e3;
-      const SPONT_QUIET_MS = 3 * 1e3;
-      const SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1e3;
-      const SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1e3;
-      const SPONT_MAX_SEEN = 300;
-      const SPONT_AUTO_CLOSE_MS = 25e3;
-      const SELF_TALK_PATH = "self-talk.json";
-      const SELF_TALK_TIMEOUT_MS = 35 * 1e3;
-      const SELF_TALK_RECENT_MAX = 12;
       const ASSET_DATA_FILES = { anthology: "data/anthology.json", bank: "data/poems-bank.json", pingshui: "data/pingshui.json", ciBank: "data/ci-bank.json", moodCatalog: "data/mood-catalog.json" };
       const LIBRARY_CATEGORIES = [
         { id: "shijing", label: "\u8BD7\u7ECF" },
@@ -3264,96 +3677,6 @@
         weatherCache = null;
       }
       let moodCache = null;
-      const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
-      function shanghaiParts(now) {
-        const date = new Date(num(now, Date.now()) + SHANGHAI_OFFSET_MS);
-        const hour = date.getUTCHours();
-        return {
-          hour,
-          minutes: hour * 60 + date.getUTCMinutes(),
-          dateKey: date.toISOString().slice(0, 10)
-        };
-      }
-      function emptyMoodStats() {
-        return {
-          userMessages: 0,
-          assistantMessages: 0,
-          toolCalls: 0,
-          toolErrors: 0,
-          turns: 0,
-          turnsCompleted: 0,
-          turnsErrored: 0,
-          activeMs: 0,
-          sessions: 0,
-          firstActivityAt: 0,
-          lastActivityAt: 0
-        };
-      }
-      function normalizeMoodStats(raw) {
-        const stats = emptyMoodStats();
-        const src = raw && typeof raw === "object" ? raw : {};
-        for (const key of ["userMessages", "assistantMessages", "toolCalls", "toolErrors", "turns", "turnsCompleted", "turnsErrored", "activeMs", "sessions", "firstActivityAt", "lastActivityAt"]) {
-          stats[key] = Math.max(0, Math.floor(num(src[key], 0)));
-        }
-        return stats;
-      }
-      function computeMood(input) {
-        const opts = input && typeof input === "object" ? input : {};
-        const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
-        const signals = opts.signals && typeof opts.signals === "object" ? opts.signals : {};
-        const now = num(signals.now, Date.now());
-        const local = shanghaiParts(now);
-        const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)));
-        const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)));
-        const minutes = local.minutes;
-        const meal = minutes >= 7 * 60 && minutes < 9 * 60 || minutes >= 11 * 60 + 30 && minutes < 13 * 60 || minutes >= 17 * 60 + 30 && minutes < 19 * 60 + 30;
-        const night = local.hour >= 23 || local.hour < 6;
-        const category = weather && typeof weather.category === "string" ? weather.category : "";
-        const rainy = category === "rain" || category === "snow" || category === "thunder";
-        const tempC = weather ? Number(weather.tempC) : NaN;
-        const coolNight = Boolean(weather) && weather.isDay === false && Number.isFinite(tempC) && tempC <= 22;
-        let key = "calm";
-        let reason = "\u5E73\u5E73\u5E38\u5E38\u7684\u4E00\u9635";
-        if (night) {
-          key = "sleepy";
-          reason = "\u591C\u6DF1\u4E86 \xB7 \u6709\u70B9\u56F0";
-        } else if (wins >= 3) {
-          key = "proud";
-          reason = "\u98DE\u82B1\u4EE4\u8D62\u4E86 " + wins + " \u6B21 \xB7 \u597D\u5F97\u610F";
-        } else if (wins >= 1) {
-          key = "happy";
-          reason = "\u98DE\u82B1\u4EE4\u8D62\u4E86 \xB7 \u5FC3\u60C5\u4E0D\u9519";
-        } else if (meal) {
-          key = "hungry";
-          reason = "\u5230\u996D\u70B9\u5566 \xB7 \u6709\u70B9\u997F";
-        } else if (rainy || coolNight) {
-          key = "cozy";
-          reason = category === "snow" ? "\u4E0B\u96EA\u4E86 \xB7 \u9002\u5408\u8BFB\u8BD7" : category === "rain" || category === "thunder" ? "\u5916\u9762\u6709\u96E8 \xB7 \u9002\u5408\u8BFB\u8BD7" : "\u591C\u8272\u51C9\u51C9 \xB7 \u5F88\u60EC\u610F";
-        } else if (clicks === 0) {
-          key = "curious";
-          reason = "\u5B89\u9759\u7740 \xB7 \u56DB\u5904\u770B\u770B";
-        }
-        return {
-          key,
-          label: MOOD_LABELS[key] || key,
-          image: (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
-          reason,
-          strong: MOOD_STRONG.indexOf(key) >= 0
-        };
-      }
-      function throttleMoodSwitch(previous, next, now, force) {
-        const time = num(now, Date.now());
-        if (!next) return previous || null;
-        if (!previous) return Object.assign({}, next, { changed: true, switchedAt: time });
-        if (next.key === previous.key) {
-          return Object.assign({}, next, { changed: false, switchedAt: num(previous.switchedAt, time) });
-        }
-        const elapsed = Math.max(0, time - num(previous.switchedAt, 0));
-        if (next.strong === true || force === true || elapsed >= MOOD_SWITCH_MIN_MS) {
-          return Object.assign({}, next, { changed: true, switchedAt: time });
-        }
-        return Object.assign({}, previous, { changed: false, pendingKey: next.key });
-      }
       function mascotImageFor(options) {
         const opts = options && typeof options === "object" ? options : {};
         const weatherKey = typeof opts.weatherStateKey === "string" ? opts.weatherStateKey : "celebrate";
@@ -3479,10 +3802,6 @@
       function mascotFilePriority(options) {
         const opts = options && typeof options === "object" ? options : {};
         return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
-      }
-      function moodBasisText(weather) {
-        const label = weather && weather.label ? weather.label : "\u672A\u77E5";
-        return "\u5929\u6C14\uFF1A" + label;
       }
       function petMediaUrl(file) {
         return ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
@@ -3628,96 +3947,6 @@
         const value = Number(random());
         const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
         return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS));
-      }
-      function normalizeMoodCatalog(data) {
-        if (!data || !Array.isArray(data.moodImages) || !data.moodImages.length) return null;
-        const moodImages = [];
-        const seen = {};
-        for (const item of data.moodImages) {
-          const file = item && typeof item.file === "string" ? item.file.trim() : "";
-          if (!file || seen[file]) continue;
-          seen[file] = true;
-          moodImages.push({ file, label: String(item.label || ""), tags: Array.isArray(item.tags) ? item.tags : [], media: item.media || "image" });
-        }
-        if (!moodImages.length) return null;
-        const panel = Object.assign({}, MOOD_PANEL_PEEK_FILES);
-        const applyPanel = (item) => {
-          const file = item && typeof item.file === "string" ? item.file.trim() : "";
-          if (!file) return;
-          const tags = Array.isArray(item.tags) ? item.tags.join("|") : "";
-          if (tags.indexOf("home") >= 0) panel.today = file;
-          else if (tags.indexOf("settings") >= 0) panel.settings = file;
-          else if (tags.indexOf("workbench") >= 0 || tags.indexOf("poetry") >= 0) panel.other = file;
-        };
-        for (const item of Array.isArray(data.panelImages) ? data.panelImages : []) applyPanel(item);
-        for (const item of Array.isArray(data.images) ? data.images : []) {
-          if (item && item.scope === "panel") applyPanel(item);
-        }
-        const byFile = {};
-        for (const item of moodImages) byFile[item.file] = item;
-        return {
-          version: String(data.version || data.dataVersion || ""),
-          moodImages,
-          moodFiles: moodImages.map((item) => item.file),
-          byFile,
-          panel
-        };
-      }
-      function panelPeekFile(catalog, tabId) {
-        const panel = catalog && catalog.panel ? catalog.panel : MOOD_PANEL_PEEK_FILES;
-        if (tabId === "today") return panel.today || MOOD_PANEL_PEEK_FILES.today;
-        if (tabId === "settings") return panel.settings || MOOD_PANEL_PEEK_FILES.settings;
-        return panel.other || MOOD_PANEL_PEEK_FILES.other;
-      }
-      function moodCatalogAllows(catalog, image) {
-        if (!catalog || !Array.isArray(catalog.moodFiles) || typeof image !== "string" || !image) return false;
-        return catalog.moodFiles.indexOf(image) >= 0;
-      }
-      function moodAiQuery(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const params = [];
-        const add = (key, value) => {
-          if (value == null || value === "") return;
-          params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
-        };
-        if (opts.force === true) add("force", "1");
-        if (opts.manual === true) add("manual", "1");
-        add("mood", opts.moodKey);
-        add("weather", opts.weather);
-        const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? "" : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX);
-        if (recent.length) add("recent", recent.join("|"));
-        const imageSeen = {};
-        const recentImages = [];
-        for (const file of Array.isArray(opts.recentImages) ? opts.recentImages : []) {
-          const clean = String(file == null ? "" : file).trim();
-          if (!clean || imageSeen[clean]) continue;
-          imageSeen[clean] = true;
-          recentImages.push(clean);
-        }
-        if (recentImages.length) add("recentImages", recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join("|"));
-        return MOOD_AI_PATH + (params.length ? "?" + params.join("&") : "");
-      }
-      function parseMoodAiResponse(data, catalog) {
-        const errorCode = data && data.error && typeof data.error.code === "string" ? data.error.code : "";
-        if (!data || data.ok === false || !data.mood || typeof data.mood !== "object") return { ok: false, reason: "invalid", code: errorCode };
-        const raw = data.mood;
-        const label = String(raw.label == null ? "" : raw.label).trim();
-        const reason = String(raw.reason == null ? "" : raw.reason).trim();
-        const image = String(raw.image == null ? "" : raw.image).trim();
-        const videoImage = /^webm\/[^/]+\.webm$/.test(image);
-        if (!label || !videoImage && !moodCatalogAllows(catalog, image)) return { ok: false, reason: "image", code: errorCode };
-        return {
-          ok: true,
-          mood: {
-            key: "ai",
-            label: label.slice(0, 24),
-            image,
-            reason: reason.slice(0, 80),
-            energy: num(raw.energy, 0),
-            source: "model",
-            ai: true
-          }
-        };
       }
       function requestMoodAi(options) {
         const opts = options && typeof options === "object" ? options : {};
@@ -3914,111 +4143,6 @@
           h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
         );
       }
-      function nextMoodAiDebounceDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MOOD_AI_DEBOUNCE_MIN_MS + ratio * (MOOD_AI_DEBOUNCE_MAX_MS - MOOD_AI_DEBOUNCE_MIN_MS));
-      }
-      function nextMoodAiRetryDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MOOD_AI_RETRY_MIN_MS + ratio * (MOOD_AI_RETRY_MAX_MS - MOOD_AI_RETRY_MIN_MS));
-      }
-      function moodAiKeepDecision(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (opts.source !== "model") return false;
-        const last = num(opts.lastSuccessAt, 0);
-        if (last <= 0) return false;
-        return num(opts.now, Date.now()) - last < MOOD_AI_KEEP_MS;
-      }
-      function normalizeMoodAiFailure(result) {
-        const reason = result && typeof result.reason === "string" ? result.reason : "";
-        const code = result && typeof result.code === "string" ? result.code : "";
-        if (result && result.status === 429) return "rate";
-        if (reason === "timeout" || reason === "http" || reason === "json" || reason === "image" || reason === "network" || reason === "rate") return reason;
-        if (reason === "no-fetch") return "network";
-        if (reason === "catalog") return "catalog";
-        if (code) {
-          if (/RATE|LIMIT/i.test(code)) return "rate";
-          if (/TIMEOUT/i.test(code)) return "timeout";
-          if (/JSON|PARSE/i.test(code)) return "json";
-          if (/IMAGE/i.test(code)) return "image";
-          if (/CATALOG/i.test(code)) return "catalog";
-          if (/NETWORK|OFFLINE/i.test(code)) return "network";
-        }
-        if (reason === "host" || reason === "invalid") return "model";
-        return "unknown";
-      }
-      function moodAiFailureLabel(reason) {
-        const labels = { timeout: "\u8D85\u65F6", http: "HTTP \u9519\u8BEF", json: "\u54CD\u5E94\u683C\u5F0F\u9519\u8BEF", image: "\u56FE\u7247\u65E0\u6548", network: "\u7F51\u7EDC\u9519\u8BEF", rate: "\u8BF7\u6C42\u8FC7\u9891", model: "\u6A21\u578B\u8FD4\u56DE\u9519\u8BEF", catalog: "\u56FE\u9274\u672A\u52A0\u8F7D", unknown: "\u672A\u77E5\u539F\u56E0" };
-        return labels[reason] || labels.unknown;
-      }
-      function moodAiEventDelay(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const last = num(opts.lastRequestAt, 0);
-        const now = num(opts.now, Date.now());
-        if (last > 0) {
-          const remaining = MOOD_AI_MIN_GAP_MS - (now - last);
-          if (remaining > 0) return remaining;
-        }
-        return nextMoodAiDebounceDelay(opts);
-      }
-      function moodTimeBucket(now) {
-        const parts = shanghaiParts(num(now, Date.now()));
-        const hour = parts.hour;
-        let period = "night";
-        if (hour >= 6 && hour < 11) period = "morning";
-        else if (hour >= 11 && hour < 14) period = "noon";
-        else if (hour >= 14 && hour < 18) period = "afternoon";
-        else if (hour >= 18 && hour < 22) period = "evening";
-        const meal = hour === 7 || hour === 8 || hour === 11 || hour === 12 || hour === 17 || hour === 18;
-        return period + "|" + (meal ? "meal" : "offmeal");
-      }
-      function moodAiSnapshot(weather, feihuaWins, feihuaLosses) {
-        return {
-          weatherCategory: weather && typeof weather.category === "string" ? weather.category : "",
-          feihuaWins: Math.max(0, Math.floor(num(feihuaWins, 0))),
-          feihuaLosses: Math.max(0, Math.floor(num(feihuaLosses, 0)))
-        };
-      }
-      function isMoodAiSignificant(previous, current) {
-        if (!previous || !current) return false;
-        if (current.weatherCategory !== previous.weatherCategory) return true;
-        if (current.feihuaWins > previous.feihuaWins || current.feihuaLosses > previous.feihuaLosses) return true;
-        return false;
-      }
-      function normalizeSpontState(raw, now) {
-        const src = raw && typeof raw === "object" ? raw : {};
-        const dateKey = shanghaiParts(now).dateKey;
-        const seen = [];
-        if (Array.isArray(src.seenIds)) {
-          for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
-            let id = "";
-            let at = 0;
-            if (typeof entry === "string") id = entry;
-            else if (entry && typeof entry === "object" && typeof entry.id === "string") {
-              id = entry.id;
-              at = num(entry.at, 0);
-            }
-            if (!id) continue;
-            if (at > 0 && now - at > SPONT_SEEN_DAYS) continue;
-            seen.push({ id, at });
-          }
-        }
-        const sameDay = src.date === dateKey;
-        return {
-          date: dateKey,
-          lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
-          todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
-          seenIds: seen,
-          lastType: typeof src.lastType === "string" ? src.lastType : "",
-          lastTag: typeof src.lastTag === "string" ? src.lastTag : ""
-        };
-      }
       function readSpontState(now) {
         const storage = getStorage();
         if (!storage) return normalizeSpontState(null, now);
@@ -4037,85 +4161,6 @@
         } catch (error) {
         }
       }
-      function recordSpontShown(state, id, now, type, tag) {
-        const base = normalizeSpontState(state, now);
-        const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now }]).slice(-SPONT_MAX_SEEN);
-        return {
-          date: base.date,
-          lastShownAt: num(now, Date.now()),
-          todayCount: base.todayCount + 1,
-          seenIds: seen,
-          lastType: typeof type === "string" ? type : base.lastType,
-          lastTag: typeof tag === "string" ? tag : base.lastTag
-        };
-      }
-      function countSpontHits(text, tags) {
-        let hits = 0;
-        for (const tag of Array.isArray(tags) ? tags : []) {
-          if (!tag) continue;
-          hits += String(text || "").split(tag).length - 1;
-        }
-        return hits;
-      }
-      function splitCompleteSentences(text) {
-        const value = String(text == null ? "" : text);
-        const out = [];
-        let start = 0;
-        for (let i = 0; i < value.length; i += 1) {
-          const ch = value.charAt(i);
-          if (ch === "\u3002" || ch === "\uFF01" || ch === "\uFF1F") {
-            const sentence = value.slice(start, i + 1).trim();
-            if (sentence) out.push(sentence);
-            start = i + 1;
-          }
-        }
-        return out;
-      }
-      function pickSentenceFromLines(lines, tags, random) {
-        const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? "" : value)).filter((value) => value.length > 0);
-        const sentences = splitCompleteSentences(list.join(""));
-        if (!sentences.length) {
-          if (!list.length) return "";
-          let fallback = list[list.length - 1];
-          if (/[，,]$/.test(fallback)) {
-            fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, "\u3002");
-          }
-          return fallback;
-        }
-        const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }));
-        const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0);
-        const medium = scored.filter((item) => item.length >= 8 && item.length <= 40);
-        const withTag = scored.filter((item) => item.hits > 0);
-        const pool = preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored;
-        if (!pool.length) return "";
-        const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
-        return pool[index].sentence;
-      }
-      function canShowSpontaneous(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (opts.enabled !== true) return false;
-        if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false;
-        const now = num(opts.now, Date.now());
-        const lastInteraction = num(opts.lastInteractionAt, 0);
-        const quietMs = num(opts.quietMs, SPONT_QUIET_MS);
-        const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY;
-        if (idleMs < quietMs) return false;
-        return true;
-      }
-      function nextSpontPollDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS));
-      }
-      function nextSpontEventDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS));
-      }
       function murmurPeriod(hour) {
         if (hour >= 5 && hour < 9) return "\u65E9\u4E0A";
         if (hour >= 9 && hour < 11) return "\u4E0A\u5348";
@@ -4123,47 +4168,6 @@
         if (hour >= 14 && hour < 18) return "\u4E0B\u5348";
         if (hour >= 18 && hour < 23) return "\u665A\u4E0A";
         return "\u6DF1\u591C";
-      }
-      function selfTalkKindFor() {
-        return "murmur";
-      }
-      function selfTalkQuery(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const params = [];
-        const add = (key, value) => {
-          if (value == null || value === "") return;
-          params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
-        };
-        add("kind", "murmur");
-        add("mood", opts.moodKey);
-        add("moodLabel", opts.moodLabel);
-        add("moodReason", opts.moodReason);
-        add("image", opts.image);
-        add("imageLabel", opts.imageLabel);
-        add("weather", opts.weather);
-        add("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
-        const seen = {};
-        const recent = [];
-        for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
-          const clean = String(text == null ? "" : text).trim();
-          if (!clean || seen[clean]) continue;
-          seen[clean] = true;
-          recent.push(clean);
-        }
-        const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX);
-        if (recentSlice.length) add("recent", recentSlice.join("|"));
-        return SELF_TALK_PATH + (params.length ? "?" + params.join("&") : "");
-      }
-      function parseSelfTalkResponse(data) {
-        if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: "invalid" };
-        const texts = [];
-        for (const line of data.lines) {
-          const text = typeof line === "string" ? line : line && typeof line.text === "string" ? line.text : "";
-          const clean = text.trim();
-          if (clean && texts.indexOf(clean) < 0) texts.push(clean);
-        }
-        if (!texts.length) return { ok: false, reason: "empty" };
-        return { ok: true, line: texts[0], next: texts[1] || "" };
       }
       function requestSelfTalk(options) {
         const opts = options && typeof options === "object" ? options : {};
