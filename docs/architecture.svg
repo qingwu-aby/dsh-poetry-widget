@@ -9,7 +9,7 @@
 </defs>
 <rect width="1200" height="900" fill="#f8fafc"/>
 <text x="40" y="42" class="title">小鲸鱼 · 整体架构</text>
-<text x="40" y="63" class="subtitle">v1.84 · Host / Client 双半区 · 单 60s 心跳 · 每日模型预算 · 分层记忆 · 公开网络只读 · 对话上下文隔离</text>
+<text x="40" y="63" class="subtitle">v2.6.1 · Host / Client 双半区 · 自主心跳 · 可选 DeepSeek Search/Fetch · 记忆可归档恢复</text>
 <rect x="40" y="80" width="1120" height="140" rx="14" fill="#eff6ff" data-graph-role="container" stroke="#bfdbfe" stroke-width="1.5"/>
 <text x="58" y="103" class="layer-title">Client：浏览器界面</text>
 <rect x="40" y="250" width="1120" height="150" rx="14" fill="#f0fdf4" data-graph-role="container" stroke="#bbf7d0" stroke-width="1.5"/>
@@ -24,8 +24,8 @@
 <text x="79" y="175" class="node-sub">不把会话内容注入她的记忆</text>
 <rect x="310" y="102" width="360" height="100" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
 <text x="324" y="127" class="node-title">Client 单 artifact</text>
-<text x="324" y="149" class="node-sub">client-src：成长 / 心情 / 面板 / 二级诗词</text>
-<text x="324" y="165" class="node-sub">窗口溜达（当前关闭）· 运行状态只读</text>
+<text x="324" y="149" class="node-sub">tabs + mood-engine + self-talk-client</text>
+<text x="324" y="165" class="node-sub">safe-web 漫游 · health 只读 · 单 artifact</text>
 <rect x="715" y="112" width="375" height="82" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
 <text x="729" y="137" class="node-title">DSH Client Slots</text>
 <text x="729" y="159" class="node-sub">shell.overlay · React 模块加载</text>
@@ -36,47 +36,47 @@
 <text x="84" y="348" class="node-sub">路由、服务、状态的组合根</text>
 <rect x="385" y="285" width="270" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
 <text x="399" y="310" class="node-title">service-runtime</text>
-<text x="399" y="332" class="node-sub">service-runtime + heartbeat</text>
-<text x="399" y="348" class="node-sub">单 60s 心跳 · 失败隔离</text>
+<text x="399" y="332" class="node-sub">service-runtime + heartbeat + budget/gate</text>
+<text x="399" y="348" class="node-sub">单 60s 心跳 · 预算可选 · 失败隔离</text>
 <rect x="700" y="285" width="385" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
 <text x="714" y="310" class="node-title">routes + trust fence</text>
 <text x="714" y="332" class="node-sub">13 个 JSON 路由 · 同源栅栏</text>
-<text x="714" y="348" class="node-sub">health/runtime · memory · self · mood-ai</text>
+<text x="714" y="348" class="node-sub">health/runtime · web · memory · self · mood-ai</text>
 <rect x="70" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="84" y="490" class="node-title">自我核心</text>
 <text x="84" y="512" class="node-sub">self-being：felt / experiencing / 时间线</text>
 <text x="84" y="528" class="node-sub">self-drive：focus / doing / probe</text>
-<text x="84" y="544" class="node-sub">self-talk / mood-ai / voice</text>
+<text x="84" y="544" class="node-sub">self-talk：心情+今天+过往 · mood-ai · voice</text>
 <rect x="435" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="449" y="490" class="node-title">自主活动</text>
-<text x="449" y="512" class="node-sub">growth：自学 / 自省 / 试探（prompt 已拆模块）</text>
-<text x="449" y="528" class="node-sub">reading：公版小说 · netlang：热搜表达（外部内容隔离）</text>
-<text x="449" y="544" class="node-sub">wander：公开网页只读</text>
+<text x="449" y="512" class="node-sub">growth：自学 / 自省 / 试探（prompt 已拆）</text>
+<text x="449" y="528" class="node-sub">reading / netlang / wander（外部内容隔离）</text>
+<text x="449" y="544" class="node-sub">wander：搜索→抓取→顺链漫游</text>
 <rect x="800" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="814" y="490" class="node-title">模型调用层</text>
-<text x="814" y="512" class="node-sub">llm-call：统一候选 / 超时 / 失败 / 预算</text>
-<text x="814" y="528" class="node-sub">model-policy：role / effort / token floor</text>
+<text x="814" y="512" class="node-sub">llm-call：候选/超时/失败/预算</text>
+<text x="814" y="528" class="node-sub">model-policy + DeepSeek Search/Fetch（可选）</text>
 <rect x="70" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="84" y="705" class="node-title">L0/L1 工作 + 情景</text>
 <text x="84" y="727" class="node-sub">self-state / actions</text>
 <text x="84" y="743" class="node-sub">journal.jsonl · learning-log.md</text>
 <rect x="330" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="344" y="705" class="node-title">L2/L3 整合 + 自我</text>
-<text x="344" y="727" class="node-sub">memory-layers.json</text>
-<text x="344" y="743" class="node-sub">episodes（来源 id）· 自我短句</text>
+<text x="344" y="727" class="node-sub">memory-layers + baseline seed</text>
+<text x="344" y="743" class="node-sub">episodes source ids · selfFacts 证据</text>
 <rect x="590" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="604" y="705" class="node-title">Registry / Hub</text>
 <text x="604" y="727" class="node-sub">registry：12 文件真源</text>
-<text x="604" y="743" class="node-sub">hub：备份 / 健康 / 恢复</text>
+<text x="604" y="743" class="node-sub">hub：归档 / 恢复 / 健康</text>
 <rect x="850" y="680" width="140" height="105" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="864" y="705" class="node-title">DSH LLM</text>
-<text x="864" y="727" class="node-sub">mood / selfTalk</text>
-<text x="864" y="743" class="node-sub">growth / roles</text>
+<text x="864" y="727" class="node-sub">mood / selfTalk / search</text>
+<text x="864" y="743" class="node-sub">growth / roles / fetch</text>
 <rect x="1010" y="680" width="130" height="105" rx="10" fill="#ffffff" stroke="#fed7aa" stroke-width="1.5"/>
-<text x="1024" y="705" class="node-title">外部只读</text>
-<text x="1024" y="727" class="node-sub">天气</text>
-<text x="1024" y="743" class="node-sub">微博/B站</text>
-<text x="1024" y="759" class="node-sub">维基文库</text>
+<text x="1024" y="705" class="node-title">安全公网</text>
+<text x="1024" y="727" class="node-sub">weather / Wikipedia</text>
+<text x="1024" y="743" class="node-sub">微博/B站/HN</text>
+<text x="1024" y="759" class="node-sub">Wikisource / 任意公开页</text>
 <path d="M265,153 L310,153" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
 <text x="270" y="145" class="edge-label">操作/观看</text>
 <path d="M670,153 L715,153" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>

@@ -1,4 +1,4 @@
-# 小鲸鱼插件架构地图（2026-10-26，v1.73）
+# 小鲸鱼插件架构地图（2026-10-26，v2.6.1）
 
 配套总览图：![小鲸鱼整体架构](architecture.png)（矢量源：[`architecture.svg`](architecture.svg)）。
 
@@ -18,6 +18,7 @@ Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读
 - 入口：`index.js`（组合根）——建服务、注册路由、起定时器、清理；宿主 API 经 `dsh-host` 适配层。
 - 数据/契约：`data-store`（诗词 JSON）、`settings-store`（设置+原子写）、`trust`（请求栅栏）、`routes`（全部 JSON 路由表）。
 - 记忆：`memory-journal`（journal 只追加）、`memory-recall`（检索/摘要）、`memory-layers`（情景/语义/自我分层 + 每日整合）、`memory-hub`（12 个文件登记/健康/备份/恢复）、`memory-registry`（记忆文件唯一登记表）、`feelings`、`self-talk-topics`（话题库+冷存储）。
+- 公网访问：`safe-web`（SSRF/DNS/重定向/大小/content-type 安全抓取）、`deepseek-web`（可选 Search/Fetch）、`self-wander`（搜索→抓取→顺链漫游）；密钥只从环境变量读取。
 - “她自己”：`self-being`（L0 状态：felt/在体会/时间线）、`self-drive`（15–30min 自处，决定做什么）、`self-actions`（行为记录）、`self-growth`（自省/自学/试探/成长计数）、`self-talk`（碎碎念）、`mood-ai`（心情+配图）、`voice-memory`（声音档案）。
 - 外部输入：`self-wander`（维基随机摘要）、`self-reading`（公版现代/翻译作品）、`self-netlang`（微博/B站公开热搜）。
 - 模型：`model-policy`（角色/候选/effort/预算）、`llm-call`（唯一模型调用循环）、`model-errors`（失败诊断）。
