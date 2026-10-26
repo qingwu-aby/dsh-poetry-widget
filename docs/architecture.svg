@@ -9,7 +9,7 @@
 </defs>
 <rect width="1200" height="900" fill="#f8fafc"/>
 <text x="40" y="42" class="title">小鲸鱼 · 整体架构</text>
-<text x="40" y="63" class="subtitle">Host / Client 双半区 · 自主循环 · 分层记忆 · 公开网络只读 · 对话上下文隔离</text>
+<text x="40" y="63" class="subtitle">v1.84 · Host / Client 双半区 · 单 60s 心跳 · 每日模型预算 · 分层记忆 · 公开网络只读 · 对话上下文隔离</text>
 <rect x="40" y="80" width="1120" height="140" rx="14" fill="#eff6ff" data-graph-role="container" stroke="#bfdbfe" stroke-width="1.5"/>
 <text x="58" y="103" class="layer-title">Client：浏览器界面</text>
 <rect x="40" y="250" width="1120" height="150" rx="14" fill="#f0fdf4" data-graph-role="container" stroke="#bbf7d0" stroke-width="1.5"/>
@@ -25,7 +25,7 @@
 <rect x="310" y="102" width="360" height="100" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
 <text x="324" y="127" class="node-title">Client 单 artifact</text>
 <text x="324" y="149" class="node-sub">client-src：成长 / 心情 / 面板 / 二级诗词</text>
-<text x="324" y="165" class="node-sub">窗口溜达（当前关闭）· 本地交互</text>
+<text x="324" y="165" class="node-sub">窗口溜达（当前关闭）· 运行状态只读</text>
 <rect x="715" y="112" width="375" height="82" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
 <text x="729" y="137" class="node-title">DSH Client Slots</text>
 <text x="729" y="159" class="node-sub">shell.overlay · React 模块加载</text>
@@ -36,8 +36,8 @@
 <text x="84" y="348" class="node-sub">路由、服务、状态的组合根</text>
 <rect x="385" y="285" width="270" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
 <text x="399" y="310" class="node-title">service-runtime</text>
-<text x="399" y="332" class="node-sub">统一服务清理 / 健康快照</text>
-<text x="399" y="348" class="node-sub">后台服务失败隔离</text>
+<text x="399" y="332" class="node-sub">service-runtime + heartbeat</text>
+<text x="399" y="348" class="node-sub">单 60s 心跳 · 失败隔离</text>
 <rect x="700" y="285" width="385" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
 <text x="714" y="310" class="node-title">routes + trust fence</text>
 <text x="714" y="332" class="node-sub">13 个 JSON 路由 · 同源栅栏</text>
@@ -49,12 +49,12 @@
 <text x="84" y="544" class="node-sub">self-talk / mood-ai / voice</text>
 <rect x="435" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="449" y="490" class="node-title">自主活动</text>
-<text x="449" y="512" class="node-sub">growth：自学 / 自省 / 试探</text>
-<text x="449" y="528" class="node-sub">reading：公版小说 · netlang：热搜表达</text>
+<text x="449" y="512" class="node-sub">growth：自学 / 自省 / 试探（prompt 已拆模块）</text>
+<text x="449" y="528" class="node-sub">reading：公版小说 · netlang：热搜表达（外部内容隔离）</text>
 <text x="449" y="544" class="node-sub">wander：公开网页只读</text>
 <rect x="800" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="814" y="490" class="node-title">模型调用层</text>
-<text x="814" y="512" class="node-sub">llm-call：统一候选 / 超时 / 失败</text>
+<text x="814" y="512" class="node-sub">llm-call：统一候选 / 超时 / 失败 / 预算</text>
 <text x="814" y="528" class="node-sub">model-policy：role / effort / token floor</text>
 <rect x="70" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="84" y="705" class="node-title">L0/L1 工作 + 情景</text>
@@ -63,11 +63,11 @@
 <rect x="330" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="344" y="705" class="node-title">L2/L3 整合 + 自我</text>
 <text x="344" y="727" class="node-sub">memory-layers.json</text>
-<text x="344" y="743" class="node-sub">episodes · selfFacts（性格锚）</text>
+<text x="344" y="743" class="node-sub">episodes（来源 id）· 自我短句</text>
 <rect x="590" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
 <text x="604" y="705" class="node-title">Registry / Hub</text>
-<text x="604" y="727" class="node-sub">memory-registry：12 文件真源</text>
-<text x="604" y="743" class="node-sub">memory-hub：备份 / 健康 / 恢复</text>
+<text x="604" y="727" class="node-sub">registry：12 文件真源</text>
+<text x="604" y="743" class="node-sub">hub：备份 / 健康 / 恢复</text>
 <rect x="850" y="680" width="140" height="105" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
 <text x="864" y="705" class="node-title">DSH LLM</text>
 <text x="864" y="727" class="node-sub">mood / selfTalk</text>
@@ -92,7 +92,7 @@
 <path d="M390,519 L435,519" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
 <text x="395" y="511" class="edge-label">意图/任务</text>
 <path d="M755,519 L800,519" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
-<text x="755" y="511" class="edge-label">prompt + role</text>
+<text x="762" y="548" class="edge-label">prompt + role</text>
 <path d="M960,573 L960,680" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="6,3" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
 <text x="975" y="630" class="edge-label">调用</text>
 <path d="M230,573 L230,680" fill="none" stroke="#059669" stroke-width="1.8" stroke-dasharray="5,3" marker-end="url(#arrow-green)" data-graph-role="edge"/>
