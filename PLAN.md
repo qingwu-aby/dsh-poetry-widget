@@ -1056,3 +1056,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 接入 self-wander：webAccess + state.experiencing → 搜索 → 抓取前 2 个结果 → 用真实网页；失败回落维基随机；外部内容仍由 buildWanderPrompt 加隔离提示。
 - index：创建 webAccess，传给 wander，health.runtime.web 快照；`DSH_POETRY_WEB=off` 关闭。
 - 测试：safe-web 2 组（私网/URL/DNS、重定向/内容类型/HTML/DDG/限速）+ wander 网页优先/回落；host 241。
+
+## 103. 公网漫游 + 碎碎念去数组化（M99，2026-10-26）
+
+- 公网漫游：`safe-web.extractPageLinks`（相对/绝对链接、私网过滤、资源后缀跳过、去重）；`self-wander` 状态新增 `lastWebUrl`，下次先抓上一页 → 抽链接 → 随机走一步；失败再按 experiencing 搜索、再失败维基随机；成功自动更新落脚点。
+- 碎碎念：`self-talk` 默认 `themeProbability=0`、`topicsEnabled=false`（话题库需 `DSH_POETRY_TALK_TOPICS=on`）；prompt 增加“从此刻心情、今天真实发生的事、以前记忆里自然长出来；不要从主题清单/话题库挑”。
+- `memory-recall`：新增 `todayJournal`（上海本地当天 journal 的 thought/murmur/mood，最多 8 条，去重），`formatMemoryDigest` 增加「今天你自己经历的」段。
+- 测试：host 246（公网链接抽取/漫游状态、今天素材、默认无主题无话题）；全套 409/409。

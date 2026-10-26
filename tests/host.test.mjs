@@ -226,6 +226,7 @@ import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
 import {
   createWebAccess,
   extractHtmlTitle,
+  extractPageLinks,
   extractReadableText,
   fetchPublicPage,
   isPrivateAddress,
@@ -4495,6 +4496,7 @@ test('self-talk M32 服务：temperature=1.0，theme 可注入/随机挑，均�
     now: () => FIXED_NOW.getTime(),
     minIntervalMs: 0,
     random: () => 0,
+    themeProbability: 1,
   })
   await firstService.generate({})
   assert.ok(
@@ -4509,6 +4511,7 @@ test('self-talk M32 服务：temperature=1.0，theme 可注入/随机挑，均�
     now: () => FIXED_NOW.getTime(),
     minIntervalMs: 0,
     random: () => 0.999999,
+    themeProbability: 1,
   })
   await lastService.generate({})
   assert.ok(
@@ -4839,6 +4842,7 @@ test('self-talk 服务：每次挑一个 topic、成功后记 recent、下次排
     now: () => FIXED_NOW.getTime(),
     minIntervalMs: 0,
     topics,
+    topicsEnabled: true,
     random: () => 0,
   })
 
@@ -4905,7 +4909,9 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
   ])
   const previousDshHome = process.env.DSH_HOME
   const previousTopics = process.env.DSH_SELF_TALK_TOPICS
+  const previousTalkTopics = process.env.DSH_POETRY_TALK_TOPICS
   process.env.DSH_HOME = dshHome
+  process.env.DSH_POETRY_TALK_TOPICS = 'on'
   delete process.env.DSH_SELF_TALK_TOPICS
   try {
     const routes = []
@@ -4976,6 +4982,8 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
     else process.env.DSH_HOME = previousDshHome
     if (previousTopics === undefined) delete process.env.DSH_SELF_TALK_TOPICS
     else process.env.DSH_SELF_TALK_TOPICS = previousTopics
+    if (previousTalkTopics === undefined) delete process.env.DSH_POETRY_TALK_TOPICS
+    else process.env.DSH_POETRY_TALK_TOPICS = previousTalkTopics
   }
 })
 
@@ -9816,4 +9824,125 @@ test('safe-web v2.1：Wikipedia / SearXNG 搜索结果解析', () => {
   )
   assert.equal(searx.length, 1)
   assert.equal(searx[0].url, 'https://example.org/vent')
+})
+
+test('safe-web v2.2：从页面里抽公开链接（相对路径解析/私网/资源跳过）', () => {
+  const html = [
+    '<a href="/a">相对</a>',
+    '<a href="https://other.example/b">绝对</a>',
+    '<a href="http://10.0.0.1/secret">内网</a>',
+    '<a href="javascript:void(0)">脚本</a>',
+    '<a href="/img/x.jpg">图片</a>',
+    '<a href="/a">重复</a>',
+  ].join('')
+  const links = extractPageLinks(html, 'https://example.com/page', { limit: 10 })
+  assert.deepEqual(links, ['https://example.com/a', 'https://other.example/b'])
+  assert.deepEqual(extractPageLinks('<a href="/x">x</a>', 'not-a-url'), [])
+})
+
+test('self-wander v2.2：从上一页顺着链接走一步，并记住新的落脚点', async () => {
+  const dir = makeTmpDir('dshp-wander-roam')
+  const statePath = path.join(dir, 'wander-state.json')
+  fs.writeFileSync(statePath, JSON.stringify({ ok: true, lastWanderAt: 0, lastWebUrl: 'https://example.org/start' }))
+  const llm = makeMockLlm(() => JSON.stringify({ note: '从海边的页面点到一篇讲潮汐的页面，我停下来看了一会儿。', interesting: true }))
+  const fetched = []
+  const webAccess = {
+    async search() {
+      throw new Error('不该搜索')
+    },
+    async fetchPage(url) {
+      fetched.push(url)
+      if (url.endsWith('/start')) {
+        return {
+          url,
+          title: '起点',
+          text: '起点页正文。'.repeat(30),
+          html: '<a href="/tide">潮汐</a><a href="/moon">月亮</a>',
+        }
+      }
+      return {
+        url,
+        title: '潮汐',
+        text: '潮汐是海水在月球和太阳引力作用下发生的周期性涨落。'.repeat(8),
+        html: '',
+      }
+    },
+  }
+  const wander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false, experiencing: '在想海边的潮水' }) },
+    llm,
+    webAccess,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    logger: { warn() {}, info() {} },
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    statePath,
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    random: () => 0,
+    fetchImpl: async () => {
+      throw new Error('不应回落维基')
+    },
+  })
+  const result = await wander.wanderNow()
+  assert.equal(result.ok, true)
+  assert.equal(result.title, '潮汐')
+  assert.equal(result.host, 'example.org')
+  assert.deepEqual(fetched, ['https://example.org/start', 'https://example.org/tide'])
+  const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  assert.equal(saved.lastWebUrl, 'https://example.org/tide')
+})
+
+test('memory-recall v2.2：碎碎念素材包含“今天真实发生的事”，过往仍走分层记忆', () => {
+  const dir = makeTmpDir('dshp-today-recall')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const now = FIXED_NOW.getTime()
+  const lines = [
+    { ts: now - 2 * 24 * 60 * 60 * 1000, kind: 'thought', text: '两天前在窗边想通了一件小事。' },
+    { ts: now - 10 * 60 * 1000, kind: 'murmur', text: '今天把杯盖拆下来晾，橡胶圈还潮着。' },
+    { ts: now - 3 * 60 * 1000, kind: 'mood', label: '松下来', reason: '光挪到桌角' },
+  ]
+  fs.writeFileSync(journalPath, lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf8')
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    layersPath: null,
+    now: () => now,
+  })
+  const digest = recall.digest({ moodLabel: '安静' })
+  assert.equal(digest.todayJournal.length, 2, '只取今天的两条')
+  assert.ok(digest.todayJournal.some((text) => text.includes('杯盖拆下来晾')))
+  assert.ok(digest.todayJournal.some((text) => text.includes('松下来')))
+  assert.equal(digest.todayJournal.some((text) => text.includes('两天前在窗边')), false, '两天前的事不冒充今天')
+  const formatted = formatMemoryDigest(digest)
+  assert.match(formatted, /今天你自己经历的/)
+})
+
+test('self-talk v2.2：默认不再从主题/话题数组里挑，素材来自心情+今天+过往', async () => {
+  const llm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const service = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    random: () => 0,
+    recall: {
+      digest: () => ({
+        thoughts: ['最近在想潮水为什么一天两次。'],
+        moods: ['傍晚有点松下来。'],
+        learned: ['潮汐由月球和太阳引力造成。'],
+        todayJournal: ['今天把杯盖拆下来晾，橡胶圈还潮着。'],
+        selfFacts: ['我容易被细小的动静带走。'],
+        deepMemories: [],
+      }),
+    },
+  })
+  const result = await service.generate({ moodKey: 'calm', moodLabel: '平静', moodReason: '光挪到桌角' })
+  assert.equal(result.ok, true)
+  const prompt = llm.calls[0].messages[0].content[0].text
+  assert.match(prompt, /今天你自己经历的/)
+  assert.match(prompt, /不要从任何主题清单或话题库/)
+  assert.equal(prompt.includes('这次试着围绕'), false, '默认不再带固定主题')
+  assert.match(prompt, /此刻的心情/)
+  assert.match(prompt, /平静/)
 })

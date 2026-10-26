@@ -51,7 +51,7 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 
 ### 公开网页访问（v2.1）
 
-她可以读任意公开网页；搜索默认走 Wikipedia 搜索 API（稳定、无密钥），网络溜达会先用她正在琢磨的事搜一次，失败再回落维基随机。想要全网搜索可把 `DSH_POETRY_SEARCH_URL` 指向你自己的 SearXNG（支持 `{q}` 模板或 JSON 输出）。安全边界：
+她可以读任意公开网页，并会顺着网页里的链接继续漫游；搜索默认走 Wikipedia 搜索 API（稳定、无密钥），网络溜达会先用她正在琢磨的事搜一次，失败再回落维基随机。想要全网搜索可把 `DSH_POETRY_SEARCH_URL` 指向你自己的 SearXNG（支持 `{q}` 模板或 JSON 输出）。安全边界：
 
 - 只允许 http/https、80/443，不接受账号密码；
 - 每次请求前解析**全部** DNS 地址，任一落在私网/保留段/云元数据就拒绝；重定向最多 4 跳且每跳重新校验；连接钉在已校验 IP 上；
@@ -65,7 +65,7 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 
 - 节奏：`DSH_POETRY_DRIVE_MIN` / `_MAX`、`DSH_POETRY_REFLECT_MIN`、`DSH_POETRY_LEARN_MIN`、`DSH_POETRY_PROBE_MIN`、`DSH_POETRY_READING_MIN`、`DSH_POETRY_WANDER_MIN`、`DSH_POETRY_NETLANG_MIN`（0 = 不设下限）
 - 预算：`DSH_POETRY_DAILY_TOTAL`（默认 0 = 不限制）与 `DSH_POETRY_DAILY_<ROLE>`
-- 碎碎念：`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` / `DSH_POETRY_TALK_THEME_PROBABILITY`
+- 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
 - 全局最多 2 个模型调用并发（保护，不是成长限制）
 
 ## 安装

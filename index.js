@@ -294,6 +294,7 @@ export async function apply(ctx) {
         getSelection,
         logger,
         themeProbability: autonomy.selfTalkThemeProbability,
+        topicsEnabled: String(env.DSH_POETRY_TALK_TOPICS ?? '').toLowerCase() === 'on',
         topics: topicBank,
         recall: memoryRecall,
         voice: () => voiceService.get(),
