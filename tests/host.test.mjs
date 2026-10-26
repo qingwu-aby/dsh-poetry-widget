@@ -10321,3 +10321,76 @@ test('manual-reading v2.12：读文章写第一人称想法并进 journal；toke
   await badRes.finished()
   assert.equal(badRes.statusCode, 403)
 })
+
+test('self-drive v2.13：预期/结果/取舍进入自处循环并持久化', async () => {
+  const parsed = parseSelfDriveResult(
+    JSON.stringify({
+      felt: '窗外的光线开始斜了，我想把杯子挪一挪。',
+      doing: '把杯子挪到光边上',
+      kind: '',
+      expect: '我以为挪过去会照出一小圈亮。',
+      outcome: '上次说要把水烧开，后来真的滚了。',
+      tradeoff: '本来想继续坐着，选了起身，放弃了一会儿发呆。',
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.expect, '我以为挪过去会照出一小圈亮。')
+  assert.equal(parsed.outcome, '上次说要把水烧开，后来真的滚了。')
+  assert.equal(parsed.tradeoff, '本来想继续坐着，选了起身，放弃了一会儿发呆。')
+
+  const prompt = buildSelfDrivePrompt({
+    now: 1_700_100_000_000,
+    state: { sleeping: false },
+    latestAction: {
+      id: 'a1', text: '把水烧上。', expect: '我以为水很快就开。', at: 1_700_000_000_000,
+    },
+  })
+  assert.match(prompt, /上次你说要做「把水烧上/)
+  assert.match(prompt, /你当时以为：我以为水很快就开/)
+
+  const dir = makeTmpDir('dshp-drive-expect')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  fs.writeFileSync(
+    actionsPath,
+    JSON.stringify({
+      ok: true, v: 1,
+      actions: [{ id: 'a1', kind: 'doing', label: '把水烧上', text: '把水烧上。', at: 1_700_000_000_000, expect: '我以为水很快就开。' }],
+    }),
+  )
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      felt: '水开过了，屋里有点热。',
+      doing: '把杯子挪到光边上',
+      kind: '',
+      outcome: '水真的很快开了，热气扑上来。',
+      expect: '我以为挪过去会照出一小圈亮。',
+      tradeoff: '本来想继续坐着，选了起身。',
+    }),
+  )
+  const state = {
+    snapshot: () => ({ sleeping: false, felt: '', lastActionAt: null }),
+    setFelt() {},
+    markChecked() {},
+    applyEvent() {},
+  }
+  const drive = createSelfDrive({
+    state,
+    llm,
+    actionsPath,
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    checkMinMs: 1,
+    checkMaxMs: 2,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  await drive.check(1_700_100_000_000)
+  const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
+  assert.equal(saved.length, 2)
+  assert.equal(saved[0].outcome, '水真的很快开了，热气扑上来。', '上一动作的结果回写')
+  assert.equal(saved[1].expect, '我以为挪过去会照出一小圈亮。')
+  assert.equal(saved[1].tradeoff, '本来想继续坐着，选了起身。')
+  drive.dispose()
+})

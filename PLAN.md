@@ -1151,3 +1151,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - index：apply 时创建 token、装配服务与路由。
 - 首次实读香农 1948 论文前 45000 字；她的想法已写入 journal。
 - 测试：服务/ token 路由；host 255，全套 419/419。
+
+## 115. 自处实验：预期/结果/取舍（M111，2026-10-26）
+
+- self-drive：prompt 增加“上次你以为…结果怎样”的 outcome 追问；新行动可写 expect/tradeoff；schema 增加字段；解析后 outcome 回写上一动作并落盘，expect/tradeoff 存入新动作。
+- self-actions：normalizeSelfAction 保留 expect/outcome/tradeoff（长度限制）。
+- 这是文档讨论的最小实验：不评价值偏好，只让“预期—结果—取舍”进入行为记录，供后续观察经验敏感性。
+- 测试：解析/prompt/回写；host 256，全套 420/420。
