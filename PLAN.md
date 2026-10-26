@@ -975,3 +975,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - ② 新增 `client-src/library.js`：诗库常量 + libraryCategoryOf/buildLibraryItems/ciSelected*/ciBank*/filter/libraryPage/label；client-csr 现在 styles/base/wander/library 四模块 + 主文件，esbuild 单 artifact。
 - ③ 新增 `scripts/live-smoke.mjs` + `npm run smoke`：只读检查 journal/self-state 新鲜度、self-state v2、分层 episode/selfFacts、最近 30m 模型错误、health 路由可达（200/401 均算活）；不触发模型、无费用。真模型冒烟仍建议 UI 触发后看 journal。
 - 测试：client 120（气泡/面板/天气/心情/f飞花等路径按新入口更新）；全套 data 42 / host 232 / client 120 = 394/394。
+
+## 93. 心情自动刷新限流（M89，2026-10-26）
+
+- 观察：journal mood 在 13–14 点达 78–107 条/小时，2 小时 11 次 mood EMPTY_RESPONSE；原因判断为多次插件热载/页面实例叠加，每个客户端自动请求都带 force=1，绕过 10min 缓存。
+- 改：客户端自动刷新仍带 force 但新增 `manual` 标志；只有手动「刷新心情」设置 manualRef → 请求带 `manual=1`。服务端 mood-ai 路由：`effectiveForce = force && manual`，自动请求走缓存（最多 ~6 次/小时），手动即时生成。
+- 测试：mood-ai 路由 force/manual、memory-journal force 用例更新；全套 394/394。

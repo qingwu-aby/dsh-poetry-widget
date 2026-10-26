@@ -1686,6 +1686,8 @@ window.__ModuleLoader__.load({
    params.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)))
   }
   if (opts.force === true) add('force', '1')
+  // v1.78：只有用户手动「刷新心情」才带 manual=1；自动刷新由宿主按缓存限流，避免多标签/重载叠加刷模型。
+  if (opts.manual === true) add('manual', '1')
   add('mood', opts.moodKey)
   add('weather', opts.weather)
   const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? '' : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX)
@@ -3422,7 +3424,8 @@ window.__ModuleLoader__.load({
    }
   }
 
-  const requestModelMood = React.useCallback(() => {
+  const requestModelMood = React.useCallback((options = {}) => {
+   const manual = options && options.manual === true
    const current = settingsRef.current
    if (!current.mood) return Promise.resolve({ ok: false, reason: 'disabled' })
    const catalog = moodCatalogRef.current
@@ -3456,6 +3459,7 @@ window.__ModuleLoader__.load({
    }
    return requestMoodAi({
     force: true,
+    manual,
     moodKey: currentMoodKey,
     weather: weather ? String(weather.category || weather.label || '') : '',
     recent,
@@ -3478,6 +3482,8 @@ window.__ModuleLoader__.load({
    })
   }, [applyModelMood, fallbackHeuristicMood])
 
+  const moodManualRef = React.useRef(false)
+
   function scheduleMoodAiRefresh(options) {
    const opts = options && typeof options === 'object' ? options : {}
    if (!settingsRef.current.mood || settingsRef.current.hidden) return
@@ -3497,11 +3503,14 @@ window.__ModuleLoader__.load({
      moodAiPendingRef.current = true
      return
     }
-    requestModelMood()
+    const manual = moodManualRef.current
+    moodManualRef.current = false
+    requestModelMood({ manual })
    }, Math.max(0, delay))
   }
   const refreshMoodNow = React.useCallback(() => {
    moodForceRef.current = true
+   moodManualRef.current = true
    scheduleMoodAiRefresh({ immediate: true })
    setMoodTick((tick) => tick + 1)
    return Promise.resolve({ ok: true })

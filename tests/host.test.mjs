@@ -2671,8 +2671,14 @@ test('mood-ai 路由：成功形状 + query 解析 + 隐私白名单 + force + �
   assert.equal(cachedBody.cached, true)
   assert.equal(llm.calls.length, 1)
 
-  // force=1 绕过缓存
-  const forcedBody = (await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))).json()
+  // v1.78：自动刷新带 force 但不带 manual → 仍走缓存（避免多页面/重载叠加刷模型）
+  const autoForced = (await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))).json()
+  assert.equal(autoForced.ok, true)
+  assert.equal(autoForced.cached, true)
+  assert.equal(llm.calls.length, 1)
+
+  // 只有手动刷新（force=1&manual=1）才绕过缓存
+  const forcedBody = (await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1&manual=1` }))).json()
   assert.equal(forcedBody.ok, true)
   assert.equal(forcedBody.cached, false)
   assert.equal(llm.calls.length, 2)
@@ -2696,7 +2702,7 @@ test('mood-ai 路由：失败服务 → 200 + MOOD_AI_UNAVAILABLE；query 归一
   const harness = createHarness({ moodAiService: stubService })
   const manyRecent = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `第${index}句最近自述`).join('|'))
   const manyImages = encodeURIComponent(Array.from({ length: 7 }, (_, index) => `dsh-whale-state-${index}.webp`).join('|'))
-  const url = `/api/dsh-poetry/mood-ai.json?recent=${manyRecent}&recentImages=${manyImages}&force=1`
+  const url = `/api/dsh-poetry/mood-ai.json?recent=${manyRecent}&recentImages=${manyImages}&force=1&manual=1`
   const response = await harness.call('mood-ai.json', mockRequest({ url }))
   assert.equal(response.statusCode, 200)
   const body = response.json()
@@ -2913,7 +2919,7 @@ test('memory-journal 路由：mood-ai 新生成写 mood，cached 不写，force 
   assert.equal(readJournalJsonl(harness.journalDir).length, 1)
 
   // v1.21：mood 不再限频/去重 → force 新生成再写一条
-  const forced = await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1` }))
+  const forced = await harness.call('mood-ai.json', mockRequest({ url: `${url}&force=1&manual=1` }))
   assert.equal(forced.json().cached, false)
   assert.equal(readJournalJsonl(harness.journalDir).length, 2, '每条 mood 都写（回忆完整保留）')
 

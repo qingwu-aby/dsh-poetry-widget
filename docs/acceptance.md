@@ -142,3 +142,4 @@
 | H39 | P2 宿主适配 + client 模块化 | ✅ | dsh-host 适配层（inject/get/effect 转发与降级，含测试）；client-src 拆出 base.js / wander.js，构建与测试不变；全套 393/393 |
 | H40 | 诗词模块降权到二级菜单 | ✅ | 顶层 tab 成长/设置；诗词（含 7 子 tab：今日/课堂/韵部/词牌/诗库/飞花/设置）与配置从成长页进入二级菜单；面板头有诗词入口/返回；主设置不再含诗词配置；单测覆盖 |
 | H41 | 诗笺进二级菜单 + client library + 冒烟脚本 | ✅ | 主点击打开成长面板；诗笺从「诗词→逐页看诗笺」进入；client-src 拆出 library.js；`npm run smoke` 只读冒烟（记忆新鲜度/分层/错误/路由可达）；单测 394/394 |
+| H42 | 心情自动刷新限流 | ✅ | 自动刷新忽略 force 走 10min 缓存；只有手动刷新带 manual=1 才强制生成；服务端 effectiveForce=force&&manual；路由/写记忆测试更新；394/394 |

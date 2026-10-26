@@ -1979,6 +1979,7 @@
           params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
         };
         if (opts.force === true) add("force", "1");
+        if (opts.manual === true) add("manual", "1");
         add("mood", opts.moodKey);
         add("weather", opts.weather);
         const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? "" : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX);
@@ -3708,7 +3709,8 @@
             moodAiRetryTimerRef.current = null;
           }
         }
-        const requestModelMood = React.useCallback(() => {
+        const requestModelMood = React.useCallback((options = {}) => {
+          const manual = options && options.manual === true;
           const current = settingsRef.current;
           if (!current.mood) return Promise.resolve({ ok: false, reason: "disabled" });
           const catalog = moodCatalogRef.current;
@@ -3740,6 +3742,7 @@
           };
           return requestMoodAi({
             force: true,
+            manual,
             moodKey: currentMoodKey,
             weather: weather2 ? String(weather2.category || weather2.label || "") : "",
             recent,
@@ -3761,6 +3764,7 @@
             return { ok: false };
           });
         }, [applyModelMood, fallbackHeuristicMood]);
+        const moodManualRef = React.useRef(false);
         function scheduleMoodAiRefresh(options) {
           const opts = options && typeof options === "object" ? options : {};
           if (!settingsRef.current.mood || settingsRef.current.hidden) return;
@@ -3777,11 +3781,14 @@
               moodAiPendingRef.current = true;
               return;
             }
-            requestModelMood();
+            const manual = moodManualRef.current;
+            moodManualRef.current = false;
+            requestModelMood({ manual });
           }, Math.max(0, delay));
         }
         const refreshMoodNow = React.useCallback(() => {
           moodForceRef.current = true;
+          moodManualRef.current = true;
           scheduleMoodAiRefresh({ immediate: true });
           setMoodTick((tick) => tick + 1);
           return Promise.resolve({ ok: true });
