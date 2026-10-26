@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+<style>text{font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;fill:#111827} .title{font-size:24px;font-weight:700} .subtitle{font-size:12px;fill:#6b7280} .layer-title{font-size:14px;font-weight:700;fill:#475569} .node-title{font-size:14px;font-weight:700} .node-sub{font-size:11px;fill:#64748b} .edge-label{font-size:11px;fill:#475569} .note{font-size:11px;fill:#475569}</style>
+<defs>
+<marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker>
+<marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#059669"/></marker>
+<marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#7c3aed"/></marker>
+<marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#ea580c"/></marker>
+<marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#64748b"/></marker>
+</defs>
+<rect width="1200" height="900" fill="#f8fafc"/>
+<text x="40" y="42" class="title">小鲸鱼 · 整体架构</text>
+<text x="40" y="63" class="subtitle">Host / Client 双半区 · 自主循环 · 分层记忆 · 公开网络只读 · 对话上下文隔离</text>
+<rect x="40" y="80" width="1120" height="140" rx="14" fill="#eff6ff" data-graph-role="container" stroke="#bfdbfe" stroke-width="1.5"/>
+<text x="58" y="103" class="layer-title">Client：浏览器界面</text>
+<rect x="40" y="250" width="1120" height="150" rx="14" fill="#f0fdf4" data-graph-role="container" stroke="#bbf7d0" stroke-width="1.5"/>
+<text x="58" y="273" class="layer-title">Host：组合与信任边界</text>
+<rect x="40" y="430" width="1120" height="170" rx="14" fill="#faf5ff" data-graph-role="container" stroke="#ddd6fe" stroke-width="1.5"/>
+<text x="58" y="453" class="layer-title">自主运行层：她自己决定做什么</text>
+<rect x="40" y="630" width="1120" height="190" rx="14" fill="#fff7ed" data-graph-role="container" stroke="#fed7aa" stroke-width="1.5"/>
+<text x="58" y="653" class="layer-title">记忆 / 外部世界 / 模型</text>
+<rect x="65" y="112" width="200" height="82" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="79" y="137" class="node-title">用户 / DSH Web</text>
+<text x="79" y="159" class="node-sub">显式操作、查看、拖拽</text>
+<text x="79" y="175" class="node-sub">不把会话内容注入她的记忆</text>
+<rect x="310" y="102" width="360" height="100" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="324" y="127" class="node-title">Client 单 artifact</text>
+<text x="324" y="149" class="node-sub">client-src：成长 / 心情 / 面板 / 二级诗词</text>
+<text x="324" y="165" class="node-sub">窗口溜达（当前关闭）· 本地交互</text>
+<rect x="715" y="112" width="375" height="82" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+<text x="729" y="137" class="node-title">DSH Client Slots</text>
+<text x="729" y="159" class="node-sub">shell.overlay · React 模块加载</text>
+<text x="729" y="175" class="node-sub">刷新页面加载最新 client.js</text>
+<rect x="70" y="285" width="270" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+<text x="84" y="310" class="node-title">index.js + dsh-host</text>
+<text x="84" y="332" class="node-sub">Host API 适配：inject / get / effect</text>
+<text x="84" y="348" class="node-sub">路由、服务、状态的组合根</text>
+<rect x="385" y="285" width="270" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+<text x="399" y="310" class="node-title">service-runtime</text>
+<text x="399" y="332" class="node-sub">统一服务清理 / 健康快照</text>
+<text x="399" y="348" class="node-sub">后台服务失败隔离</text>
+<rect x="700" y="285" width="385" height="86" rx="10" fill="#ffffff" stroke="#86efac" stroke-width="1.5"/>
+<text x="714" y="310" class="node-title">routes + trust fence</text>
+<text x="714" y="332" class="node-sub">13 个 JSON 路由 · 同源栅栏</text>
+<text x="714" y="348" class="node-sub">health/runtime · memory · self · mood-ai</text>
+<rect x="70" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
+<text x="84" y="490" class="node-title">自我核心</text>
+<text x="84" y="512" class="node-sub">self-being：felt / experiencing / 时间线</text>
+<text x="84" y="528" class="node-sub">self-drive：focus / doing / probe</text>
+<text x="84" y="544" class="node-sub">self-talk / mood-ai / voice</text>
+<rect x="435" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
+<text x="449" y="490" class="node-title">自主活动</text>
+<text x="449" y="512" class="node-sub">growth：自学 / 自省 / 试探</text>
+<text x="449" y="528" class="node-sub">reading：公版小说 · netlang：热搜表达</text>
+<text x="449" y="544" class="node-sub">wander：公开网页只读</text>
+<rect x="800" y="465" width="320" height="108" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
+<text x="814" y="490" class="node-title">模型调用层</text>
+<text x="814" y="512" class="node-sub">llm-call：统一候选 / 超时 / 失败</text>
+<text x="814" y="528" class="node-sub">model-policy：role / effort / token floor</text>
+<rect x="70" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="84" y="705" class="node-title">L0/L1 工作 + 情景</text>
+<text x="84" y="727" class="node-sub">self-state / actions</text>
+<text x="84" y="743" class="node-sub">journal.jsonl · learning-log.md</text>
+<rect x="330" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="344" y="705" class="node-title">L2/L3 整合 + 自我</text>
+<text x="344" y="727" class="node-sub">memory-layers.json</text>
+<text x="344" y="743" class="node-sub">episodes · selfFacts（性格锚）</text>
+<rect x="590" y="680" width="235" height="105" rx="10" fill="#ffffff" stroke="#fdba74" stroke-width="1.5"/>
+<text x="604" y="705" class="node-title">Registry / Hub</text>
+<text x="604" y="727" class="node-sub">memory-registry：12 文件真源</text>
+<text x="604" y="743" class="node-sub">memory-hub：备份 / 健康 / 恢复</text>
+<rect x="850" y="680" width="140" height="105" rx="10" fill="#ffffff" stroke="#c4b5fd" stroke-width="1.5"/>
+<text x="864" y="705" class="node-title">DSH LLM</text>
+<text x="864" y="727" class="node-sub">mood / selfTalk</text>
+<text x="864" y="743" class="node-sub">growth / roles</text>
+<rect x="1010" y="680" width="130" height="105" rx="10" fill="#ffffff" stroke="#fed7aa" stroke-width="1.5"/>
+<text x="1024" y="705" class="node-title">外部只读</text>
+<text x="1024" y="727" class="node-sub">天气</text>
+<text x="1024" y="743" class="node-sub">微博/B站</text>
+<text x="1024" y="759" class="node-sub">维基文库</text>
+<path d="M265,153 L310,153" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="270" y="145" class="edge-label">操作/观看</text>
+<path d="M670,153 L715,153" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="680" y="145" class="edge-label">挂载</text>
+<path d="M530,202 L530,250" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="545" y="232" class="edge-label">HTTP / Slots</text>
+<path d="M340,328 L385,328" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="345" y="320" class="edge-label">注册/注入</text>
+<path d="M655,328 L700,328" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="665" y="320" class="edge-label">路由/服务</text>
+<path d="M890,371 L890,430" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#arrow-blue)" data-graph-role="edge"/>
+<text x="900" y="405" class="edge-label">读写 API</text>
+<path d="M390,519 L435,519" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
+<text x="395" y="511" class="edge-label">意图/任务</text>
+<path d="M755,519 L800,519" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
+<text x="755" y="511" class="edge-label">prompt + role</text>
+<path d="M960,573 L960,680" fill="none" stroke="#7c3aed" stroke-width="1.8" stroke-dasharray="6,3" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
+<text x="975" y="630" class="edge-label">调用</text>
+<path d="M230,573 L230,680" fill="none" stroke="#059669" stroke-width="1.8" stroke-dasharray="5,3" marker-end="url(#arrow-green)" data-graph-role="edge"/>
+<text x="238" y="630" class="edge-label">写入</text>
+<path d="M500,573 L500,680" fill="none" stroke="#059669" stroke-width="1.8" stroke-dasharray="5,3" marker-end="url(#arrow-green)" data-graph-role="edge"/>
+<text x="508" y="630" class="edge-label">整合</text>
+<path d="M690,680 L690,600" fill="none" stroke="#059669" stroke-width="1.8" stroke-dasharray="5,3" marker-end="url(#arrow-green)" data-graph-role="edge"/>
+<text x="700" y="625" class="edge-label">预算检索</text>
+<path d="M565,732 L590,732" fill="none" stroke="#059669" stroke-width="1.8" marker-end="url(#arrow-green)" data-graph-role="edge"/>
+<text x="565" y="724" class="edge-label">登记</text>
+<path d="M1010,680 L960,573" fill="none" stroke="#ea580c" stroke-width="1.8" stroke-dasharray="6,3" marker-end="url(#arrow-orange)" data-graph-role="edge"/>
+<text x="970" y="630" class="edge-label">公开摘要/热搜</text>
+<path d="M850,680 L800,573" fill="none" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
+<text x="810" y="630" class="edge-label">模型响应</text>
+<path d="M1120,500 C1170,500 1170,560 1120,560" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-purple)" data-graph-role="edge"/>
+<text x="1132" y="486" class="edge-label">失败/重试</text>
+<rect x="55" y="840" width="1090" height="38" rx="8" fill="#ffffff" stroke="#e2e8f0" data-graph-role="decoration"/>
+<line data-graph-role="decoration" x1="75" y1="859" x2="103" y2="859" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+<text x="113" y="863" class="note">主流程</text>
+<line data-graph-role="decoration" x1="325" y1="859" x2="353" y2="859" stroke="#059669" stroke-width="2" marker-end="url(#arrow-green)"/>
+<text x="363" y="863" class="note">记忆读写</text>
+<line data-graph-role="decoration" x1="575" y1="859" x2="603" y2="859" stroke="#7c3aed" stroke-width="2" marker-end="url(#arrow-purple)"/>
+<text x="613" y="863" class="note">模型/自主循环</text>
+<line data-graph-role="decoration" x1="825" y1="859" x2="853" y2="859" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+<text x="863" y="863" class="note">外部只读</text>
+<text x="1050" y="863" text-anchor="end" class="note">API/数据与对话解耦</text>
+</svg>
