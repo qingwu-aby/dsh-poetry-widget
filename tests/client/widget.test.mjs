@@ -767,6 +767,12 @@ test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', ()
     updateSettings() {},
     hideWidget() {},
     resetSettings() {},
+    selfStatus: {
+      felt: '有点困，但心里松下来了。',
+      context: ['刚醒来一会儿。', '今天还没吃东西。'],
+      sleeping: false,
+      actions: { recent: [] },
+    },
     boot: {
       data: { version: '0.1.0', dataVersion: '2026-10-21.1', source: { commit: 'abcdef1234567890' } },
     },
