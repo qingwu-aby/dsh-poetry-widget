@@ -42,6 +42,7 @@ import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath }
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
+import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -102,6 +103,8 @@ export async function apply(ctx) {
   // v2.6：缺失的记忆文件先创建一个空白容器，避免记忆中枢把「空白起点」当成异常。
   const seededMemory = seedMemoryBaseline({ env, home, logger })
   if (seededMemory.length > 0) logger?.info?.(`[dsh-little-whale] 已初始化空白记忆容器：${seededMemory.join('、')}`)
+  // v2.8：她自己的持续项目/章节（由自处决定起、推进、收尾）。
+  const selfProjects = createSelfProjects({ file: resolveProjectsPath(env, home), logger })
   const journal = createMemoryJournal({ dir: memoryDir, logger })
   // v1.81：全局模型预算 + 并发闸门（所有 role 共用；超预算活动安静跳过）。
   const modelBudget = createModelBudget({
@@ -256,6 +259,7 @@ export async function apply(ctx) {
         topicsArchivePath,
         feelingsPath,
         layersPath,
+        projectsPath: resolveProjectsPath(env, home),
       })
       // v1.71：每天把几天前的零碎记忆慢慢整合成一段回忆，并提炼“越来越清楚的自己”。
       const memoryConsolidator = createMemoryConsolidator({
@@ -464,6 +468,7 @@ export async function apply(ctx) {
       // 没有阈值、没有需求分数；模型不可用时保持上次状态，什么都不做。
       const selfDrive = createSelfDrive({
         state: selfState,
+        projects: selfProjects,
         getLlm,
         policy: modelPolicy,
         modelErrorsPath,
@@ -682,6 +687,7 @@ export async function apply(ctx) {
             getSnapshot: () => selfState.snapshot(),
             getGrowth: () => growth.snapshot(),
             getActions: () => selfDrive.snapshot(),
+            getProject: () => selfProjects.snapshot().current,
           }),
         }),
       )

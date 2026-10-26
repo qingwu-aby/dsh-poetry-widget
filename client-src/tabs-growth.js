@@ -53,6 +53,15 @@ function GrowthTab(props) {
     : null,
    growthMetricsTree(status),
   ),
+  status && status.project
+   ? h(
+    'div',
+    { className: 'dshp-growth-section' },
+    h('div', { className: 'dshp-growth-section-head' }, '正在做的事'),
+    h('div', { className: 'dshp-growth-quote' }, status.project.title + (status.project.note ? ' · ' + status.project.note : '')),
+    ...status.project.steps.map((step, index) => h('div', { className: 'dshp-growth-empty', key: 'project-step-' + index }, (weatherUpdatedLabel(step.at) || '--:--') + ' · ' + step.text)),
+   )
+   : null,
   h(
    'div',
    { className: 'dshp-growth-section' },

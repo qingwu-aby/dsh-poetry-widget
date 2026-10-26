@@ -1329,6 +1329,7 @@ window.__ModuleLoader__.load({
    return value > 0 ? value : 0
   }
   const rawActions = data.actions && typeof data.actions === 'object' ? data.actions : {}
+  const rawProject = data.project && typeof data.project === 'object' ? data.project : null
   const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === 'string' && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : []
   return {
    // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
@@ -1348,6 +1349,17 @@ window.__ModuleLoader__.load({
     latest: normalizeSelfAction(rawActions.latest),
     recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5),
    },
+   project: rawProject && typeof rawProject.title === 'string'
+    ? {
+      id: String(rawProject.id || ''),
+      title: text(rawProject.title, 60),
+      note: text(rawProject.note, 160),
+      steps: (Array.isArray(rawProject.steps) ? rawProject.steps : [])
+        .filter((step) => step && typeof step.text === 'string')
+        .slice(-3)
+        .map((step) => ({ at: num(step.at, 0), text: text(step.text, 160) })),
+    }
+    : null,
   }
   }
 

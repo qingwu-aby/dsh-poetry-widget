@@ -221,6 +221,7 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
+import { createSelfProjects } from '../lib/self-projects.mjs'
 import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
@@ -10092,4 +10093,70 @@ test('memory-layers v2.7：多批整合 + backlog 统计（吞吐跟上经历）
   const remaining = countJournalEntries(journalPath, { before: now - 2 * day, after: after.consolidatedThrough })
   assert.equal(remaining.count, 0, 'backlog 被清空')
   consolidator.dispose()
+})
+
+test('self-projects v2.8：她起项目/推进/收尾，持久化且不伪造', () => {
+  const dir = makeTmpDir('dshp-projects')
+  const file = path.join(dir, 'projects.json')
+  let clock = 1000
+  const projects = createSelfProjects({ file, now: () => clock, logger: { warn() {} } })
+  assert.equal(projects.snapshot().current, null)
+  assert.equal(projects.apply({}, clock), null)
+  let change = projects.apply({ title: '把窗台那盆薄荷养回来', step: '先把它挪到有光的地方。' }, clock)
+  assert.equal(change.action, 'started')
+  assert.equal(projects.snapshot().current.title, '把窗台那盆薄荷养回来')
+  clock += 1000
+  change = projects.apply({ step: '今天把枯掉的叶子剪掉。', status: 'continue' }, clock)
+  assert.equal(change.action, 'stepped')
+  assert.equal(projects.snapshot().current.steps.length, 2)
+  clock += 1000
+  change = projects.apply({ step: '薄荷长出新叶了，这件事先到这里。', status: 'done' }, clock)
+  assert.equal(change.action, 'ended')
+  assert.equal(projects.snapshot().current, null)
+  assert.equal(projects.snapshot().completedCount, 1)
+  const reread = createSelfProjects({ file, now: () => clock })
+  assert.equal(reread.snapshot().completedCount, 1)
+  assert.match(reread.snapshot().recentCompleted[0].title, /薄荷/)
+  // 收尾后可以再起一个
+  const next = reread.apply({ title: '弄明白潮汐和月亮的关系', status: 'continue' }, clock)
+  assert.equal(next.action, 'started')
+})
+
+test('self-drive v2.8：自处 prompt 带当前项目，模型输出 project 能推动项目', async () => {
+  const promptWithout = buildSelfDrivePrompt({ now: FIXED_NOW.getTime(), state: { felt: '醒着' } })
+  assert.match(promptWithout, /可以在 project 里起一个/)
+  const promptWith = buildSelfDrivePrompt({
+    now: FIXED_NOW.getTime(),
+    state: { felt: '醒着' },
+    project: { title: '把薄荷养回来', note: '窗台那盆', steps: [{ text: '挪到有光的地方。' }] },
+  })
+  assert.match(promptWith, /你最近在持续做的一件事：把薄荷养回来/)
+  assert.match(promptWith, /最近推进：挪到有光的地方/)
+  const parsed = parseSelfDriveResult(
+    JSON.stringify({
+      felt: '傍晚的光落在窗台上，薄荷的土有点干。',
+      doing: '给薄荷浇了点水',
+      project: { step: '今天把枯叶剪掉。', status: 'continue' },
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.deepEqual(parsed.project, { title: '', step: '今天把枯叶剪掉。', status: 'continue' })
+})
+
+test('memory-recall v2.8：当前项目进入碎碎念素材', () => {
+  const dir = makeTmpDir('dshp-recall-project')
+  const projectsPath = path.join(dir, 'projects.json')
+  const projects = createSelfProjects({ file: projectsPath, now: () => FIXED_NOW.getTime() })
+  projects.apply({ title: '把薄荷养回来', step: '今天把枯叶剪掉。' }, FIXED_NOW.getTime())
+  const recall = createMemoryRecall({
+    journalPath: path.join(dir, 'none.jsonl'),
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    layersPath: null,
+    projectsPath,
+    now: () => FIXED_NOW.getTime(),
+  })
+  const digest = recall.digest({ moodLabel: '安静' })
+  assert.match(digest.project, /把薄荷养回来/)
+  assert.match(formatMemoryDigest(digest), /你这几天在持续做的事/)
 })

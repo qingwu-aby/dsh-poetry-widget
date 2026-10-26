@@ -76,6 +76,10 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 - 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
 - 全局最多 2 个模型调用并发（保护，不是成长限制）
 
+## 持续项目（v2.8）
+
+她可以在自处时给自己起一个持续几天的小项目（读一本书、弄懂一个题、慢慢做一样东西），每次自处推进一步或收尾。项目存在 `~/.dsh/.dsh-poetry/projects.json`，会显示在成长页「正在做的事」，也会进入碎碎念的记忆素材；完成后进入 completed，不评分。
+
 ## 归档与重新开始
 
 想让她从空白重新成长时，先停插件再运行：

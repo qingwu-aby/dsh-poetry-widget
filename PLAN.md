@@ -1110,3 +1110,13 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - backlog：`countJournalEntries` + `snapshot().backlog{entries,oldestAt}`（60s 缓存）；设置页运行状态显示 backlog。
 - 检索：`MEMORY_RECALL_JOURNAL_LINES=800`；self-talk digest clamp 2400。
 - 测试：多批整合/backlog 清零用例；全套 412/412。
+
+## 110. 持续项目/章节层（M106，2026-10-26，P1）
+
+- `lib/self-projects.mjs`：projects.json（state dir）；current 单项目 + completed（上限 50）；apply({title,step,status}) 支持 start/step/done/drop；不做评分。
+- self-drive：prompt 带当前项目/最近推进，schema 增加 project；解析后 apply，日志记录 started/stepped/ended。
+- self.json：`createSelfBeingHandler` 增加 getProject → payload.project。
+- 碎碎念：memory-recall 读 projectsPath，digest.project + formatMemoryDigest「你这几天在持续做的事」。
+- client：normalizeSelfStatus 加 project；GrowthTab 增加「正在做的事」（标题/说明/最近 3 步）。
+- archive-memory：归档 projects.json。
+- 测试：项目生命周期/persist；drive prompt/parse；recall digest；全套 415/415。

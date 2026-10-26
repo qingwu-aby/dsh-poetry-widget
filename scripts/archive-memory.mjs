@@ -35,6 +35,7 @@ const MEMORY_FILES = [
 const STATE_FILES = [
   'self-state.json',
   'self-actions.json',
+  'projects.json',
   'probe-state.json',
   'wander-state.json',
   'read-state.json',
