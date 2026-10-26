@@ -44,6 +44,7 @@ import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
 import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
+import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -124,12 +125,26 @@ export async function apply(ctx) {
     projectsPath: resolveProjectsPath(env, home),
   })
   const journal = createMemoryJournal({ dir: memoryDir, logger })
+  // v2.22：硅基代谢——每次真实模型调用消耗一点注意力，能量随时间恢复。
+  let selfStateRef = null
+  const selfMetabolism = createMetabolism({
+    file: resolveMetabolismPath(env, home),
+    logger,
+    getSleeping: () => {
+      try {
+        return selfStateRef !== null && selfStateRef.snapshot().sleeping === true
+      } catch {
+        return false
+      }
+    },
+  })
   // v1.81：全局模型预算 + 并发闸门（所有 role 共用；超预算活动安静跳过）。
   const modelBudget = createModelBudget({
     file: path.join(settingsPath.dir, 'model-budget.json'),
     env,
     home,
     logger,
+    onConsume: (role) => selfMetabolism.recordCall(role),
   })
   const modelGate = createModelGate({ maxConcurrent: 2, logger })
   configureModelRuntime({ budget: modelBudget, gate: modelGate })
@@ -392,6 +407,7 @@ export async function apply(ctx) {
       }
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
+      selfStateRef = selfState
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
       const manualTokenFile = resolveManualTokenPath(env, home)
       const manualToken = ensureManualToken(manualTokenFile)
@@ -515,6 +531,7 @@ export async function apply(ctx) {
         state: selfState,
         projects: selfProjects,
         events: selfEvents,
+        metabolism: selfMetabolism,
         onEventClosed: (event) => {
           const text = event && typeof event.topic === 'string' ? `这件事先放下了：${event.topic}` : ''
           if (text.length === 0) return undefined
@@ -694,6 +711,7 @@ export async function apply(ctx) {
           growthMetrics: growthMetrics.snapshot(),
           works: selfWorks.snapshot(),
           events: selfEvents.snapshot(),
+          metabolism: selfMetabolism.snapshot(),
         }),
         env,
         home,

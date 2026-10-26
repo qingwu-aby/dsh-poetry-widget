@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **硅基代谢层（v2.22，约束实验）**：新增 `lib/self-metabolism.mjs`：真实模型调用会消耗她的“注意力”（`model-budget.onConsume`），能量约 8 小时回满，睡眠恢复更快；能量低时高消耗动作（学习/创作/远行/读书）被系统挡住，只允许低消耗/休息，prompt 只给定性描述不显示数值。这是“逆熵/代价”的第一块真实约束：行动开始有成本。
 - **事件总线二期：叙事硬停 + 作品去重（v2.21）**：self-talk 在事件饱和后直接返回 `SELF_TALK_EVENT_SATIATED`（不再生成同主题的碎碎念），叙事通道参与饱和计数并在饱和时回调关闭记忆；作品对同一 title + 高相似正文直接去重，不再重复产出。统一 suite v2：A 停、B 停/闭合、D 饱和后停止生成、E 重复去重；C（纯反刍、不行动）仍无入口，留给下一层“叙事/体验通道”处理。
 - **事件总线第一步：共享事件状态 + 关闭记忆（v2.20）**：`events.json` 升级为 eventId/aliases/channels/status/conclusion；同一事件的动作、叙事、心情、作品通道共同消耗兴趣，总参与度到 6 次或动作 3 次即饱和；self-talk 生成时读取当前事件（饱和后 prompt 明确“已经说够了，别再说它”），生成成功后把 narration 计入事件；self-drive 饱和/loop 暂停时关闭事件并把“这件事先放下了：…”写入 journal（关闭记忆），之后可以换事件或被新证据重开。统一 suite 重跑：A/B 仍停，D 已出现“叙事饱和 + prompt 提示”（但仍会生成，下一步做硬抑制），C/E 仍未闭合。
 - **统一打转场景任务 + 事件关系（v2.19）**：新增 `scripts/experiment-loop-suite.mjs`（`npm run experiment:suite`），一条时间线顺序覆盖 A 固定事件 / B 换说法 / C 纯反刍 / D 碎碎念 / E 作品；并给自处加 `eventRelation: same|new`——同一件事即使换说法，只要她承认还是同一件，就归并到当前事件而不是重置计数。最新结果：A 停；B（关系=same）停；C/D/E 仍无饱和。这说明“语义关系”能修换壳，但叙事/产出层仍需共享事件状态。

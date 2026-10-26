@@ -223,6 +223,7 @@ import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
+import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -10604,4 +10605,49 @@ test('self-talk v2.20：共享事件状态进入 prompt，生成后记 narration
   const blocked = await service.generate({ kind: 'murmur', moodLabel: '安静', recent: [] })
   assert.equal(blocked.ok, false)
   assert.equal(blocked.error.code, 'SELF_TALK_EVENT_SATIATED')
+})
+
+test('self-metabolism v2.22：模型调用消耗能量、低能量挡住高消耗动作、时间恢复', () => {
+  const dir = makeTmpDir('dshp-metabolism')
+  let clock = FIXED_NOW.getTime()
+  const metabolism = createMetabolism({ file: path.join(dir, 'metabolism.json'), now: () => clock, callCost: 0.25 })
+  assert.equal(metabolism.band(), 'full')
+  metabolism.recordCall('drive')
+  metabolism.recordCall('selfTalk')
+  assert.equal(metabolism.band(), 'ok')
+  metabolism.recordCall('growth')
+  metabolism.recordCall('read')
+  assert.equal(metabolism.band(), 'exhausted')
+  assert.equal(metabolism.canAfford('learn'), false)
+  assert.equal(metabolism.canAfford('drink'), true)
+  assert.match(metabolism.describe(), /没什么力气/)
+  // 8 小时后恢复
+  clock += 8 * 60 * 60 * 1000
+  assert.equal(metabolism.band(), 'full')
+})
+
+test('self-drive v2.22：力气不够时不执行动作', async () => {
+  const dir = makeTmpDir('dshp-drive-metabolism')
+  const llm = makeMockLlm(() => JSON.stringify({ felt: '还是想弄明白那件事。', doing: '去翻一页难书', topic: '难书' }))
+  const drive = createSelfDrive({
+    state: { snapshot: () => ({ sleeping: false }), setFelt() {}, markChecked() {}, applyEvent() {} },
+    llm,
+    metabolism: { describe: () => '你今天已经没什么力气了。', canAfford: () => false },
+    actionsPath: path.join(dir, 'actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => FIXED_NOW.getTime(),
+    minGapMs: 0,
+    checkMinMs: 1,
+    checkMaxMs: 2,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  const result = await drive.check(FIXED_NOW.getTime())
+  assert.equal(result.ok, true)
+  assert.equal(result.paused, true)
+  assert.equal(result.tired, true)
+  assert.equal(result.action, null)
+  drive.dispose()
 })

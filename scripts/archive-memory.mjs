@@ -37,6 +37,7 @@ const STATE_FILES = [
   'self-actions.json',
   'projects.json',
   'events.json',
+  'metabolism.json',
   'probe-state.json',
   'wander-state.json',
   'read-state.json',

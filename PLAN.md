@@ -1216,3 +1216,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-works：title 相同 + 正文 bigram ≥0.85 → duplicate，不重复写文件/index。
 - suite v2 结果：A 3/3 停；B 5/1 闭合；D 5 生成 + 2 拒绝（饱和后停）；E 1 件（去重）；C 仍无入口。
 - 下一步：C 的体验/叙事入口、mood/background 通道接入、项目豁免、真实新证据重开。
+
+## 124. 硅基代谢层（M120，2026-10-26）
+
+- `lib/self-metabolism.mjs`：energy 0–1、8h 回满、睡眠 2.2x；`recordCall` 由 model-budget.onConsume 驱动；`canAfford` 挡住低能量时的高消耗动作；describe 只给定性。
+- self-drive：prompt 带代谢描述；力气不够时动作暂停（tired）。
+- index：代谢在 model-budget 之前创建，健康快照 + 归档包含 metabolism.json。
+- 测试：消耗/恢复/低能量挡动作；host 265，全套 429/429。
