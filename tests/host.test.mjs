@@ -10426,3 +10426,19 @@ test('self-drive v2.14：冲突必须写取舍；上次结果会回灌到 prompt
   assert.match(prompt, /上次你取舍过：本来想坐着，选了起身/)
   assert.match(prompt, /这次遇到同类的选择，你会不会因此换一种做法/)
 })
+
+test('self-drive v2.15：把最近动作摊开，提醒她别在同一件事上打转', () => {
+  const prompt = buildSelfDrivePrompt({
+    now: FIXED_NOW.getTime(),
+    state: { sleeping: false },
+    recentActions: [
+      { text: '再舀半勺尝尝吧。' },
+      { text: '这勺还带着汤味呢。' },
+      { text: '先尝左边这碗，温的应该正好。' },
+      { text: '这回先搅匀了再喝。' },
+    ],
+  })
+  assert.match(prompt, /你最近做过：/)
+  assert.match(prompt, /再舀半勺尝尝吧/)
+  assert.match(prompt, /不要只是把同一个动作换一种说法重复一遍/)
+})
