@@ -380,6 +380,29 @@ function rerender(react, component, props) {
   return component(props)
 }
 
+/** 面板若停在诗词二级菜单，先返回成长，再点主「设置」tab。 */
+function openPrimarySettings(tree, renderMain) {
+  let current = tree
+  const back = findAll(current, (node) => node.type === 'button' && node.props['aria-label'] === '返回成长')[0]
+  if (back) {
+    back.props.onClick()
+    current = renderMain()
+  }
+  const settingsTab = findAll(
+    current,
+    (node) => node.type === 'button'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-tab')
+      && !node.props.className.includes('dshp-subtab')
+      && textOf(node) === '设置',
+  )[0]
+  if (settingsTab) {
+    settingsTab.props.onClick()
+    current = renderMain()
+  }
+  return current
+}
+
 /** 测试里的“等待”改为推进虚拟时钟；并清掉已 cleanup 的客户端。 */
 async function sleep(ms) {
   for (let index = liveClients.length - 1; index >= 0; index -= 1) {
@@ -748,8 +771,11 @@ test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', ()
   }
   const tree = renderFresh(react, debug.SettingsTab, { api })
   const text = textOf(tree)
-  for (const label of ['大小', '平仄标注', '点诗模式', '自动轮播', '吸附', '显示文字', '隐藏挂件', '恢复默认', '关于', '数据版本']) {
+  for (const label of ['大小', '吸附', '天气城市', '天气', '隐藏挂件', '恢复默认', '关于', '数据版本', '诗词设置']) {
     assert.ok(text.includes(label), '设置面板缺少：' + label)
+  }
+  for (const moved of ['平仄标注', '点诗模式', '自动轮播', '显示文字']) {
+    assert.equal(text.includes(moved), false, '诗词配置已移到二级菜单：' + moved)
   }
   const ranges = findAll(tree, (node) => node.type === 'input' && node.props.type === 'range')
   assert.equal(ranges.length, 1)
@@ -757,10 +783,21 @@ test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', ()
   assert.equal(ranges[0].props.max, 160)
   assert.equal(ranges[0].props.value, 100)
   assert.ok(findAll(tree, (node) => node.props && node.props.role === 'switch').length >= 1)
-  assert.ok(findAll(tree, (node) => node.type === 'select').length >= 1)
-  assert.ok(findAll(tree, (node) => node.type === 'option').length >= 4)
   assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === '隐藏').length, 1)
   assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === '恢复默认').length, 1)
+})
+
+test('PoetrySettingsTab：诗词配置在二级菜单（平仄/模式/轮播/文字/天气选诗）', () => {
+  const { react, debug } = loadClient()
+  const tree = renderFresh(react, debug.PoetrySettingsTab, {
+    api: { settings: debug.normalizeSettings({}), updateSettings() {} },
+  })
+  const text = textOf(tree)
+  for (const label of ['平仄标注', '点诗模式', '自动轮播', '显示文字', '按天气选诗']) {
+    assert.ok(text.includes(label), '诗词二级设置缺少：' + label)
+  }
+  assert.equal(findAll(tree, (node) => node.type === 'select').length, 1)
+  assert.ok(findAll(tree, (node) => node.type === 'option').length >= 4)
 })
 
 test('ClassTab / YunTab / CiTab：12 卡课堂、30 韵部结构、词牌卡与名篇词列表', () => {
@@ -961,7 +998,7 @@ test('气泡序列：点击形象依次推进 6 步后收起，再点回到第 1
   assert.match(textOf(bubbles[0]), /今日一诗/)
 })
 
-test('面板 3 顶层 tab（默认成长）+ 诗词 6 子 tab；隐藏后热区双击可恢复', () => {
+test('面板 2 顶层 tab（默认成长）+ 诗词二级菜单；隐藏后热区双击可恢复', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -972,9 +1009,12 @@ test('面板 3 顶层 tab（默认成长）+ 诗词 6 子 tab；隐藏后热区�
   assert.equal(panels.length, 1, '右键形象应打开面板')
   const tabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
-    && node.props.className.includes('dshp-tab'))
-  assert.equal(tabs.length, 3)
-  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '诗词', '设置'])
+    && node.props.className.includes('dshp-primary-tab'))
+  assert.equal(tabs.length, 2)
+  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '设置'])
+  const poetryEntry = findAll(tree, (node) => node.type === 'button'
+    && node.props['aria-label'] === '打开诗词二级菜单')[0]
+  assert.ok(poetryEntry, '主面板应有诗词二级菜单入口')
   // 右键默认打开设置；点击「成长」进入成长主页
   tabs[0].props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
@@ -983,13 +1023,13 @@ test('面板 3 顶层 tab（默认成长）+ 诗词 6 子 tab；隐藏后热区�
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-subtab')).length, 0, '成长 tab 不显示诗词子导航')
 
-  tabs[1].props.onClick()
+  poetryEntry.props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
   const subtabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-subtab'))
-  assert.equal(subtabs.length, 6)
-  assertDeep(subtabs.map((tab) => textOf(tab)), ['今日', '课堂', '韵部', '词牌', '诗库', '飞花'])
+  assert.equal(subtabs.length, 7)
+  assertDeep(subtabs.map((tab) => textOf(tab)), ['今日', '课堂', '韵部', '词牌', '诗库', '飞花', '设置'])
   subtabs[1].props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
   assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'ClassTab').length, '课堂子 tab 应渲染 ClassTab')
@@ -997,7 +1037,12 @@ test('面板 3 顶层 tab（默认成长）+ 诗词 6 子 tab；隐藏后热区�
   tree = rerender(react, debug.PoetryWidget, {})
   assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'LibraryTab').length, '诗库子 tab 应渲染 LibraryTab')
 
-  // 设置 tab：隐藏按钮（面板 tab 有 hooks 不展开，直接调 api）→ 只剩恢复热区
+  // 返回成长 → 设置 tab：隐藏按钮（面板 tab 有 hooks 不展开，直接调 api）→ 只剩恢复热区
+  const backButton = findAll(tree, (node) => node.type === 'button'
+    && node.props['aria-label'] === '返回成长')[0]
+  assert.ok(backButton, '诗词二级菜单应有返回按钮')
+  backButton.props.onClick()
+  tree = rerender(react, debug.PoetryWidget, {})
   const settingsTopTab = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-tab')
@@ -1550,16 +1595,15 @@ test('飞花令入口：诗词→飞花子 tab 进入飞花页；气泡第 6 张
   stage.props.onContextMenu({ preventDefault() {} })
   tree = rerender(react, debug.PoetryWidget, {})
 
-  const tabs = findAll(tree, (node) => node.type === 'button'
-    && typeof node.props.className === 'string'
-    && node.props.className.includes('dshp-tab'))
-  assert.equal(tabs.length, 3)
-  tabs[1].props.onClick()
+  const poetryEntry = findAll(tree, (node) => node.type === 'button'
+    && node.props['aria-label'] === '打开诗词二级菜单')[0]
+  assert.ok(poetryEntry, '应有诗词二级菜单入口')
+  poetryEntry.props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
   const subtabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-subtab'))
-  assert.equal(subtabs.length, 6)
+  assert.equal(subtabs.length, 7)
   assert.equal(textOf(subtabs[4]), '诗库')
   assert.equal(textOf(subtabs[5]), '飞花')
   subtabs[5].props.onClick()
@@ -1822,7 +1866,8 @@ test('天气 chip 渲染：有天气显示、无天气不显示；设置 tab 含
   }
   let tree = renderFresh(react, debug.SettingsTab, { api: settingsApi })
   let text = textOf(tree)
-  for (const label of ['天气城市', '按天气选诗', '刷新天气']) assert.ok(text.includes(label), '设置缺少：' + label)
+  for (const label of ['天气城市', '刷新天气', '诗词设置']) assert.ok(text.includes(label), '设置缺少：' + label)
+  assert.equal(text.includes('按天气选诗'), false, '按天气选诗已移到诗词二级设置')
   assert.match(text, /北京 · 小雨 18℃/)
   assert.match(text, /更新于 03:04/)
 
@@ -1835,8 +1880,9 @@ test('天气 chip 渲染：有天气显示、无天气不显示；设置 tab 含
   cityInput2.props.onBlur()
   assertDeep(updates[0], { weatherCity: '上海' })
 
-  const weatherSwitch = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '按天气选诗开关')[0]
-  assert.ok(weatherSwitch)
+  const poetrySettingsTree = renderFresh(react, debug.PoetrySettingsTab, { api: settingsApi })
+  const weatherSwitch = findAll(poetrySettingsTree, (node) => node.type === 'button' && node.props['aria-label'] === '按天气选诗开关')[0]
+  assert.ok(weatherSwitch, '诗词二级设置应有按天气选诗开关')
   weatherSwitch.props.onClick()
   assertDeep(updates[1], { weatherPoem: false })
 
@@ -1969,13 +2015,7 @@ test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 c
     if (panelButton) {
       panelButton.props.onClick()
       tree = renderMain()
-      const tabs = findAll(tree, (node) => node.type === 'button'
-        && typeof node.props.className === 'string'
-        && node.props.className.includes('dshp-tab'))
-      const settingsTab = tabs.find((tab) => textOf(tab) === '设置')
-      assert.ok(settingsTab)
-      settingsTab.props.onClick()
-      tree = renderMain()
+      tree = openPrimarySettings(tree, renderMain)
       const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
       assert.ok(settingsElement)
       assert.equal(settingsElement.props.api.weatherData.city, '北京')
@@ -2474,13 +2514,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     assert.ok(panelButton)
     panelButton.props.onClick()
     tree = renderMain()
-    const panelTabs = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab'))
-    const settingsTab = panelTabs.find((tab) => textOf(tab) === '设置')
-    assert.ok(settingsTab)
-    settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
@@ -3679,13 +3713,7 @@ test('自言自语模型集成：占位→模型 murmur、缓存、再说一句�
     assert.ok(panelButton)
     panelButton.props.onClick()
     tree = renderMain()
-    const settingsTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    assert.ok(settingsTab)
-    settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
@@ -4048,21 +4076,12 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(String(mascot.props.src).includes('dsh-whale-home-peek.webp'), '诗词今日面板应显示 home-peek，实际 ' + mascot.props.src)
-    const settingsTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    assert.ok(settingsTab)
-    settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(String(mascot.props.src).includes('dsh-whale-settings-peek.webp'), '设置面板应显示 settings-peek，实际 ' + mascot.props.src)
-    const poetryTopTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '诗词')[0]
-    assert.ok(poetryTopTab)
-    poetryTopTab.props.onClick()
+    const poetryEntry = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单')[0]
+    assert.ok(poetryEntry, '应有诗词二级菜单入口')
+    poetryEntry.props.onClick()
     tree = renderMain()
     const classTab = findAll(tree, (node) => node.type === 'button'
       && typeof node.props.className === 'string'
@@ -4075,12 +4094,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     assert.ok(String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'), '诗词模块应显示 workbench-peek，实际 ' + mascot.props.src)
 
     // 设置显示 label/reason/来源（模型）
-    const settingsTabAgain = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    settingsTabAgain.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
     assert.equal(settingsElement.props.api.moodSource, 'model')
@@ -4115,12 +4129,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
       const panelButton2 = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
       if (panelButton2) panelButton2.props.onClick()
       tree = renderMain()
-      const settingsTab2 = findAll(tree, (node) => node.type === 'button'
-        && typeof node.props.className === 'string'
-        && node.props.className.includes('dshp-tab')
-        && textOf(node) === '设置')[0]
-      if (settingsTab2) settingsTab2.props.onClick()
-      tree = renderMain()
+      tree = openPrimarySettings(tree, renderMain)
     }
     const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsEl)
@@ -5167,13 +5176,7 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     assert.ok(panelButton)
     panelButton.props.onClick()
     tree = renderMain()
-    const settingsTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    assert.ok(settingsTab)
-    settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     debounce = findDebounceTimer()
     assert.ok(debounce)
     fire(debounce)
@@ -5642,12 +5645,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
     if (panelButton) panelButton.props.onClick()
     tree = renderMain()
-    const settingsTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    if (settingsTab) settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     return findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
   }
   try {
@@ -5869,13 +5867,7 @@ test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label
     assert.ok(panelButton)
     panelButton.props.onClick()
     tree = renderMain()
-    const settingsTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '设置')[0]
-    assert.ok(settingsTab)
-    settingsTab.props.onClick()
-    tree = renderMain()
+    tree = openPrimarySettings(tree, renderMain)
     let settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsEl)
     settingsEl.props.api.refreshMoodNow()
@@ -6041,18 +6033,19 @@ test('成长状态轮询：App 级请求 self.json、页面隐藏跳过、404 �
 /* 23. M40 信息架构：成长主页 + 诗词二级模块                            */
 /* ------------------------------------------------------------------ */
 
-test('M40 顶层 tab：成长/诗词/设置，诗词 6 子 tab，openPanel 深链', () => {
+test('M40 顶层 tab：成长/设置 + 诗词二级菜单，openPanel 深链', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
-  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'poetry', 'settings'])
-  assertDeep(debug.POETRY_TABS.map((tab) => tab.id), ['today', 'class', 'yun', 'ci', 'library', 'feihua'])
+  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'settings'])
+  assertDeep(debug.POETRY_TABS.map((tab) => tab.id), ['today', 'class', 'yun', 'ci', 'library', 'feihua', 'poetry-settings'])
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
   stage.props.onContextMenu({ preventDefault() {} })
   tree = rerender(react, debug.PoetryWidget, {})
   const topTabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
-    && node.props.className.includes('dshp-tab'))
-  assert.equal(topTabs.length, 3)
+    && node.props.className.includes('dshp-primary-tab'))
+  assert.equal(topTabs.length, 2)
+  assert.ok(findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单').length, '应有诗词二级入口')
   const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
   assert.ok(settingsEl)
   // openPanel('library') 深链 → poetry/library

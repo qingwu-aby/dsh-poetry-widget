@@ -29,8 +29,8 @@ window.__ModuleLoader__.load({ id, factory })`
  *       友好空态 + 重试按钮，不抛出到 React 树之外（另有 ErrorBoundary 兜底）。
  *
  * 交互：形象悬浮/拖拽/吸附/缩放（按天气与对局状态切换 92 张立绘）；点击推进 6 步气泡
- *       （诗 → 解析 → 知识 → 韵部 → 词牌 → 飞花令 → 收起）；展开面板 6 tab（今日/课堂/
- *       韵部/词牌/飞花/设置）；按天气推荐诗词；设置 PUT 防抖持久化；隐藏后长按角落热区或
+ *       （诗 → 解析 → 知识 → 韵部 → 词牌 → 飞花令 → 收起）；主面板 2 tab（成长/设置），
+ *       诗词模块与它的配置降权到「成长 → 诗词」二级菜单；设置 PUT 防抖持久化；隐藏后长按角落热区或
  *       双击空白处恢复；心情换装（按当日会话统计/天气/时段，≥20min 限频）与 8–15min「自言自语」模型随想
  *       （每日 ≤3 次、7 天不重句，localStorage 记录）。全部圆点/文案中文，主题只用宿主 `--dsw-alias-*` 变量（含 fallback）。
  */
@@ -64,9 +64,9 @@ window.__ModuleLoader__.load({
   const FETCH_TIMEOUT_MS = 15000
   const SAVE_DEBOUNCE_MS = 450
   const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
+  // v1.76：诗词模块与它的配置降权到二级菜单（从成长页进入）。
   const PANEL_TABS = [
   { id: 'growth', label: '成长' },
-  { id: 'poetry', label: '诗词' },
   { id: 'settings', label: '设置' },
   ]
   const POETRY_TABS = [
@@ -76,6 +76,7 @@ window.__ModuleLoader__.load({
   { id: 'ci', label: '词牌' },
   { id: 'library', label: '诗库' },
   { id: 'feihua', label: '飞花' },
+  { id: 'poetry-settings', label: '设置' },
   ]
   const FEIHUA_BEST_KEY = 'dshp-feihua-best-v1'
   const FEIHUA_CANDIDATE_CHARS = Array.from('花月风春山水人天云雨夜秋江酒白红舟愁梦心柳雪霜日星海玉金长何不无')
@@ -2944,6 +2945,7 @@ window.__ModuleLoader__.load({
   CiTab,
   FeihuaTab,
   SettingsTab,
+  PoetrySettingsTab,
   }
   try {
   if (typeof globalThis !== 'undefined') globalThis.__dshPoetryDebug = DEBUG
@@ -5620,6 +5622,7 @@ window.__ModuleLoader__.load({
    if (panelTab === 'growth') return h(GrowthTab, { api })
    if (panelTab === 'settings') return h(SettingsTab, { api })
    if (panelTab === 'poetry') {
+    if (poetryTab === 'poetry-settings') return h(PoetrySettingsTab, { api })
     if (poetryTab === 'class') return h(ClassTab, { api })
     if (poetryTab === 'yun') return h(YunTab, { api })
     if (poetryTab === 'ci') return h(CiTab, { api })
@@ -5660,6 +5663,13 @@ window.__ModuleLoader__.load({
     ),
     h('button', {
      type: 'button',
+     className: cx('dshp-icon-btn', 'dshp-secondary-entry'),
+     title: panelTab === 'poetry' ? '返回成长（诗词是二级菜单）' : '诗词与格律（二级菜单）',
+     'aria-label': panelTab === 'poetry' ? '返回成长' : '打开诗词二级菜单',
+     onClick: () => openPanelTab(panelTab === 'poetry' ? 'growth' : 'poetry'),
+    }, panelTab === 'poetry' ? '← 返回' : '诗词'),
+    h('button', {
+     type: 'button',
      className: 'dshp-icon-btn',
      title: '关闭面板（Esc）',
      'aria-label': '关闭面板',
@@ -5669,29 +5679,19 @@ window.__ModuleLoader__.load({
     h(
     'div',
     { className: 'dshp-tabs', role: 'tablist' },
-    PANEL_TABS.map((tab) => h('button', {
+    (panelTab === 'poetry' ? POETRY_TABS : PANEL_TABS).map((tab) => h('button', {
      key: tab.id,
      type: 'button',
      role: 'tab',
-     'aria-selected': panelTab === tab.id,
-     className: cx('dshp-tab', panelTab === tab.id && 'dshp-is-active'),
-     onClick: () => openPanelTab(tab.id),
+     'aria-selected': panelTab === 'poetry' ? poetryTab === tab.id : panelTab === tab.id,
+     className: cx(
+      panelTab === 'poetry' ? 'dshp-subtab' : 'dshp-tab',
+      panelTab === 'poetry' ? null : 'dshp-primary-tab',
+      (panelTab === 'poetry' ? poetryTab === tab.id : panelTab === tab.id) && 'dshp-is-active',
+     ),
+     onClick: () => (panelTab === 'poetry' ? setPoetryTab(tab.id) : openPanelTab(tab.id)),
     }, tab.label)),
     ),
-    panelTab === 'poetry'
-     ? h(
-      'div',
-      { className: 'dshp-subtabs', role: 'tablist', 'aria-label': '诗词模块' },
-      POETRY_TABS.map((tab) => h('button', {
-       key: tab.id,
-       type: 'button',
-       role: 'tab',
-       'aria-selected': poetryTab === tab.id,
-       className: cx('dshp-subtab', poetryTab === tab.id && 'dshp-is-active'),
-       onClick: () => setPoetryTab(tab.id),
-      }, tab.label)),
-     )
-     : null,
     h('div', { className: 'dshp-panel-body' }, renderPanelTab()),
    )
   }
@@ -6162,6 +6162,77 @@ window.__ModuleLoader__.load({
   )
   }
 
+  /** 诗词二级菜单里的设置（v1.76：从主设置降权搬来）。 */
+  function PoetrySettingsTab(props) {
+  const api = props.api || {}
+  const settings = (api.settings && typeof api.settings === 'object') ? api.settings : normalizeSettings()
+  const update = api.updateSettings || (() => {})
+  const seg = (options, current, onPick) => h(
+   'div',
+   { className: 'dshp-seg' },
+   options.map((option) => h('button', {
+    key: String(option.value),
+    type: 'button',
+    className: cx('dshp-seg-btn', current === option.value && 'dshp-is-active'),
+    onClick: () => onPick(option.value),
+   }, option.label)),
+  )
+  return h(
+   'div',
+   { className: 'dshp-settings' },
+   h('div', { className: 'dshp-field' }, h('div', { className: 'dshp-field-label' }, h('b', null, '诗词设置'), h('small', null, '二级菜单里的配置；主设置只留成长/外观'))),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '平仄标注'), h('small', null, '平蓝 / 仄红 / 多音灰')),
+    switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), '平仄标注开关'),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '点诗模式'), h('small', null, '「换一首」的策略')),
+    seg([
+     { value: 'daily', label: '每日' },
+     { value: 'random', label: '随机' },
+    ], settings.mode, (value) => update({ mode: value })),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '自动轮播'), h('small', null, '气泡自动推进间隔')),
+    h(
+     'select',
+     {
+      className: 'dshp-select',
+      value: String(settings.autoplay),
+      'aria-label': '自动轮播间隔',
+      onChange: (event) => update({ autoplay: num(event.target.value, 0) }),
+     },
+     h('option', { value: '0' }, '关闭'),
+     h('option', { value: '30' }, '30 秒'),
+     h('option', { value: '60' }, '1 分钟'),
+     h('option', { value: '300' }, '5 分钟'),
+    ),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '显示文字'), h('small', null, '简体或诗词原文')),
+    seg([
+     { value: 'simplified', label: '简体' },
+     { value: 'original', label: '原文' },
+    ], settings.script, (value) => update({ script: value })),
+   ),
+   h(
+    'div',
+    { className: 'dshp-field' },
+    h('div', { className: 'dshp-field-label' }, h('b', null, '按天气选诗'), h('small', null, '今日诗与形象跟随天气')),
+    switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), '按天气选诗开关'),
+   ),
+   h('div', { className: 'dshp-muted', style: { fontSize: '11.5px', lineHeight: 1.6 } }, '诗词是二级菜单：从「成长」页底部的入口进入；大小/吸附/自言自语/隐藏仍在主设置。'),
+  )
+  }
+
   function SettingsTab(props) {
   const api = props.api || {}
   const settings = (api.settings && typeof api.settings === 'object') ? api.settings : normalizeSettings()
@@ -6254,35 +6325,7 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '平仄标注'), h('small', null, '平蓝 / 仄红 / 多音灰')),
-    switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), '平仄标注开关'),
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '点诗模式'), h('small', null, '「换一首」的策略')),
-    seg([
-    { value: 'daily', label: '每日' },
-    { value: 'random', label: '随机' },
-    ], settings.mode, (value) => update({ mode: value })),
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '自动轮播'), h('small', null, '气泡自动推进间隔')),
-    h(
-    'select',
-    {
-     className: 'dshp-select',
-     value: String(settings.autoplay),
-     'aria-label': '自动轮播间隔',
-     onChange: (event) => update({ autoplay: num(event.target.value, 0) }),
-    },
-    h('option', { value: '0' }, '关闭'),
-    h('option', { value: '30' }, '30 秒'),
-    h('option', { value: '60' }, '1 分钟'),
-    h('option', { value: '300' }, '5 分钟'),
-    ),
+    h('div', { className: 'dshp-field-label' }, h('b', null, '诗词设置'), h('small', null, '已降权到「成长 → 诗词（二级菜单）→ 设置」')),
    ),
    h(
     'div',
@@ -6293,15 +6336,6 @@ window.__ModuleLoader__.load({
     { value: 'right', label: '贴右' },
     { value: 'free', label: '自由' },
     ], settings.snap, (value) => update({ snap: value })),
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '显示文字'), h('small', null, '简体或诗词原文')),
-    seg([
-    { value: 'simplified', label: '简体' },
-    { value: 'original', label: '原文' },
-    ], settings.script, (value) => update({ script: value })),
    ),
    h(
     'div',
@@ -6328,12 +6362,6 @@ window.__ModuleLoader__.load({
      },
     }),
     ),
-   ),
-   h(
-    'div',
-    { className: 'dshp-field' },
-    h('div', { className: 'dshp-field-label' }, h('b', null, '按天气选诗'), h('small', null, '今日诗与形象跟随天气')),
-    switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), '按天气选诗开关'),
    ),
    h(
     'div',

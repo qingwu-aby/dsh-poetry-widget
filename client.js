@@ -413,7 +413,6 @@
       const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
       const PANEL_TABS = [
         { id: "growth", label: "\u6210\u957F" },
-        { id: "poetry", label: "\u8BD7\u8BCD" },
         { id: "settings", label: "\u8BBE\u7F6E" }
       ];
       const POETRY_TABS = [
@@ -422,7 +421,8 @@
         { id: "yun", label: "\u97F5\u90E8" },
         { id: "ci", label: "\u8BCD\u724C" },
         { id: "library", label: "\u8BD7\u5E93" },
-        { id: "feihua", label: "\u98DE\u82B1" }
+        { id: "feihua", label: "\u98DE\u82B1" },
+        { id: "poetry-settings", label: "\u8BBE\u7F6E" }
       ];
       const FEIHUA_BEST_KEY = "dshp-feihua-best-v1";
       const FEIHUA_CANDIDATE_CHARS = Array.from("\u82B1\u6708\u98CE\u6625\u5C71\u6C34\u4EBA\u5929\u4E91\u96E8\u591C\u79CB\u6C5F\u9152\u767D\u7EA2\u821F\u6101\u68A6\u5FC3\u67F3\u96EA\u971C\u65E5\u661F\u6D77\u7389\u91D1\u957F\u4F55\u4E0D\u65E0");
@@ -3187,7 +3187,8 @@
         YunTab,
         CiTab,
         FeihuaTab,
-        SettingsTab
+        SettingsTab,
+        PoetrySettingsTab
       };
       try {
         if (typeof globalThis !== "undefined") globalThis.__dshPoetryDebug = DEBUG;
@@ -5668,6 +5669,7 @@
           if (panelTab === "growth") return h(GrowthTab, { api });
           if (panelTab === "settings") return h(SettingsTab, { api });
           if (panelTab === "poetry") {
+            if (poetryTab === "poetry-settings") return h(PoetrySettingsTab, { api });
             if (poetryTab === "class") return h(ClassTab, { api });
             if (poetryTab === "yun") return h(YunTab, { api });
             if (poetryTab === "ci") return h(CiTab, { api });
@@ -5707,6 +5709,13 @@
               ),
               h("button", {
                 type: "button",
+                className: cx("dshp-icon-btn", "dshp-secondary-entry"),
+                title: panelTab === "poetry" ? "\u8FD4\u56DE\u6210\u957F\uFF08\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF09" : "\u8BD7\u8BCD\u4E0E\u683C\u5F8B\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09",
+                "aria-label": panelTab === "poetry" ? "\u8FD4\u56DE\u6210\u957F" : "\u6253\u5F00\u8BD7\u8BCD\u4E8C\u7EA7\u83DC\u5355",
+                onClick: () => openPanelTab(panelTab === "poetry" ? "growth" : "poetry")
+              }, panelTab === "poetry" ? "\u2190 \u8FD4\u56DE" : "\u8BD7\u8BCD"),
+              h("button", {
+                type: "button",
                 className: "dshp-icon-btn",
                 title: "\u5173\u95ED\u9762\u677F\uFF08Esc\uFF09",
                 "aria-label": "\u5173\u95ED\u9762\u677F",
@@ -5716,27 +5725,19 @@
             h(
               "div",
               { className: "dshp-tabs", role: "tablist" },
-              PANEL_TABS.map((tab) => h("button", {
+              (panelTab === "poetry" ? POETRY_TABS : PANEL_TABS).map((tab) => h("button", {
                 key: tab.id,
                 type: "button",
                 role: "tab",
-                "aria-selected": panelTab === tab.id,
-                className: cx("dshp-tab", panelTab === tab.id && "dshp-is-active"),
-                onClick: () => openPanelTab(tab.id)
+                "aria-selected": panelTab === "poetry" ? poetryTab === tab.id : panelTab === tab.id,
+                className: cx(
+                  panelTab === "poetry" ? "dshp-subtab" : "dshp-tab",
+                  panelTab === "poetry" ? null : "dshp-primary-tab",
+                  (panelTab === "poetry" ? poetryTab === tab.id : panelTab === tab.id) && "dshp-is-active"
+                ),
+                onClick: () => panelTab === "poetry" ? setPoetryTab(tab.id) : openPanelTab(tab.id)
               }, tab.label))
             ),
-            panelTab === "poetry" ? h(
-              "div",
-              { className: "dshp-subtabs", role: "tablist", "aria-label": "\u8BD7\u8BCD\u6A21\u5757" },
-              POETRY_TABS.map((tab) => h("button", {
-                key: tab.id,
-                type: "button",
-                role: "tab",
-                "aria-selected": poetryTab === tab.id,
-                className: cx("dshp-subtab", poetryTab === tab.id && "dshp-is-active"),
-                onClick: () => setPoetryTab(tab.id)
-              }, tab.label))
-            ) : null,
             h("div", { className: "dshp-panel-body" }, renderPanelTab())
           );
         }
@@ -6194,6 +6195,76 @@
           subTab === "cards" ? renderCards() : renderPoems()
         );
       }
+      function PoetrySettingsTab(props) {
+        const api = props.api || {};
+        const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
+        const update = api.updateSettings || (() => {
+        });
+        const seg = (options, current, onPick) => h(
+          "div",
+          { className: "dshp-seg" },
+          options.map((option) => h("button", {
+            key: String(option.value),
+            type: "button",
+            className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
+            onClick: () => onPick(option.value)
+          }, option.label))
+        );
+        return h(
+          "div",
+          { className: "dshp-settings" },
+          h("div", { className: "dshp-field" }, h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u4E8C\u7EA7\u83DC\u5355\u91CC\u7684\u914D\u7F6E\uFF1B\u4E3B\u8BBE\u7F6E\u53EA\u7559\u6210\u957F/\u5916\u89C2"))),
+          h(
+            "div",
+            { className: "dshp-field" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
+            switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), "\u5E73\u4EC4\u6807\u6CE8\u5F00\u5173")
+          ),
+          h(
+            "div",
+            { className: "dshp-field" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
+            seg([
+              { value: "daily", label: "\u6BCF\u65E5" },
+              { value: "random", label: "\u968F\u673A" }
+            ], settings.mode, (value) => update({ mode: value }))
+          ),
+          h(
+            "div",
+            { className: "dshp-field" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
+            h(
+              "select",
+              {
+                className: "dshp-select",
+                value: String(settings.autoplay),
+                "aria-label": "\u81EA\u52A8\u8F6E\u64AD\u95F4\u9694",
+                onChange: (event) => update({ autoplay: num(event.target.value, 0) })
+              },
+              h("option", { value: "0" }, "\u5173\u95ED"),
+              h("option", { value: "30" }, "30 \u79D2"),
+              h("option", { value: "60" }, "1 \u5206\u949F"),
+              h("option", { value: "300" }, "5 \u5206\u949F")
+            )
+          ),
+          h(
+            "div",
+            { className: "dshp-field" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u663E\u793A\u6587\u5B57"), h("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
+            seg([
+              { value: "simplified", label: "\u7B80\u4F53" },
+              { value: "original", label: "\u539F\u6587" }
+            ], settings.script, (value) => update({ script: value }))
+          ),
+          h(
+            "div",
+            { className: "dshp-field" },
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
+            switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), "\u6309\u5929\u6C14\u9009\u8BD7\u5F00\u5173")
+          ),
+          h("div", { className: "dshp-muted", style: { fontSize: "11.5px", lineHeight: 1.6 } }, "\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF1A\u4ECE\u300C\u6210\u957F\u300D\u9875\u5E95\u90E8\u7684\u5165\u53E3\u8FDB\u5165\uFF1B\u5927\u5C0F/\u5438\u9644/\u81EA\u8A00\u81EA\u8BED/\u9690\u85CF\u4ECD\u5728\u4E3B\u8BBE\u7F6E\u3002")
+        );
+      }
       function SettingsTab(props) {
         const api = props.api || {};
         const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
@@ -6277,35 +6348,7 @@
           h(
             "div",
             { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
-            switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), "\u5E73\u4EC4\u6807\u6CE8\u5F00\u5173")
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
-            seg([
-              { value: "daily", label: "\u6BCF\u65E5" },
-              { value: "random", label: "\u968F\u673A" }
-            ], settings.mode, (value) => update({ mode: value }))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
-            h(
-              "select",
-              {
-                className: "dshp-select",
-                value: String(settings.autoplay),
-                "aria-label": "\u81EA\u52A8\u8F6E\u64AD\u95F4\u9694",
-                onChange: (event) => update({ autoplay: num(event.target.value, 0) })
-              },
-              h("option", { value: "0" }, "\u5173\u95ED"),
-              h("option", { value: "30" }, "30 \u79D2"),
-              h("option", { value: "60" }, "1 \u5206\u949F"),
-              h("option", { value: "300" }, "5 \u5206\u949F")
-            )
+            h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u5DF2\u964D\u6743\u5230\u300C\u6210\u957F \u2192 \u8BD7\u8BCD\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09\u2192 \u8BBE\u7F6E\u300D"))
           ),
           h(
             "div",
@@ -6316,15 +6359,6 @@
               { value: "right", label: "\u8D34\u53F3" },
               { value: "free", label: "\u81EA\u7531" }
             ], settings.snap, (value) => update({ snap: value }))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u663E\u793A\u6587\u5B57"), h("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
-            seg([
-              { value: "simplified", label: "\u7B80\u4F53" },
-              { value: "original", label: "\u539F\u6587" }
-            ], settings.script, (value) => update({ script: value }))
           ),
           h(
             "div",
@@ -6351,12 +6385,6 @@
                 }
               })
             )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
-            switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), "\u6309\u5929\u6C14\u9009\u8BD7\u5F00\u5173")
           ),
           h(
             "div",

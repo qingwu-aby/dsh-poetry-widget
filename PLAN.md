@@ -960,3 +960,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - client 模块化：新增 `client-src/base.js`（num/clamp/isVideoMoodFile）与 `client-src/wander.js`（WANDER_* 常量 + pickWanderMedia + nextWanderTarget）；`client-src/client.js` 改为 import，esbuild 仍打单 artifact；client 测试 119 全过。
 - 剩余 P2（可选）：真实模型集成测试（需凭据/成本，默认不进 npm test）、更多 client 功能块拆分（飞花令/诗库/面板 tab）。
 - 单测：data 42 / host 232 / client 119 = 393/393（~2.7s）。
+
+## 91. 诗词模块降权到二级菜单（M87，2026-10-26）
+
+- 用户：诗词模块和其对应的配置降权，放到二级菜单；后续按建议来。
+- 实现：PANEL_TABS = 成长/设置；POETRY_TABS + 'poetry-settings'；面板头加二级入口「诗词」/「← 返回」；tab 行按层级切换（主 tab 用 dshp-primary-tab，二级用 dshp-subtab）；新建 PoetrySettingsTab（平仄标注/点诗模式/自动轮播/显示文字/按天气选诗）；SettingsTab 删除这些字段并提示已降权；成长页底部「诗词模块」入口保留。
+- 气泡 6 步诗笺暂保留（轻量浏览），是否也收进二级菜单待定。
+- 测试：client 120（新增 PoetrySettingsTab 用例；面板/飞花/天气/心情集成等按二级菜单路径更新）；全套 data 42 / host 232 / client 120 = 394/394。
