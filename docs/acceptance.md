@@ -153,3 +153,4 @@
 | H50 | client 飞花令模块化 | ✅ | 纯逻辑拆到 `client-src/feihua.js`（索引/查找/出题/判定/成绩），client.js 只留缓存与 UI；单 artifact 构建通过；399/399 |
 | H51 | 面板 tab 模块化 | ✅ | Today/Class/Yun/Ci/PoetrySettingsTab 拆到 tabs-poetry.js；共享 UI 由 client 注入；client.js 6,734 行；399/399 |
 | H52 | 自主权放开（v2.0） | ✅ | 节奏/预算/状态/行为/碎碎念/资源获取全部放宽；`lib/autonomy.mjs` 环境旋钮；wander 全语言维基、reading 随机公版页、netlang 5 源；401/401 |
+| H53 | 任意公开网页安全抓取 + 搜索 | ✅ | 私网/保留地址/DNS 全地址/重定向逐跳校验、80/443、2MB/12s、content-type 白名单、HTML 提取、DuckDuckGo 无密钥搜索；接入溜达（先搜 experiencing，失败回落维基）；`DSH_POETRY_WEB=off` 可关；host 241 |

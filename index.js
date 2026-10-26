@@ -64,6 +64,7 @@ import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
 import { resolveAutonomy } from './lib/autonomy.mjs'
+import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
@@ -156,6 +157,8 @@ export async function apply(ctx) {
       const serviceRuntime = createServiceRuntime({ logger })
       // v2.0：自主节奏的环境旋钮（默认比旧版开放很多；DSH_POETRY_*_MIN 可继续放宽）。
       const autonomy = resolveAutonomy(env)
+      // v2.1：安全公开网页访问（搜索 + 抓取），给“溜达”用；默认开启，DSH_POETRY_WEB=off 可关。
+      const webAccess = createWebAccess({ env, logger })
       // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
       const heartbeat = createHeartbeat({ logger })
       const webServer = host.get(hostCtx, 'webServer')
@@ -496,6 +499,7 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
         logger,
+        webAccess,
         learningLogPath: path.join(memoryDir, 'learning-log.md'),
         statePath: path.join(settingsPath.dir, 'wander-state.json'),
         gapMs: autonomy.wanderGapMs,
@@ -508,7 +512,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-little-whale] 网络溜达已启动（间隔 ${Math.round(autonomy.wanderGapMs / 60000)}min；${
           String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
-        }）`,
+        }；网页抓取${String(env.DSH_POETRY_WEB ?? '').toLowerCase() === 'off' ? '关' : '开'}）`,
       )
       serviceRuntime.register('网络溜达', {
         dispose: () => {
@@ -616,6 +620,7 @@ export async function apply(ctx) {
           budget: modelBudget.snapshot(),
           gate: modelGate.snapshot(),
           heartbeat: heartbeat.snapshot(),
+          web: webAccess.snapshot(),
           modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
         }),
         env,

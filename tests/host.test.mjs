@@ -223,6 +223,18 @@ import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
+import {
+  createWebAccess,
+  extractHtmlTitle,
+  extractReadableText,
+  fetchPublicPage,
+  isPrivateAddress,
+  parseDuckDuckGoResults,
+  parseSearxResults,
+  parseWikipediaSearchPayload,
+  resolvePublicAddress,
+  validatePublicUrl,
+} from '../lib/safe-web.mjs'
 import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/llm-call.mjs'
 import {
   buildConsolidationPrompt,
@@ -9610,4 +9622,198 @@ test('v2.0 预算默认不限制；self-talk 主题只在概率内出现', async
   const result = await service.generate({})
   assert.equal(result.ok, true)
   assert.equal(llm.calls[0].messages[0].content[0].text.includes('这次试着围绕'), false, '概率为 0 时不强加主题')
+})
+
+// ---------------------------------------------------------------------------
+// v2.1：安全公开网页抓取 + 无密钥搜索
+// ---------------------------------------------------------------------------
+
+test('safe-web v2.1：私网/保留地址、URL 校验、DNS 全地址校验', async () => {
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '224.0.0.1', '::1', 'fe80::1', 'fc00::1', '2001:db8::1']) {
+    assert.equal(isPrivateAddress(ip), true, `应拒绝 ${ip}`)
+  }
+  for (const ip of ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']) {
+    assert.equal(isPrivateAddress(ip), false, `应允许 ${ip}`)
+  }
+  assert.equal(isPrivateAddress('203.0.113.10'), true, '文档段按保留地址拒绝')
+
+  assert.throws(() => validatePublicUrl('file:///etc/passwd'), /只允许 http/)
+  assert.throws(() => validatePublicUrl('http://user:pass@example.com/'), /账号密码/)
+  assert.throws(() => validatePublicUrl('http://example.com:6379/'), /80\/443/)
+  assert.equal(validatePublicUrl('https://example.com/a?b=1').hostname, 'example.com')
+
+  const publicAddress = await resolvePublicAddress('example.com', {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+  })
+  assert.equal(publicAddress, '93.184.216.34')
+  await assert.rejects(
+    () => resolvePublicAddress('localhost', { lookup: async () => [{ address: '127.0.0.1', family: 4 }] }),
+    /私网/,
+  )
+  await assert.rejects(
+    () =>
+      resolvePublicAddress('mixed.example', {
+        lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.1', family: 4 }],
+      }),
+    /私网/,
+    '任一地址私网都拒绝',
+  )
+})
+
+test('safe-web v2.1：抓取走重定向校验、内容类型/大小限制、HTML 提取与搜索解析', async () => {
+  const lookup = async (hostname) => {
+    const map = {
+      'public.example': [{ address: '93.184.216.34', family: 4 }],
+      'private.example': [{ address: '10.0.0.9', family: 4 }],
+      'second.example': [{ address: '93.184.216.35', family: 4 }],
+    }
+    const rows = map[hostname]
+    if (!rows) throw new Error('no such host')
+    return rows
+  }
+  const requestImpl = async (url) => {
+    if (url.hostname === 'public.example') {
+      return { status: 302, headers: { location: 'https://second.example/final' }, body: Buffer.from('') }
+    }
+    return {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+      body: Buffer.from('<html><head><title>鲸落</title></head><body><p>鲸落指鲸鱼死后沉入深海，尸体支撑起延续数十年的生态系统。</p><script>alert(1)</script></body></html>'),
+    }
+  }
+  const page = await fetchPublicPage('https://public.example/start', { lookup, requestImpl })
+  assert.equal(page.url, 'https://second.example/final')
+  assert.equal(page.title, '鲸落')
+  assert.match(page.text, /鲸鱼死后沉入深海/)
+  assert.equal(page.text.includes('alert'), false, '脚本被剥离')
+
+  await assert.rejects(
+    () =>
+      fetchPublicPage('https://public.example/start', {
+        lookup,
+        requestImpl: async () => ({ status: 302, headers: { location: 'http://private.example/x' }, body: Buffer.from('') }),
+      }),
+    /私网/,
+  )
+  await assert.rejects(
+    () =>
+      fetchPublicPage('https://public.example/x', {
+        lookup,
+        requestImpl: async () => ({ status: 200, headers: { 'content-type': 'application/octet-stream' }, body: Buffer.from('x') }),
+      }),
+    /内容类型/,
+  )
+  await assert.rejects(
+    () =>
+      fetchPublicPage('https://public.example/x', {
+        lookup,
+        maxRedirects: 1,
+        requestImpl: async () => ({ status: 302, headers: { location: 'https://public.example/y' }, body: Buffer.from('') }),
+      }),
+    /重定向太多/,
+  )
+  assert.equal(extractHtmlTitle('<title> 一段 标题 </title>'), '一段 标题')
+  assert.match(extractReadableText('<p>甲</p><p>乙</p>'), /甲[\s\S]*乙/)
+
+  const ddgHtml = [
+    '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa">标题 A</a>',
+    '<a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.com%2Fb">标题 B</a>',
+    '<a class="result__a" href="http://10.0.0.1/secret">内网</a>',
+  ].join('\n')
+  const parsed = parseDuckDuckGoResults(ddgHtml, 5)
+  assert.equal(parsed.length, 2)
+  assert.equal(parsed[0].title, '标题 A')
+  assert.equal(parsed[0].url, 'https://example.com/a')
+  assert.equal(parsed[1].url, 'https://example.com/b')
+
+  const web = createWebAccess({
+    now: () => 1000,
+    minGapMs: 0,
+    searchImpl: async (query) => [{ title: `结果：${query}`, url: 'https://example.com/x' }],
+    requestImpl: async () => ({ status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from('一段公开网页正文，足够长，可以给她读。') }),
+    lookup,
+  })
+  const results = await web.search('深海 鲸落', { limit: 3 })
+  assert.equal(results[0].title, '结果：深海 鲸落')
+  const fetched = await web.fetchPage('https://public.example/text')
+  assert.match(fetched.text, /公开网页正文/)
+  assert.equal(web.snapshot().searches, 1)
+  assert.equal(web.snapshot().fetches, 1)
+  assert.equal(web.snapshot().disabled, false)
+})
+
+test('self-wander v2.1：按她正在琢磨的事搜索公开网页；失败回落到维基', async () => {
+  const dir = makeTmpDir('dshp-wander-web')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const calls = []
+  const llm = makeMockLlm(() =>
+    JSON.stringify({ note: '这一页讲深海热泉，我盯着「没有阳光也能活」看了很久。', interesting: true }),
+  )
+  const webAccess = {
+    async search(query) {
+      calls.push(['search', query])
+      return [{ title: '深海热泉', url: 'https://example.org/hydrothermal' }]
+    },
+    async fetchPage(url) {
+      calls.push(['fetch', url])
+      return {
+        url,
+        title: '深海热泉',
+        text: '深海热泉是海底热水喷口，周围生物不靠阳光，而靠化学能生存。'.repeat(8),
+      }
+    },
+  }
+  const wander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false, experiencing: '在想深海里没有阳光的地方怎么活' }) },
+    llm,
+    webAccess,
+    policy: { resolveCandidates: (role) => (role === 'wander' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    learningLogPath,
+    statePath: path.join(dir, 'wander-state.json'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应回落维基')
+    },
+  })
+  const result = await wander.wanderNow()
+  assert.equal(result.ok, true)
+  assert.equal(result.title, '深海热泉')
+  assert.equal(result.host, 'example.org')
+  assert.match(fs.readFileSync(learningLogPath, 'utf8'), /地方：深海热泉（example\.org）/)
+  assert.equal(calls.length, 2, '先搜索再抓取')
+
+  // 搜索/抓取都失败 → 回落维基（这里让 fetchImpl 提供维基结果）
+  const fallback = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false, experiencing: '在想深海里没有阳光的地方怎么活' }) },
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    logger: { warn() {}, info() {} },
+    learningLogPath: path.join(dir, 'fallback.md'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    webAccess: { search: async () => [], fetchPage: async () => { throw new Error('fetch fail') } },
+    fetchImpl: async () => ({ ok: true, url: 'https://zh.wikipedia.org/wiki/深海', json: async () => ({ title: '深海', extract: '深海一般指水深超过两百米的海域。'.repeat(10) }) }),
+  })
+  const fallbackResult = await fallback.wanderNow()
+  assert.equal(fallbackResult.ok, true)
+  assert.equal(fallbackResult.host, 'zh.wikipedia.org')
+})
+
+test('safe-web v2.1：Wikipedia / SearXNG 搜索结果解析', () => {
+  const wiki = parseWikipediaSearchPayload(
+    { query: { search: [{ title: '海底熱泉', snippet: '<span>深海</span>熱泉是…' }, { title: '深海生物聚落', snippet: '靠化學能…' }] } },
+    3,
+  )
+  assert.equal(wiki.length, 2)
+  assert.equal(wiki[0].title, '海底熱泉')
+  assert.match(wiki[0].url, /zh\.wikipedia\.org\/wiki\//)
+  assert.match(wiki[0].snippet, /深海/)
+  const searx = parseSearxResults(
+    { results: [{ title: 'Hydrothermal vent', url: 'https://example.org/vent', content: 'A hydrothermal vent is …' }] },
+    3,
+  )
+  assert.equal(searx.length, 1)
+  assert.equal(searx[0].url, 'https://example.org/vent')
 })

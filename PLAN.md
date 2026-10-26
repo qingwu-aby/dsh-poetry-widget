@@ -1049,3 +1049,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 记忆：selfFacts 120/单条 80/摘要 800；recall 120 字/回声 3。
 - 测试：401/401（新增资源放宽/预算不限/主题概率用例；旧常量/长度断言同步）。
 - 边界：外部访问仍只读公开页面（维基/热搜），不登录、不发表、不读会话；这是安全边界，不是成长限制。
+
+## 102. 任意公开网页安全抓取 + 搜索（M98，2026-10-26）
+
+- `lib/safe-web.mjs`：URL 校验（http/https、80/443、无 userinfo、IP 字面量私网拒绝）；DNS 全地址校验（任一私网拒绝）；手动重定向 ≤4 跳、每跳重新校验；lookup 钉 IP 防 DNS rebinding；12s/2MB/content-type 白名单；gzip/deflate/br 解压；HTML 去脚本/样式/标签 + 实体解码；标题提取；默认搜索走 Wikipedia API（zh/en，稳定无密钥），可用 `DSH_POETRY_SEARCH_URL` 指向自己的 SearXNG 做全网搜索；`createWebAccess` 限速（默认 1.5s）+ 注入点（searchImpl/requestImpl/lookup）。
+- 接入 self-wander：webAccess + state.experiencing → 搜索 → 抓取前 2 个结果 → 用真实网页；失败回落维基随机；外部内容仍由 buildWanderPrompt 加隔离提示。
+- index：创建 webAccess，传给 wander，health.runtime.web 快照；`DSH_POETRY_WEB=off` 关闭。
+- 测试：safe-web 2 组（私网/URL/DNS、重定向/内容类型/HTML/DDG/限速）+ wander 网页优先/回落；host 241。
