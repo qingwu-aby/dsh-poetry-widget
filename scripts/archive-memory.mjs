@@ -43,7 +43,7 @@ const STATE_FILES = [
   'model-errors.jsonl',
   'model-budget.json',
 ]
-const MEMORY_DIRS = ['backups']
+const MEMORY_DIRS = ['backups', 'works']
 const STATE_DIRS = ['backups']
 
 function stamp() {

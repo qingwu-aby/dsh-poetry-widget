@@ -23,6 +23,7 @@ function GrowthTab(props) {
   : ''
  const memoryLabels = { ok: '健康', warn: '注意', error: '异常' }
  const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : []
+ const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : []
  return h(
   'div',
   { className: 'dshp-growth' },
@@ -97,6 +98,22 @@ function GrowthTab(props) {
       onClick: () => { if (api.backupMemory) api.backupMemory() },
      }, '立即备份'),
     ),
+   )
+   : null,
+  works.length
+   ? h(
+    'div',
+    { className: 'dshp-growth-section' },
+    h('div', { className: 'dshp-growth-section-head' }, '我的作品'),
+    works.map((work, index) => h(
+     'div',
+     { className: 'dshp-work', key: 'work-' + (work.id || index) },
+     h('div', { className: 'dshp-work-title' }, work.title),
+     work.kind === 'svg' && work.src
+      ? h('img', { className: 'dshp-work-art', src: work.src, alt: work.title, loading: 'lazy' })
+      : h('div', { className: 'dshp-growth-quote' }, work.body),
+     h('div', { className: 'dshp-work-time' }, weatherUpdatedLabel(work.createdAt) || '--:--'),
+    )),
    )
    : null,
   h(

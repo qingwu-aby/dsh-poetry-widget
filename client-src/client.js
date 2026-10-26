@@ -161,6 +161,8 @@ window.__ModuleLoader__.load({
   const ACTION_SEEN_KEY = 'dshp-action-seen-v1'
   const MEMORY_PATH = 'memory.json'
   const HEALTH_PATH = 'health.json'
+  const WORKS_PATH = 'works.json'
+  const WORKS_POLL_MS = 60 * 1000
   const HEALTH_POLL_MS = 60 * 1000
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
   const MEMORY_POLL_MS = 60 * 1000
@@ -1444,6 +1446,28 @@ window.__ModuleLoader__.load({
   }
   }
 
+  /** 作品列表归一化：SVG 转 data URL，文字保留。 */
+  function normalizeWorks(raw) {
+   if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] }
+   const works = []
+   for (const item of raw.works) {
+    if (!item || typeof item.title !== 'string' || typeof item.body !== 'string') continue
+    const kind = item.kind === 'svg' ? 'svg' : 'text'
+    const body = String(item.body)
+    if (body.length < 4) continue
+    works.push({
+     id: String(item.id || ''),
+     title: item.title.slice(0, 60),
+     kind,
+     createdAt: num(item.createdAt, 0),
+     body: kind === 'text' ? body.slice(0, 2000) : '',
+     src: kind === 'svg' ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(body) : '',
+    })
+    if (works.length >= 6) break
+   }
+   return { works }
+  }
+
   /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
   function normalizeHealthStatus(raw) {
    const data = raw && typeof raw === 'object' ? raw : {}
@@ -2504,6 +2528,7 @@ window.__ModuleLoader__.load({
   const [selfStatus, setSelfStatus] = React.useState(null)
   const [memoryStatus, setMemoryStatus] = React.useState(null)
   const [healthStatus, setHealthStatus] = React.useState(null)
+  const [worksRes, setWorksRes] = React.useState({ status: 'idle', data: null })
   const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -4738,6 +4763,30 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden, memoryTick])
 
+  // 作品（v2.11）：面板停在成长 tab 时轮询 works.json，只读展示最近的作品。
+  React.useEffect(() => {
+   if (!panelOpen || panelTab !== 'growth' || settings.hidden) {
+    setWorksRes({ status: 'idle', data: null })
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(WORKS_PATH).then((data) => {
+     if (alive) setWorksRes({ status: 'ready', data: normalizeWorks(data) })
+    }).catch(() => {
+     if (alive) setWorksRes({ status: 'error', data: null })
+    })
+   }
+   load()
+   const timer = setInterval(load, WORKS_POLL_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [panelOpen, panelTab, settings.hidden])
+
   // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
   React.useEffect(() => {
    if (!panelOpen || panelTab !== 'settings' || settings.hidden) {
@@ -4982,6 +5031,7 @@ window.__ModuleLoader__.load({
     selfStatus,
     memoryStatus,
     healthStatus,
+    worksRes,
     backupMemory,
     refreshMoodNow,
     previewSpontaneousPoem,

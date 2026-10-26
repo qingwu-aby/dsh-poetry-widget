@@ -223,6 +223,7 @@ import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
+import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
@@ -1851,7 +1852,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3627,7 +3628,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4964,7 +4965,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 18, 'assets + pet-media + self + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 19, 'assets + pet-media + self + works + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10218,4 +10219,58 @@ test('growth-metrics v2.10：活跃天数/覆盖/学习/项目/重复度 + 60s �
   // 60s 缓存：同一个 now 内再读不变
   fs.appendFileSync(journalPath, JSON.stringify({ ts: now - 1000, kind: 'murmur', text: '新写的一句。' }) + '\n')
   assert.equal(metrics.snapshot().journal.total, 3)
+})
+
+test('self-works v2.11：生成/清洗/保存/索引/只读路由', async () => {
+  const dir = makeTmpDir('dshp-works')
+  const calls = []
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      title: '窗台的光',
+      kind: 'svg',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" onload="alert(1)"><script>alert(2)</script><rect x="10" y="10" width="300" height="180" fill="#ffd27f"/><text x="20" y="60">窗台的光</text><image href="https://evil.example/x.png"/></svg>',
+    }),
+  )
+  const works = createSelfWorks({
+    dir,
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'growth' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await works.makeNow({ idea: '傍晚的光' })
+  assert.equal(result.ok, true)
+  const file = path.join(dir, result.work.file)
+  assert.equal(fs.existsSync(file), true)
+  const svg = fs.readFileSync(file, 'utf8')
+  assert.equal(svg.includes('<script'), false, 'script 被剥离')
+  assert.equal(svg.includes('onload'), false, '事件属性被剥离')
+  assert.equal(svg.includes('evil.example'), false, '外部 href 被剥离')
+  assert.match(svg, /<rect/)
+  assert.equal(works.list(5).length, 1)
+  const read = works.read(works.list(1)[0])
+  assert.match(read.body, /窗台的光/)
+
+  // 只读路由
+  const handler = createWorksHandler({ works })
+  const response = new MockResponse()
+  await handler(mockRequest({ url: '/api/dsh-poetry/works.json' }), response)
+  await response.finished()
+  const payload = response.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.works.length, 1)
+  assert.equal(payload.works[0].title, '窗台的光')
+  assert.match(payload.works[0].body, /<svg/)
+
+  // 纯文字作品
+  const textLlm = makeMockLlm(() => JSON.stringify({ title: '今天的一句话', kind: 'text', body: '今天的光从窗台滑到桌角，我跟着看了一会儿。' }))
+  const textWorks = createSelfWorks({
+    dir: path.join(dir, 'text'),
+    llm: textLlm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const textResult = await textWorks.makeNow()
+  assert.equal(textResult.ok, true)
+  assert.equal(textResult.work.kind, 'text')
 })

@@ -1271,6 +1271,7 @@
       const moodFailureText = api.moodAiFailure ? moodAiFailureLabel2(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF08" + String(api.moodAiFailureCode).slice(0, 48) + "\uFF09" : "") : "";
       const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
       const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
+      const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : [];
       return h(
         "div",
         { className: "dshp-growth" },
@@ -1344,6 +1345,18 @@
               }
             }, "\u7ACB\u5373\u5907\u4EFD")
           )
+        ) : null,
+        works.length ? h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u6211\u7684\u4F5C\u54C1"),
+          works.map((work, index) => h(
+            "div",
+            { className: "dshp-work", key: "work-" + (work.id || index) },
+            h("div", { className: "dshp-work-title" }, work.title),
+            work.kind === "svg" && work.src ? h("img", { className: "dshp-work-art", src: work.src, alt: work.title, loading: "lazy" }) : h("div", { className: "dshp-growth-quote" }, work.body),
+            h("div", { className: "dshp-work-time" }, weatherUpdatedLabel(work.createdAt) || "--:--")
+          ))
         ) : null,
         h(
           "div",
@@ -2835,6 +2848,11 @@
     ".dshp-field-stacked{flex-direction:column;align-items:stretch;gap:6px}",
     ".dshp-field-stacked .dshp-field-label{flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}",
     ".dshp-field-stack-body{width:100%;min-width:0}",
+    ".dshp-work{display:flex;flex-direction:column;gap:5px;padding:6px 0;border-bottom:1px dashed var(--dshp-border)}",
+    ".dshp-work:last-child{border-bottom:0}",
+    ".dshp-work-title{font-size:12.5px;font-weight:600}",
+    ".dshp-work-art{width:100%;max-height:170px;object-fit:contain;border-radius:10px;border:1px solid var(--dshp-border);background:#fff}",
+    ".dshp-work-time{font-size:10.5px;color:var(--dshp-label-2);font-variant-numeric:tabular-nums}",
     ".dshp-health-line{font-size:11.5px;line-height:1.6;color:var(--dshp-label-2);word-break:break-word}",
     ".dshp-field-label{display:flex;flex-direction:column;gap:1px;min-width:0}",
     ".dshp-field-label b{font-size:13px;font-weight:500}",
@@ -3010,6 +3028,8 @@
       const ACTION_SEEN_KEY = "dshp-action-seen-v1";
       const MEMORY_PATH = "memory.json";
       const HEALTH_PATH = "health.json";
+      const WORKS_PATH = "works.json";
+      const WORKS_POLL_MS = 60 * 1e3;
       const HEALTH_POLL_MS = 60 * 1e3;
       const MEMORY_BACKUP_PATH = "memory/backup.json";
       const MEMORY_POLL_MS = 60 * 1e3;
@@ -4126,6 +4146,26 @@
           updatedAt: num(data.updatedAt, 0)
         };
       }
+      function normalizeWorks(raw) {
+        if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] };
+        const works = [];
+        for (const item of raw.works) {
+          if (!item || typeof item.title !== "string" || typeof item.body !== "string") continue;
+          const kind = item.kind === "svg" ? "svg" : "text";
+          const body = String(item.body);
+          if (body.length < 4) continue;
+          works.push({
+            id: String(item.id || ""),
+            title: item.title.slice(0, 60),
+            kind,
+            createdAt: num(item.createdAt, 0),
+            body: kind === "text" ? body.slice(0, 2e3) : "",
+            src: kind === "svg" ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(body) : ""
+          });
+          if (works.length >= 6) break;
+        }
+        return { works };
+      }
       function normalizeHealthStatus(raw) {
         const data = raw && typeof raw === "object" ? raw : {};
         const runtime = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
@@ -5210,6 +5250,7 @@
         const [selfStatus, setSelfStatus] = React.useState(null);
         const [memoryStatus, setMemoryStatus] = React.useState(null);
         const [healthStatus, setHealthStatus] = React.useState(null);
+        const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
         const [memoryTick, setMemoryTick] = React.useState(0);
         const [motionFile, setMotionFile] = React.useState("");
         const [dizzy, setDizzy] = React.useState(null);
@@ -7270,6 +7311,28 @@
           };
         }, [panelOpen, panelTab, settings.hidden, memoryTick]);
         React.useEffect(() => {
+          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+            setWorksRes({ status: "idle", data: null });
+            return void 0;
+          }
+          let alive = true;
+          const load = () => {
+            if (!alive) return;
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            fetchJson(WORKS_PATH).then((data) => {
+              if (alive) setWorksRes({ status: "ready", data: normalizeWorks(data) });
+            }).catch(() => {
+              if (alive) setWorksRes({ status: "error", data: null });
+            });
+          };
+          load();
+          const timer = setInterval(load, WORKS_POLL_MS);
+          return () => {
+            alive = false;
+            clearInterval(timer);
+          };
+        }, [panelOpen, panelTab, settings.hidden]);
+        React.useEffect(() => {
           if (!panelOpen || panelTab !== "settings" || settings.hidden) {
             setHealthStatus(null);
             return void 0;
@@ -7502,6 +7565,7 @@
             selfStatus,
             memoryStatus,
             healthStatus,
+            worksRes,
             backupMemory,
             refreshMoodNow,
             previewSpontaneousPoem,

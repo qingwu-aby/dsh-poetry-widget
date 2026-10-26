@@ -1134,3 +1134,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - index：health.runtime.growthMetrics。
 - client：normalizeHealthStatus 取 growthMetrics；设置页运行状态显示一行成长概览。
 - 测试：指标计算/缓存；全套 417/417。
+
+## 113. 她自己的作品（M109，2026-10-26，P2）
+
+- `lib/self-works.mjs`：makeNow 用 role=growth 生成 {title,kind,body}；SVG 清洗（script/on*/外部 href/foreignObject）；保存 `.svg`/`.md` + works.json 索引（60 件上限）；list/read/snapshot；createWorksHandler 只读路由。
+- self-drive：prompt 提示想画/写可用 kind=make；onMake 回调；index 接 selfWorks.makeNow。
+- 路由：/api/dsh-poetry/works.json（unfenced、只读）。
+- client：GrowthTab「我的作品」最近 3 件，SVG data URL / 文字；works.json 在成长 tab 打开时 60s 轮询。
+- archive：works 目录。
+- 测试：作品生成/清洗/索引/路由；全套 418/418。

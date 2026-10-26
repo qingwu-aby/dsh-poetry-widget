@@ -44,6 +44,7 @@ import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
+import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -227,6 +228,14 @@ export async function apply(ctx) {
       const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
       const modelErrorsPath = resolveModelErrorsPath(env, home)
+      // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
+      const selfWorks = createSelfWorks({
+        dir: resolveWorksDir(env, home),
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+      })
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
       // v1.49：L1 冷存储归档（活跃话题库 learned 超限时最旧的移入这里；仍可关键词检索）。
@@ -484,6 +493,7 @@ export async function apply(ctx) {
         onLearn: () => growth.learnNow(),
         // v1.62：注意力集中时，她自己会提出一个“可以去看看”的介入；喜不喜欢由她判断。
         onProbe: (focus) => growth.probeNow({ focus }),
+        onMake: (input) => selfWorks.makeNow(input),
         checkMinMs: autonomy.driveCheckMinMs,
         checkMaxMs: autonomy.driveCheckMaxMs,
         retryMinMs: autonomy.driveRetryMinMs,
@@ -648,6 +658,7 @@ export async function apply(ctx) {
           web: webAccess.snapshot(),
           modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
           growthMetrics: growthMetrics.snapshot(),
+          works: selfWorks.snapshot(),
         }),
         env,
         home,
@@ -685,6 +696,14 @@ export async function apply(ctx) {
           kind: 'exact',
           path: MODEL_ERRORS_ROUTE,
           handler: createModelErrorsHandler({ file: modelErrorsPath }),
+        }),
+      )
+      // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/works.json',
+          handler: createWorksHandler({ works: selfWorks }),
         }),
       )
       // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。
