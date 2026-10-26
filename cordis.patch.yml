@@ -1,8 +1,8 @@
-# dsh-poetry-widget bundle patch —— 把诗词格律挂件叠加到 profile 组合上（零侵入）。
+# dsh-little-whale bundle patch —— 把「小鲸鱼」叠加到 profile 组合上（零侵入）。
 # 单包双面（dsh.bundle + dsh.client）：
 #   · 宿主插件：注册 /api/dsh-poetry/assets 只读资源路由与后续数据/设置接口；
 #   · 浏览器插件：在 shell.overlay 浮层里渲染挂件（形象/气泡/面板），
 #     全部资源本地加载，无外部请求、无凭据、无遥测。
 - insert:
-    - id: dsh-poetry-widget
-      name: dsh-poetry-widget
+    - id: dsh-little-whale
+      name: dsh-little-whale

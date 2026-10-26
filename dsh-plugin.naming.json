@@ -5,14 +5,14 @@
     "namespace": "qingwu-aby",
     "name": "poetry-widget",
     "coordinate": "qingwu-aby/poetry-widget",
-    "packageName": "dsh-poetry-widget"
+    "packageName": "dsh-little-whale"
   },
   "names": {
     "pluginNames": [
-      "dsh-poetry-widget"
+      "dsh-little-whale"
     ],
     "loaderIds": [
-      "dsh-poetry-widget"
+      "dsh-little-whale"
     ],
     "services": [],
     "tools": [],

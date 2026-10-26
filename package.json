@@ -1,7 +1,7 @@
 {
-  "name": "dsh-poetry-widget",
+  "name": "dsh-little-whale",
   "version": "0.1.4",
-  "description": "DSH Web 界面诗词格律挂件：每日一诗、逐字平仄、体式解析与格律小课堂",
+  "description": "DSH Web 界面里会自己长大的小鲸鱼：成长、记忆、自主生活，诗词与格律降权为二级菜单",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -47,7 +47,11 @@
     "chinese-poetry",
     "widget",
     "feihua",
-    "mood"
+    "mood",
+    "whale",
+    "growth",
+    "memory",
+    "companion"
   ],
   "license": "MIT",
   "devDependencies": {

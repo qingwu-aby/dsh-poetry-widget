@@ -1,4 +1,4 @@
-# dsh-poetry-widget 接口契约 v1（冻结）
+# dsh-little-whale 接口契约 v1（冻结）
 
 > 冻结时间：2026-10-21 · Owner：Lead
 > 任何字段/路由变更必须先通知 Lead，由 Lead 更新本文件并同步 host / client / data 三方。
@@ -8,10 +8,10 @@
 
 | 项 | 值 |
 |---|---|
-| npm 包名 | `dsh-poetry-widget` |
-| Loader row id | `dsh-poetry-widget` |
-| 客户端模块 id | `dsh-poetry-widget`（`window.__ModuleLoader__.load({id})`） |
-| 宿主插件名 | `dsh-poetry-widget` |
+| npm 包名 | `dsh-little-whale`（v1.79 由 dsh-poetry-widget 更名） |
+| Loader row id | `dsh-little-whale` |
+| 客户端模块 id | `dsh-little-whale`（`window.__ModuleLoader__.load({id})`） |
+| 宿主插件名 | `dsh-little-whale` |
 | 路由前缀 | `/api/dsh-poetry/` |
 | 设置数据目录 | `$DSH_HOME/.dsh-poetry/`（`settings.json`） |
 | 安装形态 | `plugin_manager install_bundle` → profile 内 `link:` 到本项目目录 |
@@ -381,8 +381,8 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 
 ## 3. 客户端组件契约（client-widget 使用）
 
-- 注册：`ctx.slots.register({ name: 'shell.overlay', id: 'dsh-poetry-widget', order: 80 }, Component)`，`Component` 为 React 组件，props 来自 `shell.overlay`（当前无额外 owner props；无需使用 standardProps）。
-- 根节点：单一 `div[data-dsh-poetry-widget="root"]`，`position:fixed`，`pointer-events:auto`；其余 overlay 区域保持 click-through。
+- 注册：`ctx.slots.register({ name: 'shell.overlay', id: 'dsh-little-whale', order: 80 }, Component)`，`Component` 为 React 组件，props 来自 `shell.overlay`（当前无额外 owner props；无需使用 standardProps）。
+- 根节点：单一 `div[data-dsh-little-whale="root"]`，`position:fixed`，`pointer-events:auto`；其余 overlay 区域保持 click-through。
 - provider/数据获取：不引入状态库；使用 `fetch('/api/dsh-poetry/bootstrap.json')` 等；模块级缓存 + `localStorage` 仅存「上次数据」用于首屏直出。
 - 主题：只用宿主 CSS 变量（`--dsw-alias-*`），同时准备 fallback 色值；暗色由变量自动切换。
 - 类名：统一 `dshp-` 前缀；样式通过组件内 `<style>` 或注入一次并在 `ctx.effect` 清理。

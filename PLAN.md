@@ -981,3 +981,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 观察：journal mood 在 13–14 点达 78–107 条/小时，2 小时 11 次 mood EMPTY_RESPONSE；原因判断为多次插件热载/页面实例叠加，每个客户端自动请求都带 force=1，绕过 10min 缓存。
 - 改：客户端自动刷新仍带 force 但新增 `manual` 标志；只有手动「刷新心情」设置 manualRef → 请求带 `manual=1`。服务端 mood-ai 路由：`effectiveForce = force && manual`，自动请求走缓存（最多 ~6 次/小时），手动即时生成。
 - 测试：mood-ai 路由 force/manual、memory-journal force 用例更新；全套 394/394。
+
+## 94. 更名小鲸鱼 + 诗词入口到底部（M90，2026-10-26）
+
+- 用户：诗词入口样式改一下（位置拥挤）；插件名称也改一下，问建议。
+- 名称：**小鲸鱼 / `dsh-little-whale`**（用户一直称呼“小鲸鱼”，比诗词挂件更贴她现在的定位）。
+- 重命名范围：package.json/package-lock、cordis.patch.yml row id/name、index 插件名与日志前缀、client loader id/WIDGET_ID/data 属性、locale（zh 小鲸鱼 / en Little Whale）、README/contract/测试；**API 路由前缀 `/api/dsh-poetry/` 与 `.dsh-poetry` 数据目录保持不变**（记忆和设置不迁移，外部路径兼容）；GitHub 仓库暂未改名。
+- UI：面板头只留标题+关闭；底部新增 `.dshp-panel-foot`：普通页显示「更多 · 诗词与格律 ›」，诗词二级菜单页显示「← 返回成长 / 逐页看诗笺」；样式低对比度小字，不再挤在头部。
+- 测试：client 120 / host 232 / data 42 = 394/394。

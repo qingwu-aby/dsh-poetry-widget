@@ -300,4 +300,10 @@ export const CSS = [
   '@media (prefers-reduced-motion: reduce){',
   '.dshp-root *,.dshp-root *::before{animation-duration:.01ms!important;',
   'animation-iteration-count:1!important;transition-duration:.01ms!important}}',
+  '.dshp-panel-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 12px;border-top:1px solid var(--dshp-border);border-radius:0 0 14px 14px}',
+  '.dshp-foot-hint{font-size:11.5px;color:var(--dshp-label-2);opacity:.8}',
+  '.dshp-foot-link{border:none;background:transparent;color:var(--dshp-label-2);font:inherit;font-size:12px;cursor:pointer;padding:3px 6px;border-radius:8px}',
+  '.dshp-foot-link:hover{background:var(--dshp-hover);color:var(--dshp-label)}',
+  '.dshp-foot-link:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:1px}',
+  '.dshp-foot-link-accent{color:var(--dshp-accent)}',
   ].join('')

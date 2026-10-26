@@ -1,5 +1,5 @@
 /**
- * dsh-poetry-widget —— 客户端挂件单测（node:test，无需真实宿主 / 网络）。
+ * dsh-little-whale —— 客户端挂件单测（node:test，无需真实宿主 / 网络）。
  *
  * 做法：在 vm 沙箱里执行 client.js，mock `window.__ModuleLoader__.load`、
  *       `require('react')`、fetch、localStorage 与 ctx.slots；再断言：
@@ -429,9 +429,9 @@ function assertDeep(actual, expected, message) {
 /* 1. 注册契约                                                          */
 /* ------------------------------------------------------------------ */
 
-test('factory 注册 shell.overlay：id=dsh-poetry-widget、order=80、组件为函数', () => {
+test('factory 注册 shell.overlay：id=dsh-little-whale、order=80、组件为函数', () => {
   const { loaded, requireMock } = loadClient()
-  assert.equal(loaded.id, 'dsh-poetry-widget')
+  assert.equal(loaded.id, 'dsh-little-whale')
   assert.equal(typeof loaded.factory, 'function')
 
   const mod = loaded.factory(requireMock)
@@ -462,7 +462,7 @@ test('factory 注册 shell.overlay：id=dsh-poetry-widget、order=80、组件为
   assert.equal(registrations.length, 1)
   const { options, component } = registrations[0]
   assert.equal(options.name, 'shell.overlay')
-  assert.equal(options.id, 'dsh-poetry-widget')
+  assert.equal(options.id, 'dsh-little-whale')
   assert.equal(options.order, 80)
   assert.equal(typeof component, 'function')
 
@@ -672,7 +672,7 @@ test('PoetryWidget：root 契约 / 形象资源 / 样式 / 首屏指引', () => 
   const { react, debug } = loadClient()
   const tree = renderFresh(react, debug.PoetryWidget, {})
 
-  const roots = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')
+  const roots = findAll(tree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root')
   assert.equal(roots.length, 1)
   const root = roots[0]
   assert.equal(root.type, 'div')
@@ -715,7 +715,7 @@ test('PoetryWidget：hidden=true 时渲染恢复热区（长按/双击恢复）'
   })
   const { react, debug } = loadClient({ seed })
   const tree = renderFresh(react, debug.PoetryWidget, {})
-  const root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  const root = findAll(tree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root')[0]
   assert.equal(root.props.style.width, '28px')
   assert.equal(root.props['data-dshp-hidden'], 'true')
   const restore = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-restore')
@@ -1059,7 +1059,7 @@ test('面板 2 顶层 tab（默认成长）+ 诗词二级菜单；隐藏后热�
   assert.ok(settingsElement, '设置 tab 应渲染 SettingsTab')
   settingsElement.props.api.hideWidget()
   tree = rerender(react, debug.PoetryWidget, {})
-  let root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  let root = findAll(tree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root')[0]
   assert.equal(root.props.style.width, '28px')
   const restore = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-restore')[0]
   assert.ok(restore)
@@ -1068,7 +1068,7 @@ test('面板 2 顶层 tab（默认成长）+ 诗词二级菜单；隐藏后热�
   // 双击热区 → 恢复
   restore.props.onDoubleClick({ preventDefault() {}, stopPropagation() {} })
   tree = rerender(react, debug.PoetryWidget, {})
-  root = findAll(tree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root')[0]
+  root = findAll(tree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root')[0]
   assert.equal(root.props.style.width, '96px')
   assert.equal(findAll(tree, (node) => node.type === 'img').length, 1)
 })
@@ -1174,7 +1174,7 @@ test('真实数据冒烟：全部诗逐字渲染 / 30 韵部 / 全部词 / 12+15
     },
   })
   const mainTree = renderFresh(client.react, client.debug.PoetryWidget, {})
-  assert.equal(findAll(mainTree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root').length, 1)
+  assert.equal(findAll(mainTree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root').length, 1)
   const stepTree = enterPoetryTour(client.react, client.debug)
   const bubbles = findAll(stepTree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
   assert.equal(bubbles.length, 1)

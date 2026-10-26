@@ -23,8 +23,8 @@
 | # | 检查 | 结果 | 证据 |
 |---|---|---|---|
 | B1 | `plugin_manager install_bundle` | ✅ | `application: applied`（首次用 public npm registry 规避 corp mirror 缺 dsh-context@0.73.3 的问题） |
-| B2 | profile 记录 | ✅ | `link:<项目绝对路径>`；bundles 含 `dsh-poetry-widget` |
-| B3 | Client 注册 | ✅ | `Slots.listSubTree('shell.overlay')` occupant `dsh-poetry-widget` active（order 80）；client.js 137KB（≤150KB 预算） |
+| B2 | profile 记录 | ✅ | `link:<项目绝对路径>`；bundles 含 `dsh-little-whale` |
+| B3 | Client 注册 | ✅ | `Slots.listSubTree('shell.overlay')` occupant `dsh-little-whale` active（order 80）；client.js 137KB（≤150KB 预算） |
 | B4 | 宿主路由存活 | ✅ | `GET /api/dsh-poetry/assets` → 200 image/webp；其余 10 条数据/设置/天气/心晴路由 → 401（DSH 信任栅栏，浏览器同源可访问） |
 | B5 | 宿主半区重载方式 | ✅ | 改宿主代码后 `plugin_manager set_bundle(enabled:false→true)` 即重载新模块（无需重启 App）；M7 新增 weather 路由后同样 toggle 生效 |
 
@@ -64,7 +64,7 @@
 | D1 | 数据 GET 走信任栅栏 | ✅ | 裸 curl → 401；伪造 Host → 403（host 单测 + 实机） |
 | D2 | settings PUT 仅回环来源 | ✅ | host 单测覆盖 403/FORBIDDEN、clamp、白名单 |
 | D3 | 零外部网络/零凭据/零遥测 | ✅ | 代码审查：仅 fetch 同源 `/api/dsh-poetry/*`；无凭据读取 |
-| D4 | 卸载回归 | ✅（web profile 等效验证） | `dsh plugin --profile web add link:…` → `dsh plugin --profile web remove dsh-poetry-widget`：依赖与 bundles 均清理干净、`dump-config` 无残留；node_modules 留一个 link 符号链接（pnpm 对 link: 的已知残留，不参与 profile 组合，`pnpm install` 可清）。桌面 profile 的 remove_bundle 未实测（当前会话审批被禁用，plugin_manager 不可用） |
+| D4 | 卸载回归 | ✅（web profile 等效验证） | `dsh plugin --profile web add link:…` → `dsh plugin --profile web remove dsh-little-whale`：依赖与 bundles 均清理干净、`dump-config` 无残留；node_modules 留一个 link 符号链接（pnpm 对 link: 的已知残留，不参与 profile 组合，`pnpm install` 可清）。桌面 profile 的 remove_bundle 未实测（当前会话审批被禁用，plugin_manager 不可用） |
 | D5 | 重装回归 | ✅（web profile 等效验证） | add → remove 后再 add 同一路径成功（91–96ms），bundles 恢复；桌面端 link 安装同理，重装即恢复 |
 
 ## E. M7 本地资源与离线
@@ -143,3 +143,4 @@
 | H40 | 诗词模块降权到二级菜单 | ✅ | 顶层 tab 成长/设置；诗词（含 7 子 tab：今日/课堂/韵部/词牌/诗库/飞花/设置）与配置从成长页进入二级菜单；面板头有诗词入口/返回；主设置不再含诗词配置；单测覆盖 |
 | H41 | 诗笺进二级菜单 + client library + 冒烟脚本 | ✅ | 主点击打开成长面板；诗笺从「诗词→逐页看诗笺」进入；client-src 拆出 library.js；`npm run smoke` 只读冒烟（记忆新鲜度/分层/错误/路由可达）；单测 394/394 |
 | H42 | 心情自动刷新限流 | ✅ | 自动刷新忽略 force 走 10min 缓存；只有手动刷新带 manual=1 才强制生成；服务端 effectiveForce=force&&manual；路由/写记忆测试更新；394/394 |
+| H43 | 更名小鲸鱼 + 诗词入口到底部 | ✅ | package/loader id/widget id/locale 更名 dsh-little-whale·小鲸鱼；路由与数据目录保留兼容；面板头只留标题+关闭，诗词入口与返回/逐页看移到面板底部；394/394 |

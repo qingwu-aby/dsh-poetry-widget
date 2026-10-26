@@ -28,7 +28,7 @@ import {
 } from './wander.js'
 
 /**
- * dsh-poetry-widget —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
+ * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
  *
  * 形态：官方 Client 插件（`dsh.client`）→ `window.__ModuleLoader__.load({ id, factory })`
 
@@ -48,13 +48,13 @@ window.__ModuleLoader__.load({ id, factory })`
  */
 
 window.__ModuleLoader__.load({
- id: 'dsh-poetry-widget',
+ id: 'dsh-little-whale',
  factory: (require) => {
   'use strict'
 
   const React = require('react')
   if (!React || typeof React.createElement !== 'function') {
-  throw new Error('dsh-poetry-widget: React 运行时不可用')
+  throw new Error('dsh-little-whale: React 运行时不可用')
   }
   const h = React.createElement
   const ROUTE = '/api/dsh-poetry/'
@@ -66,7 +66,7 @@ window.__ModuleLoader__.load({
   const MEMORY_POLL_MS = 60 * 1000
   const ASSET_BASE = ROUTE + 'assets?f='
   const SETTINGS_URL = ROUTE + 'settings.json'
-  const WIDGET_ID = 'dsh-poetry-widget'
+  const WIDGET_ID = 'dsh-little-whale'
   const CACHE_KEY = 'dshp.firstscreen.v1'
   const POS_KEY = 'dshp.position.v1'
   const BASE_SIZE = 96
@@ -5407,7 +5407,7 @@ window.__ModuleLoader__.load({
     className: cx('dshp-stage', dizzy && 'dshp-dizzy'),
     role: 'button',
     tabIndex: 0,
-    'aria-label': '诗词格律挂件：点击查看今日一诗，可拖动',
+    'aria-label': '小鲸鱼：点击看看她，可拖动',
     title: '点击：今日一诗 · 拖动：移动 · 右键：设置',
     onPointerDown: handlePointerDown,
     onPointerMove: handlePointerMove,
@@ -5484,8 +5484,8 @@ window.__ModuleLoader__.load({
     className: 'dshp-restore',
     role: 'button',
     tabIndex: 0,
-    title: '双击空白处或长按这里恢复诗词挂件',
-    'aria-label': '恢复诗词挂件',
+    title: '双击空白处或长按这里恢复小鲸鱼',
+    'aria-label': '恢复小鲸鱼',
     onPointerDown: handleRestorePointerDown,
     onPointerUp: handleRestorePointerUp,
     onPointerCancel: handleRestorePointerUp,
@@ -5611,26 +5611,10 @@ window.__ModuleLoader__.load({
      'div',
      { className: 'dshp-panel-title' },
      '鲸鱼娘的小角落',
-     h('small', null, '自驱成长中' + (boot.data && boot.data.dataVersion ? ' · 数据 ' + boot.data.dataVersion : '')),
+     h('small', null, panelTab === 'poetry'
+      ? '诗词与格律 · 二级菜单'
+      : '自驱成长中' + (boot.data && boot.data.dataVersion ? ' · 数据 ' + boot.data.dataVersion : '')),
     ),
-    panelTab === 'poetry'
-     ? h('button', {
-      type: 'button',
-      className: 'dshp-icon-btn',
-      title: '以诗笺气泡逐页看今日诗',
-      'aria-label': '逐页看诗笺',
-      onClick: () => {
-       if (typeof startPoetryTour === 'function') startPoetryTour()
-      },
-     }, '逐页看诗笺')
-     : null,
-    h('button', {
-     type: 'button',
-     className: cx('dshp-icon-btn', 'dshp-secondary-entry'),
-     title: panelTab === 'poetry' ? '返回成长（诗词是二级菜单）' : '诗词与格律（二级菜单）',
-     'aria-label': panelTab === 'poetry' ? '返回成长' : '打开诗词二级菜单',
-     onClick: () => openPanelTab(panelTab === 'poetry' ? 'growth' : 'poetry'),
-    }, panelTab === 'poetry' ? '← 返回' : '诗词'),
     h('button', {
      type: 'button',
      className: 'dshp-icon-btn',
@@ -5656,6 +5640,42 @@ window.__ModuleLoader__.load({
     }, tab.label)),
     ),
     h('div', { className: 'dshp-panel-body' }, renderPanelTab()),
+    h(
+     'div',
+     { className: 'dshp-panel-foot' },
+     panelTab === 'poetry'
+      ? [
+       h('button', {
+        key: 'back',
+        type: 'button',
+        className: 'dshp-foot-link',
+        'aria-label': '返回成长',
+        title: '返回成长',
+        onClick: () => openPanelTab('growth'),
+       }, '← 返回成长'),
+       h('button', {
+        key: 'tour',
+        type: 'button',
+        className: 'dshp-foot-link dshp-foot-link-accent',
+        'aria-label': '逐页看诗笺',
+        title: '以诗笺气泡逐页看今日诗',
+        onClick: () => {
+         if (typeof startPoetryTour === 'function') startPoetryTour()
+        },
+       }, '逐页看诗笺'),
+      ]
+      : [
+       h('span', { key: 'hint', className: 'dshp-foot-hint' }, '更多'),
+       h('button', {
+        key: 'poetry',
+        type: 'button',
+        className: 'dshp-foot-link',
+        'aria-label': '打开诗词二级菜单',
+        title: '诗词与格律（二级菜单）',
+        onClick: () => openPanelTab('poetry'),
+       }, '诗词与格律 ›'),
+      ],
+    ),
    )
   }
 
@@ -5690,7 +5710,7 @@ window.__ModuleLoader__.load({
   return h(
    'div',
    {
-    'data-dsh-poetry-widget': 'root',
+    'data-dsh-little-whale': 'root',
     'data-dshp-hidden': settings.hidden ? 'true' : 'false',
     className: 'dshp-root',
     style: rootStyle,
@@ -6418,7 +6438,7 @@ window.__ModuleLoader__.load({
    h(
     'div',
     { className: 'dshp-about' },
-    h('div', null, '诗词格律挂件 v' + String(version)),
+    h('div', null, '小鲸鱼 v' + String(version)),
     h('div', null, '数据版本：' + String(dataVersion)),
     h('div', null, '数据源：chinese-poetry（MIT）· 诗词为公版文本'),
     source.commit ? h('div', null, '源提交：' + String(source.commit).slice(0, 12)) : null,
@@ -7321,7 +7341,7 @@ window.__ModuleLoader__.load({
 
   componentDidCatch(error) {
    try {
-    console.warn('[dsh-poetry-widget] 渲染异常，已降级为最小形象：', error)
+    console.warn('[dsh-little-whale] 渲染异常，已降级为最小形象：', error)
    } catch (ignored) {
    }
   }
@@ -7335,7 +7355,7 @@ window.__ModuleLoader__.load({
    return h(
     'div',
     {
-    'data-dsh-poetry-widget': 'root',
+    'data-dsh-little-whale': 'root',
     className: 'dshp-root',
     style: {
      position: 'fixed',
@@ -7353,7 +7373,7 @@ window.__ModuleLoader__.load({
     h('style', null, CSS),
     h('img', {
     src: mascotUrl(MASCOT_FILES.celebrate),
-    alt: '诗词格律挂件',
+    alt: '小鲸鱼挂件',
     width: 64,
     height: 64,
     draggable: false,
@@ -7376,7 +7396,7 @@ window.__ModuleLoader__.load({
   ))
   try {
    if (ctx.logger && typeof ctx.logger.info === 'function') {
-    ctx.logger.info('dsh-poetry-widget: 已注册 shell.overlay 挂件')
+    ctx.logger.info('dsh-little-whale: 已注册 shell.overlay 挂件')
    }
   } catch (error) {
   }

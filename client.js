@@ -407,7 +407,13 @@
     "--dshp-danger:#ff8a8a;--dshp-shadow:0 12px 40px rgba(0,0,0,.5)}}",
     "@media (prefers-reduced-motion: reduce){",
     ".dshp-root *,.dshp-root *::before{animation-duration:.01ms!important;",
-    "animation-iteration-count:1!important;transition-duration:.01ms!important}}"
+    "animation-iteration-count:1!important;transition-duration:.01ms!important}}",
+    ".dshp-panel-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 12px;border-top:1px solid var(--dshp-border);border-radius:0 0 14px 14px}",
+    ".dshp-foot-hint{font-size:11.5px;color:var(--dshp-label-2);opacity:.8}",
+    ".dshp-foot-link{border:none;background:transparent;color:var(--dshp-label-2);font:inherit;font-size:12px;cursor:pointer;padding:3px 6px;border-radius:8px}",
+    ".dshp-foot-link:hover{background:var(--dshp-hover);color:var(--dshp-label)}",
+    ".dshp-foot-link:focus-visible{outline:2px solid var(--dshp-accent);outline-offset:1px}",
+    ".dshp-foot-link-accent{color:var(--dshp-accent)}"
   ].join("");
 
   // client-src/wander.js
@@ -475,12 +481,12 @@
 
   // client-src/client.js
   window.__ModuleLoader__.load({
-    id: "dsh-poetry-widget",
+    id: "dsh-little-whale",
     factory: (require2) => {
       "use strict";
       const React = require2("react");
       if (!React || typeof React.createElement !== "function") {
-        throw new Error("dsh-poetry-widget: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
+        throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
       const h = React.createElement;
       const ROUTE = "/api/dsh-poetry/";
@@ -492,7 +498,7 @@
       const MEMORY_POLL_MS = 60 * 1e3;
       const ASSET_BASE = ROUTE + "assets?f=";
       const SETTINGS_URL = ROUTE + "settings.json";
-      const WIDGET_ID = "dsh-poetry-widget";
+      const WIDGET_ID = "dsh-little-whale";
       const CACHE_KEY = "dshp.firstscreen.v1";
       const POS_KEY = "dshp.position.v1";
       const BASE_SIZE = 96;
@@ -5532,7 +5538,7 @@
               className: cx("dshp-stage", dizzy && "dshp-dizzy"),
               role: "button",
               tabIndex: 0,
-              "aria-label": "\u8BD7\u8BCD\u683C\u5F8B\u6302\u4EF6\uFF1A\u70B9\u51FB\u67E5\u770B\u4ECA\u65E5\u4E00\u8BD7\uFF0C\u53EF\u62D6\u52A8",
+              "aria-label": "\u5C0F\u9CB8\u9C7C\uFF1A\u70B9\u51FB\u770B\u770B\u5979\uFF0C\u53EF\u62D6\u52A8",
               title: "\u70B9\u51FB\uFF1A\u4ECA\u65E5\u4E00\u8BD7 \xB7 \u62D6\u52A8\uFF1A\u79FB\u52A8 \xB7 \u53F3\u952E\uFF1A\u8BBE\u7F6E",
               onPointerDown: handlePointerDown,
               onPointerMove: handlePointerMove,
@@ -5605,8 +5611,8 @@
               className: "dshp-restore",
               role: "button",
               tabIndex: 0,
-              title: "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u8FD9\u91CC\u6062\u590D\u8BD7\u8BCD\u6302\u4EF6",
-              "aria-label": "\u6062\u590D\u8BD7\u8BCD\u6302\u4EF6",
+              title: "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u8FD9\u91CC\u6062\u590D\u5C0F\u9CB8\u9C7C",
+              "aria-label": "\u6062\u590D\u5C0F\u9CB8\u9C7C",
               onPointerDown: handleRestorePointerDown,
               onPointerUp: handleRestorePointerUp,
               onPointerCancel: handleRestorePointerUp,
@@ -5730,24 +5736,8 @@
                 "div",
                 { className: "dshp-panel-title" },
                 "\u9CB8\u9C7C\u5A18\u7684\u5C0F\u89D2\u843D",
-                h("small", null, "\u81EA\u9A71\u6210\u957F\u4E2D" + (boot.data && boot.data.dataVersion ? " \xB7 \u6570\u636E " + boot.data.dataVersion : ""))
+                h("small", null, panelTab === "poetry" ? "\u8BD7\u8BCD\u4E0E\u683C\u5F8B \xB7 \u4E8C\u7EA7\u83DC\u5355" : "\u81EA\u9A71\u6210\u957F\u4E2D" + (boot.data && boot.data.dataVersion ? " \xB7 \u6570\u636E " + boot.data.dataVersion : ""))
               ),
-              panelTab === "poetry" ? h("button", {
-                type: "button",
-                className: "dshp-icon-btn",
-                title: "\u4EE5\u8BD7\u7B3A\u6C14\u6CE1\u9010\u9875\u770B\u4ECA\u65E5\u8BD7",
-                "aria-label": "\u9010\u9875\u770B\u8BD7\u7B3A",
-                onClick: () => {
-                  if (typeof startPoetryTour === "function") startPoetryTour();
-                }
-              }, "\u9010\u9875\u770B\u8BD7\u7B3A") : null,
-              h("button", {
-                type: "button",
-                className: cx("dshp-icon-btn", "dshp-secondary-entry"),
-                title: panelTab === "poetry" ? "\u8FD4\u56DE\u6210\u957F\uFF08\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF09" : "\u8BD7\u8BCD\u4E0E\u683C\u5F8B\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09",
-                "aria-label": panelTab === "poetry" ? "\u8FD4\u56DE\u6210\u957F" : "\u6253\u5F00\u8BD7\u8BCD\u4E8C\u7EA7\u83DC\u5355",
-                onClick: () => openPanelTab(panelTab === "poetry" ? "growth" : "poetry")
-              }, panelTab === "poetry" ? "\u2190 \u8FD4\u56DE" : "\u8BD7\u8BCD"),
               h("button", {
                 type: "button",
                 className: "dshp-icon-btn",
@@ -5772,7 +5762,41 @@
                 onClick: () => panelTab === "poetry" ? setPoetryTab(tab.id) : openPanelTab(tab.id)
               }, tab.label))
             ),
-            h("div", { className: "dshp-panel-body" }, renderPanelTab())
+            h("div", { className: "dshp-panel-body" }, renderPanelTab()),
+            h(
+              "div",
+              { className: "dshp-panel-foot" },
+              panelTab === "poetry" ? [
+                h("button", {
+                  key: "back",
+                  type: "button",
+                  className: "dshp-foot-link",
+                  "aria-label": "\u8FD4\u56DE\u6210\u957F",
+                  title: "\u8FD4\u56DE\u6210\u957F",
+                  onClick: () => openPanelTab("growth")
+                }, "\u2190 \u8FD4\u56DE\u6210\u957F"),
+                h("button", {
+                  key: "tour",
+                  type: "button",
+                  className: "dshp-foot-link dshp-foot-link-accent",
+                  "aria-label": "\u9010\u9875\u770B\u8BD7\u7B3A",
+                  title: "\u4EE5\u8BD7\u7B3A\u6C14\u6CE1\u9010\u9875\u770B\u4ECA\u65E5\u8BD7",
+                  onClick: () => {
+                    if (typeof startPoetryTour === "function") startPoetryTour();
+                  }
+                }, "\u9010\u9875\u770B\u8BD7\u7B3A")
+              ] : [
+                h("span", { key: "hint", className: "dshp-foot-hint" }, "\u66F4\u591A"),
+                h("button", {
+                  key: "poetry",
+                  type: "button",
+                  className: "dshp-foot-link",
+                  "aria-label": "\u6253\u5F00\u8BD7\u8BCD\u4E8C\u7EA7\u83DC\u5355",
+                  title: "\u8BD7\u8BCD\u4E0E\u683C\u5F8B\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09",
+                  onClick: () => openPanelTab("poetry")
+                }, "\u8BD7\u8BCD\u4E0E\u683C\u5F8B \u203A")
+              ]
+            )
           );
         }
         const rootSize = settings.hidden ? 28 : mascotSize;
@@ -5806,7 +5830,7 @@
         return h(
           "div",
           {
-            "data-dsh-poetry-widget": "root",
+            "data-dsh-little-whale": "root",
             "data-dshp-hidden": settings.hidden ? "true" : "false",
             className: "dshp-root",
             style: rootStyle
@@ -6510,7 +6534,7 @@
           h(
             "div",
             { className: "dshp-about" },
-            h("div", null, "\u8BD7\u8BCD\u683C\u5F8B\u6302\u4EF6 v" + String(version)),
+            h("div", null, "\u5C0F\u9CB8\u9C7C v" + String(version)),
             h("div", null, "\u6570\u636E\u7248\u672C\uFF1A" + String(dataVersion)),
             h("div", null, "\u6570\u636E\u6E90\uFF1Achinese-poetry\uFF08MIT\uFF09\xB7 \u8BD7\u8BCD\u4E3A\u516C\u7248\u6587\u672C"),
             source.commit ? h("div", null, "\u6E90\u63D0\u4EA4\uFF1A" + String(source.commit).slice(0, 12)) : null,
@@ -7377,7 +7401,7 @@
         }
         componentDidCatch(error) {
           try {
-            console.warn("[dsh-poetry-widget] \u6E32\u67D3\u5F02\u5E38\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u6700\u5C0F\u5F62\u8C61\uFF1A", error);
+            console.warn("[dsh-little-whale] \u6E32\u67D3\u5F02\u5E38\uFF0C\u5DF2\u964D\u7EA7\u4E3A\u6700\u5C0F\u5F62\u8C61\uFF1A", error);
           } catch (ignored) {
           }
         }
@@ -7389,7 +7413,7 @@
           return h(
             "div",
             {
-              "data-dsh-poetry-widget": "root",
+              "data-dsh-little-whale": "root",
               className: "dshp-root",
               style: {
                 position: "fixed",
@@ -7407,7 +7431,7 @@
             h("style", null, CSS),
             h("img", {
               src: mascotUrl(MASCOT_FILES.celebrate),
-              alt: "\u8BD7\u8BCD\u683C\u5F8B\u6302\u4EF6",
+              alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
               width: 64,
               height: 64,
               draggable: false,
@@ -7429,7 +7453,7 @@
         ));
         try {
           if (ctx.logger && typeof ctx.logger.info === "function") {
-            ctx.logger.info("dsh-poetry-widget: \u5DF2\u6CE8\u518C shell.overlay \u6302\u4EF6");
+            ctx.logger.info("dsh-little-whale: \u5DF2\u6CE8\u518C shell.overlay \u6302\u4EF6");
           }
         } catch (error) {
         }

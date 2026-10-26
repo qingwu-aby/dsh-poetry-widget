@@ -1,6 +1,6 @@
-# 诗词格律挂件 · dsh-poetry-widget
+# 小鲸鱼 · dsh-little-whale
 
-DeepSeek Harness（DSH）Web 界面的常驻诗词挂件（默认停在左下角，可拖拽/吸附）：**每日一诗 + 逐字平仄 + 体式解析**，并把基础的诗词格律知识做成可以随手翻的小课堂。
+DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自学、读小说、看大家说话，也有分层记忆与自己的声音；诗词与格律降权为二级菜单，偶尔想读诗时还能翻翻。
 
 > 角色形象使用鲸鱼娘 celebrate 立绘（来自 [dsh-whale-musume](https://github.com/Sutera-Diffusus/dsh-whale-musume)，MIT；详见 [PROVENANCE.md](./PROVENANCE.md)）。
 > 数据来自 [chinese-poetry](https://github.com/chinese-poetry/chinese-poetry)（MIT）。
@@ -62,7 +62,7 @@ target: <本项目绝对路径，即包含 package.json 的那一层>
 
 首次安装后如未出现挂件，完全退出客户端再打开；之后前端改动刷新页面即可，宿主 `index.js` 改动需要重启宿主。
 
-### 从 GitHub 安装（插件市场同款，推荐分享给他人）
+### 从 GitHub 安装（仓库名暂未改，仍是 dsh-poetry-widget）
 
 ```sh
 dsh plugin --profile web add github:qingwu-aby/dsh-poetry-widget
@@ -72,7 +72,7 @@ dsh plugin --profile web add github:qingwu-aby/dsh-poetry-widget
 ### 从 npm 安装（发布后可用）
 
 ```sh
-dsh plugin --profile web add dsh-poetry-widget
+dsh plugin --profile web add dsh-little-whale
 ```
 
 ### 本地开发安装（link）
@@ -111,9 +111,9 @@ dsh plugin --profile web add link:<本项目绝对路径>
 ## 卸载
 
 ```sh
-# 桌面端：在会话里让宿主内置 plugin_manager 执行 remove_bundle，target=dsh-poetry-widget
+# 桌面端：在会话里让宿主内置 plugin_manager 执行 remove_bundle，target=dsh-little-whale
 # 命令行 dsh web：
-dsh plugin --profile web remove dsh-poetry-widget
+dsh plugin --profile web remove dsh-little-whale
 ```
 
 卸载后挂件与路由立即消失；用户数据在 `$DSH_HOME/.dsh-poetry/settings.json`，不需要可手动删除。

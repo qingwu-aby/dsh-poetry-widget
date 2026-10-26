@@ -649,13 +649,13 @@ function expectedPoemId(date, dataVersion, ids) {
 // ---------------------------------------------------------------------------
 
 test('index.js 导出 name 与 apply（Cordis 插件形状）', () => {
-  assert.equal(pluginName, 'dsh-poetry-widget')
+  assert.equal(pluginName, 'dsh-little-whale')
   assert.equal(typeof pluginApply, 'function')
 })
 
 test('package.json 是版本号唯一来源', () => {
   const meta = readPackageMeta(path.join(import.meta.dirname, '..', 'package.json'))
-  assert.equal(meta.name, 'dsh-poetry-widget')
+  assert.equal(meta.name, 'dsh-little-whale')
   assert.match(meta.version, /^\d+\.\d+\.\d+/)
   // 读不到时安全回退
   assert.deepEqual(readPackageMeta('/nonexistent/package.json'), { name: null, version: null })
@@ -3034,7 +3034,7 @@ function writeFeihuaShard(dir, char, entries) {
 
 test('feihua-full：resolveFeihuaFullDir（env 覆盖/默认项目同级 _ref）', () => {
   assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '/tmp/full-index' }, '/pkg/app'), '/tmp/full-index')
-  assert.equal(resolveFeihuaFullDir({}, '/a/b/dsh-poetry-widget'), '/a/b/_ref/feihua-full')
+  assert.equal(resolveFeihuaFullDir({}, '/a/b/dsh-little-whale'), '/a/b/_ref/feihua-full')
   assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '   ' }, '/a/b/pkg'), '/a/b/_ref/feihua-full')
   assert.equal(resolveFeihuaFullDir({ DSH_POETRY_FULL_INDEX: '  /tmp/x  ' }, '/pkg'), '/tmp/x')
 })
@@ -3337,7 +3337,7 @@ function writePetVideo(dir) {
 
 test('pet-media：resolvePetMediaDir（env 覆盖/默认项目同级 _ref）', () => {
   assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '/tmp/pet-media' }, '/pkg/app'), '/tmp/pet-media')
-  assert.equal(resolvePetMediaDir({}, '/a/b/dsh-poetry-widget'), '/a/b/_ref/pet-media')
+  assert.equal(resolvePetMediaDir({}, '/a/b/dsh-little-whale'), '/a/b/_ref/pet-media')
   assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '   ' }, '/a/b/pkg'), '/a/b/_ref/pet-media')
   assert.equal(resolvePetMediaDir({ DSH_PET_MEDIA_DIR: '  /tmp/x  ' }, '/pkg'), '/tmp/x')
 })

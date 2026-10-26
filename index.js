@@ -1,4 +1,4 @@
-// dsh-poetry-widget —— 宿主半区（M2）。
+// dsh-little-whale —— 宿主半区（M2）。
 //
 // 职责（契约 docs/contract.md §1/§2/§3）：
 //   · 静态资源：GET /api/dsh-poetry/assets?f=<相对路径>（M0 形态，只读、越界 404）；
@@ -67,7 +67,7 @@ import { createTrustFence } from './lib/trust.mjs'
 import { createWeatherService } from './lib/weather.mjs'
 
 /** Cordis 插件名（loader 诊断用；与 package.json 的 dsh.bundle 行 id 一致）。 */
-export const name = 'dsh-poetry-widget'
+export const name = 'dsh-little-whale'
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(import.meta.url))
 const PACKAGE_META = readPackageMeta(path.join(PACKAGE_ROOT, 'package.json'))
@@ -97,11 +97,11 @@ export async function apply(ctx) {
     const migrationReport = runMemoryMigrations({ env, home, logger })
     if (migrationReport.applied.length > 0) {
       logger?.info?.(
-        `[dsh-poetry-widget] 记忆迁移：${migrationReport.applied.map((item) => `${item.id}→v${item.to}`).join('、')}`,
+        `[dsh-little-whale] 记忆迁移：${migrationReport.applied.map((item) => `${item.id}→v${item.to}`).join('、')}`,
       )
     }
   } catch (error) {
-    logger?.warn?.(`[dsh-poetry-widget] 记忆迁移异常：${error instanceof Error ? error.message : String(error)}`)
+    logger?.warn?.(`[dsh-little-whale] 记忆迁移异常：${error instanceof Error ? error.message : String(error)}`)
   }
 
   // v1.58：插件不再监听任何会话事件、也不统计对话活跃度——她的上下文/记忆与对话完全独立。
@@ -110,10 +110,10 @@ export async function apply(ctx) {
     const legacyMoodFile = path.join(settingsPath.dir, 'mood.json')
     if (existsSync(legacyMoodFile)) {
       renameSync(legacyMoodFile, `${legacyMoodFile}.retired-${Date.now()}`)
-      logger?.info?.('[dsh-poetry-widget] 已停用会话统计 mood.json（改名为 .retired）')
+      logger?.info?.('[dsh-little-whale] 已停用会话统计 mood.json（改名为 .retired）')
     }
   } catch (error) {
-    logger?.warn?.(`[dsh-poetry-widget] 旧 mood.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
+    logger?.warn?.(`[dsh-little-whale] 旧 mood.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
   // v1.59：不再读取外部 experience.json——她的“正在体会”由她自己写进 self-state。
   // 旧文件改名 .retired 保留，不参与记忆中枢。
@@ -121,10 +121,10 @@ export async function apply(ctx) {
     const legacyExperienceFile = path.join(settingsPath.dir, 'experience.json')
     if (existsSync(legacyExperienceFile)) {
       renameSync(legacyExperienceFile, `${legacyExperienceFile}.retired-${Date.now()}`)
-      logger?.info?.('[dsh-poetry-widget] 已停用外部 experience.json（改名为 .retired）')
+      logger?.info?.('[dsh-little-whale] 已停用外部 experience.json（改名为 .retired）')
     }
   } catch (error) {
-    logger?.warn?.(`[dsh-poetry-widget] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
+    logger?.warn?.(`[dsh-little-whale] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
 
   host.inject(['webServer', 'connection'], (hostCtx) => {
@@ -138,7 +138,7 @@ export async function apply(ctx) {
       const settingsStore = createSettingsStore({
         file: settingsPath.file,
         knownPoemIds: () => dataStore.knownPoemIds(),
-        onWarn: (message) => logger?.warn?.(`[dsh-poetry-widget] ${message}`),
+        onWarn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
       })
       const fence = createTrustFence({ getConnection: () => connection, logger })
       // 天气服务：Open-Meteo 免密钥；fetch 用宿主 Node 的全局 fetch，请求 6s 超时、进程内缓存。
@@ -200,9 +200,9 @@ export async function apply(ctx) {
       const feelingBank = loadFeelingBank({ path: feelingsPath, logger })
       const topicSnapshot = topicBank.read()
       if (topicSnapshot.ok === true) {
-        logger?.info?.(`[dsh-poetry-widget] 碎碎念话题库：${topicsPath}（${topicSnapshot.entries.length} 个话题）`)
+        logger?.info?.(`[dsh-little-whale] 碎碎念话题库：${topicsPath}（${topicSnapshot.entries.length} 个话题）`)
       } else {
-        logger?.warn?.(`[dsh-poetry-widget] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
+        logger?.warn?.(`[dsh-little-whale] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
       }
       // v1.71：人类式分层记忆——原文仍全在 journal；另外维护“更早的回忆概括 + 自我短句”。
       const layersPath = resolveMemoryLayersPath(env, home)
@@ -227,13 +227,13 @@ export async function apply(ctx) {
         env,
       })
       memoryConsolidator.start()
-      logger?.info?.(`[dsh-poetry-widget] 分层记忆：${layersPath}（每日整合）`)
+      logger?.info?.(`[dsh-little-whale] 分层记忆：${layersPath}（每日整合）`)
       serviceRuntime.register('记忆整合', {
         dispose: () => {
           try {
             memoryConsolidator.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 记忆整合清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 记忆整合清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -248,13 +248,13 @@ export async function apply(ctx) {
         logger,
       })
       voiceService.start()
-      logger?.info?.(`[dsh-poetry-widget] 声音档案：${voiceService.voicePath}`)
+      logger?.info?.(`[dsh-little-whale] 声音档案：${voiceService.voicePath}`)
       serviceRuntime.register('声音档案', {
         dispose: () => {
           try {
             voiceService.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 声音档案清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 声音档案清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -273,16 +273,16 @@ export async function apply(ctx) {
       const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
       const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
       if (petCatalog.ok === true) {
-        logger?.info?.(`[dsh-poetry-widget] 心情动画素材：${petMediaDir}（${petCatalog.entries.length} 个视频）`)
+        logger?.info?.(`[dsh-little-whale] 心情动画素材：${petMediaDir}（${petCatalog.entries.length} 个视频）`)
       } else if (petMediaDirExists(petMediaDir)) {
-        logger?.warn?.(`[dsh-poetry-widget] 心情动画素材不可用：${petCatalog.message}（mood-ai 仅用静态图）`)
+        logger?.warn?.(`[dsh-little-whale] 心情动画素材不可用：${petCatalog.message}（mood-ai 仅用静态图）`)
       } else {
-        logger?.warn?.(`[dsh-poetry-widget] 心情动画素材目录不存在（mood-ai 仅用静态图）：${petMediaDir}`)
+        logger?.warn?.(`[dsh-little-whale] 心情动画素材目录不存在（mood-ai 仅用静态图）：${petMediaDir}`)
       }
       // 模型心情：启动时读包内 92 张心情图鉴（缺失 → 服务降级为 MOOD_AI_UNAVAILABLE，不抛）。
       const moodCatalog = loadMoodCatalog()
       if (moodCatalog.ok !== true) {
-        logger?.warn?.(`[dsh-poetry-widget] 心情图鉴不可用：${moodCatalog.message}`)
+        logger?.warn?.(`[dsh-little-whale] 心情图鉴不可用：${moodCatalog.message}`)
       }
       const moodCatalogForAi =
         petCatalog.ok === true && petCatalog.entries.length > 0
@@ -304,10 +304,10 @@ export async function apply(ctx) {
       const feihuaFullDir = resolveFeihuaFullDir(env, PACKAGE_ROOT)
       const feihuaFullService = createFeihuaFullService({ dir: feihuaFullDir, logger })
       if (existsSync(feihuaFullDir)) {
-        logger?.info?.(`[dsh-poetry-widget] 飞花令全量校验目录：${feihuaFullDir}`)
+        logger?.info?.(`[dsh-little-whale] 飞花令全量校验目录：${feihuaFullDir}`)
       } else {
         logger?.warn?.(
-          `[dsh-poetry-widget] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
+          `[dsh-little-whale] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
         )
       }
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
@@ -334,7 +334,7 @@ export async function apply(ctx) {
         }
         selfState.setGrowthCounts({ learnings, reflections })
       } catch (error) {
-        logger?.warn?.(`[dsh-poetry-widget] 成长计数校正失败：${error instanceof Error ? error.message : String(error)}`)
+        logger?.warn?.(`[dsh-little-whale] 成长计数校正失败：${error instanceof Error ? error.message : String(error)}`)
       }
       const growth = createSelfGrowth({
         state: selfState,
@@ -356,7 +356,7 @@ export async function apply(ctx) {
       })
       growth.start()
       logger?.info?.(
-        `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
+        `[dsh-little-whale] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
       const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate']
         .map((role) => {
@@ -375,18 +375,18 @@ export async function apply(ctx) {
           return `${MODEL_POLICY_ROLE_LABELS[role] ?? role}=[${list || 'none'}]`
         })
         .join('; ')
-      logger?.info?.(`[dsh-poetry-widget] 模型候选：${candidateText}`)
+      logger?.info?.(`[dsh-little-whale] 模型候选：${candidateText}`)
       serviceRuntime.register('自驱成长', {
         dispose: () => {
           try {
             growth.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 自驱成长清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 自驱成长清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
           try {
             selfState.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 状态清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 状态清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -397,7 +397,7 @@ export async function apply(ctx) {
       memoryHub.start()
       const memorySnapshot = memoryHub.snapshot()
       logger?.info?.(
-        `[dsh-poetry-widget] 记忆中枢：${memorySnapshot.files.length} 个文件 / 上次备份 ${
+        `[dsh-little-whale] 记忆中枢：${memorySnapshot.files.length} 个文件 / 上次备份 ${
           memorySnapshot.backups.latestId ?? '无'
         }${memoryRecovery.recovered.length > 0 ? `（恢复 ${memoryRecovery.recovered.length} 个缺失文件）` : ''}`,
       )
@@ -406,7 +406,7 @@ export async function apply(ctx) {
           try {
             memoryHub.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 记忆中枢清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 记忆中枢清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -433,7 +433,7 @@ export async function apply(ctx) {
       selfDrive.start()
       const actionSnapshot = selfDrive.snapshot()
       logger?.info?.(
-        `[dsh-poetry-widget] 自处循环已启动（${selfDrive.actionsPath}${
+        `[dsh-little-whale] 自处循环已启动（${selfDrive.actionsPath}${
           actionSnapshot.latest !== null ? `；上次：${actionSnapshot.latest.text}` : ''
         }）`,
       )
@@ -442,7 +442,7 @@ export async function apply(ctx) {
           try {
             selfDrive.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 自处循环清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 自处循环清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -461,7 +461,7 @@ export async function apply(ctx) {
       })
       selfWander.start()
       logger?.info?.(
-        `[dsh-poetry-widget] 网络溜达已启动（间隔 3h；${
+        `[dsh-little-whale] 网络溜达已启动（间隔 3h；${
           String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
         }）`,
       )
@@ -470,7 +470,7 @@ export async function apply(ctx) {
           try {
             selfWander.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 网络溜达清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 网络溜达清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -489,7 +489,7 @@ export async function apply(ctx) {
       })
       selfReading.start()
       logger?.info?.(
-        `[dsh-poetry-widget] 读小说已启动（间隔 4h；${
+        `[dsh-little-whale] 读小说已启动（间隔 4h；${
           String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
         }）`,
       )
@@ -498,7 +498,7 @@ export async function apply(ctx) {
           try {
             selfReading.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 读小说清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 读小说清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -517,7 +517,7 @@ export async function apply(ctx) {
       })
       selfNetlang.start()
       logger?.info?.(
-        `[dsh-poetry-widget] 看大家说话已启动（间隔 8h；${
+        `[dsh-little-whale] 看大家说话已启动（间隔 8h；${
           String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
         }）`,
       )
@@ -526,7 +526,7 @@ export async function apply(ctx) {
           try {
             selfNetlang.dispose()
           } catch (error) {
-            logger?.warn?.(`[dsh-poetry-widget] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
+            logger?.warn?.(`[dsh-little-whale] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
       })
@@ -612,7 +612,7 @@ export async function apply(ctx) {
             try {
               dispose()
             } catch (error) {
-              logger?.warn?.(`[dsh-poetry-widget] 路由注销失败：${error instanceof Error ? error.message : String(error)}`)
+              logger?.warn?.(`[dsh-little-whale] 路由注销失败：${error instanceof Error ? error.message : String(error)}`)
             }
           }
         },
@@ -625,17 +625,17 @@ export async function apply(ctx) {
             serviceRuntime.disposeAll()
           }
         },
-        'dsh-poetry-widget: 后台服务',
+        'dsh-little-whale: 后台服务',
       )
       logger?.info?.(
-        `[dsh-poetry-widget] 已挂载 ${routes.length + 5} 条路由（assets + pet-media + self + memory + model-errors + ${routes.length} 条 JSON，version ${VERSION}，` +
+        `[dsh-little-whale] 已挂载 ${routes.length + 5} 条路由（assets + pet-media + self + memory + model-errors + ${routes.length} 条 JSON，version ${VERSION}，` +
           `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
       )
-      logger?.info?.(`[dsh-poetry-widget] 自主记忆日志目录：${memoryDir}`)
+      logger?.info?.(`[dsh-little-whale] 自主记忆日志目录：${memoryDir}`)
     } catch (error) {
       // 路由注册失败只影响本插件，不能让宿主 apply 抛未捕获异常。
       logger?.error?.(
-        `[dsh-poetry-widget] 路由注册失败：${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        `[dsh-little-whale] 路由注册失败：${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
       )
     }
   })

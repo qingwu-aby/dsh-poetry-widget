@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-poetry-widget 集成验收脚本（Lead 用）。
+ * dsh-little-whale 集成验收脚本（Lead 用）。
  *
  * 覆盖：插件包静态结构 → 数据产物契约抽检 → desktop profile 安装态 → 宿主路由存活。
  * 浏览器内的视觉/交互仍需 cordis_inspect_query + 用户确认（脚本不做 DOM 断言）。
@@ -50,7 +50,7 @@ const kb = (n) => (n / 1024).toFixed(1) + ' KB'
 
 // ---------- 1. 包结构 ----------
 const pkg = readJson('package.json')
-check('package.json name', pkg.name === 'dsh-poetry-widget', pkg.name)
+check('package.json name', pkg.name === 'dsh-little-whale', pkg.name)
 check('package.json dsh.bundle.patch', pkg?.dsh?.bundle?.patch === './cordis.patch.yml')
 check('package.json dsh.client.platform=web', pkg?.dsh?.client?.platform === 'web')
 check('dsh.client.inject 含 slots', (pkg?.dsh?.client?.inject || []).includes('slots'))
@@ -174,9 +174,9 @@ for (const [rel, budget] of Object.entries(assetData)) {
 // ---------- 3. profile 安装态 ----------
 try {
   const profilePkg = JSON.parse(fs.readFileSync(path.join(PROFILE, 'package.json'), 'utf8'))
-  const dep = profilePkg?.dependencies?.['dsh-poetry-widget']
+  const dep = profilePkg?.dependencies?.['dsh-little-whale']
   check('desktop profile 记录了插件依赖', Boolean(dep), dep || 'missing')
-  check('desktop profile bundles 含 dsh-poetry-widget', (profilePkg?.dsh?.profile?.bundles || []).includes('dsh-poetry-widget'))
+  check('desktop profile bundles 含 dsh-little-whale', (profilePkg?.dsh?.profile?.bundles || []).includes('dsh-little-whale'))
   const linked = (dep || '').startsWith('link:') && path.resolve((dep || '').slice(5)) === ROOT
   check('依赖为 link: 到本项目目录', linked, dep || '')
 } catch (e) {
