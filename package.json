@@ -75,6 +75,7 @@
     "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning",
     "smoke": "node scripts/live-smoke.mjs",
     "archive:memory": "node scripts/archive-memory.mjs",
-    "archive:memory:dry": "node scripts/archive-memory.mjs -- --dry-run"
+    "archive:memory:dry": "node scripts/archive-memory.mjs -- --dry-run",
+    "experiment:loop": "node scripts/experiment-loop-scope.mjs"
   }
 }

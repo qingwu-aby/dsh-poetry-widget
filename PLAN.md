@@ -1187,3 +1187,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive：prompt 输出 topic（同一件事同一句）；prompt 带事件状态；动作执行前 events.observe，饱和则暂停（paused/satiated）；动作保存 topic。
 - index/archive：events.json；health.runtime.events。
 - 测试：饱和/换题/冷却、驱动暂停；host 261，全套 425/425。
+
+## 120. 打转机制有效范围实验（M116，2026-10-26）
+
+- `scripts/experiment-loop-scope.mjs`：脚本化 LLM + 真实模块；A-F 场景。
+- 结果：A 3 动作/3 暂停，事件 satiated；B 6 动作/0 暂停（换 topic 标签绕过）；C 0 动作（反刍无入口）；D 碎碎念 4 次生成无饱和；E 作品 4 件无饱和。
+- 结论：有效范围 = self-drive 动作层 × 精确 topic × ≤3 次；需要语义 topic、共享事件状态、关闭记忆、跨服务接入。
+- 下一轮优化（v2.19+）：事件总线/共享事件 id；语义 topic 解析；journal/self-talk/mood 的关闭标记；承诺例外。
