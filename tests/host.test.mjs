@@ -241,6 +241,7 @@ import {
 import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/llm-call.mjs'
 import {
   buildConsolidationPrompt,
+  countJournalEntries,
   createMemoryConsolidator,
   createMemoryLayers,
   parseConsolidationResult,
@@ -10045,4 +10046,50 @@ test('memory-baseline v2.6：归档/首次安装后创建空白记忆容器，�
   const second = seedMemoryBaseline({ env, home: dir })
   assert.equal(second.includes('topics.json'), false, '已有文件不动')
   assert.equal(JSON.parse(fs.readFileSync(path.join(memoryDir, 'topics.json'), 'utf8')).topics.length, 1)
+})
+
+test('memory-layers v2.7：多批整合 + backlog 统计（吞吐跟上经历）', async () => {
+  const dir = makeTmpDir('dshp-layers-batch')
+  const layersPath = path.join(dir, 'memory-layers.json')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const now = FIXED_NOW.getTime()
+  const day = 24 * 60 * 60 * 1000
+  const entries = [
+    { ts: now - 3 * day, kind: 'murmur', text: '三天前的下午，我把窗台那盆薄荷转了个方向。' },
+    { ts: now - 3 * day + 60_000, kind: 'murmur', text: '三天前的下午，我把窗台那盆薄荷转了个方向呀。' },
+    { ts: now - 3 * day + 120_000, kind: 'mood', label: '安静', reason: '窗台有光' },
+    { ts: now - 3 * day + 180_000, kind: 'murmur', text: '后来发现叶背有一小块干斑，我用指尖沾水按了按。' },
+  ]
+  fs.writeFileSync(journalPath, entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n', 'utf8')
+  const layers = createMemoryLayers({ file: layersPath, logger: { warn() {} } })
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      summary: '那几天我一直在照看窗台那盆薄荷，转方向、看叶背，也注意到光落在上面的样子。',
+      selfFacts: ['我对窗台上的植物会记得很清楚。'],
+    }),
+  )
+  const consolidator = createMemoryConsolidator({
+    layers,
+    journalPath,
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'consolidate' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => now,
+    intervalMs: 0,
+    minAgeMs: 2 * day,
+    batchMax: 2,
+    maxBatchesPerRun: 2,
+  })
+  const before = countJournalEntries(journalPath, { before: now - 2 * day, after: 0 })
+  assert.equal(before.count, 4, '四天前的条目都在 backlog 里')
+  const run = await consolidator.consolidateNow({ force: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.epochsAdded ?? run.episodesAdded, 2, '两批各生成一段回忆')
+  assert.equal(run.entryCount, 4)
+  const after = readMemoryLayers(layersPath)
+  assert.equal(after.episodes.length, 2)
+  assert.equal(after.selfFacts.length, 1, '近似短句只保留一条')
+  const remaining = countJournalEntries(journalPath, { before: now - 2 * day, after: after.consolidatedThrough })
+  assert.equal(remaining.count, 0, 'backlog 被清空')
+  consolidator.dispose()
 })

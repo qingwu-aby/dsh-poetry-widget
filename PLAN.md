@@ -1100,3 +1100,13 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 原因：`topics.json` 在登记表里是必选（optional:false），归档搬走后缺失 → error；另有 voice/topics-candidates/memory-layers 可选缺失 → warn。
 - 修复：`lib/memory-baseline.mjs` 的 `seedMemoryBaseline` 在插件启动（apply）和归档脚本结束时创建缺失的空白容器：topics.json `{topics:[]}`、voice.json 空、topics-candidates `{candidates:[]}`、feelings `{feelings:[]}`、memory-layers 空结构、journal/learning-log 空、self-state v2 空、self-actions `{actions:[]}`；只创建不覆盖。
 - 验证：live hub health 从 error → **ok**；测试 411/411（新增空白容器用例）。
+
+## 109. 记忆整合吞吐升级（M105，2026-10-26）
+
+- 用户同意 P0：先修“经历 → 回忆”的转化率，而不是继续提高频率。
+- 常量：`MEMORY_LAYERS_BATCH_MAX=800`、`MEMORY_LAYERS_INTERVAL_MS=6h`、`MEMORY_LAYERS_MAX_BATCHES_PER_RUN=2`、`MEMORY_LAYERS_SNIPPET_MAX=120`。
+- `consolidateNow`：循环最多 2 批，每批 readJournalBefore(limit=batchMax) → 聚合 → 模型 → episode；episode id 带批次号；返回 episodesAdded/summaries/entryCount。
+- 聚合：同 2h mood 合并、murmur/thought bigram Jaccard≥0.85 去重；原文不动。
+- backlog：`countJournalEntries` + `snapshot().backlog{entries,oldestAt}`（60s 缓存）；设置页运行状态显示 backlog。
+- 检索：`MEMORY_RECALL_JOURNAL_LINES=800`；self-talk digest clamp 2400。
+- 测试：多批整合/backlog 清零用例；全套 412/412。

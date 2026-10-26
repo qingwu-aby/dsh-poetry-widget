@@ -1438,6 +1438,8 @@ window.__ModuleLoader__.load({
    const budget = runtime.budget && typeof runtime.budget === 'object' ? runtime.budget : null
    const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === 'object' ? runtime.heartbeat : null
    const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === 'object' ? runtime.modelErrors : null
+   const consolidate = runtime.consolidate && typeof runtime.consolidate === 'object' ? runtime.consolidate : null
+   const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === 'object' ? consolidate.backlog : null
    const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : []
    const counts = budget && budget.counts && typeof budget.counts === 'object' ? budget.counts : {}
    const roleCounts = Object.keys(counts)
@@ -1460,6 +1462,8 @@ window.__ModuleLoader__.load({
     })),
     activeJobs: num(heartbeat && heartbeat.pulses, 0),
     modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
+    memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
+    memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === 'number' ? memoryBacklog.oldestAt : null,
     modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === 'object'
      ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4)
      : [],

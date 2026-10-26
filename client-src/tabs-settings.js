@@ -102,6 +102,11 @@ function renderHealthStatus() {
    h('div', { className: 'dshp-health-line' }, budgetLine + (health.day ? ' · ' + health.day : '')),
    roles ? h('div', { className: 'dshp-health-line' }, '调用：' + roles) : null,
    h('div', { className: 'dshp-health-line' }, '心跳：' + jobLine),
+   health.memoryBacklog !== null
+    ? h('div', { className: 'dshp-health-line' }, health.memoryBacklog === 0
+     ? '记忆整合：已追平'
+     : '记忆整合 backlog：' + health.memoryBacklog + ' 条' + (health.memoryBacklogOldestAt ? '（最早 ' + new Date(health.memoryBacklogOldestAt).toLocaleTimeString('zh-CN', { hour12: false }) + '）' : ''))
+    : null,
    h('div', { className: 'dshp-health-line' }, errorLine),
   ),
  )

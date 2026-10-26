@@ -160,3 +160,4 @@
 | H57 | client 纯逻辑模块化 | ✅ | mood-engine / self-talk-client 独立模块；client.js 5,271 行；410/410 |
 | H58 | 记忆/状态归档与重新开始 | ✅ | `npm run archive:memory` 归档全部个人记忆/状态（manifest+sha256，可 restore）；settings 保留；已执行 20261026-173151，重启后状态空白、journal 新写 |
 | H59 | 归档后记忆中枢健康 | ✅ | `seedMemoryBaseline` 在启动/归档后补空白容器；hub health 恢复 ok；修复归档后 error；411/411 |
+| H60 | 记忆整合吞吐/backlog | ✅ | 6h/800/2 批 + 输入聚合；`health.runtime.consolidate.backlog`；设置页显示 backlog；412/412 |
