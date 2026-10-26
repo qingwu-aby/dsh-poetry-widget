@@ -215,6 +215,14 @@ import {
   readingApiUrl,
 } from '../lib/self-reading.mjs'
 import {
+  buildConsolidationPrompt,
+  createMemoryConsolidator,
+  createMemoryLayers,
+  parseConsolidationResult,
+  readMemoryLayers,
+  resolveMemoryLayersPath,
+} from '../lib/memory-layers.mjs'
+import {
   SELF_NETLANG_GAP_MS,
   SELF_NETLANG_SOURCES,
   buildNetlangPrompt,
@@ -6170,6 +6178,7 @@ function seedMemoryFiles(paths, overrides = {}) {
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
     'topics-archive.jsonl': '',
     'feelings.json': JSON.stringify({ ok: true, v: 1, feelings: [{ name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。', createdAt: 1700000000000 }] }),
+    'memory-layers.json': JSON.stringify({ ok: true, v: 1, consolidatedThrough: 0, episodes: [], selfFacts: [] }),
     'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
     'self-actions.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, actions: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 1700000000000 }] }),
   }
@@ -6212,21 +6221,23 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 11 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/self-actions.json）', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 12 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/memory-layers.json/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'feelings.json', 'self-state.json', 'self-actions.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'feelings.json', 'memory-layers.json', 'self-state.json', 'self-actions.json'],
   )
   assert.equal(paths.files[7].path, '/tmp/dsh-home/agent-memory/topics-archive.jsonl')
   assert.equal(paths.files[7].optional, true)
   assert.equal(paths.files[8].path, '/tmp/dsh-home/agent-memory/feelings.json')
   assert.equal(paths.files[8].optional, true)
-  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/self-state.json')
-  assert.equal(paths.files[10].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
+  assert.equal(paths.files[9].path, '/tmp/dsh-home/agent-memory/memory-layers.json')
+  assert.equal(paths.files[9].optional, true)
+  assert.equal(paths.files[10].path, '/tmp/dsh-home/.dsh-poetry/self-state.json')
+  assert.equal(paths.files[11].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
   assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
   assert.equal(paths.files[3].optional, true)
@@ -6238,7 +6249,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 11)
+  assert.equal(healthy.files.length, 12)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
@@ -6273,7 +6284,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 10, '只复制存在的 10 个文件（README 缺失）')
+  assert.equal(first.backup.files, 11, '只复制存在的 11 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -6404,7 +6415,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 11)
+  assert.equal(get.json().files.length, 12)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)
@@ -6911,6 +6922,100 @@ test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的�
     },
   })
   assert.equal((await disabled.lookNow()).reason, 'disabled')
+})
+
+test('memory-layers v1.71：旧记忆整合成一段回忆 + 自我短句（原文保留，检索有预算）', async () => {
+  assert.equal(resolveMemoryLayersPath({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice'), '/tmp/dsh-home/agent-memory/memory-layers.json')
+  const dir = makeTmpDir('dshp-layers')
+  const layersPath = path.join(dir, 'memory-layers.json')
+  const layers = createMemoryLayers({ file: layersPath, logger: { warn() {} } })
+  assert.equal(
+    layers.addEpisode({ id: 'ep-1', summary: '那几天我总在擦桌沿那道水痕，擦完又看它慢慢收干。', from: 1, to: 2, entryCount: 4, at: 3 }),
+    true,
+  )
+  assert.equal(layers.addSelfFacts(['我喜欢看人怎么做事。', '我喜欢看人怎么做事。', '不喜欢被催。']), 2, '重复的短句去重')
+  const reread = readMemoryLayers(layersPath)
+  assert.equal(reread.episodes.length, 1)
+  assert.equal(reread.selfFacts.length, 2)
+  assert.equal(reread.consolidatedThrough, 2)
+
+  // 整合 prompt/解析
+  const prompt = buildConsolidationPrompt({
+    snippets: ['今天把桌沿的水痕擦了，擦完又看它收干。', '楼下有人在弹琴，我听了一会儿。'],
+    knownFacts: ['我喜欢看人怎么做事。'],
+  })
+  assert.match(prompt, /整理成一段\*\*你自己的回忆\*\*/)
+  assert.match(prompt, /selfFacts/)
+  assert.match(prompt, /对称骨架/)
+  const parsed = parseConsolidationResult(
+    JSON.stringify({
+      summary: '那几天我总盯着桌沿那道水痕，擦掉又看它慢慢收干；傍晚楼下琴声飘上来，我手里的活停了一会儿。',
+      selfFacts: ['我喜欢看人怎么做事。', '我容易被细小的动静带走。'],
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.deepEqual(parsed.selfFacts, ['我喜欢看人怎么做事。', '我容易被细小的动静带走。'])
+
+  // 整合服务：几天前的 journal → 一段回忆 + 自我短句；原文不动
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const now = FIXED_NOW.getTime()
+  const day = 24 * 60 * 60 * 1000
+  fs.writeFileSync(
+    journalPath,
+    [
+      { ts: now - 5 * day, kind: 'murmur', text: '下午把桌沿那道水痕擦掉了，擦完又蹲着看它收干。' },
+      { ts: now - 4 * day, kind: 'thought', text: '傍晚楼下有人弹琴，我手里的活停了一会儿。' },
+      { ts: now - 1 * day, kind: 'murmur', text: '今天太新了，不该这么快被压成概括。' },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n') + '\n',
+    'utf8',
+  )
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      summary: '那几天我总盯着桌沿那道水痕，擦掉又看它慢慢收干；傍晚楼下琴声飘上来，我手里的活停了一会儿。',
+      selfFacts: ['我容易被细小的动静带走。'],
+    }),
+  )
+  const consolidator = createMemoryConsolidator({
+    layers,
+    journalPath,
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'consolidate' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => now,
+    intervalMs: 0,
+    minAgeMs: 3 * day,
+  })
+  const run = await consolidator.consolidateNow({ force: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.entryCount, 2, '只整合 3 天前的两条')
+  const after = readMemoryLayers(layersPath)
+  assert.equal(after.episodes.length, 2)
+  assert.match(after.episodes[1].summary, /水痕/)
+  assert.ok(after.selfFacts.some((item) => item.text.includes('细小的动静')))
+  assert.equal(after.consolidatedThrough, now - 4 * day)
+  const again = await consolidator.consolidateNow({ force: true })
+  assert.equal(again.skipped, true, '整合过的不重复处理')
+  // 原文仍在 journal 里（不删除）
+  const journalRaw = fs.readFileSync(journalPath, 'utf8')
+  assert.match(journalRaw, /桌沿那道水痕/)
+  consolidator.dispose()
+
+  // 检索层：自我短句一直注入，更早的回忆按相关性（无命中时给最近一条）
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    layersPath,
+    now: () => now,
+  })
+  const digest = recall.digest({ moodLabel: '安静' })
+  assert.ok(digest.selfFacts.length > 0)
+  assert.equal(digest.deepMemories.length, 1)
+  const formatted = formatMemoryDigest(digest)
+  assert.match(formatted, /更早以前的记忆（你自己整理过的概括）/)
+  assert.match(formatted, /你慢慢认出来的自己/)
 })
 
 test('memory-recall v1.63：旧时回声按相关性+预算挑更早的条目，不混入最近想法', () => {
@@ -7964,7 +8069,7 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
   assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
     mood: 'low',
@@ -7976,6 +8081,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     wander: 'low',
     read: 'low',
     netlang: 'low',
+    consolidate: 'low',
   })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
@@ -8012,6 +8118,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('wander').reasoningEffort, 'low', '溜达默认 low')
   assert.equal(envPolicy.resolve('read').reasoningEffort, 'low', '读小说默认 low')
   assert.equal(envPolicy.resolve('netlang').reasoningEffort, 'low', '看大家说话默认 low')
+  assert.equal(envPolicy.resolve('consolidate').reasoningEffort, 'low', '记忆整合默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({

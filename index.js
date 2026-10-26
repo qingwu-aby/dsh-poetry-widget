@@ -38,6 +38,7 @@ import { createRouteTable } from './lib/routes.mjs'
 import { SELF_STATE_ROUTE } from './lib/self-state.mjs'
 import { createSelfBeing, createSelfBeingHandler, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
+import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import {
   MODEL_ERRORS_ROUTE,
@@ -185,14 +186,40 @@ export async function apply(ctx) {
       } else {
         logger?.warn?.(`[dsh-poetry-widget] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
       }
-      // v1.33：记忆检索（只读 journal/learning-log/topics，供碎碎念与自驱成长使用）。
+      // v1.71：人类式分层记忆——原文仍全在 journal；另外维护“更早的回忆概括 + 自我短句”。
+      const layersPath = resolveMemoryLayersPath(env, home)
+      const memoryLayers = createMemoryLayers({ file: layersPath, logger })
+      // v1.33：记忆检索（只读 journal/learning-log/topics + 分层记忆，供碎碎念与自驱成长使用）。
       const memoryRecall = createMemoryRecall({
         journalPath: path.join(memoryDir, 'journal.jsonl'),
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
         topics: topicBank,
         topicsArchivePath,
         feelingsPath,
+        layersPath,
       })
+      // v1.71：每天把几天前的零碎记忆慢慢整合成一段回忆，并提炼“越来越清楚的自己”。
+      const memoryConsolidator = createMemoryConsolidator({
+        layers: memoryLayers,
+        journalPath: path.join(memoryDir, 'journal.jsonl'),
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        env,
+      })
+      memoryConsolidator.start()
+      logger?.info?.(`[dsh-poetry-widget] 分层记忆：${layersPath}（每日整合）`)
+      hostCtx.effect(
+        () => () => {
+          try {
+            memoryConsolidator.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 记忆整合清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 记忆整合',
+      )
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
       const voiceService = createVoiceService({
         getLlm,
@@ -315,7 +342,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate']
         .map((role) => {
           let candidates = []
           try {

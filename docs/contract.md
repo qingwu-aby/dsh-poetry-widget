@@ -458,6 +458,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 - **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
 - **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。
 
+- **v1.71（2026-10-26，M82）**：新增人类式分层记忆 `lib/memory-layers.mjs`——每日把两天前的 journal 原文整合成一段回忆概括（episode）并提炼 0–3 条自我短句（selfFacts）；原文不删除；memory-recall digest 增加「更早的概括（≤2）」与「自我短句（≤6，每次注入）」，检索确定性 + 预算；memory-hub 12 个文件；新增模型角色 `consolidate`。
 - **v1.70（2026-10-26，M81）**：窗口溜达暂时关闭（`WINDOW_WANDER_ENABLED=false`），不再自动换位置；跑步/运动素材限制与相关代码保留，可改回 true 恢复；互联网溜达不受影响。
 - **v1.69（2026-10-26，M80）**：读小说书单加入近代翻译公版作品（伍光建《侠隐记》、朱生豪《汉姆莱脱》、鲁迅《月界旅行》），只收译者也已进入公有领域的译本；支持子页面章节（斜杠不编码）；仍每天一次。
 - **v1.68（2026-10-26，M79）**：读小说放慢到 24h；新增 `lib/self-netlang.mjs`——每 8h 只读公开热搜（微博/B站白名单），模型角色 `netlang` 写「留意到的表达 + 自己更日常的一句」，记入 learning-log「· 看大家说话」，不保存别人的原话；`DSH_POETRY_NETLANG=off` 可关。

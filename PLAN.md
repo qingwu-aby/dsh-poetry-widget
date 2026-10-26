@@ -910,3 +910,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户：先别让她在窗口到处跑了。
 - 实现：client 增加 `WINDOW_WANDER_ENABLED = false`，溜达 effect 直接 return，不再换位置；跑步/运动素材过滤与拖拽暂停等代码保留，改回 true 即恢复。互联网溜达（Wikipedia/热搜）不受影响。
 - 单测：断言开关为 false；data 42 / host 229 / client 119 = 390/390。
+
+## 85. 人类式分层记忆（M82，2026-10-26）
+
+- 用户：对记忆进行分层，可按人类方式分深浅，保证记忆多了检索不卡顿，同时更好地让性格自我成型；让找相关论文。
+- 论文：MemGPT(2310.08560)、MemoryBank(2305.10250)、Generative Agents(2304.03442)、MemoryOS(2506.06326)、MemOS(2507.03724)、HippoRAG(2405.14831)、A-MEM(2502.12110)、RecMem(2605.16045)、PGMem(2608.01708)、SYNAPSE(2601.02744) 等；经典 Atkinson–Shiffrin、Tulving、CLS。笔记见 `docs/reading/memory-layering.md`。
+- 设计：L0 工作记忆（felt/在体会）→ L1 情景（journal 原文，只追加）→ L2 整合（memory-layers.json 的 episode 概括，每天一次整合两天前记忆）→ L3 自我/性格层（selfFacts，去重、每次注入 ≤6 条）→ 档案层（原文永远保留）。检索：确定性关键词 + 新近 + 固定预算（selfFacts ≤6、deepMemories ≤2、其余原有上限），不随记忆总量线性增长。
+- 实现：`lib/memory-layers.mjs`（读写/整合 prompt/解析/consolidator 定时器）；memory-recall digest 接入；memory-hub 登记 memory-layers.json（12 文件）；新增模型角色 `consolidate`；index 启动每日整合。
+- 不做：向量库/图索引/静默遗忘/LLM 检索裁判/人格打分。
+- 单测：data 42 / host 230 / client 119 = 391/391。
