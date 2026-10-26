@@ -9,7 +9,7 @@
 | 半区 | 文件 | 职责 |
 | --- | --- | --- |
 | Host（Node） | `index.js` + `lib/*.mjs` | 记忆、模型调用、后台循环、HTTP 路由、信任栅栏、静态素材 |
-| Client（浏览器） | `client.js`（由 `client-src/` 构建） | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互；源码 `client-src/client.js` + `styles.js` / `base.js` / `wander.js` / `library.js`，`npm run build:client`（esbuild）生成单 artifact |
+| Client（浏览器） | `client.js`（由 `client-src/` 构建） | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互；源码 `client-src/client.js` + `styles.js` / `base.js` / `wander.js` / `library.js` / `feihua.js`，`npm run build:client`（esbuild）生成单 artifact |
 
 Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读文件、不持有模型密钥。
 
