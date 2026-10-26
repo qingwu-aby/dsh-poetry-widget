@@ -204,6 +204,16 @@ import {
   parseWanderResult,
 } from '../lib/self-wander.mjs'
 import {
+  SELF_READING_GAP_MS,
+  SELF_READING_WORKS,
+  buildReadingPrompt,
+  cleanReadingHtml,
+  createSelfReading,
+  fetchReadingText,
+  parseReadingResult,
+  pickReadingExcerpt,
+} from '../lib/self-reading.mjs'
+import {
   SELF_ACTION_LABELS,
   SELF_ACTION_TEXTS,
   SELF_ACTIONS_MAX_ENTRIES,
@@ -6653,6 +6663,127 @@ test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的
   assert.equal((await disabledWander.wanderNow()).reason, 'disabled')
 })
 
+test('self-reading v1.67：读公版现代作品，留意写法并自己写一句（不抄句子）', async () => {
+  assert.equal(SELF_READING_GAP_MS, 4 * 60 * 60 * 1000)
+  assert.equal(SELF_READING_WORKS[0].title, '孔乙己')
+  assert.equal(SELF_READING_WORKS[0].author, '鲁迅')
+
+  // HTML 清洗：导航/脚注残留去掉，正文保留
+  const html = [
+    '<div class="mw-parser-output"><p>姊妹计划</p>',
+    '<p>鲁镇的酒店的格局，是和别处不同的：都是当街一个曲尺形的大柜台。</p>',
+    '<p>做工的人，傍午傍晚散了工，每每花四文铜钱，买一碗酒。</p></div>',
+  ].join('')
+  const cleaned = cleanReadingHtml(html)
+  assert.equal(cleaned.includes('姊妹'), false)
+  assert.match(cleaned, /鲁镇的酒店/)
+
+  // 段落截取：不同窗口不同内容
+  const paragraphs = Array.from({ length: 10 }, (_, index) => `第${index}段：` + '他把手里的杯子放回桌角。'.repeat(3))
+  const windowA = pickReadingExcerpt(paragraphs.join('\n'), 0)
+  const windowB = pickReadingExcerpt(paragraphs.join('\n'), 1)
+  assert.notEqual(windowA, windowB)
+  assert.match(windowA, /第0段|第1段/)
+
+  // API：白名单域名校验 + 渲染 HTML 取正文
+  const apiPayload = { parse: { text: `<p>${'他在柜台前站着，手里捏着半块饼。'.repeat(30)}</p>` } }
+  const fetched = await fetchReadingText({
+    work: { page: '孔乙己' },
+    fetchImpl: async () => ({ ok: true, url: 'https://zh.wikisource.org/w/api.php', json: async () => apiPayload }),
+  })
+  assert.ok(fetched)
+  assert.ok(fetched.text.length > 100)
+  assert.equal(
+    await fetchReadingText({
+      work: { page: '孔乙己' },
+      fetchImpl: async () => ({ ok: true, url: 'https://evil.example/x', json: async () => apiPayload }),
+    }),
+    null,
+  )
+
+  // prompt/解析
+  const prompt = buildReadingPrompt({
+    now: FIXED_NOW.getTime(),
+    work: SELF_READING_WORKS[0],
+    excerpt: '鲁镇的酒店的格局，是和别处不同的。',
+  })
+  assert.match(prompt, /《孔乙己》/)
+  assert.match(prompt, /留意它的/)
+  assert.match(prompt, /自己写一句原创/)
+  assert.match(prompt, /对称骨架/)
+  const parsed = parseReadingResult(
+    JSON.stringify({
+      noticed: '把柜台、铜钱、温酒这些动作和物件摆出来，不解释人物心情。',
+      try: '他把杯子推回桌沿，手指在杯口磨了一圈。',
+      quote: '做工的人，傍午傍晚散了工，每每花四文铜钱，买一碗酒。',
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.match(parsed.attempt, /杯口/)
+
+  // 服务：读一次 → learning-log「· 读小说」+ 状态 readCount
+  const dir = makeTmpDir('dshp-read')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      noticed: '把柜台、铜钱、温酒这些动作和物件摆出来，不解释人物心情。',
+      try: '他把杯子推回桌沿，手指在杯口磨了一圈。',
+      quote: '做工的人，傍午傍晚散了工，每每花四文铜钱，买一碗酒。',
+    }),
+  )
+  const reading = createSelfReading({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'read' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    learningLogPath,
+    statePath: path.join(dir, 'read-state.json'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => ({ ok: true, url: 'https://zh.wikisource.org/w/api.php', json: async () => apiPayload }),
+  })
+  const first = await reading.readNow()
+  assert.equal(first.ok, true)
+  assert.equal(first.title, '孔乙己')
+  const log = fs.readFileSync(learningLogPath, 'utf8')
+  assert.match(log, /· 读小说/)
+  assert.match(log, /作品：《孔乙己》（鲁迅·短篇小说）/)
+  assert.match(log, /她留意到的写法：把柜台、铜钱/)
+  assert.match(log, /她试着写的一句：他把杯子推回桌沿/)
+  let stateFile = JSON.parse(fs.readFileSync(path.join(dir, 'read-state.json'), 'utf8'))
+  assert.equal(stateFile.readCount, 1)
+  assert.equal(stateFile.lastReadAt, FIXED_NOW.getTime())
+  // 下一次换一篇
+  const second = await reading.readNow()
+  assert.equal(second.title, SELF_READING_WORKS[1].title)
+  stateFile = JSON.parse(fs.readFileSync(path.join(dir, 'read-state.json'), 'utf8'))
+  assert.equal(stateFile.readCount, 2)
+
+  // 睡觉/关闭时不出门
+  const sleeping = createSelfReading({
+    state: { snapshot: () => ({ sleeping: true }) },
+    llm,
+    learningLogPath,
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await sleeping.readNow()).reason, 'sleeping')
+  const disabled = createSelfReading({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    learningLogPath,
+    env: { DSH_POETRY_READING: 'off' },
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await disabled.readNow()).reason, 'disabled')
+})
+
 test('memory-recall v1.63：旧时回声按相关性+预算挑更早的条目，不混入最近想法', () => {
   const dir = makeTmpDir('dshp-echo')
   const journalPath = path.join(dir, 'journal.jsonl')
@@ -7704,7 +7835,7 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
   assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
     mood: 'low',
@@ -7714,6 +7845,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     drive: 'low',
     probe: 'low',
     wander: 'low',
+    read: 'low',
   })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
@@ -7748,6 +7880,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('drive').reasoningEffort, 'low', '自处默认 low')
   assert.equal(envPolicy.resolve('probe').reasoningEffort, 'low', '试探默认 low')
   assert.equal(envPolicy.resolve('wander').reasoningEffort, 'low', '溜达默认 low')
+  assert.equal(envPolicy.resolve('read').reasoningEffort, 'low', '读小说默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({

@@ -53,6 +53,7 @@ import {
   createMemoryHub,
   createMemorySnapshotHandler,
 } from './lib/memory-hub.mjs'
+import { createSelfReading } from './lib/self-reading.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
@@ -313,7 +314,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read']
         .map((role) => {
           let candidates = []
           try {
@@ -432,6 +433,35 @@ export async function apply(ctx) {
           }
         },
         'dsh-poetry-widget: 网络溜达',
+      )
+
+      // v1.67：读现代中文小说学语言——每 4h 读一小段公版作品（鲁迅/老舍/萧红/郁达夫/
+      // 朱自清/许地山），留意写法并自己写一句；只读公版、只取片段、不抄句子。
+      const selfReading = createSelfReading({
+        state: selfState,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        learningLogPath: path.join(memoryDir, 'learning-log.md'),
+        statePath: path.join(settingsPath.dir, 'read-state.json'),
+        env,
+      })
+      selfReading.start()
+      logger?.info?.(
+        `[dsh-poetry-widget] 读小说已启动（间隔 4h；${
+          String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
+        }）`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            selfReading.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 读小说清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 读小说',
       )
 
       const routes = createRouteTable({
