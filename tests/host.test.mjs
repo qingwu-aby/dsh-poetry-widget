@@ -6552,6 +6552,36 @@ test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的
     now: () => FIXED_NOW.getTime(),
     fetchImpl: async () => ({ ok: true, url: page.url, json: async () => ({ title: page.title, extract: page.extract }) }),
   })
+  // 重启后不立刻重复出门：lastWanderAt + 3h 之前不再走
+  const restarted = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    learningLogPath,
+    statePath: path.join(dir, 'wander-state.json'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => ({ ok: true, url: page.url, json: async () => ({ title: page.title, extract: page.extract }) }),
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  // 写入一个刚出门过的 state 再 start
+  fs.writeFileSync(path.join(dir, 'wander-state.json'), JSON.stringify({ ok: true, lastWanderAt: FIXED_NOW.getTime() - 10 * 60 * 1000 }))
+  const freshWander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    learningLogPath,
+    statePath: path.join(dir, 'wander-state.json'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  freshWander.start()
+  assert.ok(freshWander.snapshot().nextAt >= FIXED_NOW.getTime() + SELF_WANDER_GAP_MS - 10 * 60 * 1000, '重启后仍等满 gap')
+  freshWander.dispose()
+  restarted.dispose()
+
   const result = await wander.wanderNow()
   assert.equal(result.ok, true)
   assert.equal(result.title, '鲸落')
