@@ -1179,3 +1179,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 机制：自处输出 `loop`（她承认在打转）+ `loopTheme`；若 loop=true，tick 只写 felt、markChecked、安排下次，不执行动作；若 experiencing 为空则清空，允许放下。
 - 这是对自主性的硬约束：自由选择不等于允许无意识重复。
 - 测试：loop 解析/暂停不新增动作；host 259，全套 423/423。
+
+## 119. 事件饱和/习惯化（M115，2026-10-26）
+
+- 用户诊断：她没有有效感知，事件启动后无法停止；正常事件持续过久，新鲜感/信息增益会归零并自发切换。
+- `lib/self-events.mjs`：current {topic,startedAt,attempts,salience,satiatedAt} + closed；同一 topic 重复 → attempts+1、salience*0.55；attempts>=3 或 salience<=0.15 → satiated；饱和后同一 topic 暂停，冷却 2h 后可重开；换 topic 开新事件。
+- self-drive：prompt 输出 topic（同一件事同一句）；prompt 带事件状态；动作执行前 events.observe，饱和则暂停（paused/satiated）；动作保存 topic。
+- index/archive：events.json；health.runtime.events。
+- 测试：饱和/换题/冷却、驱动暂停；host 261，全套 425/425。

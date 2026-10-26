@@ -222,6 +222,7 @@ import {
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects } from '../lib/self-projects.mjs'
+import { createSelfEvents } from '../lib/self-events.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -10488,5 +10489,68 @@ test('self-drive v2.16：她承认打转时这一轮暂停，不继续动作', a
   assert.equal(result.action, null, '承认打转时不执行继续动作')
   const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
   assert.equal(saved.length, 2, '不新增动作')
+  drive.dispose()
+})
+
+test('self-events v2.17：同一主题重复到阈值后饱和，冷却结束可重新开始', () => {
+  const dir = makeTmpDir('dshp-events')
+  let clock = FIXED_NOW.getTime()
+  const events = createSelfEvents({ file: path.join(dir, 'events.json'), now: () => clock, logger: { warn() {} } })
+  let result = events.observe('两碗汤的咸淡', clock)
+  assert.equal(result.allowed, true)
+  assert.equal(result.event.attempts, 1)
+  clock += 1000
+  result = events.observe('两碗汤的咸淡', clock)
+  assert.equal(result.event.attempts, 2)
+  clock += 1000
+  result = events.observe('两碗汤的咸淡', clock)
+  assert.equal(result.event.attempts, 3)
+  assert.equal(events.describe(clock).satiated, true)
+  clock += 1000
+  result = events.observe('两碗汤的咸淡', clock)
+  assert.equal(result.allowed, false, '饱和后同一主题暂停')
+  // 换主题可以开始
+  result = events.observe('窗外的光和风', clock)
+  assert.equal(result.allowed, true)
+  assert.equal(events.describe(clock).topic, '窗外的光和风')
+  assert.equal(events.describe(clock).satiated, false)
+  // 冷却后允许重新开始旧主题
+  clock += 3 * 60 * 60 * 1000
+  result = events.observe('两碗汤的咸淡', clock)
+  assert.equal(result.allowed, true)
+})
+
+test('self-drive v2.17：饱和事件这一轮不执行动作', async () => {
+  const dir = makeTmpDir('dshp-drive-events')
+  const eventsPath = path.join(dir, 'events.json')
+  const actionsPath = path.join(dir, 'self-actions.json')
+  const now = FIXED_NOW.getTime()
+  const events = createSelfEvents({ file: eventsPath, now: () => now })
+  events.observe('两碗汤的咸淡', now)
+  events.observe('两碗汤的咸淡', now + 1)
+  events.observe('两碗汤的咸淡', now + 2)
+  const llm = makeMockLlm(() =>
+    JSON.stringify({ felt: '我还想再试一次，虽然知道大概还是一样。', doing: '再尝一口汤', topic: '两碗汤的咸淡' }),
+  )
+  const drive = createSelfDrive({
+    state: { snapshot: () => ({ sleeping: false }), setFelt() {}, markChecked() {}, applyEvent() {} },
+    llm,
+    events,
+    actionsPath,
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => now + 1000,
+    checkMinMs: 1,
+    checkMaxMs: 2,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  const result = await drive.check(now + 1000)
+  assert.equal(result.ok, true)
+  assert.equal(result.paused, true)
+  assert.equal(result.action, null)
+  const savedActions = fs.existsSync(actionsPath) ? JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions : []
+  assert.equal(savedActions.length, 0)
   drive.dispose()
 })

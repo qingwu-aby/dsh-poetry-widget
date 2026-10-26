@@ -43,6 +43,7 @@ import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
+import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -113,6 +114,8 @@ export async function apply(ctx) {
   if (seededMemory.length > 0) logger?.info?.(`[dsh-little-whale] 已初始化空白记忆容器：${seededMemory.join('、')}`)
   // v2.8：她自己的持续项目/章节（由自处决定起、推进、收尾）。
   const selfProjects = createSelfProjects({ file: resolveProjectsPath(env, home), logger })
+  // v2.17：事件饱和/习惯化（同一件事重复到一定程度就允许放下）。
+  const selfEvents = createSelfEvents({ file: resolveEventsPath(env, home), logger })
   // v2.10：成长质量指标（只读、60s 缓存；不写记忆）。
   const growthMetrics = createGrowthMetrics({
     journalPath: path.join(memoryDir, 'journal.jsonl'),
@@ -505,6 +508,7 @@ export async function apply(ctx) {
       const selfDrive = createSelfDrive({
         state: selfState,
         projects: selfProjects,
+        events: selfEvents,
         getLlm,
         policy: modelPolicy,
         modelErrorsPath,
@@ -678,6 +682,7 @@ export async function apply(ctx) {
           modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
           growthMetrics: growthMetrics.snapshot(),
           works: selfWorks.snapshot(),
+          events: selfEvents.snapshot(),
         }),
         env,
         home,
