@@ -967,3 +967,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 实现：PANEL_TABS = 成长/设置；POETRY_TABS + 'poetry-settings'；面板头加二级入口「诗词」/「← 返回」；tab 行按层级切换（主 tab 用 dshp-primary-tab，二级用 dshp-subtab）；新建 PoetrySettingsTab（平仄标注/点诗模式/自动轮播/显示文字/按天气选诗）；SettingsTab 删除这些字段并提示已降权；成长页底部「诗词模块」入口保留。
 - 气泡 6 步诗笺暂保留（轻量浏览），是否也收进二级菜单待定。
 - 测试：client 120（新增 PoetrySettingsTab 用例；面板/飞花/天气/心情集成等按二级菜单路径更新）；全套 data 42 / host 232 / client 120 = 394/394。
+
+## 92. 诗笺收进二级菜单 + client 拆 library + 冒烟脚本（M88，2026-10-26）
+
+- 用户：按建议顺序执行（①气泡收进二级菜单 ②继续拆 client ③真实模型冒烟脚本）。
+- ① `handleMascotTap`：面板开→关；气泡开→推进；否则打开成长面板。新增 `startPoetryTour()`（从诗词二级菜单头「逐页看诗笺」按钮进入，aria-label 便于测试）。气泡内行为不变。
+- ② 新增 `client-src/library.js`：诗库常量 + libraryCategoryOf/buildLibraryItems/ciSelected*/ciBank*/filter/libraryPage/label；client-csr 现在 styles/base/wander/library 四模块 + 主文件，esbuild 单 artifact。
+- ③ 新增 `scripts/live-smoke.mjs` + `npm run smoke`：只读检查 journal/self-state 新鲜度、self-state v2、分层 episode/selfFacts、最近 30m 模型错误、health 路由可达（200/401 均算活）；不触发模型、无费用。真模型冒烟仍建议 UI 触发后看 journal。
+- 测试：client 120（气泡/面板/天气/心情/f飞花等路径按新入口更新）；全套 data 42 / host 232 / client 120 = 394/394。

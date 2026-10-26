@@ -68,6 +68,7 @@
     "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/host.test.mjs",
     "test:client": "npm run build:client && node --test tests/client/widget.test.mjs",
     "check": "npm run build:client && node --check index.js && node --check client.js && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done",
-    "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning"
+    "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning",
+    "smoke": "node scripts/live-smoke.mjs"
   }
 }

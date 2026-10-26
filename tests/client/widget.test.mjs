@@ -175,6 +175,7 @@ function createDocumentMock() {
 
 /** 虚拟时钟：让 client 的 setTimeout/setInterval 可被测试即时推进，避免真实等待。 */
 const liveClients = []
+let lastLoadedClient = null
 
 async function flushTasks(times = 1) {
   for (let index = 0; index < times; index += 1) {
@@ -291,6 +292,7 @@ function loadClient(options) {
   assert.ok(debug, 'factory 必须挂载 globalThis.__dshPoetryDebug 调试钩子')
   const client = { loaded, context, react, requireMock, storage, debug, mod, clock, disposed: false }
   liveClients.push(client)
+  lastLoadedClient = client
   // 测试结束（react._cleanup）时把该客户端的虚拟定时器一并清掉，避免跨用例串扰。
   const originalCleanup = react._cleanup
   react._cleanup = () => {
@@ -965,34 +967,35 @@ test('localStorage 首屏缓存：读写 / 损坏 JSON 安全降级', () => {
   assert.equal(debug.readFirstScreenCache(), null)
 })
 
-test('气泡序列：点击形象依次推进 6 步后收起，再点回到第 1 步', () => {
+test('气泡序列：从诗词二级菜单进入，点形象依次推进 6 步后收起', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
-  let tree = renderFresh(react, debug.PoetryWidget, {})
-  let stage = findStage(tree)
-  assert.ok(stage, '形象必须可点击')
+  let tree = enterPoetryTour(react, debug)
+  let bubble = findBubble(tree)
+  assert.ok(bubble, '从诗词二级菜单应打开第 1 张气泡')
+  assert.match(textOf(bubble), new RegExp('1 / ' + debug.STEPS.length))
+  assert.ok(textOf(bubble).includes(debug.STEPS[0]))
 
-  for (let index = 0; index < debug.STEPS.length; index++) {
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = rerender(react, debug.PoetryWidget, {})
-    const bubbles = findAll(tree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
-    assert.equal(bubbles.length, 1, '第 ' + (index + 1) + ' 步应显示气泡')
-    assert.ok(textOf(bubbles[0]).includes(debug.STEPS[index]), '气泡标题应为「' + debug.STEPS[index] + '」')
-    stage = findStage(tree)
+  // 气泡已打开：点形象推进后续步骤
+  for (let index = 1; index < debug.STEPS.length; index++) {
+    const stage = findStage(tree)
     assert.ok(stage, '推进过程中形象应保持可见')
+    stage.props.onPointerDown(pointerEvent(index + 1))
+    stage.props.onPointerUp(pointerEvent(index + 1))
+    tree = rerender(react, debug.PoetryWidget, {})
+    bubble = findBubble(tree)
+    assert.ok(bubble, '第 ' + (index + 1) + ' 步应显示气泡')
+    assert.ok(textOf(bubble).includes(debug.STEPS[index]), '气泡标题应为「' + debug.STEPS[index] + '」')
   }
 
   // 第 7 次点击 → 收起（无气泡）
-  stage.props.onPointerDown(pointerEvent(2))
-  stage.props.onPointerUp(pointerEvent(2))
+  const stage = findStage(tree)
+  stage.props.onPointerDown(pointerEvent(99))
+  stage.props.onPointerUp(pointerEvent(99))
   const closed = rerender(react, debug.PoetryWidget, {})
   assert.equal(findAll(closed, (node) => node.type === 'div' && node.props.className === 'dshp-bubble').length, 0)
 
-  // 收起后再点 → 回到第 1 步
-  const stageClosed = findStage(closed)
-  stageClosed.props.onPointerDown(pointerEvent(3))
-  stageClosed.props.onPointerUp(pointerEvent(3))
-  const reopened = rerender(react, debug.PoetryWidget, {})
+  // 收起后主点击只开成长面板；再看诗笺要从二级菜单重新进
+  const reopened = enterPoetryTour(react, debug)
   const bubbles = findAll(reopened, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
   assert.equal(bubbles.length, 1)
   assert.match(textOf(bubbles[0]), /今日一诗/)
@@ -1172,10 +1175,7 @@ test('真实数据冒烟：全部诗逐字渲染 / 30 韵部 / 全部词 / 12+15
   })
   const mainTree = renderFresh(client.react, client.debug.PoetryWidget, {})
   assert.equal(findAll(mainTree, (node) => node.props && node.props['data-dsh-poetry-widget'] === 'root').length, 1)
-  const stage = findStage(mainTree)
-  stage.props.onPointerDown(pointerEvent(1))
-  stage.props.onPointerUp(pointerEvent(1))
-  const stepTree = rerender(client.react, client.debug.PoetryWidget, {})
+  const stepTree = enterPoetryTour(client.react, client.debug)
   const bubbles = findAll(stepTree, (node) => node.type === 'div' && node.props.className === 'dshp-bubble')
   assert.equal(bubbles.length, 1)
   assert.ok(textOf(bubbles[0]).includes(todayPoem.title))
@@ -1195,11 +1195,47 @@ function findDotButtons(tree) {
     && node.props.className.split(' ').indexOf('dshp-dot') >= 0)
 }
 
+/** 从成长面板进入诗词二级菜单并启动逐页诗笺（v1.77）。 */
+function enterPoetryTour(react, debug, render) {
+  const draw = typeof render === 'function' ? render : () => rerender(react, debug.PoetryWidget, {})
+  let tree = draw()
+  const stage = findStage(tree)
+  assert.ok(stage, '形象应可点击')
+  stage.props.onPointerDown(pointerEvent(1))
+  stage.props.onPointerUp(pointerEvent(1))
+  tree = draw()
+  const entry = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单')[0]
+  assert.ok(entry, '成长面板应能进入诗词二级菜单')
+  entry.props.onClick()
+  tree = draw()
+  const tour = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '逐页看诗笺')[0]
+  assert.ok(tour, '诗词二级菜单应有逐页看诗笺')
+  tour.props.onClick()
+  return draw()
+}
+
 function tapMascot(tree) {
   const stage = findStage(tree)
   assert.ok(stage, '形象应可点击')
   stage.props.onPointerDown(pointerEvent(1))
   stage.props.onPointerUp(pointerEvent(1))
+  // v1.77：主点击打开成长面板；诗笺从「诗词 → 逐页看诗笺」进入。
+  const client = lastLoadedClient
+  if (!client) return
+  const renderMain = () => {
+    client.react._beginRender()
+    return client.debug.PoetryWidget({})
+  }
+  let current = renderMain()
+  const panels = findAll(current, (node) => node.type === 'div' && node.props.className === 'dshp-panel').length
+  const entry = findAll(current, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单')[0]
+  if (process.env.DSH_DEBUG_TAP) console.error('tap debug', { panels, entry: Boolean(entry), text: textOf(current).slice(0,120) })
+  if (!entry) return
+  entry.props.onClick()
+  current = renderMain()
+  const tour = findAll(current, (node) => node.type === 'button' && node.props['aria-label'] === '逐页看诗笺')[0]
+  if (!tour) return
+  tour.props.onClick()
 }
 
 test('气泡头部圆点：点第 i 个直达第 i 张，第 6 个收起，且不冒泡', () => {
@@ -1996,12 +2032,9 @@ test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 c
     )
 
     // 打开第 1 张气泡 → 天气 chip + 说明 + 选中天气诗池中的雨诗
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
+    tree = enterPoetryTour(react, debug, renderMain)
     const bubble = findBubble(tree)
-    assert.ok(bubble, '点击形象应打开气泡')
+    assert.ok(bubble, '从诗词二级菜单应能打开诗笺气泡')
     const bubbleText = textOf(bubble)
     assert.match(bubbleText, /北京 · 小雨 18℃/)
     assert.match(bubbleText, /今日有雨，为你选了写雨的这首/)
@@ -2499,10 +2532,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     assert.ok(String(mascot.props.src).includes('dsh-whale-state-'), '应有心情立绘，实际：' + mascot.props.src)
 
     // 气泡第 1 张：心情 chip（天气诗被关闭，无天气 chip）
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
+    tree = enterPoetryTour(react, debug, renderMain)
     let bubble = findBubble(tree)
     assert.ok(bubble)
     let bubbleText = textOf(bubble)
@@ -3709,10 +3739,6 @@ test('自言自语模型集成：占位→模型 murmur、缓存、再说一句�
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
-    tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
     const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
     assert.ok(settingsElement)
@@ -4057,10 +4083,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     let mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(String(mascot.props.src).includes('dsh-whale-state-abstract.webp'), '模型返回的任意图应直接用于立绘，实际：' + mascot.props.src)
 
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
+    tree = enterPoetryTour(react, debug, renderMain)
     const bubbleText = textOf(findBubble(tree))
     assert.match(bubbleText, /心情：发呆出神/)
     const chip = findAll(tree, (node) => node.type === 'span'
@@ -4275,10 +4298,7 @@ test('模型心情图鉴加载失败：不请求 mood-ai、回退启发式心情
     const mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(mascot)
     assert.ok(String(mascot.props.src).includes('dsh-whale-state-'), '应回退启发式心情立绘，实际 ' + mascot.props.src)
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
+    tree = enterPoetryTour(react, debug, renderMain)
     assert.match(textOf(tree), /心情：/)
   } finally {
     react._cleanup()
@@ -4401,10 +4421,6 @@ test('自言自语随时触发/一卡制/关闭后 3s 再检查（假定时器�
     const stage = findStage(tree)
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
     tree = renderMain()
     const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
     assert.ok(closePanelButton)
@@ -4791,10 +4807,7 @@ test('pet-media 视频立绘：mood-ai 返回 webm → <video> 属性/URL 编码
     assert.equal(findAll(tree, (node) => node.type === 'img').length, 0)
     assert.ok(calls.some((url) => url.indexOf('mood-ai.json') >= 0))
     // 心情 chip 照常显示 label/reason
-    const stage = findStage(tree)
-    stage.props.onPointerDown(pointerEvent(1))
-    stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
+    tree = enterPoetryTour(react, debug, renderMain)
     const bubbleText = textOf(findBubble(tree))
     assert.match(bubbleText, /心情：吃白饭/)
     const chip = findAll(tree, (node) => node.type === 'span'
@@ -5065,13 +5078,9 @@ test('小动作集成：静态图首次快速轮转 webm、20–30s 后回心情
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
-    tree = renderMain()
     assert.equal(videoNode(tree), undefined, '面板打开应结束动作')
     const panelImg = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(panelImg && String(panelImg.props.src).includes('dsh-whale-home-peek.webp'))
+    assert.ok(panelImg && String(panelImg.props.src).includes('dsh-whale-workbench-peek.webp'))
   } finally {
     react._cleanup()
   }
@@ -5171,10 +5180,6 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     const stage = findStage(tree)
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
     debounce = findDebounceTimer()
@@ -5642,9 +5647,6 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    if (panelButton) panelButton.props.onClick()
-    tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
     return findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
   }
@@ -5862,10 +5864,6 @@ test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label
     const stage = findStage(tree)
     stage.props.onPointerDown(pointerEvent(1))
     stage.props.onPointerUp(pointerEvent(1))
-    tree = renderMain()
-    const panelButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === '展开面板')[0]
-    assert.ok(panelButton)
-    panelButton.props.onClick()
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
     let settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
