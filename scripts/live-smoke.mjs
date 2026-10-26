@@ -15,7 +15,10 @@ const home = process.env.HOME || os.homedir()
 const dshHome = process.env.DSH_HOME ? path.resolve(process.env.DSH_HOME) : path.join(home, '.dsh')
 const memoryDir = path.join(dshHome, 'agent-memory')
 const stateDir = path.join(dshHome, '.dsh-poetry')
-const baseUrl = (process.env.DSH_POETRY_URL || 'http://127.0.0.1:61506').replace(/\/$/, '')
+// 面板端口每次启动可能不同：只有显式设置 DSH_POETRY_URL 时才检查路由；否则跳过（不算失败）。
+const baseUrl = typeof process.env.DSH_POETRY_URL === 'string' && process.env.DSH_POETRY_URL.trim().length > 0
+  ? process.env.DSH_POETRY_URL.trim().replace(/\/$/, '')
+  : null
 const now = Date.now()
 
 const results = []
@@ -94,7 +97,9 @@ if (existsSync(errorsFile)) {
 }
 
 // 4) 面板路由是否还活着（fenced；未登录返回 UNAUTHORIZED 也算活着）
-try {
+if (baseUrl === null) {
+  console.log('SKIP  面板路由检查（未设置 DSH_POETRY_URL；面板端口每次启动可能不同）')
+} else try {
   const response = await fetch(`${baseUrl}/api/dsh-poetry/health.json`, { signal: AbortSignal.timeout(5000) })
   const body = await response.json().catch(() => null)
   // 200 = 已登录/同源；401 = 服务活着但被登录栅栏挡住（也算可达）。
