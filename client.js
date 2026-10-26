@@ -15,6 +15,490 @@
     return /\.webm$/i.test(String(file == null ? "" : file));
   }
 
+  // client-src/tabs-poetry.js
+  function createPoetryTabs(ctx = {}) {
+    const React = ctx.React;
+    const h = ctx.h;
+    const EmptyState = ctx.EmptyState;
+    const LoadingState = ctx.LoadingState;
+    const PoemBody = ctx.PoemBody;
+    const AnalysisBody = ctx.AnalysisBody;
+    const KnowledgeCardView = ctx.KnowledgeCardView;
+    const describeDataError = ctx.describeDataError;
+    const normalizeSettings = ctx.normalizeSettings;
+    const cx = ctx.cx;
+    const switchNode = ctx.switchNode;
+    const num2 = ctx.num;
+    function TodayTab(props) {
+      const api = props.api || {};
+      const poem = api.poem;
+      if (!poem) {
+        if (api.boot && api.boot.status === "error") {
+          return h(EmptyState, {
+            title: "\u8BD7\u8BCD\u6570\u636E\u5C1A\u672A\u5C31\u7EEA",
+            message: describeDataError(api.boot.error),
+            onRetry: api.retryBootstrap
+          });
+        }
+        if (api.poemsRes && api.poemsRes.status === "error") {
+          return h(EmptyState, {
+            title: "\u4ECA\u65E5\u4E00\u8BD7\u6682\u65F6\u4E0D\u53EF\u7528",
+            message: describeDataError(api.poemsRes.error),
+            onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
+            })
+          });
+        }
+        return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u4ECA\u65E5\u4E00\u8BD7\u2026" });
+      }
+      const items = Array.isArray(api.poemItems) ? api.poemItems : [];
+      const index = items.findIndex((item) => item && item.id === poem.id);
+      const total = items.length;
+      return h(
+        "div",
+        null,
+        api.weatherChip || api.moodChip ? h(
+          "div",
+          { className: "dshp-weather", style: { marginTop: 0 } },
+          h(
+            "div",
+            { className: "dshp-chip-row" },
+            api.weatherChip ? h("span", { className: "dshp-weather-chip" }, String(api.weatherChip)) : null,
+            api.moodChip ? h("span", { className: "dshp-weather-chip dshp-mood-chip", title: api.moodChipTitle || "" }, String(api.moodChip)) : null
+          ),
+          api.weatherNote ? h("div", { className: "dshp-weather-note" }, String(api.weatherNote)) : null
+        ) : null,
+        h(
+          "div",
+          { className: "dshp-pager", style: { marginTop: 0 } },
+          h("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index + 1) + (total ? " / " + total : "") + " \u9996"),
+          h(
+            "span",
+            { className: "dshp-field-control" },
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.changePoem }, "\u6362\u4E00\u9996"),
+            poem.id !== api.todayPoemId ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.backToToday }, "\u56DE\u5230\u4ECA\u65E5") : null
+          )
+        ),
+        h(PoemBody, { poem, script: api.settings.script, showTones: api.settings.showTones }),
+        h("div", { className: "dshp-subtitle" }, "\u683C\u5F8B\u89E3\u6790"),
+        h(AnalysisBody, { poem })
+      );
+    }
+    function ClassTab(props) {
+      const api = props.api || {};
+      const [index, setIndex] = React.useState(0);
+      const resource = api.knowledgeRes || {};
+      if (resource.status === "error") {
+        return h(EmptyState, {
+          title: "\u683C\u5F8B\u8BFE\u5802\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(resource.error),
+          onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
+          })
+        });
+      }
+      const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : [];
+      if (!cards.length) {
+        if (resource.status === "ready") {
+          return h(EmptyState, { title: "\u6682\u65E0\u77E5\u8BC6\u5361", message: "\u8BFE\u5802\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+        }
+        return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u8BFE\u5802\u2026" });
+      }
+      const safeIndex = Math.min(Math.max(0, index), cards.length - 1);
+      const card = cards[safeIndex];
+      return h(
+        "div",
+        null,
+        h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u683C\u5F8B\u5C0F\u8BFE\u5802 \xB7 \u5171 " + cards.length + " \u5F20\u5361"),
+        h(KnowledgeCardView, { card }),
+        h(
+          "div",
+          { className: "dshp-pager" },
+          h("button", {
+            type: "button",
+            className: "dshp-btn dshp-btn-small",
+            disabled: safeIndex <= 0,
+            onClick: () => setIndex(safeIndex - 1)
+          }, "\u4E0A\u4E00\u5F20"),
+          h("span", { className: "dshp-pager-label" }, "\u7B2C " + (safeIndex + 1) + " / " + cards.length + " \u5F20"),
+          h("button", {
+            type: "button",
+            className: "dshp-btn dshp-btn-small",
+            disabled: safeIndex >= cards.length - 1,
+            onClick: () => setIndex(safeIndex + 1)
+          }, "\u4E0B\u4E00\u5F20")
+        ),
+        h(
+          "div",
+          { className: "dshp-tags", style: { marginTop: "10px" } },
+          cards.map((item, cardIndex) => h("button", {
+            key: item && item.id || cardIndex,
+            type: "button",
+            className: "dshp-tag",
+            style: {
+              cursor: "pointer",
+              borderColor: cardIndex === safeIndex ? "var(--dshp-accent)" : void 0,
+              color: cardIndex === safeIndex ? "var(--dshp-accent)" : void 0
+            },
+            onClick: () => setIndex(cardIndex)
+          }, cardIndex + 1 + ". " + String(item && item.title || "\u5361\u7247")))
+        )
+      );
+    }
+    function YunTab(props) {
+      const api = props.api || {};
+      const [expanded, setExpanded] = React.useState(null);
+      const resource = api.yunRes || {};
+      if (resource.status === "error") {
+        return h(EmptyState, {
+          title: "\u97F5\u90E8\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(resource.error),
+          onRetry: () => api.reloadYun && api.reloadYun().catch(() => {
+          })
+        });
+      }
+      const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : [];
+      if (!volumes.length) {
+        if (resource.status === "ready") {
+          return h(EmptyState, { title: "\u6682\u65E0\u97F5\u90E8\u6570\u636E", message: "\u58F0\u5F8B\u542F\u8499\u6570\u636E\u8FD8\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+        }
+        return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u58F0\u5F8B\u542F\u8499\u2026" });
+      }
+      return h(
+        "div",
+        null,
+        h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u58F0\u5F8B\u542F\u8499 \xB7 \u5E73\u58F0\u4E09\u5341\u97F5\u90E8\uFF08\u4E0A\u5377 15 / \u4E0B\u5377 15\uFF09"),
+        volumes.map((volume, volumeIndex) => {
+          const chapters = volume && Array.isArray(volume.chapters) ? volume.chapters : [];
+          return h(
+            "div",
+            { key: "volume-" + volumeIndex },
+            h("div", { className: "dshp-subtitle" }, String(volume.title || "")),
+            chapters.map((chapter, chapterIndex) => {
+              const key = volumeIndex + "-" + chapterIndex;
+              const open = expanded === key;
+              const chars = Array.isArray(chapter.exampleChars) ? chapter.exampleChars : [];
+              return h(
+                "div",
+                { key },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: cx("dshp-row", open && "dshp-is-open"),
+                    onClick: () => setExpanded(open ? null : key),
+                    "aria-expanded": open
+                  },
+                  h(
+                    "span",
+                    { className: "dshp-row-main" },
+                    h("span", { className: "dshp-row-title" }, String(chapter.name || "")),
+                    chars.length ? h("span", { className: "dshp-row-sub" }, " \u4F8B\u5B57\uFF1A" + chars.join("\u3001")) : null
+                  ),
+                  h("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
+                ),
+                open ? h(
+                  "div",
+                  { className: "dshp-row-body" },
+                  (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index) => h("p", { key: index, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
+                  chapter.exampleLine ? h("div", { className: "dshp-example", style: { marginTop: "6px" } }, h("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : null
+                ) : null
+              );
+            })
+          );
+        })
+      );
+    }
+    function CiTab(props) {
+      const api = props.api || {};
+      const [subTab, setSubTab] = React.useState("poems");
+      const [query, setQuery] = React.useState("");
+      const [rhythmic, setRhythmic] = React.useState("");
+      const [visible, setVisible] = React.useState(40);
+      const [openId, setOpenId] = React.useState(null);
+      const knowledge = api.knowledgeRes || {};
+      const ciRes = api.ciRes || {};
+      const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : [];
+      const items = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [];
+      const ciBankCounts = React.useMemo(() => {
+        const map = {};
+        const bankItems = api.ciBankRes && api.ciBankRes.data && Array.isArray(api.ciBankRes.data.items) ? api.ciBankRes.data.items : [];
+        for (const item of bankItems) {
+          if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
+        }
+        return map;
+      }, [api.ciBankRes]);
+      const ciSelectedCounts = React.useMemo(() => {
+        const map = {};
+        for (const item of items) {
+          if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
+        }
+        return map;
+      }, [items]);
+      const rhythms = React.useMemo(() => {
+        const seen = {};
+        items.forEach((item) => {
+          if (item && item.rhythmic) seen[item.rhythmic] = true;
+        });
+        return Object.keys(seen).sort((a, b) => a.localeCompare(b, "zh"));
+      }, [items]);
+      const filtered = React.useMemo(() => {
+        const keyword = query.trim();
+        return items.filter((item) => {
+          if (!item) return false;
+          if (rhythmic && item.rhythmic !== rhythmic) return false;
+          if (!keyword) return true;
+          const haystack = [item.title, item.author, item.rhythmic, item.quote].concat(Array.isArray(item.lines) ? item.lines : []).join(" ");
+          return haystack.indexOf(keyword) >= 0;
+        });
+      }, [items, query, rhythmic]);
+      React.useEffect(() => {
+        setVisible(40);
+      }, [query, rhythmic]);
+      if (knowledge.status === "error") {
+        return h(EmptyState, {
+          title: "\u8BCD\u724C\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
+          message: describeDataError(knowledge.error),
+          onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
+          })
+        });
+      }
+      function renderCards() {
+        if (!ciCards.length) {
+          if (knowledge.status === "ready") return h(EmptyState, { title: "\u6682\u65E0\u8BCD\u724C\u5361", message: "\u8BCD\u724C\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u8BCD\u724C\u5361\u2026" });
+        }
+        return h(
+          "div",
+          { className: "dshp-list" },
+          ciCards.map((card, index) => h(
+            "div",
+            { key: card && card.id || index, className: "dshp-card", style: { padding: "8px 2px", borderBottom: "1px solid var(--dshp-border)" } },
+            h(
+              "div",
+              { className: "dshp-card-title", style: { fontSize: "14px" } },
+              String(card && card.name || "\u8BCD\u724C"),
+              card && Array.isArray(card.aliases) && card.aliases.length ? h("span", { className: "dshp-muted", style: { fontSize: "11.5px", fontWeight: 400 } }, "\uFF08" + card.aliases.join("\u3001") + "\uFF09") : null
+            ),
+            card && card.form ? h("div", { className: "dshp-card-summary" }, String(card.form) + (card.rhyme ? " \xB7 " + String(card.rhyme) : "")) : null,
+            card && card.note ? h("p", { className: "dshp-p" }, String(card.note)) : null,
+            card && card.example ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(card.example))) : null,
+            card && card.name ? h(
+              "div",
+              { className: "dshp-fh-actions" },
+              h("button", {
+                type: "button",
+                className: "dshp-link",
+                onClick: () => {
+                  if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(card.name);
+                }
+              }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[card.name] ? "\uFF08" + ciSelectedCounts[card.name] + " \u9996\uFF09" : "")),
+              h("button", {
+                type: "button",
+                className: "dshp-link dshp-muted",
+                onClick: () => {
+                  if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(card.name);
+                }
+              }, "\u5168\u5E93" + (ciBankCounts[card.name] ? "\uFF08" + ciBankCounts[card.name] + " \u9996\uFF09" : "\u540C\u8BCD\u724C"))
+            ) : null
+          ))
+        );
+      }
+      function renderPoems() {
+        if (ciRes.status === "error") {
+          return h(EmptyState, {
+            title: "\u540D\u7BC7\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
+            message: describeDataError(ciRes.error),
+            onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
+            })
+          });
+        }
+        if (!items.length) {
+          if (ciRes.status === "ready") return h(EmptyState, { title: "\u6682\u65E0\u8BCD\u4F5C", message: "\u540D\u7BC7\u8BCD\u6570\u636E\u6B63\u5728\u51C6\u5907\u4E2D\u3002" });
+          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u540D\u7BC7\u8BCD\u2026" });
+        }
+        const shown = filtered.slice(0, visible);
+        return h(
+          "div",
+          null,
+          h(
+            "div",
+            { className: "dshp-search" },
+            h("input", {
+              className: "dshp-input",
+              type: "search",
+              value: query,
+              placeholder: "\u641C\u7D22\u8BCD\u724C / \u4F5C\u8005 / \u8BCD\u53E5",
+              "aria-label": "\u641C\u7D22\u540D\u7BC7\u8BCD",
+              onChange: (event) => setQuery(event.target.value)
+            }),
+            h(
+              "select",
+              {
+                className: "dshp-select",
+                value: rhythmic,
+                "aria-label": "\u6309\u8BCD\u724C\u7B5B\u9009",
+                onChange: (event) => setRhythmic(event.target.value)
+              },
+              h("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
+              rhythms.map((name) => h("option", { key: name, value: name }, name))
+            )
+          ),
+          h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996\uFF08\u603B\u8BA1 " + items.length + " \u9996\uFF09"),
+          h(
+            "div",
+            { className: "dshp-list" },
+            shown.map((ci, index) => {
+              const ciId = ci.id || "ci-" + index;
+              const open = openId === ciId;
+              return h(
+                "div",
+                { key: ciId },
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: cx("dshp-row", open && "dshp-is-open"),
+                    onClick: () => setOpenId(open ? null : ciId),
+                    "aria-expanded": open
+                  },
+                  h(
+                    "span",
+                    { className: "dshp-row-main" },
+                    h("span", { className: "dshp-row-title" }, String(ci.title || ci.rhythmic || "\u65E0\u9898")),
+                    h("span", { className: "dshp-row-sub" }, String(ci.author || "") + (ci.rhythmic ? " \xB7 " + String(ci.rhythmic) : ""))
+                  ),
+                  h("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
+                ),
+                open ? h(
+                  "div",
+                  { className: "dshp-row-body" },
+                  h("div", { className: "dshp-ci-lines" }, (Array.isArray(ci.lines) ? ci.lines : []).map((line, lineIndex) => h("div", { key: lineIndex }, String(line)))),
+                  ci.quote ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(ci.quote))) : null,
+                  ci.rhythmic ? h(
+                    "div",
+                    { className: "dshp-fh-actions" },
+                    h("button", {
+                      type: "button",
+                      className: "dshp-link",
+                      onClick: () => {
+                        if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(ci.rhythmic);
+                      }
+                    }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[ci.rhythmic] ? "\uFF08" + ciSelectedCounts[ci.rhythmic] + " \u9996\uFF09" : "")),
+                    h("button", {
+                      type: "button",
+                      className: "dshp-link dshp-muted",
+                      onClick: () => {
+                        if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(ci.rhythmic);
+                      }
+                    }, "\u5168\u5E93" + (ciBankCounts[ci.rhythmic] ? "\uFF08" + ciBankCounts[ci.rhythmic] + " \u9996\uFF09" : "\u540C\u8BCD\u724C"))
+                  ) : null
+                ) : null
+              );
+            })
+          ),
+          filtered.length > visible ? h(
+            "div",
+            { style: { textAlign: "center", marginTop: "10px" } },
+            h("button", {
+              type: "button",
+              className: "dshp-btn",
+              onClick: () => setVisible(visible + 60)
+            }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - visible) + " \u9996\uFF09")
+          ) : null
+        );
+      }
+      return h(
+        "div",
+        null,
+        h(
+          "div",
+          { className: "dshp-seg", style: { marginBottom: "10px" } },
+          h("button", {
+            type: "button",
+            className: cx("dshp-seg-btn", subTab === "poems" && "dshp-is-active"),
+            onClick: () => setSubTab("poems")
+          }, "\u540D\u7BC7\u8BCD"),
+          h("button", {
+            type: "button",
+            className: cx("dshp-seg-btn", subTab === "cards" && "dshp-is-active"),
+            onClick: () => setSubTab("cards")
+          }, "\u8BCD\u724C\u5361")
+        ),
+        subTab === "cards" ? renderCards() : renderPoems()
+      );
+    }
+    function PoetrySettingsTab(props) {
+      const api = props.api || {};
+      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
+      const update = api.updateSettings || (() => {
+      });
+      const seg = (options, current, onPick) => h(
+        "div",
+        { className: "dshp-seg" },
+        options.map((option) => h("button", {
+          key: String(option.value),
+          type: "button",
+          className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
+          onClick: () => onPick(option.value)
+        }, option.label))
+      );
+      return h(
+        "div",
+        { className: "dshp-settings" },
+        h("div", { className: "dshp-field" }, h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u4E8C\u7EA7\u83DC\u5355\u91CC\u7684\u914D\u7F6E\uFF1B\u4E3B\u8BBE\u7F6E\u53EA\u7559\u6210\u957F/\u5916\u89C2"))),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
+          switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), "\u5E73\u4EC4\u6807\u6CE8\u5F00\u5173")
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
+          seg([
+            { value: "daily", label: "\u6BCF\u65E5" },
+            { value: "random", label: "\u968F\u673A" }
+          ], settings.mode, (value) => update({ mode: value }))
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
+          h(
+            "select",
+            {
+              className: "dshp-select",
+              value: String(settings.autoplay),
+              "aria-label": "\u81EA\u52A8\u8F6E\u64AD\u95F4\u9694",
+              onChange: (event) => update({ autoplay: num2(event.target.value, 0) })
+            },
+            h("option", { value: "0" }, "\u5173\u95ED"),
+            h("option", { value: "30" }, "30 \u79D2"),
+            h("option", { value: "60" }, "1 \u5206\u949F"),
+            h("option", { value: "300" }, "5 \u5206\u949F")
+          )
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u663E\u793A\u6587\u5B57"), h("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
+          seg([
+            { value: "simplified", label: "\u7B80\u4F53" },
+            { value: "original", label: "\u539F\u6587" }
+          ], settings.script, (value) => update({ script: value }))
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
+          switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), "\u6309\u5929\u6C14\u9009\u8BD7\u5F00\u5173")
+        ),
+        h("div", { className: "dshp-muted", style: { fontSize: "11.5px", lineHeight: 1.6 } }, "\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF1A\u4ECE\u300C\u6210\u957F\u300D\u9875\u5E95\u90E8\u7684\u5165\u53E3\u8FDB\u5165\uFF1B\u5927\u5C0F/\u5438\u9644/\u81EA\u8A00\u81EA\u8BED/\u9690\u85CF\u4ECD\u5728\u4E3B\u8BBE\u7F6E\u3002")
+      );
+    }
+    return { TodayTab, ClassTab, YunTab, CiTab, PoetrySettingsTab };
+  }
+
   // client-src/feihua.js
   var FEIHUA_CANDIDATE_CHARS = Array.from("\u82B1\u6708\u98CE\u6625\u5C71\u6C34\u4EBA\u5929\u4E91\u96E8\u591C\u79CB\u6C5F\u9152\u767D\u7EA2\u821F\u6101\u68A6\u5FC3\u67F3\u96EA\u971C\u65E5\u661F\u6D77\u7389\u91D1\u957F\u4F55\u4E0D\u65E0");
   var FEIHUA_MIN_ENTRIES = 8;
@@ -5899,472 +6383,40 @@
           ))
         );
       }
-      function TodayTab(props) {
-        const api = props.api || {};
-        const poem = api.poem;
-        if (!poem) {
-          if (api.boot && api.boot.status === "error") {
-            return h(EmptyState, {
-              title: "\u8BD7\u8BCD\u6570\u636E\u5C1A\u672A\u5C31\u7EEA",
-              message: describeDataError(api.boot.error),
-              onRetry: api.retryBootstrap
-            });
-          }
-          if (api.poemsRes && api.poemsRes.status === "error") {
-            return h(EmptyState, {
-              title: "\u4ECA\u65E5\u4E00\u8BD7\u6682\u65F6\u4E0D\u53EF\u7528",
-              message: describeDataError(api.poemsRes.error),
-              onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
-              })
-            });
-          }
-          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u4ECA\u65E5\u4E00\u8BD7\u2026" });
+      let poetryTabs = null;
+      function ensurePoetryTabs() {
+        if (poetryTabs === null) {
+          poetryTabs = createPoetryTabs({
+            React,
+            h,
+            EmptyState,
+            LoadingState,
+            PoemBody,
+            AnalysisBody,
+            KnowledgeCardView,
+            describeDataError,
+            normalizeSettings,
+            cx,
+            switchNode,
+            num
+          });
         }
-        const items = Array.isArray(api.poemItems) ? api.poemItems : [];
-        const index = items.findIndex((item) => item && item.id === poem.id);
-        const total = items.length;
-        return h(
-          "div",
-          null,
-          api.weatherChip || api.moodChip ? h(
-            "div",
-            { className: "dshp-weather", style: { marginTop: 0 } },
-            h(
-              "div",
-              { className: "dshp-chip-row" },
-              api.weatherChip ? h("span", { className: "dshp-weather-chip" }, String(api.weatherChip)) : null,
-              api.moodChip ? h("span", { className: "dshp-weather-chip dshp-mood-chip", title: api.moodChipTitle || "" }, String(api.moodChip)) : null
-            ),
-            api.weatherNote ? h("div", { className: "dshp-weather-note" }, String(api.weatherNote)) : null
-          ) : null,
-          h(
-            "div",
-            { className: "dshp-pager", style: { marginTop: 0 } },
-            h("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index + 1) + (total ? " / " + total : "") + " \u9996"),
-            h(
-              "span",
-              { className: "dshp-field-control" },
-              h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.changePoem }, "\u6362\u4E00\u9996"),
-              poem.id !== api.todayPoemId ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.backToToday }, "\u56DE\u5230\u4ECA\u65E5") : null
-            )
-          ),
-          h(PoemBody, { poem, script: api.settings.script, showTones: api.settings.showTones }),
-          h("div", { className: "dshp-subtitle" }, "\u683C\u5F8B\u89E3\u6790"),
-          h(AnalysisBody, { poem })
-        );
+        return poetryTabs;
+      }
+      function TodayTab(props) {
+        return ensurePoetryTabs().TodayTab(props);
       }
       function ClassTab(props) {
-        const api = props.api || {};
-        const [index, setIndex] = React.useState(0);
-        const resource = api.knowledgeRes || {};
-        if (resource.status === "error") {
-          return h(EmptyState, {
-            title: "\u683C\u5F8B\u8BFE\u5802\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(resource.error),
-            onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
-            })
-          });
-        }
-        const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : [];
-        if (!cards.length) {
-          if (resource.status === "ready") {
-            return h(EmptyState, { title: "\u6682\u65E0\u77E5\u8BC6\u5361", message: "\u8BFE\u5802\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
-          }
-          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u8BFE\u5802\u2026" });
-        }
-        const safeIndex = Math.min(Math.max(0, index), cards.length - 1);
-        const card = cards[safeIndex];
-        return h(
-          "div",
-          null,
-          h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u683C\u5F8B\u5C0F\u8BFE\u5802 \xB7 \u5171 " + cards.length + " \u5F20\u5361"),
-          h(KnowledgeCardView, { card }),
-          h(
-            "div",
-            { className: "dshp-pager" },
-            h("button", {
-              type: "button",
-              className: "dshp-btn dshp-btn-small",
-              disabled: safeIndex <= 0,
-              onClick: () => setIndex(safeIndex - 1)
-            }, "\u4E0A\u4E00\u5F20"),
-            h("span", { className: "dshp-pager-label" }, "\u7B2C " + (safeIndex + 1) + " / " + cards.length + " \u5F20"),
-            h("button", {
-              type: "button",
-              className: "dshp-btn dshp-btn-small",
-              disabled: safeIndex >= cards.length - 1,
-              onClick: () => setIndex(safeIndex + 1)
-            }, "\u4E0B\u4E00\u5F20")
-          ),
-          h(
-            "div",
-            { className: "dshp-tags", style: { marginTop: "10px" } },
-            cards.map((item, cardIndex) => h("button", {
-              key: item && item.id || cardIndex,
-              type: "button",
-              className: "dshp-tag",
-              style: {
-                cursor: "pointer",
-                borderColor: cardIndex === safeIndex ? "var(--dshp-accent)" : void 0,
-                color: cardIndex === safeIndex ? "var(--dshp-accent)" : void 0
-              },
-              onClick: () => setIndex(cardIndex)
-            }, cardIndex + 1 + ". " + String(item && item.title || "\u5361\u7247")))
-          )
-        );
+        return ensurePoetryTabs().ClassTab(props);
       }
       function YunTab(props) {
-        const api = props.api || {};
-        const [expanded, setExpanded] = React.useState(null);
-        const resource = api.yunRes || {};
-        if (resource.status === "error") {
-          return h(EmptyState, {
-            title: "\u97F5\u90E8\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(resource.error),
-            onRetry: () => api.reloadYun && api.reloadYun().catch(() => {
-            })
-          });
-        }
-        const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : [];
-        if (!volumes.length) {
-          if (resource.status === "ready") {
-            return h(EmptyState, { title: "\u6682\u65E0\u97F5\u90E8\u6570\u636E", message: "\u58F0\u5F8B\u542F\u8499\u6570\u636E\u8FD8\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
-          }
-          return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u58F0\u5F8B\u542F\u8499\u2026" });
-        }
-        return h(
-          "div",
-          null,
-          h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u58F0\u5F8B\u542F\u8499 \xB7 \u5E73\u58F0\u4E09\u5341\u97F5\u90E8\uFF08\u4E0A\u5377 15 / \u4E0B\u5377 15\uFF09"),
-          volumes.map((volume, volumeIndex) => {
-            const chapters = volume && Array.isArray(volume.chapters) ? volume.chapters : [];
-            return h(
-              "div",
-              { key: "volume-" + volumeIndex },
-              h("div", { className: "dshp-subtitle" }, String(volume.title || "")),
-              chapters.map((chapter, chapterIndex) => {
-                const key = volumeIndex + "-" + chapterIndex;
-                const open = expanded === key;
-                const chars = Array.isArray(chapter.exampleChars) ? chapter.exampleChars : [];
-                return h(
-                  "div",
-                  { key },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: cx("dshp-row", open && "dshp-is-open"),
-                      onClick: () => setExpanded(open ? null : key),
-                      "aria-expanded": open
-                    },
-                    h(
-                      "span",
-                      { className: "dshp-row-main" },
-                      h("span", { className: "dshp-row-title" }, String(chapter.name || "")),
-                      chars.length ? h("span", { className: "dshp-row-sub" }, " \u4F8B\u5B57\uFF1A" + chars.join("\u3001")) : null
-                    ),
-                    h("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
-                  ),
-                  open ? h(
-                    "div",
-                    { className: "dshp-row-body" },
-                    (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index) => h("p", { key: index, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
-                    chapter.exampleLine ? h("div", { className: "dshp-example", style: { marginTop: "6px" } }, h("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : null
-                  ) : null
-                );
-              })
-            );
-          })
-        );
+        return ensurePoetryTabs().YunTab(props);
       }
       function CiTab(props) {
-        const api = props.api || {};
-        const [subTab, setSubTab] = React.useState("poems");
-        const [query, setQuery] = React.useState("");
-        const [rhythmic, setRhythmic] = React.useState("");
-        const [visible, setVisible] = React.useState(40);
-        const [openId, setOpenId] = React.useState(null);
-        const knowledge = api.knowledgeRes || {};
-        const ciRes = api.ciRes || {};
-        const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : [];
-        const items = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [];
-        const ciBankCounts = React.useMemo(() => {
-          const map = {};
-          const bankItems = api.ciBankRes && api.ciBankRes.data && Array.isArray(api.ciBankRes.data.items) ? api.ciBankRes.data.items : [];
-          for (const item of bankItems) {
-            if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
-          }
-          return map;
-        }, [api.ciBankRes]);
-        const ciSelectedCounts = React.useMemo(() => {
-          const map = {};
-          for (const item of items) {
-            if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
-          }
-          return map;
-        }, [items]);
-        const rhythms = React.useMemo(() => {
-          const seen = {};
-          items.forEach((item) => {
-            if (item && item.rhythmic) seen[item.rhythmic] = true;
-          });
-          return Object.keys(seen).sort((a, b) => a.localeCompare(b, "zh"));
-        }, [items]);
-        const filtered = React.useMemo(() => {
-          const keyword = query.trim();
-          return items.filter((item) => {
-            if (!item) return false;
-            if (rhythmic && item.rhythmic !== rhythmic) return false;
-            if (!keyword) return true;
-            const haystack = [item.title, item.author, item.rhythmic, item.quote].concat(Array.isArray(item.lines) ? item.lines : []).join(" ");
-            return haystack.indexOf(keyword) >= 0;
-          });
-        }, [items, query, rhythmic]);
-        React.useEffect(() => {
-          setVisible(40);
-        }, [query, rhythmic]);
-        if (knowledge.status === "error") {
-          return h(EmptyState, {
-            title: "\u8BCD\u724C\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(knowledge.error),
-            onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
-            })
-          });
-        }
-        function renderCards() {
-          if (!ciCards.length) {
-            if (knowledge.status === "ready") return h(EmptyState, { title: "\u6682\u65E0\u8BCD\u724C\u5361", message: "\u8BCD\u724C\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
-            return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u8BCD\u724C\u5361\u2026" });
-          }
-          return h(
-            "div",
-            { className: "dshp-list" },
-            ciCards.map((card, index) => h(
-              "div",
-              { key: card && card.id || index, className: "dshp-card", style: { padding: "8px 2px", borderBottom: "1px solid var(--dshp-border)" } },
-              h(
-                "div",
-                { className: "dshp-card-title", style: { fontSize: "14px" } },
-                String(card && card.name || "\u8BCD\u724C"),
-                card && Array.isArray(card.aliases) && card.aliases.length ? h("span", { className: "dshp-muted", style: { fontSize: "11.5px", fontWeight: 400 } }, "\uFF08" + card.aliases.join("\u3001") + "\uFF09") : null
-              ),
-              card && card.form ? h("div", { className: "dshp-card-summary" }, String(card.form) + (card.rhyme ? " \xB7 " + String(card.rhyme) : "")) : null,
-              card && card.note ? h("p", { className: "dshp-p" }, String(card.note)) : null,
-              card && card.example ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(card.example))) : null,
-              card && card.name ? h(
-                "div",
-                { className: "dshp-fh-actions" },
-                h("button", {
-                  type: "button",
-                  className: "dshp-link",
-                  onClick: () => {
-                    if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(card.name);
-                  }
-                }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[card.name] ? "\uFF08" + ciSelectedCounts[card.name] + " \u9996\uFF09" : "")),
-                h("button", {
-                  type: "button",
-                  className: "dshp-link dshp-muted",
-                  onClick: () => {
-                    if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(card.name);
-                  }
-                }, "\u5168\u5E93" + (ciBankCounts[card.name] ? "\uFF08" + ciBankCounts[card.name] + " \u9996\uFF09" : "\u540C\u8BCD\u724C"))
-              ) : null
-            ))
-          );
-        }
-        function renderPoems() {
-          if (ciRes.status === "error") {
-            return h(EmptyState, {
-              title: "\u540D\u7BC7\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
-              message: describeDataError(ciRes.error),
-              onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
-              })
-            });
-          }
-          if (!items.length) {
-            if (ciRes.status === "ready") return h(EmptyState, { title: "\u6682\u65E0\u8BCD\u4F5C", message: "\u540D\u7BC7\u8BCD\u6570\u636E\u6B63\u5728\u51C6\u5907\u4E2D\u3002" });
-            return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u540D\u7BC7\u8BCD\u2026" });
-          }
-          const shown = filtered.slice(0, visible);
-          return h(
-            "div",
-            null,
-            h(
-              "div",
-              { className: "dshp-search" },
-              h("input", {
-                className: "dshp-input",
-                type: "search",
-                value: query,
-                placeholder: "\u641C\u7D22\u8BCD\u724C / \u4F5C\u8005 / \u8BCD\u53E5",
-                "aria-label": "\u641C\u7D22\u540D\u7BC7\u8BCD",
-                onChange: (event) => setQuery(event.target.value)
-              }),
-              h(
-                "select",
-                {
-                  className: "dshp-select",
-                  value: rhythmic,
-                  "aria-label": "\u6309\u8BCD\u724C\u7B5B\u9009",
-                  onChange: (event) => setRhythmic(event.target.value)
-                },
-                h("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
-                rhythms.map((name) => h("option", { key: name, value: name }, name))
-              )
-            ),
-            h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996\uFF08\u603B\u8BA1 " + items.length + " \u9996\uFF09"),
-            h(
-              "div",
-              { className: "dshp-list" },
-              shown.map((ci, index) => {
-                const ciId = ci.id || "ci-" + index;
-                const open = openId === ciId;
-                return h(
-                  "div",
-                  { key: ciId },
-                  h(
-                    "button",
-                    {
-                      type: "button",
-                      className: cx("dshp-row", open && "dshp-is-open"),
-                      onClick: () => setOpenId(open ? null : ciId),
-                      "aria-expanded": open
-                    },
-                    h(
-                      "span",
-                      { className: "dshp-row-main" },
-                      h("span", { className: "dshp-row-title" }, String(ci.title || ci.rhythmic || "\u65E0\u9898")),
-                      h("span", { className: "dshp-row-sub" }, String(ci.author || "") + (ci.rhythmic ? " \xB7 " + String(ci.rhythmic) : ""))
-                    ),
-                    h("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
-                  ),
-                  open ? h(
-                    "div",
-                    { className: "dshp-row-body" },
-                    h("div", { className: "dshp-ci-lines" }, (Array.isArray(ci.lines) ? ci.lines : []).map((line, lineIndex) => h("div", { key: lineIndex }, String(line)))),
-                    ci.quote ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(ci.quote))) : null,
-                    ci.rhythmic ? h(
-                      "div",
-                      { className: "dshp-fh-actions" },
-                      h("button", {
-                        type: "button",
-                        className: "dshp-link",
-                        onClick: () => {
-                          if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(ci.rhythmic);
-                        }
-                      }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[ci.rhythmic] ? "\uFF08" + ciSelectedCounts[ci.rhythmic] + " \u9996\uFF09" : "")),
-                      h("button", {
-                        type: "button",
-                        className: "dshp-link dshp-muted",
-                        onClick: () => {
-                          if (api.openCiBankForRhythmic) api.openCiBankForRhythmic(ci.rhythmic);
-                        }
-                      }, "\u5168\u5E93" + (ciBankCounts[ci.rhythmic] ? "\uFF08" + ciBankCounts[ci.rhythmic] + " \u9996\uFF09" : "\u540C\u8BCD\u724C"))
-                    ) : null
-                  ) : null
-                );
-              })
-            ),
-            filtered.length > visible ? h(
-              "div",
-              { style: { textAlign: "center", marginTop: "10px" } },
-              h("button", {
-                type: "button",
-                className: "dshp-btn",
-                onClick: () => setVisible(visible + 60)
-              }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - visible) + " \u9996\uFF09")
-            ) : null
-          );
-        }
-        return h(
-          "div",
-          null,
-          h(
-            "div",
-            { className: "dshp-seg", style: { marginBottom: "10px" } },
-            h("button", {
-              type: "button",
-              className: cx("dshp-seg-btn", subTab === "poems" && "dshp-is-active"),
-              onClick: () => setSubTab("poems")
-            }, "\u540D\u7BC7\u8BCD"),
-            h("button", {
-              type: "button",
-              className: cx("dshp-seg-btn", subTab === "cards" && "dshp-is-active"),
-              onClick: () => setSubTab("cards")
-            }, "\u8BCD\u724C\u5361")
-          ),
-          subTab === "cards" ? renderCards() : renderPoems()
-        );
+        return ensurePoetryTabs().CiTab(props);
       }
       function PoetrySettingsTab(props) {
-        const api = props.api || {};
-        const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
-        const update = api.updateSettings || (() => {
-        });
-        const seg = (options, current, onPick) => h(
-          "div",
-          { className: "dshp-seg" },
-          options.map((option) => h("button", {
-            key: String(option.value),
-            type: "button",
-            className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
-            onClick: () => onPick(option.value)
-          }, option.label))
-        );
-        return h(
-          "div",
-          { className: "dshp-settings" },
-          h("div", { className: "dshp-field" }, h("div", { className: "dshp-field-label" }, h("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h("small", null, "\u4E8C\u7EA7\u83DC\u5355\u91CC\u7684\u914D\u7F6E\uFF1B\u4E3B\u8BBE\u7F6E\u53EA\u7559\u6210\u957F/\u5916\u89C2"))),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
-            switchNode(settings.showTones, () => update({ showTones: !settings.showTones }), "\u5E73\u4EC4\u6807\u6CE8\u5F00\u5173")
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
-            seg([
-              { value: "daily", label: "\u6BCF\u65E5" },
-              { value: "random", label: "\u968F\u673A" }
-            ], settings.mode, (value) => update({ mode: value }))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
-            h(
-              "select",
-              {
-                className: "dshp-select",
-                value: String(settings.autoplay),
-                "aria-label": "\u81EA\u52A8\u8F6E\u64AD\u95F4\u9694",
-                onChange: (event) => update({ autoplay: num(event.target.value, 0) })
-              },
-              h("option", { value: "0" }, "\u5173\u95ED"),
-              h("option", { value: "30" }, "30 \u79D2"),
-              h("option", { value: "60" }, "1 \u5206\u949F"),
-              h("option", { value: "300" }, "5 \u5206\u949F")
-            )
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u663E\u793A\u6587\u5B57"), h("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
-            seg([
-              { value: "simplified", label: "\u7B80\u4F53" },
-              { value: "original", label: "\u539F\u6587" }
-            ], settings.script, (value) => update({ script: value }))
-          ),
-          h(
-            "div",
-            { className: "dshp-field" },
-            h("div", { className: "dshp-field-label" }, h("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
-            switchNode(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), "\u6309\u5929\u6C14\u9009\u8BD7\u5F00\u5173")
-          ),
-          h("div", { className: "dshp-muted", style: { fontSize: "11.5px", lineHeight: 1.6 } }, "\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF1A\u4ECE\u300C\u6210\u957F\u300D\u9875\u5E95\u90E8\u7684\u5165\u53E3\u8FDB\u5165\uFF1B\u5927\u5C0F/\u5438\u9644/\u81EA\u8A00\u81EA\u8BED/\u9690\u85CF\u4ECD\u5728\u4E3B\u8BBE\u7F6E\u3002")
-        );
+        return ensurePoetryTabs().PoetrySettingsTab(props);
       }
       function SettingsTab(props) {
         const api = props.api || {};

@@ -1029,3 +1029,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - `client-src/feihua.js`：FEIHUA_CANDIDATE_CHARS/MIN_ENTRIES/CANDIDATE_LIMIT/ATLAS_LIMIT + completeSentencesFromLines/feihuaPlainOf/register-lookup/buildFeihuaIndex/mergeFeihuaFullEntries/sourceOf/mergeItems/finishIndex/random/sample/shuffle/pickSystem/start/submit/normalizeBest/bestUpdate。
 - client.js 保留：full 缓存/fetch/abort、localStorage best、getFeihuaIndex/clear 缓存/pickDefaultFeihuaChar、UI（FeihuaTab/renderFeihuaStep）。
 - 测试：client 121 全过；全套 399/399。
+
+## 100. P2：面板 tab 拆分（M96，2026-10-26）
+
+- 新 `client-src/tabs-poetry.js`：`createPoetryTabs(ctx)` 工厂，导出 TodayTab/ClassTab/YunTab/CiTab/PoetrySettingsTab；ctx 注入 React/h/EmptyState/LoadingState/PoemBody/AnalysisBody/KnowledgeCardView/describeDataError/normalizeSettings/cx/switchNode/num。
+- client.js 改为惰性 `ensurePoetryTabs()` + 同名包装函数，DEBUG 对象在模块初始化时引用函数声明，不会 TDZ；渲染路径不变。
+- 迁移 424 行；client.js 7,200 → 6,734 行。
+- 未拆：GrowthTab / SettingsTab / LibraryTab / FeihuaTab——它们依赖 client 闭包里的更多 helper（growthMetricsTree、DetectionView、ToneLine、MASCOT_FILES 等），要继续需先抽共享 UI kit。
+- 测试：client 121 全过；全套 399/399。
