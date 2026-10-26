@@ -183,11 +183,16 @@ import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
   SELF_GROWTH_TIMEOUT_MS,
+  SELF_PROBE_GAP_MS,
   buildLearnPrompt,
+  buildProbeProposalPrompt,
+  buildProbeVerdictPrompt,
   buildReflectPrompt,
   createSelfGrowth,
   normalizeTopicCandidate,
   parseLearnResult,
+  parseProbeProposal,
+  parseProbeVerdict,
   parseReflectResult,
 } from '../lib/self-growth.mjs'
 import {
@@ -1907,6 +1912,8 @@ test('self-talk：buildSelfTalkPrompt 只有聚合上下文（无今日诗、无
   assert.equal(prompt.includes('kind='), false, 'kind 固定 murmur，不再写进 prompt')
   assert.equal(prompt.includes('intro'), false, 'intro 已废弃，不进入 prompt')
   assert.equal(prompt.includes('绝密原文'), false, '会话原文绝不允许进入 prompt')
+  assert.match(prompt, /对称骨架/, 'v1.61：带上去 AI 味的自然语言约束')
+  assert.match(prompt, /像在心里说话/)
 })
 
 test('self-talk：parseSelfTalkLines 过滤长度/引号/编号/非中文/重复', () => {
@@ -5538,6 +5545,42 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(stretchSaved[0].text, '起來抻一抻。')
   stretchDrive.dispose()
 
+  // v1.62：focus（注意力集中）会触发试探回调；普通待着不触发
+  const probeFocuses = []
+  const focusLlm = makeMockLlm(() =>
+    JSON.stringify({
+      felt: '手上这页还没翻完。',
+      experiencing: '',
+      focus: '在琢磨漏刻的水位为什么能稳住',
+      doing: '把那页再翻回去看一眼',
+      kind: '',
+      say: '这行字刚才没看进去。',
+    }),
+  )
+  const focusDrive = createSelfDrive({
+    state: {
+      snapshot: () => ({ sleeping: false, lastActionAt: null }),
+      setFelt() {},
+      setExperiencing() {},
+      markChecked() {},
+      applyEvent() {},
+    },
+    llm: focusLlm,
+    actionsPath: path.join(dir, 'focus-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_200_000_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+    onProbe: (focus) => probeFocuses.push(focus),
+  })
+  focusDrive.load()
+  const focusResult = await focusDrive.check(1_700_200_000_000)
+  assert.equal(focusResult.ok, true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.deepEqual(probeFocuses, ['在琢磨漏刻的水位为什么能稳住'])
+  focusDrive.dispose()
+
   const failDrive = createSelfDrive({
     state: failState,
     llm: failLlm,
@@ -5801,6 +5844,74 @@ test('self-growth：到点自省写 journal thought、自学写 learning-log 与
   assert.equal(again.candidateAdded, false, '重复 topic 不重复入库')
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'topics-candidates.json'), 'utf8')).topics.length, 1)
   growth.dispose()
+})
+
+test('self-growth v1.62：注意力集中时模型自选入口，她去看并自己判断喜不喜欢', async () => {
+  assert.equal(SELF_PROBE_GAP_MS, 3 * 60 * 60 * 1000)
+  // prompt：类型/题目由模型自己挑；喜欢与否由她自己判断
+  const proposalPrompt = buildProbeProposalPrompt({
+    now: FIXED_NOW.getTime(),
+    focus: '在琢磨漏刻的水位为什么能稳住',
+    recentLearnedTitles: ['莲花漏用溢流稳住水位'],
+    recentProbes: [{ title: '老城墙怎么排水', liked: false }],
+  })
+  assert.match(proposalPrompt, /注意力正落在：在琢磨漏刻的水位为什么能稳住/)
+  assert.match(proposalPrompt, /这不是任务/)
+  assert.match(proposalPrompt, /喜不喜欢最后由你自己判断/)
+  assert.match(proposalPrompt, /老城墙怎么排水（不喜欢）/)
+  const verdictPrompt = buildProbeVerdictPrompt({
+    now: FIXED_NOW.getTime(),
+    focus: '在琢磨漏刻的水位',
+    proposal: { domain: '历史', title: '宋代的水钟怎么校准', hook: '想看看人怎么在没有仪器时校时' },
+  })
+  assert.match(verdictPrompt, /你按这个入口去看了一眼/)
+  assert.match(verdictPrompt, /可以不喜欢/)
+
+  // 解析
+  assert.equal(parseProbeProposal(JSON.stringify({ domain: '历史', title: '宋代的水钟怎么校准', hook: '换到人怎么做事' })).ok, true)
+  assert.equal(parseProbeProposal(JSON.stringify({ domain: '', title: 'x' })).ok, false)
+  assert.equal(parseProbeVerdict(JSON.stringify({ impression: '翻到一段说漏刻靠日晷互相校验，觉得比算水位有意思。', liked: true, why: '喜欢看人怎么想办法。' })).ok, true)
+  assert.equal(parseProbeVerdict(JSON.stringify({ impression: '看了一会儿，说不好。', why: '' })).ok, false, 'liked 必须是布尔')
+
+  // 两段式：挑入口 → 去看 → 自己判断
+  const now = FIXED_NOW.getTime()
+  const llm = makeGrowthLlm([
+    JSON.stringify({ domain: '历史', title: '宋代的水钟怎么校准', hook: '和我最近琢磨的水位有点像，但换到人怎么做事。' }),
+    JSON.stringify({
+      impression: '翻到一段说漏刻靠日晷互相校验，我盯着「校验」那两个字看了会儿，觉得比单纯算水位有意思。',
+      liked: true,
+      why: '喜欢看人怎么在没有仪器的时候想办法。',
+    }),
+  ])
+  const { dir, growth } = makeGrowthHarness({ llm, now: () => now })
+  const result = await growth.probeNow({ focus: '在琢磨漏刻的水位为什么能稳住' })
+  assert.equal(result.ok, true)
+  assert.equal(result.liked, true)
+  assert.equal(result.domain, '历史')
+  const log = fs.readFileSync(path.join(dir, 'learning-log.md'), 'utf8')
+  assert.match(log, /· 试探/)
+  assert.match(log, /注意力落在：在琢磨漏刻的水位为什么能稳住/)
+  assert.match(log, /她自己的结论：喜欢/)
+  const probeState = JSON.parse(fs.readFileSync(path.join(dir, 'probe-state.json'), 'utf8'))
+  assert.equal(probeState.lastProbeAt, now)
+  // 3 小时内不再打扰
+  const again = await growth.probeNow({ focus: '还在想水钟' })
+  assert.equal(again.ok, false)
+  assert.equal(again.reason, 'not-now')
+  growth.dispose()
+})
+
+test('self-growth v1.62：试探过的“喜欢/不喜欢”会进入下次自学提示', async () => {
+  const prompt = buildLearnPrompt({
+    now: FIXED_NOW.getTime(),
+    state: {},
+    probeHistory: [
+      { domain: '历史', title: '宋代的水钟怎么校准', liked: true },
+      { domain: '工艺', title: '青铜器怎么铸造', liked: false },
+    ],
+  })
+  assert.match(prompt, /你最近试探过、觉得有意思的：宋代的水钟怎么校准/)
+  assert.match(prompt, /你试探过、觉得没意思的：青铜器怎么铸造/)
 })
 
 test('self-growth：失败也推迟到下一周期、不重入、tick 到点触发、snapshot', async () => {
@@ -7392,9 +7503,16 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
-  assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, { mood: 'low', selfTalk: 'high', growth: 'high', voice: 'high', drive: 'low' })
+  assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
+    mood: 'low',
+    selfTalk: 'high',
+    growth: 'high',
+    voice: 'high',
+    drive: 'low',
+    probe: 'low',
+  })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
 
@@ -7426,6 +7544,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('growth').reasoningEffort, 'high', '非法 env effort 回退默认')
   assert.equal(envPolicy.resolve('voice').reasoningEffort, 'off')
   assert.equal(envPolicy.resolve('drive').reasoningEffort, 'low', '自处默认 low')
+  assert.equal(envPolicy.resolve('probe').reasoningEffort, 'low', '试探默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({

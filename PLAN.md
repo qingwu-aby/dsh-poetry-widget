@@ -836,3 +836,16 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
   2. 成长页计数在 v1.51 迁移后冻结（applyBeingEvent 只写时间线，不累加 learnings/reflections）→ 修复：learn/reflect 事件事实 +1；启动时按 journal 的 thought 数与 learning-log「· 自学」条数校正（只增不减）。
   3. 真问题：连续多轮围绕漏刻/水位/流速（最近 8 条 learned 同主题）→ 修复：detectRepeatedTheme 从最近 8 条标题找出现 ≥3 次的二字主题，prompt 点名并强制换完全不同的领域。
 - 单测：data 42 / host 223 / client 117 = 382/382。
+
+## 75. 语言去 AI 味（M72，2026-10-26）
+
+- 用户：小鲸鱼的语言系统 AI 味太多，自然一点；批判性参考 https://github.com/LifelongLazyLearner/qu-ai-wei。
+- 读后判断：qu-ai-wei 是“改写已有文本、保留事实/证据强度/作者声口”的编辑 skill，强调模式只是编辑线索、不鉴定作者、不硬加人味；不是一个生成模板。因此只取结构线索，不列禁词。
+- 实现：`lib/language-style.mjs` 提供 9 条自然语言约束 + 场景附加项；接入 self-talk / mood-ai / self-drive / reflect / learn / voice 六个 prompt。核心：具体动作与物件、禁对称骨架与三连、少抽象名词与空动词、少连接词、不解释不总结不升华、不确定就写不确定、不为像人硬加错字/口头语/emoji、少用破折号分号装层次。
+- 测试：各 prompt 断言含风格约束。
+
+## 76. 注意力介入/试探（M73，2026-10-26）
+
+- 用户：她注意力集中的时候，增加介入方案；由模型自主选择类型主题，让她去看看感不感兴趣，最终结论取决于她自身是否喜欢。
+- 实现：自处输出新增 `focus`；focus 非空 + 醒着 + 距上次 ≥3h → `growth.probeNow({focus})` 两段式：① 模型自选 domain/title/hook（避开最近学过/试探过）；② 她写看到/想到的具体印象，并自己给 liked/why（允许不喜欢/说不好）。结果写入 learning-log「· 试探」，probe-state.json 记 lastProbeAt；下次自学 prompt 读取喜欢/不喜欢清单。新增模型角色 `probe`（effort low、floor 1400）。
+- 单测：prompt/解析/两段式流程/冷却/自学提示/自处 focus 触发。

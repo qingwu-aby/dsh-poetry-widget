@@ -311,7 +311,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe']
         .map((role) => {
           let candidates = []
           try {
@@ -375,6 +375,8 @@ export async function apply(ctx) {
         modelErrorsPath,
         logger,
         onLearn: () => growth.learnNow(),
+        // v1.62：注意力集中时，她自己会提出一个“可以去看看”的介入；喜不喜欢由她判断。
+        onProbe: (focus) => growth.probeNow({ focus }),
         getRecentMoodLabels: () => {
           try {
             return typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : []

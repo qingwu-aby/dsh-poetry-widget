@@ -125,3 +125,5 @@
 | H22 | 上下文/记忆与对话解耦 | ✅ | 无 session/event 监听、无 mood.json 路由；prompt 无 stats/activity/idle；客户端不拉 mood.json、启发式只依赖天气/时间/本地信号；旧 mood.json 改名 .retired；单测覆盖路由缺席、prompt 不含会话数据、index 不注册监听 |
 | H23 | 「在体会」由她自己写 | ✅ | self-being 增加 experiencing/experiencingAt；自处输出可带 experiencing 并持久化；formatBeingLine 注入 mood-ai/self-talk；外部 experience.json 不再读取且启动改名 .retired；memory-hub 11 文件；单测覆盖 |
 | H24 | 自学“看起来停了”修复 | ✅ | 学习日志本地时间；成长页学习/自省事实计数并在启动时按日志校正；重复主题检测（最近 8 条中 ≥3 次）点名并要求换领域；单测覆盖 |
+| H25 | 语言去 AI 味 | ✅ | `lib/language-style.mjs` 9 条结构约束接入 self-talk/mood-ai/self-drive/reflect/learn/voice 六个 prompt；批判性参考 qu-ai-wei（取结构、不列禁词、不硬加人味） |
+| H26 | 注意力介入/试探 | ✅ | 自处 `focus` → 3h 冷却 → 两段式 probe：模型自选类型+题目，她看后自己判断 liked/why；结果写 learning-log「· 试探」并进入下次自学提示；新增 probe 模型角色 |
