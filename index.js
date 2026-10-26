@@ -53,6 +53,7 @@ import {
   createMemoryHub,
   createMemorySnapshotHandler,
 } from './lib/memory-hub.mjs'
+import { createSelfNetlang } from './lib/self-netlang.mjs'
 import { createSelfReading } from './lib/self-reading.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
@@ -314,7 +315,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang']
         .map((role) => {
           let candidates = []
           try {
@@ -462,6 +463,35 @@ export async function apply(ctx) {
           }
         },
         'dsh-poetry-widget: 读小说',
+      )
+
+      // v1.68：看看互联网上的大家怎么表达——每 8h 读一次公开热搜词（微博/B站），
+      // 只留意用词和句子节奏，不参与、不评论、不保存别人的原话。
+      const selfNetlang = createSelfNetlang({
+        state: selfState,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        learningLogPath: path.join(memoryDir, 'learning-log.md'),
+        statePath: path.join(settingsPath.dir, 'netlang-state.json'),
+        env,
+      })
+      selfNetlang.start()
+      logger?.info?.(
+        `[dsh-poetry-widget] 看大家说话已启动（间隔 8h；${
+          String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
+        }）`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            selfNetlang.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 看大家说话',
       )
 
       const routes = createRouteTable({

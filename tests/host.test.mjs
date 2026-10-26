@@ -214,6 +214,15 @@ import {
   pickReadingExcerpt,
 } from '../lib/self-reading.mjs'
 import {
+  SELF_NETLANG_GAP_MS,
+  SELF_NETLANG_SOURCES,
+  buildNetlangPrompt,
+  createSelfNetlang,
+  fetchNetlangTitles,
+  parseNetlangPayload,
+  parseNetlangResult,
+} from '../lib/self-netlang.mjs'
+import {
   SELF_ACTION_LABELS,
   SELF_ACTION_TEXTS,
   SELF_ACTIONS_MAX_ENTRIES,
@@ -6664,7 +6673,7 @@ test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的
 })
 
 test('self-reading v1.67：读公版现代作品，留意写法并自己写一句（不抄句子）', async () => {
-  assert.equal(SELF_READING_GAP_MS, 4 * 60 * 60 * 1000)
+  assert.equal(SELF_READING_GAP_MS, 24 * 60 * 60 * 1000, 'v1.68：小说放慢到每天一次')
   assert.equal(SELF_READING_WORKS[0].title, '孔乙己')
   assert.equal(SELF_READING_WORKS[0].author, '鲁迅')
 
@@ -6782,6 +6791,119 @@ test('self-reading v1.67：读公版现代作品，留意写法并自己写一�
     },
   })
   assert.equal((await disabled.readNow()).reason, 'disabled')
+})
+
+test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的原话', async () => {
+  assert.equal(SELF_NETLANG_GAP_MS, 8 * 60 * 60 * 1000)
+  assert.deepEqual(SELF_NETLANG_SOURCES.map((source) => source.id), ['weibo', 'bilibili'])
+
+  const weiboPayload = {
+    ok: 1,
+    data: {
+      realtime: [
+        { word_scheme: '#今天也要好好吃饭#', word: '今天也要好好吃饭' },
+        { word: '凌晨四点的街道' },
+        { word: 'https://example.com/x' },
+        { word: '凌晨四点的街道' },
+      ],
+    },
+  }
+  assert.deepEqual(parseNetlangPayload('weibo', weiboPayload), ['#今天也要好好吃饭#', '凌晨四点的街道'])
+  const biliPayload = { code: 0, data: { trending: { list: [{ keyword: '秋天第一杯奶茶', show_name: '秋天第一杯奶茶' }, { keyword: '通勤路上' }] } } }
+  assert.deepEqual(parseNetlangPayload('bilibili', biliPayload), ['秋天第一杯奶茶', '通勤路上'])
+
+  const fetched = await fetchNetlangTitles({
+    source: SELF_NETLANG_SOURCES[0],
+    fetchImpl: async () => ({ ok: true, url: 'https://weibo.com/ajax/side/hotSearch', json: async () => weiboPayload }),
+  })
+  assert.equal(fetched.label, '微博热搜')
+  assert.equal(fetched.titles.length, 2)
+  assert.equal(
+    await fetchNetlangTitles({
+      source: SELF_NETLANG_SOURCES[0],
+      fetchImpl: async () => ({ ok: true, url: 'https://evil.example/x', json: async () => weiboPayload }),
+    }),
+    null,
+  )
+
+  const prompt = buildNetlangPrompt({ now: FIXED_NOW.getTime(), label: '微博热搜', titles: ['#今天也要好好吃饭#', '凌晨四点的街道'] })
+  assert.match(prompt, /微博热搜/)
+  assert.match(prompt, /只是看看，不参与、不评论、不站队/)
+  assert.match(prompt, /怎么把一句话说短/)
+  assert.match(prompt, /不抄原标题/)
+  const parsed = parseNetlangResult(
+    JSON.stringify({
+      noticed: '标题爱把时间或动作直接摆在前面，比如「凌晨四点的街道」，省掉主语和解释，靠画面自己说话。',
+      try: '楼下那家早点铺还没收摊，蒸笼的白气把招牌糊住了一半。',
+    }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.match(parsed.attempt, /蒸笼/)
+
+  // 服务：一次看微博，下一次轮换到 B站；只写日志，不存原标题
+  const dir = makeTmpDir('dshp-netlang')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const llm = makeMockLlm(() =>
+    JSON.stringify({
+      noticed: '标题爱把时间或动作直接摆在前面，省掉主语和解释，靠画面自己说话。',
+      try: '楼下那家早点铺还没收摊，蒸笼的白气把招牌糊住了一半。',
+    }),
+  )
+  const fetchImpl = async (url) => {
+    const raw = String(url)
+    if (raw.includes('weibo.com')) return { ok: true, url: 'https://weibo.com/ajax/side/hotSearch', json: async () => weiboPayload }
+    return { ok: true, url: 'https://api.bilibili.com/x/web-interface/search/square?limit=10', json: async () => biliPayload }
+  }
+  const netlang = createSelfNetlang({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'netlang' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    learningLogPath,
+    statePath: path.join(dir, 'netlang-state.json'),
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl,
+  })
+  const first = await netlang.lookNow()
+  assert.equal(first.ok, true)
+  assert.equal(first.source, '微博热搜')
+  const log = fs.readFileSync(learningLogPath, 'utf8')
+  assert.match(log, /· 看大家说话/)
+  assert.match(log, /来源：微博热搜/)
+  assert.match(log, /她留意到的表达：标题爱把时间/)
+  assert.match(log, /她自己更日常的一句：楼下那家早点铺/)
+  assert.equal(log.includes('凌晨四点的街道'), false, '不保存别人的原话')
+  let stateFile = JSON.parse(fs.readFileSync(path.join(dir, 'netlang-state.json'), 'utf8'))
+  assert.equal(stateFile.lookCount, 1)
+  const second = await netlang.lookNow()
+  assert.equal(second.source, 'B站热搜')
+  stateFile = JSON.parse(fs.readFileSync(path.join(dir, 'netlang-state.json'), 'utf8'))
+  assert.equal(stateFile.lookCount, 2)
+
+  // 睡觉/关闭
+  const sleeping = createSelfNetlang({
+    state: { snapshot: () => ({ sleeping: true }) },
+    llm,
+    learningLogPath,
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await sleeping.lookNow()).reason, 'sleeping')
+  const disabled = createSelfNetlang({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    learningLogPath,
+    env: { DSH_POETRY_NETLANG: 'off' },
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await disabled.lookNow()).reason, 'disabled')
 })
 
 test('memory-recall v1.63：旧时回声按相关性+预算挑更早的条目，不混入最近想法', () => {
@@ -7835,7 +7957,7 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
   assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
     mood: 'low',
@@ -7846,6 +7968,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     probe: 'low',
     wander: 'low',
     read: 'low',
+    netlang: 'low',
   })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
@@ -7881,6 +8004,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('probe').reasoningEffort, 'low', '试探默认 low')
   assert.equal(envPolicy.resolve('wander').reasoningEffort, 'low', '溜达默认 low')
   assert.equal(envPolicy.resolve('read').reasoningEffort, 'low', '读小说默认 low')
+  assert.equal(envPolicy.resolve('netlang').reasoningEffort, 'low', '看大家说话默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({
