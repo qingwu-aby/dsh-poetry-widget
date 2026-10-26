@@ -7,7 +7,7 @@
 | 半区 | 文件 | 职责 |
 | --- | --- | --- |
 | Host（Node） | `index.js` + `lib/*.mjs` | 记忆、模型调用、后台循环、HTTP 路由、信任栅栏、静态素材 |
-| Client（浏览器） | `client.js` | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互（单文件，无构建） |
+| Client（浏览器） | `client.js`（由 `client-src/` 构建） | 挂件 UI、面板、飞花令、心情/媒体展示、本地交互；源码 `client-src/client.js` + `client-src/styles.js`，`npm run build:client`（esbuild）生成单 artifact |
 
 Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读文件、不持有模型密钥。
 
@@ -42,10 +42,10 @@ Host 与 Client 只通过 HTTP 路由 + 静态资源通信；Client 不直接读
 
 ## 5. 已知约束与债务
 
-- **Client 是单文件 7,768 行**：DSH 的浏览器产物是“一个 lazy factory/package”的单个 artifact；相对 import 不会自动打包，`dsh.client.external` 只声明基线外依赖。要真拆分需要引入 Client 构建工具（如 esbuild，把 `client-src/` 打成 `client.js`），这会改变发布/打包流程，暂缓。
-- **Client 测试 36s**：大量真实 `sleep`/定时器；提速需要虚拟时钟改造测试 harness（只动测试、不动 UI），可单独做。
-- **index.js 仍有 9 段独立 `hostCtx.effect` 清理**：可收成 service runtime（start/dispose 一处），但当前每段都短、风险低，暂缓。
-- **记忆文件没有统一 schemaVersion/迁移层**：各模块宽容解析；字段演进靠 normalize。真要长期演进再加迁移层。
+- **Client 已是“源码 + 构建”**：`client-src/*.js` → esbuild → `client.js`（单 artifact，IIFE，无运行时 import）。继续拆分功能模块只需往 `client-src/` 加文件并在 `client-src/client.js` 里 import；发布前/测试前必须 `npm run build:client`（`npm test` 已自动先构建）。
+- **Client 测试已用虚拟时钟**：`sleep()` 推进沙箱内虚拟 setTimeout/setInterval，全套 ~2.7s；新增测试请直接用 `sleep()`，不要用真实 `setTimeout` 等待。
+- **service runtime**：`lib/service-runtime.mjs` 统一注册/停止/健康快照；新增后台服务请注册到它，不要另写 `hostCtx.effect` 清理。
+- **记忆迁移**：`memory-registry` 带 schemaVersion，`memory-migrations` 管迁移链；改 schema 时提高版本并补迁移。
 - **单进程、无锁**：写都是原子写/只追加；跨文件读改写靠单飞标志（learning/probing）避免重入；未来若并发多来源写同一文件需要文件锁。
 
 ## 6. 测试与命令

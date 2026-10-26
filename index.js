@@ -39,6 +39,7 @@ import { SELF_STATE_ROUTE } from './lib/self-state.mjs'
 import { createSelfBeing, createSelfBeingHandler, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
+import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import {
   MODEL_ERRORS_ROUTE,
@@ -58,6 +59,7 @@ import { createSelfNetlang } from './lib/self-netlang.mjs'
 import { createSelfReading } from './lib/self-reading.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
+import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -87,6 +89,17 @@ export async function apply(ctx) {
   // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
   const memoryDir = resolveMemoryDir(env, home)
   const journal = createMemoryJournal({ dir: memoryDir, logger })
+  // v1.73：启动时把旧 schema 的记忆文件就地迁移（失败只 warn，不阻塞启动）。
+  try {
+    const migrationReport = runMemoryMigrations({ env, home, logger })
+    if (migrationReport.applied.length > 0) {
+      logger?.info?.(
+        `[dsh-poetry-widget] 记忆迁移：${migrationReport.applied.map((item) => `${item.id}→v${item.to}`).join('、')}`,
+      )
+    }
+  } catch (error) {
+    logger?.warn?.(`[dsh-poetry-widget] 记忆迁移异常：${error instanceof Error ? error.message : String(error)}`)
+  }
 
   // v1.58：插件不再监听任何会话事件、也不统计对话活跃度——她的上下文/记忆与对话完全独立。
   // 旧 mood.json（会话活跃统计）不再写入；启动时如存在则改名为 .retired 保留，不参与记忆中枢。
@@ -113,6 +126,8 @@ export async function apply(ctx) {
 
   ctx.inject(['webServer', 'connection'], (hostCtx) => {
     try {
+      // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
+      const serviceRuntime = createServiceRuntime({ logger })
       const webServer = hostCtx.get('webServer')
       const connection = hostCtx.get('connection')
 
@@ -210,16 +225,15 @@ export async function apply(ctx) {
       })
       memoryConsolidator.start()
       logger?.info?.(`[dsh-poetry-widget] 分层记忆：${layersPath}（每日整合）`)
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('记忆整合', {
+        dispose: () => {
           try {
             memoryConsolidator.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 记忆整合清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 记忆整合',
-      )
+      })
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
       const voiceService = createVoiceService({
         getLlm,
@@ -232,16 +246,15 @@ export async function apply(ctx) {
       })
       voiceService.start()
       logger?.info?.(`[dsh-poetry-widget] 声音档案：${voiceService.voicePath}`)
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('声音档案', {
+        dispose: () => {
           try {
             voiceService.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 声音档案清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 声音档案',
-      )
+      })
       const selfTalkService = createSelfTalkService({
         getLlm,
         getSelection,
@@ -360,8 +373,8 @@ export async function apply(ctx) {
         })
         .join('; ')
       logger?.info?.(`[dsh-poetry-widget] 模型候选：${candidateText}`)
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('自驱成长', {
+        dispose: () => {
           try {
             growth.dispose()
           } catch (error) {
@@ -373,8 +386,7 @@ export async function apply(ctx) {
             logger?.warn?.(`[dsh-poetry-widget] 状态清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 自驱成长',
-      )
+      })
 
       // M41：记忆中枢（create → recover → start；所有写入路径不变，中枢只管理/备份/恢复）。
       const memoryHub = createMemoryHub({ env, home, logger })
@@ -386,16 +398,15 @@ export async function apply(ctx) {
           memorySnapshot.backups.latestId ?? '无'
         }${memoryRecovery.recovered.length > 0 ? `（恢复 ${memoryRecovery.recovered.length} 个缺失文件）` : ''}`,
       )
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('记忆中枢', {
+        dispose: () => {
           try {
             memoryHub.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 记忆中枢清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 记忆中枢',
-      )
+      })
 
       // v1.51：自处循环——每 15–30 分钟把事实交给她自己的模型：写「此刻状态」+ 自己决定想做什么。
       // 没有阈值、没有需求分数；模型不可用时保持上次状态，什么都不做。
@@ -423,16 +434,15 @@ export async function apply(ctx) {
           actionSnapshot.latest !== null ? `；上次：${actionSnapshot.latest.text}` : ''
         }）`,
       )
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('自处', {
+        dispose: () => {
           try {
             selfDrive.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 自处循环清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 自处',
-      )
+      })
 
       // v1.64：网络溜达——每隔几小时去允许的公开页面（中文维基随机摘要）看一眼，
       // 用她自己的话记下看到什么；只读、无用户信息、不登录不评论。
@@ -452,16 +462,15 @@ export async function apply(ctx) {
           String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
         }）`,
       )
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('网络溜达', {
+        dispose: () => {
           try {
             selfWander.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 网络溜达清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 网络溜达',
-      )
+      })
 
       // v1.67：读现代中文小说学语言——每 4h 读一小段公版作品（鲁迅/老舍/萧红/郁达夫/
       // 朱自清/许地山），留意写法并自己写一句；只读公版、只取片段、不抄句子。
@@ -481,16 +490,15 @@ export async function apply(ctx) {
           String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
         }）`,
       )
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('读小说', {
+        dispose: () => {
           try {
             selfReading.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 读小说清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 读小说',
-      )
+      })
 
       // v1.68：看看互联网上的大家怎么表达——每 8h 读一次公开热搜词（微博/B站），
       // 只留意用词和句子节奏，不参与、不评论、不保存别人的原话。
@@ -510,16 +518,15 @@ export async function apply(ctx) {
           String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
         }）`,
       )
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('看大家说话', {
+        dispose: () => {
           try {
             selfNetlang.dispose()
           } catch (error) {
             logger?.warn?.(`[dsh-poetry-widget] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
           }
         },
-        'dsh-poetry-widget: 看大家说话',
-      )
+      })
 
       const routes = createRouteTable({
         dataStore,
@@ -542,6 +549,7 @@ export async function apply(ctx) {
           reading: selfReading.snapshot(),
           netlang: selfNetlang.snapshot(),
           consolidate: memoryConsolidator.snapshot(),
+          services: serviceRuntime.snapshot(),
         }),
         env,
         home,
@@ -595,8 +603,8 @@ export async function apply(ctx) {
       )
       for (const route of routes) disposers.push(webServer.register(route))
 
-      hostCtx.effect(
-        () => () => {
+      serviceRuntime.register('HTTP 路由', {
+        dispose: () => {
           for (const dispose of disposers) {
             try {
               dispose()
@@ -605,7 +613,16 @@ export async function apply(ctx) {
             }
           }
         },
-        'dsh-poetry-widget: HTTP 路由',
+      })
+      // 所有服务/路由都已挂载：统一标记启动，并挂一个清理入口（v1.73）。
+      hostCtx.effect(
+        () => {
+          serviceRuntime.startAll()
+          return () => {
+            serviceRuntime.disposeAll()
+          }
+        },
+        'dsh-poetry-widget: 后台服务',
       )
       logger?.info?.(
         `[dsh-poetry-widget] 已挂载 ${routes.length + 5} 条路由（assets + pet-media + self + memory + model-errors + ${routes.length} 条 JSON，version ${VERSION}，` +

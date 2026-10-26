@@ -21,7 +21,8 @@
     "README.md",
     "lib",
     "PROVENANCE.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "client-src"
   ],
   "engines": {
     "dsh": "^0.2.1-rc.2"
@@ -50,6 +51,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "opencc-js": "^1.4.2"
   },
   "author": "qingwu-aby",
@@ -62,9 +64,10 @@
     "url": "https://github.com/qingwu-aby/dsh-poetry-widget/issues"
   },
   "scripts": {
-    "test": "node --test tests/data.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
-    "test:fast": "node --test tests/data.test.mjs tests/host.test.mjs",
-    "test:client": "node --test tests/client/widget.test.mjs",
-    "check": "node --check index.js && node --check client.js && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done"
+    "test": "npm run build:client && node --test tests/data.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
+    "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/host.test.mjs",
+    "test:client": "npm run build:client && node --test tests/client/widget.test.mjs",
+    "check": "npm run build:client && node --check index.js && node --check client.js && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done",
+    "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning"
   }
 }

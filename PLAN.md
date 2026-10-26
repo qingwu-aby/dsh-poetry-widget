@@ -943,3 +943,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 完成：① `health.json` 增加 `runtime` 快照（growth/drive/wander/reading/netlang/consolidate 的 lastRun/nextRun/inFlight 等，只元数据），index 通过 `getRuntime` 注入；默认路由测试不含该字段，索引集成测试断言存在。② 新增 `docs/architecture.md`：半区/模块分组/数据流/扩展改动点/已知债务/测试命令。
 - 调研结论：client 拆分受阻于 DSH 浏览器“单 artifact lazy factory”加载方式（ui-plugin 文档：compiled sources 需用 deployment 的 Client build tooling，非基线 import 只能走 `dsh.client.external`）；要拆必须引入 Client 构建工具（如 esbuild → client.js），改变发布流程，暂缓。client 测试 36s 需虚拟时钟改造，只动 tests；index 9 段 effect 收口、schemaVersion 迁移层留待。
 - 单测：data 42 / host 230 / client 119 = 391/391。
+
+## 89. P1 收尾：构建链 / 虚拟时钟 / service runtime / 迁移层（M85，2026-10-26）
+
+- 用户：都做吧（P1 剩余项全做）。
+- 前端构建链：源码移到 `client-src/client.js` + `client-src/styles.js`（CSS 单独模块）；`npm run build:client` 用 esbuild 打成单 artifact `client.js`（IIFE、无 ESM import），DSH 的 `window.__ModuleLoader__.load` 加载方式不变；测试仍读 `client.js`。
+- 测试提速：client 测试的 `sleep()` 改为推进 vm 沙箱内**虚拟时钟**（setTimeout/setInterval/rAF 全部虚拟化；cleanup 时清定时器），client 套件 36s → ~2.7s；全套 392 用例 ~2.7s（含构建）。
+- service runtime：`lib/service-runtime.mjs` 注册/启动标记/统一 dispose/健康快照；index 10 段 effect 收成 1 个 effect；health.json 的 runtime 增加 services 列表。
+- 记忆迁移层：`memory-registry` 每个 JSON 文件带 schemaVersion；`lib/memory-migrations.mjs` 按 id 链式迁移（当前 self-state v1→v2，删数值字段、保留事实时间线），启动时就地迁移、幂等、坏文件不阻塞；新增测试。
+- 单测：data 42 / host 231 / client 119 = 392/392（~2.7s）。

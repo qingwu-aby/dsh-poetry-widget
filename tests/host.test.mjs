@@ -214,6 +214,7 @@ import {
   pickReadingExcerpt,
   readingApiUrl,
 } from '../lib/self-reading.mjs'
+import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import {
   buildConsolidationPrompt,
   createMemoryConsolidator,
@@ -6232,6 +6233,35 @@ function makeMemoryHubHarness(overrides = {}) {
     },
   }
 }
+
+test('memory-migrations v1.73：旧 schema 文件启动时就地迁移（幂等、坏文件不阻塞）', () => {
+  const root = makeTmpDir('dshp-migrations')
+  const stateDir = path.join(root, '.dsh-poetry')
+  fs.mkdirSync(stateDir, { recursive: true })
+  const statePath = path.join(stateDir, 'self-state.json')
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify({ v: 1, energy: 55, curiosity: 70, social: 40, hunger: 30, lastMealAt: 1700000000000, felt: '有点乏。' }),
+    'utf8',
+  )
+  const first = runMemoryMigrations({ env: { DSH_HOME: root }, home: root, logger: { warn() {}, info() {} }, now: () => 1700000000000 })
+  assert.equal(first.ok, true)
+  assert.deepEqual(first.applied, [{ id: 'self-state.json', from: 1, to: 2 }])
+  const migrated = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  assert.equal(migrated.v, 2)
+  assert.equal(migrated.energy, undefined)
+  assert.equal(migrated.lastMealAt, 1700000000000, '事实时间线保留')
+  assert.equal(migrated.felt, '有点乏。')
+  assert.equal(migrated.migratedAt, 1700000000000)
+  // 幂等：再跑一次不再迁移
+  const second = runMemoryMigrations({ env: { DSH_HOME: root }, home: root, logger: { warn() {}, info() {} } })
+  assert.deepEqual(second.applied, [])
+  // 坏 JSON：跳过不抛
+  fs.writeFileSync(statePath, '{bad json', 'utf8')
+  const third = runMemoryMigrations({ env: { DSH_HOME: root }, home: root, logger: { warn() {}, info() {} } })
+  assert.equal(third.ok, true)
+  assert.deepEqual(third.skipped.find((item) => item.id === 'self-state.json'), { id: 'self-state.json', reason: 'invalid' })
+})
 
 test('memory-hub：resolveMemoryHubPaths 登记 12 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/memory-layers.json/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')

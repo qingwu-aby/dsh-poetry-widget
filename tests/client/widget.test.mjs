@@ -173,6 +173,62 @@ function createDocumentMock() {
   }
 }
 
+/** 虚拟时钟：让 client 的 setTimeout/setInterval 可被测试即时推进，避免真实等待。 */
+const liveClients = []
+
+async function flushTasks(times = 1) {
+  for (let index = 0; index < times; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+}
+
+function createVirtualClock() {
+  let currentNow = 0
+  let sequence = 0
+  const timers = new Map()
+  function schedule(fn, ms, repeat, args) {
+    const id = (sequence += 1)
+    const delay = Math.max(0, Number(ms) || 0)
+    timers.set(id, { fn, at: currentNow + delay, every: repeat ? Math.max(1, delay) : 0, args })
+    return id
+  }
+  function clear(id) {
+    timers.delete(id)
+  }
+  async function advance(ms) {
+    const target = currentNow + Math.max(0, Number(ms) || 0)
+    for (let guard = 0; guard < 20000; guard += 1) {
+      await flushTasks(1)
+      let next = null
+      for (const [id, timer] of timers) {
+        if (timer.at <= target && (next === null || timer.at < next.timer.at)) next = { id, timer }
+      }
+      if (next === null) break
+      currentNow = Math.max(currentNow, next.timer.at)
+      if (next.timer.every > 0) next.timer.at = currentNow + next.timer.every
+      else timers.delete(next.id)
+      try {
+        next.timer.fn(...next.timer.args)
+      } catch (error) {
+        /* 定时器回调异常交给断言暴露，不打断推进 */
+      }
+    }
+    currentNow = target
+    await flushTasks(2)
+  }
+  return {
+    get now() {
+      return currentNow
+    },
+    setTimeout: (fn, ms, ...args) => schedule(fn, ms, false, args),
+    clearTimeout: clear,
+    setInterval: (fn, ms, ...args) => schedule(fn, ms, true, args),
+    clearInterval: clear,
+    advance,
+    timers,
+  }
+}
+
 /** 在 vm 里执行 client.js，返回 loader spec / 沙箱 context / React 桩 / require 桩。 */
 function loadClient(options) {
   const opts = options || {}
@@ -184,6 +240,7 @@ function loadClient(options) {
   }
   const storage = createStorage(Object.assign({}, defaultMealSeed, opts.seed))
   const doc = createDocumentMock()
+  const clock = createVirtualClock()
   let loaded = null
 
   const windowMock = {
@@ -200,8 +257,8 @@ function loadClient(options) {
     matchMedia() {
       return { matches: false, addEventListener() {}, removeEventListener() {} }
     },
-    setTimeout,
-    clearTimeout,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
   }
 
   const context = {
@@ -209,13 +266,13 @@ function loadClient(options) {
     window: windowMock,
     document: doc,
     localStorage: storage,
-    setTimeout,
-    clearTimeout,
-    setInterval,
-    clearInterval,
+    setTimeout: clock.setTimeout,
+    clearTimeout: clock.clearTimeout,
+    setInterval: clock.setInterval,
+    clearInterval: clock.clearInterval,
     AbortController,
-    requestAnimationFrame: (callback) => setTimeout(callback, 0),
-    cancelAnimationFrame: (id) => clearTimeout(id),
+    requestAnimationFrame: (callback) => clock.setTimeout(() => callback(clock.now), 0),
+    cancelAnimationFrame: (id) => clock.clearTimeout(id),
     fetch: typeof opts.fetch === 'function'
       ? opts.fetch
       : async () => ({ ok: true, json: async () => ({ ok: true }) }),
@@ -232,7 +289,16 @@ function loadClient(options) {
   const mod = loaded.factory(requireMock)
   const debug = context.__dshPoetryDebug
   assert.ok(debug, 'factory 必须挂载 globalThis.__dshPoetryDebug 调试钩子')
-  return { loaded, context, react, requireMock, storage, debug, mod }
+  const client = { loaded, context, react, requireMock, storage, debug, mod, clock, disposed: false }
+  liveClients.push(client)
+  // 测试结束（react._cleanup）时把该客户端的虚拟定时器一并清掉，避免跨用例串扰。
+  const originalCleanup = react._cleanup
+  react._cleanup = () => {
+    originalCleanup()
+    client.disposed = true
+    clock.timers.clear()
+  }
+  return client
 }
 
 /* ------------------------------------------------------------------ */
@@ -314,8 +380,15 @@ function rerender(react, component, props) {
   return component(props)
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+/** 测试里的“等待”改为推进虚拟时钟；并清掉已 cleanup 的客户端。 */
+async function sleep(ms) {
+  for (let index = liveClients.length - 1; index >= 0; index -= 1) {
+    if (liveClients[index].disposed) liveClients.splice(index, 1)
+  }
+  for (const client of liveClients.slice()) {
+    if (client.disposed) continue
+    await client.clock.advance(Number(ms) || 0)
+  }
 }
 
 /** vm 沙箱里创建的对象原型来自另一个 realm，先 JSON 归一化再比较结构。 */
