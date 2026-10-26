@@ -144,3 +144,4 @@
 | H41 | 诗笺进二级菜单 + client library + 冒烟脚本 | ✅ | 主点击打开成长面板；诗笺从「诗词→逐页看诗笺」进入；client-src 拆出 library.js；`npm run smoke` 只读冒烟（记忆新鲜度/分层/错误/路由可达）；单测 394/394 |
 | H42 | 心情自动刷新限流 | ✅ | 自动刷新忽略 force 走 10min 缓存；只有手动刷新带 manual=1 才强制生成；服务端 effectiveForce=force&&manual；路由/写记忆测试更新；394/394 |
 | H43 | 更名小鲸鱼 + 诗词入口到底部 | ✅ | package/loader id/widget id/locale 更名 dsh-little-whale·小鲸鱼；路由与数据目录保留兼容；面板头只留标题+关闭，诗词入口与返回/逐页看移到面板底部；394/394 |
+| H44 | 成长状态上下结构 | ✅ | 「成长状态」改为纵向布局（标签在上、内容整行），不再左右挤压；单测断言 stacked 结构；394/394 |

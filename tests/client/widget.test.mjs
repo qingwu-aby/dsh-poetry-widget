@@ -779,6 +779,14 @@ test('SettingsTab：全部设置项 + 关于信息（scope/slider 边界）', ()
   for (const moved of ['平仄标注', '点诗模式', '自动轮播', '显示文字']) {
     assert.equal(text.includes(moved), false, '诗词配置已移到二级菜单：' + moved)
   }
+  // v1.80：成长状态改成上下结构
+  const stacked = findAll(
+    tree,
+    (node) => node.type === 'div'
+      && typeof node.props.className === 'string'
+      && node.props.className.includes('dshp-field-stacked'),
+  )
+  assert.equal(stacked.length, 1, '成长状态应为上下结构')
   const ranges = findAll(tree, (node) => node.type === 'input' && node.props.type === 'range')
   assert.equal(ranges.length, 1)
   assert.equal(ranges[0].props.min, 60)

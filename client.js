@@ -321,6 +321,9 @@
     ".dshp-field{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 2px;",
     "border-bottom:1px solid var(--dshp-border)}",
     ".dshp-field:last-child{border-bottom:0}",
+    ".dshp-field-stacked{flex-direction:column;align-items:stretch;gap:6px}",
+    ".dshp-field-stacked .dshp-field-label{flex-direction:row;align-items:baseline;gap:8px;flex-wrap:wrap}",
+    ".dshp-field-stack-body{width:100%;min-width:0}",
     ".dshp-field-label{display:flex;flex-direction:column;gap:1px;min-width:0}",
     ".dshp-field-label b{font-size:13px;font-weight:500}",
     ".dshp-field-label small{color:var(--dshp-label-2);font-size:11.5px}",
@@ -6375,9 +6378,9 @@
           if (!status) return null;
           return h(
             "div",
-            { className: "dshp-field" },
+            { className: "dshp-field dshp-field-stacked" },
             h("div", { className: "dshp-field-label" }, h("b", null, "\u6210\u957F\u72B6\u6001"), h("small", null, "\u81EA\u9A71\u6210\u957F \xB7 \u6700\u8FD1\u8FDB\u5EA6")),
-            growthMetricsTree(status)
+            h("div", { className: "dshp-field-stack-body" }, growthMetricsTree(status))
           );
         }
         return h(

@@ -6274,11 +6274,12 @@ window.__ModuleLoader__.load({
   function renderSelfStatus() {
    const status = api.selfStatus
    if (!status) return null
+   // v1.80：成长状态改成上下结构（标签在上、内容占满整行），不再左右挤在一起。
    return h(
     'div',
-    { className: 'dshp-field' },
+    { className: 'dshp-field dshp-field-stacked' },
     h('div', { className: 'dshp-field-label' }, h('b', null, '成长状态'), h('small', null, '自驱成长 · 最近进度')),
-    growthMetricsTree(status),
+    h('div', { className: 'dshp-field-stack-body' }, growthMetricsTree(status)),
    )
   }
 

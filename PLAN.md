@@ -989,3 +989,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 重命名范围：package.json/package-lock、cordis.patch.yml row id/name、index 插件名与日志前缀、client loader id/WIDGET_ID/data 属性、locale（zh 小鲸鱼 / en Little Whale）、README/contract/测试；**API 路由前缀 `/api/dsh-poetry/` 与 `.dsh-poetry` 数据目录保持不变**（记忆和设置不迁移，外部路径兼容）；GitHub 仓库暂未改名。
 - UI：面板头只留标题+关闭；底部新增 `.dshp-panel-foot`：普通页显示「更多 · 诗词与格律 ›」，诗词二级菜单页显示「← 返回成长 / 逐页看诗笺」；样式低对比度小字，不再挤在头部。
 - 测试：client 120 / host 232 / data 42 = 394/394。
+
+## 95. 成长状态改上下结构（M91，2026-10-26）
+
+- 用户：成长状态的样式稍微改一下，不要左右结构了。
+- 实现：SettingsTab 的成长状态块加 `dshp-field-stacked`，flex 改为纵向；标签行换成横排小标题（成长状态 + 说明），`growthMetricsTree` 放进 `dshp-field-stack-body` 占满整行；新增 CSS 三条。
+- 测试：SettingsTab 断言存在 stacked 块；client 120 / host 232 / data 42 = 394/394。
