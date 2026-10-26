@@ -223,6 +223,7 @@ import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createHeartbeat } from '../lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from '../lib/model-budget.mjs'
+import { createDeepSeekWeb } from '../lib/deepseek-web.mjs'
 import {
   createWebAccess,
   extractHtmlTitle,
@@ -9945,4 +9946,79 @@ test('self-talk v2.2：默认不再从主题/话题数组里挑，素材来自�
   assert.equal(prompt.includes('这次试着围绕'), false, '默认不再带固定主题')
   assert.match(prompt, /此刻的心情/)
   assert.match(prompt, /平静/)
+})
+
+test('deepseek-web v2.3：Search/Fetch 请求形状、结果映射、错误码、无 key 返回 null', async () => {
+  assert.equal(createDeepSeekWeb({ apiKey: '' }), null)
+  const calls = []
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options })
+    if (url.endsWith('/v1/tools/search')) {
+      return {
+        status: 200,
+        json: async () => ({
+          results: [
+            {
+              title: '深海热泉',
+              url: 'https://example.org/vent',
+              snippet: '短摘要',
+              summary: '长摘要：深海热泉靠化学能支撑生态。',
+              content: '正文内容：深海热泉是海底热水喷口。'.repeat(10),
+              site_name: 'Example',
+              date: '2026-10-01T00:00:00+00:00',
+              authority: 3,
+              rerank_score: 2.1,
+            },
+            { title: '内网', url: 'http://10.0.0.1/secret' },
+          ],
+        }),
+      }
+    }
+    return { status: 200, json: async () => ({ title: '深海热泉页', content: '# 标题\n\n正文内容。'.repeat(20) }) }
+  }
+  const web = createDeepSeekWeb({ apiKey: 'sk-test', fetchImpl, logger: { warn() {} } })
+  assert.ok(web)
+  const results = await web.search('深海热泉', { count: 5, needContent: true, oriQuestion: '为什么深海有生命' })
+  assert.equal(results.length, 1, '私网结果被过滤')
+  assert.equal(results[0].url, 'https://example.org/vent')
+  assert.match(results[0].text, /正文内容/)
+  const searchCall = calls[0]
+  assert.equal(searchCall.url, 'https://api.deepseek.com/v1/tools/search')
+  assert.equal(searchCall.options.headers.authorization, 'Bearer sk-test')
+  const body = JSON.parse(searchCall.options.body)
+  assert.deepEqual(body, { query: '深海热泉', count: 5, need_content: true, ori_question: '为什么深海有生命' })
+
+  const page = await web.fetchPage('https://example.org/vent')
+  assert.equal(page.title, '深海热泉页')
+  assert.match(page.text, /正文内容/)
+  const fetchCall = calls[1]
+  assert.equal(fetchCall.url, 'https://api.deepseek.com/v1/tools/fetch')
+  assert.deepEqual(JSON.parse(fetchCall.options.body), { url: 'https://example.org/vent' })
+  assert.deepEqual(web.snapshot().searches, 1)
+
+  // 401 → 明确错误码
+  const bad = createDeepSeekWeb({
+    apiKey: 'bad',
+    fetchImpl: async () => ({ status: 401, json: async () => ({ error: { message: 'invalid key' } }) }),
+    logger: { warn() {} },
+    retries: 0,
+  })
+  const badResults = await bad.search('x')
+  assert.deepEqual(badResults, [])
+  assert.equal(bad.snapshot().lastError, 'invalid key')
+  await assert.rejects(() => bad.fetchPage('https://example.org/x'), /invalid key/)
+
+  // createWebAccess 优先用 DeepSeek；失败回落 Wikipedia
+  const webAccess = createWebAccess({
+    env: {},
+    minGapMs: 0,
+    deepseek: {
+      search: async () => [{ title: 'DS 结果', url: 'https://example.org/a', text: '正文'.repeat(120) }],
+      fetchPage: async () => ({ url: 'https://example.org/a', title: 'DS 页面', text: '正文'.repeat(120) }),
+      snapshot: () => ({ enabled: true, searches: 1, fetches: 1, lastError: null }),
+    },
+  })
+  const ds = await webAccess.search('测试', { limit: 3 })
+  assert.equal(ds[0].title, 'DS 结果')
+  assert.equal(webAccess.snapshot().deepseek.enabled, true)
 })

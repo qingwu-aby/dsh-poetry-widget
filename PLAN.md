@@ -1063,3 +1063,12 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 碎碎念：`self-talk` 默认 `themeProbability=0`、`topicsEnabled=false`（话题库需 `DSH_POETRY_TALK_TOPICS=on`）；prompt 增加“从此刻心情、今天真实发生的事、以前记忆里自然长出来；不要从主题清单/话题库挑”。
 - `memory-recall`：新增 `todayJournal`（上海本地当天 journal 的 thought/murmur/mood，最多 8 条，去重），`formatMemoryDigest` 增加「今天你自己经历的」段。
 - 测试：host 246（公网链接抽取/漫游状态、今天素材、默认无主题无话题）；全套 409/409。
+
+## 104. DeepSeek Search/Fetch（M100，2026-10-26）
+
+- `lib/deepseek-web.mjs`：Bearer key；POST /v1/tools/search（count/need_content/ori_question；映射 title/url/snippet/summary/content/site/date/authority/rerank）；POST /v1/tools/fetch（返回 Markdown）；408/429/5xx 重试一次，401/402/403/404 明确错误码；无 key 返回 null。
+- `safe-web`：`createWebAccess({deepseek})`；search 优先 DeepSeek（结果非空直接返回，否则回落 SearXNG/Wikipedia）；fetchPage 自建失败时用 DeepSeek Fetch 兜底；snapshot 带 deepseek 计数。
+- `self-wander`：搜索带 `needContent:true`，结果自带正文时不再二次抓取。
+- index：从 `DSH_POETRY_DEEPSEEK_API_KEY || DEEPSEEK_API_KEY` 建客户端；无 key 保持 Wikipedia；日志显示当前搜索来源。
+- 计费/限制：Search/Fetch 各 5 元/1000 次成功请求；QPS Search 100 / Fetch 25；密钥仅环境变量。
+- 测试：deepseek-web 请求形状/映射/401/私网过滤/无 key；全套 410/410。

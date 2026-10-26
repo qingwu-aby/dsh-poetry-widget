@@ -49,6 +49,14 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 - ⚙️ **设置**：大小、平仄标注、每日/随机、自动轮播、吸附方向、简体/原文、恢复默认；心情/成长状态在成长页，设置持久化到 `$DSH_HOME/.dsh-poetry/settings.json`。
 - 🔒 **零密钥、零遥测**：诗词/立绘/话题库本地存储；外部调用仅插件自己的模型（优先 `dsh-opencode-go/deepseek-v4.1-flash`，再回落 `deepseek-account/deepseek-flash`；原生 `opencode-go` 只在 `dsh-opencode-go` 不可用时兜底；若宿主默认模型本身指向原生 `opencode-go`（缺 `x-opencode-session` 头会 400），插件会自动改用 deepseek 账号兜底；心情 low / 碎碎念·成长·声音 high 推理）与本机天气查询，无遥测；可用 `DSH_POETRY_MODEL_PROVIDER`/`DSH_POETRY_MODEL`/`DSH_POETRY_OPENCODE_GO`/`DSH_POETRY_REASONING_*` 覆盖。
 
+### DeepSeek Search / Fetch（v2.3，可选）
+
+设置 `DSH_POETRY_DEEPSEEK_API_KEY`（或 `DEEPSEEK_API_KEY`）后，网页搜索优先走 DeepSeek 官方 Search API（真实全网，可直接返回正文，省一次抓取）；自建抓取被反爬挡住时用官方 Fetch API 兜底。无 key 时自动用 Wikipedia 搜索 + 自建抓取。
+
+- 官方计费：Search / Fetch 各 **5 元 / 1000 次成功请求**，失败/无结果不计费
+- QPS：Search 100 / Fetch 25
+- 密钥只从环境变量读取，不写盘、不进仓库
+
 ### 公开网页访问（v2.1）
 
 她可以读任意公开网页，并会顺着网页里的链接继续漫游；搜索默认走 Wikipedia 搜索 API（稳定、无密钥），网络溜达会先用她正在琢磨的事搜一次，失败再回落维基随机。想要全网搜索可把 `DSH_POETRY_SEARCH_URL` 指向你自己的 SearXNG（支持 `{q}` 模板或 JSON 输出）。安全边界：

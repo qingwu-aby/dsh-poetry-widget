@@ -64,6 +64,7 @@ import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
 import { resolveAutonomy } from './lib/autonomy.mjs'
+import { createDeepSeekWeb } from './lib/deepseek-web.mjs'
 import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
@@ -158,7 +159,13 @@ export async function apply(ctx) {
       // v2.0：自主节奏的环境旋钮（默认比旧版开放很多；DSH_POETRY_*_MIN 可继续放宽）。
       const autonomy = resolveAutonomy(env)
       // v2.1：安全公开网页访问（搜索 + 抓取），给“溜达”用；默认开启，DSH_POETRY_WEB=off 可关。
-      const webAccess = createWebAccess({ env, logger })
+      // v2.3：有 DeepSeek API Key 时，搜索优先走官方 Search/Fetch（按次计费，可回落）。
+      const deepseekWebKey = env.DSH_POETRY_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY
+      const deepseekWeb = createDeepSeekWeb({ apiKey: deepseekWebKey, logger })
+      const webAccess = createWebAccess({ env, logger, deepseek: deepseekWeb })
+      logger?.info?.(
+        `[dsh-little-whale] 公网搜索：${deepseekWeb !== null ? 'DeepSeek Search/Fetch（有 key）' : 'Wikipedia（无 key，可用 DSH_POETRY_DEEPSEEK_API_KEY 升级）'}`,
+      )
       // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
       const heartbeat = createHeartbeat({ logger })
       const webServer = host.get(hostCtx, 'webServer')
