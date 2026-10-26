@@ -158,3 +158,4 @@
 | H55 | DeepSeek Search/Fetch 接入 | ✅ | 有 key 时搜索优先官方 API（可直接带正文），失败回落 Wikipedia；抓取失败可 Fetch 兜底；无 key 行为不变；密钥仅环境变量；410/410 |
 | H56 | client 面板组件拆分 + DeepSeek key 入口 | ✅ | Settings/Growth/Feihua/Library 四个面板拆到独立模块；client.js 源文件 5,656 行；DeepSeek key 统一走 `resolveDeepSeekApiKey`（仅环境变量，凭据入口保留未启用）；410/410 |
 | H57 | client 纯逻辑模块化 | ✅ | mood-engine / self-talk-client 独立模块；client.js 5,271 行；410/410 |
+| H58 | 记忆/状态归档与重新开始 | ✅ | `npm run archive:memory` 归档全部个人记忆/状态（manifest+sha256，可 restore）；settings 保留；已执行 20261026-173151，重启后状态空白、journal 新写 |

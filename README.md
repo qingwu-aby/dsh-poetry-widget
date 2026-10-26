@@ -76,6 +76,17 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 - 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
 - 全局最多 2 个模型调用并发（保护，不是成长限制）
 
+## 归档与重新开始
+
+想让她从空白重新成长时，先停插件再运行：
+
+```bash
+npm run archive:memory:dry   # 预演，看看会搬哪些文件
+npm run archive:memory       # 归档到 ~/.dsh/agent-memory/archives/<时间戳>/
+```
+
+归档包含 journal、学习日志、话题、感受、声音档案、分层记忆、self-state/actions、各活动状态、模型预算/错误和备份目录；**不删除**，可用 `npm run archive:memory -- --restore <archiveId>` 恢复。`settings.json`（外观/开关/城市）保留。
+
 ## 安装
 
 ### 官方桌面端（Electron 客户端，当前主要形态）

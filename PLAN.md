@@ -1086,3 +1086,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - `client-src/self-talk-client.js`：SPONT_*/SELF_TALK_* 常量、normalizeSpontState、recordSpontShown、countSpontHits、splitCompleteSentences、pickSentenceFromLines、canShowSpontaneous、nextSpontPollDelay/EventDelay、selfTalkKindFor、selfTalkQuery、parseSelfTalkResponse；storage/fetch 仍留在 client。
 - client.js 源文件 5,657 → 5,271 行；构建仍单 artifact。
 - 测试：全套 410/410。
+
+## 107. 记忆/状态归档 + 重新开始（M103，2026-10-26）
+
+- `scripts/archive-memory.mjs`：归档 agent-memory 的 journal/journal.md/learning-log/topics/topics-candidates/topics-archive/feelings/voice/memory-layers + .dsh-poetry 的 self-state/self-actions/probe/wander/read/netlang/model-errors/model-budget + backups 目录；manifest 记录原路径/大小/sha256；支持 `--dry-run` 与 `--restore <archiveId>`。
+- `package.json` 增加 `archive:memory` / `archive:memory:dry`。
+- 执行：先 remove_bundle 停服务 → 归档 → install_bundle；settings.json 保留（外观/开关/城市），历史全部可在 archives/20261026-173151 找回。
+- 重启后：self-state felt 新生成、计数器 0；journal 新写 2 行；feelings 空；memory-layers 待 2 天后生成；无旧 model-errors。
