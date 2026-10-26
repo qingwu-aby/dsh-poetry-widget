@@ -1120,3 +1120,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - client：normalizeSelfStatus 加 project；GrowthTab 增加「正在做的事」（标题/说明/最近 3 步）。
 - archive-memory：归档 projects.json。
 - 测试：项目生命周期/persist；drive prompt/parse；recall digest；全套 415/415。
+
+## 111. 碎碎念降噪（M107，2026-10-26，P1）
+
+- `self-talk-client.selfTalkNoveltySignature`：felt/experiencing/actions.latest/project/mood/weather + 20min bucket。
+- `startSpontaneousCard`：record=true 且非 preview 时先比较指纹；同指纹 20 分钟内直接安静；失败后 60s 冷却；手动预览/再说一句/关闭后重试不受限。
+- normalizeSelfStatus 增加 experiencing；selfStatusRef/selfTalkNoveltyRef。
+- 测试：指纹稳定性/项目/心情变化 + 原有轮询/关闭用例；client 122，全套 416/416。

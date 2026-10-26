@@ -24,6 +24,7 @@ import {
   pickSentenceFromLines,
   recordSpontShown,
   selfTalkKindFor,
+  selfTalkNoveltySignature,
   selfTalkQuery,
   splitCompleteSentences,
 } from './self-talk-client.js'
@@ -1334,6 +1335,7 @@ window.__ModuleLoader__.load({
   return {
    // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
    felt: text(data.felt || state.felt, 80),
+   experiencing: text(data.experiencing || state.experiencing, 120),
    context,
    feltAt: num(state.feltAt, 0),
    sleeping: state.sleeping === true,
@@ -2222,7 +2224,7 @@ window.__ModuleLoader__.load({
   SELF_PATH, SELF_POLL_MS, ACTION_SEEN_KEY, readSeenActionId, writeSeenActionId, normalizeSelfAction, MEMORY_PATH, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, normalizeMemoryStatus, normalizeSelfStatus, selfStatusSummary,
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
-  selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
+  selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, selfTalkNoveltySignature, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
   WINDOW_WANDER_ENABLED, WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget, pickWanderMedia, WANDER_STATIC_FILE,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
@@ -2518,6 +2520,8 @@ window.__ModuleLoader__.load({
   const weatherInFlightRef = React.useRef(null)
   const userPickedPoemRef = React.useRef(false)
   const moodViewRef = React.useRef(null)
+  const selfStatusRef = React.useRef(null)
+  const selfTalkNoveltyRef = React.useRef({ signature: '', at: 0 })
   const clicksRef = React.useRef(0)
   const panelOpensRef = React.useRef(0)
   const lastInteractionRef = React.useRef(0)
@@ -3058,6 +3062,7 @@ window.__ModuleLoader__.load({
   const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : ''
   const weatherNote = weatherActive ? weatherExplainText(weather) : ''
   weatherRef.current = weather
+  selfStatusRef.current = selfStatus
   const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data])
   const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries])
   moodCatalogRef.current = moodCatalog
@@ -3872,6 +3877,19 @@ window.__ModuleLoader__.load({
    const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== 'ai' ? ui.moodView.key : 'calm'
    const preview = opts.preview === true
    const record = opts.record === true
+   // v2.9：自动轮询只在“有新东西”或过了 20 分钟时才说；手动预览/再说一句不受限。
+   if (record && !preview) {
+    const signature = selfTalkNoveltySignature({
+     selfStatus: selfStatusRef.current,
+     mood: moodViewRef.current,
+     weather: weatherRef.current,
+     now,
+    })
+    const last = selfTalkNoveltyRef.current
+    if (last.signature === signature && now - last.at < 20 * 60 * 1000) return null
+    if (last.signature === '' && last.at > 0 && now - last.at < 60 * 1000) return null
+    selfTalkNoveltyRef.current = { signature, at: now }
+   }
    const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX)
    const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state })
    const cached = takeCachedSelfTalk('murmur')
@@ -3896,6 +3914,7 @@ window.__ModuleLoader__.load({
      return
     }
     if (!result || !result.ok || !result.line) {
+     selfTalkNoveltyRef.current = { signature: '', at: Date.now() }
      setSpontPoem(null)
      return
     }
@@ -3914,6 +3933,7 @@ window.__ModuleLoader__.load({
     showMurmur(result.line)
    }).catch(() => {
     if (token !== spontReqRef.current) return
+    selfTalkNoveltyRef.current = { signature: '', at: Date.now() }
     setSpontPoem(null)
    })
    return null
@@ -4359,6 +4379,7 @@ window.__ModuleLoader__.load({
        onClick: (event) => {
         event.stopPropagation()
         spontReqRef.current += 1
+        selfTalkNoveltyRef.current = { signature: '', at: 0 }
         setSpontPreview(false)
         setSpontPoem(null)
        },
@@ -4411,6 +4432,7 @@ window.__ModuleLoader__.load({
      onClick: (event) => {
       event.stopPropagation()
       spontReqRef.current += 1
+      selfTalkNoveltyRef.current = { signature: '', at: 0 }
       setSpontPreview(false)
       setSpontPoem(null)
      },

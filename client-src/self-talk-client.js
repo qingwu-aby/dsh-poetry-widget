@@ -107,6 +107,27 @@ const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random
 return pool[index].sentence
 }
 
+/** 碎碎念“有新东西才说”的指纹：她自己的状态/动作/项目/心情/天气 + 20 分钟时间桶。 */
+export function selfTalkNoveltySignature(options = {}) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const status = opts.selfStatus && typeof opts.selfStatus === 'object' ? opts.selfStatus : null
+  const project = status && status.project && typeof status.project === 'object' ? status.project : null
+  const latest = status && status.actions && status.actions.latest ? status.actions.latest : null
+  const mood = opts.mood && typeof opts.mood === 'object' ? opts.mood : null
+  const weather = opts.weather && typeof opts.weather === 'object' ? opts.weather : null
+  const now = typeof opts.now === 'number' ? opts.now : Date.now()
+  const bucket = Math.floor(now / (20 * 60 * 1000))
+  return [
+    'felt:' + (status && typeof status.felt === 'string' ? status.felt : ''),
+    'exp:' + (status && typeof status.experiencing === 'string' ? status.experiencing : ''),
+    'act:' + (latest && typeof latest.id === 'string' ? latest.id : ''),
+    'proj:' + (project ? String(project.id || '') + ':' + String(project.title || '') + ':' + String(project.steps && project.steps.length || 0) : ''),
+    'mood:' + (mood ? String(mood.key || '') + ':' + String(mood.label || '') + ':' + String(mood.reason || '') : ''),
+    'weather:' + (weather ? String(weather.category || weather.label || '') + ':' + String(weather.tempC ?? '') : ''),
+    't:' + bucket,
+  ].join('|')
+}
+
 export function canShowSpontaneous(options) {
 const opts = options && typeof options === 'object' ? options : {}
 if (opts.enabled !== true) return false

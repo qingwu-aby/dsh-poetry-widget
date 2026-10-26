@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **碎碎念降噪（v2.9，P1）**：自动轮询不再每 1–2 分钟无条件请求模型。新增 `selfTalkNoveltySignature`（她自己的 felt/experiencing/最近动作/当前项目/心情/天气 + 20 分钟时间桶）：自动轮询只在指纹变化或过了 20 分钟时才开口；手动「预览/再说一句」不受限；关闭卡片会重置指纹，3 秒后仍可再说一句；失败后 60 秒内不反复重试。模型调用量应明显下降，而“想说什么就说什么”保留。
 - **持续项目/章节层（v2.8，P1）**：新增 `lib/self-projects.mjs` 和 `$DSH_HOME/.dsh-poetry/projects.json`：她自己决定起一个持续几天的小项目（读书/弄懂一个题/慢慢做一样东西），每次自处可推进一步或收尾；自处 prompt 带上当前项目，`self.json` 暴露 project，成长页显示「正在做的事」，碎碎念记忆素材包含项目；项目完成进入 completed，不评分、不造假。归档脚本同步归档 `projects.json`。
 - **记忆整合吞吐升级（v2.7）**：① `memory-layers` 批量 300→800、间隔 24h→6h、单次最多 2 批（容量 ~6400 条/天，跟得上 600–1000 条/天的 journal）；② 整合前先聚合输入：同 2 小时段心情合并为「心情变化」，近似碎碎念按 bigram≥0.85 去重，原文仍保留；③ `health.runtime.consolidate` 增加 `backlog{entries,oldestAt}`，设置页「运行状态」显示「已追平 / backlog N 条」；④ 检索窗口 journal 300→800 行，碎碎念 memory digest 1200→2400 字。
 - **修复归档后记忆中枢异常（v2.6.1）**：原因：归档把必选文件 `topics.json` 和可选 `voice.json/topics-candidates.json/memory-layers.json` 一起搬走，`memory-hub` 把「必选缺失」判为 `error`，于是记忆中枢显示异常。修复：新增 `lib/memory-baseline.mjs`，在归档后/插件启动时为缺失的记忆文件创建**空白容器**（topics 空、layers 空、feelings 空、self-state v2 空等，绝不覆盖已有内容），hub 健康恢复 `ok`；归档脚本也会自动调用。

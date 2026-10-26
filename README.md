@@ -73,7 +73,7 @@ DeepSeek Harness（DSH）Web 界面角落里的**小鲸鱼**：会自处、自�
 
 - 节奏：`DSH_POETRY_DRIVE_MIN` / `_MAX`、`DSH_POETRY_REFLECT_MIN`、`DSH_POETRY_LEARN_MIN`、`DSH_POETRY_PROBE_MIN`、`DSH_POETRY_READING_MIN`、`DSH_POETRY_WANDER_MIN`、`DSH_POETRY_NETLANG_MIN`（0 = 不设下限）
 - 预算：`DSH_POETRY_DAILY_TOTAL`（默认 0 = 不限制）与 `DSH_POETRY_DAILY_<ROLE>`
-- 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
+- 碎碎念：默认不再从固定主题/话题数组挑，由「此刻心情 + 今天发生的事 + 过往记忆」生成；自动轮询只在状态/项目/心情/天气有变化或隔 20 分钟才开口，手动预览不受限；`DSH_POETRY_TALK_MIN_CHARS` / `DSH_POETRY_TALK_MAX_CHARS` 可调，`DSH_POETRY_TALK_THEME_PROBABILITY` 可恢复随机主题，`DSH_POETRY_TALK_TOPICS=on` 可启用话题库
 - 全局最多 2 个模型调用并发（保护，不是成长限制）
 
 ## 持续项目（v2.8）

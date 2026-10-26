@@ -6601,3 +6601,22 @@ test('模型失败时自言自语安静：不出现本地气泡、无本地池�
     react._cleanup()
   }
 })
+
+test('self-talk v2.9：novelty 指纹反映状态/项目/心情，时间桶 20 分钟', () => {
+  const { debug } = loadClient()
+  const base = {
+    selfStatus: { felt: '醒着', experiencing: '', actions: { latest: { id: 'a1' } }, project: { id: 'p1', title: '养薄荷', steps: [] } },
+    mood: { key: 'calm', label: '平静', reason: '窗台有光' },
+    weather: { category: 'clear', tempC: 18 },
+    now: 1000,
+  }
+  const a = debug.selfTalkNoveltySignature(base)
+  const same = debug.selfTalkNoveltySignature({ ...base, now: 1000 + 60_000 })
+  assert.equal(same, a, '20 分钟桶内同状态指纹稳定')
+  const later = debug.selfTalkNoveltySignature({ ...base, now: 1000 + 21 * 60_000 })
+  assert.notEqual(later, a, '过了时间桶指纹变化')
+  const projectChanged = debug.selfTalkNoveltySignature({ ...base, selfStatus: { ...base.selfStatus, project: { id: 'p1', title: '养薄荷', steps: [{ text: '剪枯叶' }] } } })
+  assert.notEqual(projectChanged, a, '项目进展会触发新碎碎念')
+  const moodChanged = debug.selfTalkNoveltySignature({ ...base, mood: { key: 'happy', label: '开心', reason: '' } })
+  assert.notEqual(moodChanged, a, '心情变化会触发新碎碎念')
+})

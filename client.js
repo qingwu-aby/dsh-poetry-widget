@@ -418,6 +418,25 @@
     const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
     return pool[index].sentence;
   }
+  function selfTalkNoveltySignature(options = {}) {
+    const opts = options && typeof options === "object" ? options : {};
+    const status = opts.selfStatus && typeof opts.selfStatus === "object" ? opts.selfStatus : null;
+    const project = status && status.project && typeof status.project === "object" ? status.project : null;
+    const latest = status && status.actions && status.actions.latest ? status.actions.latest : null;
+    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
+    const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
+    const now = typeof opts.now === "number" ? opts.now : Date.now();
+    const bucket = Math.floor(now / (20 * 60 * 1e3));
+    return [
+      "felt:" + (status && typeof status.felt === "string" ? status.felt : ""),
+      "exp:" + (status && typeof status.experiencing === "string" ? status.experiencing : ""),
+      "act:" + (latest && typeof latest.id === "string" ? latest.id : ""),
+      "proj:" + (project ? String(project.id || "") + ":" + String(project.title || "") + ":" + String(project.steps && project.steps.length || 0) : ""),
+      "mood:" + (mood ? String(mood.key || "") + ":" + String(mood.label || "") + ":" + String(mood.reason || "") : ""),
+      "weather:" + (weather ? String(weather.category || weather.label || "") + ":" + String(weather.tempC ?? "") : ""),
+      "t:" + bucket
+    ].join("|");
+  }
   function canShowSpontaneous(options) {
     const opts = options && typeof options === "object" ? options : {};
     if (opts.enabled !== true) return false;
@@ -4014,6 +4033,7 @@
         return {
           // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
           felt: text(data.felt || state.felt, 80),
+          experiencing: text(data.experiencing || state.experiencing, 120),
           context,
           feltAt: num(state.feltAt, 0),
           sleeping: state.sleeping === true,
@@ -4859,6 +4879,7 @@
         parseSelfTalkResponse,
         requestSelfTalk,
         selfTalkKindFor,
+        selfTalkNoveltySignature,
         SELF_TALK_PATH,
         SELF_TALK_TIMEOUT_MS,
         SELF_TALK_RECENT_MAX,
@@ -5203,6 +5224,8 @@
         const weatherInFlightRef = React.useRef(null);
         const userPickedPoemRef = React.useRef(false);
         const moodViewRef = React.useRef(null);
+        const selfStatusRef = React.useRef(null);
+        const selfTalkNoveltyRef = React.useRef({ signature: "", at: 0 });
         const clicksRef = React.useRef(0);
         const panelOpensRef = React.useRef(0);
         const lastInteractionRef = React.useRef(0);
@@ -5706,6 +5729,7 @@
         const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : "";
         const weatherNote = weatherActive ? weatherExplainText(weather) : "";
         weatherRef.current = weather;
+        selfStatusRef.current = selfStatus;
         const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
         const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
         moodCatalogRef.current = moodCatalog;
@@ -6443,6 +6467,18 @@
           const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== "ai" ? ui.moodView.key : "calm";
           const preview = opts.preview === true;
           const record = opts.record === true;
+          if (record && !preview) {
+            const signature = selfTalkNoveltySignature({
+              selfStatus: selfStatusRef.current,
+              mood: moodViewRef.current,
+              weather: weatherRef.current,
+              now
+            });
+            const last = selfTalkNoveltyRef.current;
+            if (last.signature === signature && now - last.at < 20 * 60 * 1e3) return null;
+            if (last.signature === "" && last.at > 0 && now - last.at < 60 * 1e3) return null;
+            selfTalkNoveltyRef.current = { signature, at: now };
+          }
           const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX);
           const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state });
           const cached = takeCachedSelfTalk("murmur");
@@ -6467,6 +6503,7 @@
               return;
             }
             if (!result || !result.ok || !result.line) {
+              selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
               setSpontPoem(null);
               return;
             }
@@ -6485,6 +6522,7 @@
             showMurmur(result.line);
           }).catch(() => {
             if (token !== spontReqRef.current) return;
+            selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
             setSpontPoem(null);
           });
           return null;
@@ -6896,6 +6934,7 @@
                   onClick: (event) => {
                     event.stopPropagation();
                     spontReqRef.current += 1;
+                    selfTalkNoveltyRef.current = { signature: "", at: 0 };
                     setSpontPreview(false);
                     setSpontPoem(null);
                   }
@@ -6944,6 +6983,7 @@
                 onClick: (event) => {
                   event.stopPropagation();
                   spontReqRef.current += 1;
+                  selfTalkNoveltyRef.current = { signature: "", at: 0 };
                   setSpontPreview(false);
                   setSpontPoem(null);
                 }
