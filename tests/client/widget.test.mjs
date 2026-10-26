@@ -2023,6 +2023,41 @@ test('心情引擎 computeMood：天气/时间/本地信号（不再读会话统
   }
 })
 
+test('窗口溜达 v1.65：走动只调用跑步/运动类素材，找不到退回跑步静态图', () => {
+  const { debug } = loadClient()
+  const entries = [
+    { file: 'webm/写代码.webm' },
+    { file: 'webm/原地左转奔跑.webm' },
+    { file: 'webm/超大伸懒腰.webm' },
+    { file: 'webm/吃白饭.webm' },
+  ]
+  const first = debug.pickWanderMedia(entries, () => 0)
+  assert.equal(first.video, true)
+  assert.match(first.file, /跑|伸懒腰/)
+  const picked = new Set()
+  for (let index = 0; index < 4; index += 1) {
+    const item = debug.pickWanderMedia(entries, () => index / 4)
+    picked.add(item.file)
+  }
+  assert.equal(picked.has('webm/写代码.webm'), false, '非运动素材不能出现')
+  assert.equal(picked.has('webm/吃白饭.webm'), false, '吃饭素材不能出现')
+  // 没有可用动画 → 跑步静态图
+  const fallback = debug.pickWanderMedia([{ file: 'webm/写代码.webm' }], () => 0)
+  assert.equal(fallback.file, debug.WANDER_STATIC_FILE)
+  assert.equal(fallback.video, false)
+  assert.equal(debug.WANDER_STATIC_FILE, 'dsh-whale-state-running.webp')
+
+  // 优先级：表情 > 走路素材 > 普通小动作 > 心情图
+  assert.equal(
+    debug.mascotFilePriority({ expressionFile: 'egg.webp', wanderFile: 'webm/原地左转奔跑.webm', motionFile: 'webm/写代码.webm', moodFile: 'mood.webp' }),
+    'egg.webp',
+  )
+  assert.equal(
+    debug.mascotFilePriority({ wanderFile: 'webm/原地左转奔跑.webm', motionFile: 'webm/写代码.webm', moodFile: 'mood.webp' }),
+    'webm/原地左转奔跑.webm',
+  )
+})
+
 test('窗口溜达 v1.64：目标点在视口内、贴边、避开底部中间输入框', () => {
   const { debug } = loadClient()
   assert.equal(debug.WANDER_TICK_MS, 60 * 1000)

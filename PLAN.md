@@ -867,3 +867,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 网络溜达（host，`lib/self-wander.mjs`）：每 3h（首次 90s–3min）GET 白名单域名（zh/en.wikipedia.org）的随机条目摘要；只取标题+摘要 ≤1200 字，不存网页正文；模型角色 `wander` 用第一人称写 2–4 句（允许“没意思”）；结果写 learning-log「· 溜达」，wander-state.json 记 lastWanderAt；睡觉/无模型/网络失败静默推迟；`DSH_POETRY_WANDER=off` 关闭。
 - 隐私/安全：无用户信息、无 cookie、不登录、不评论、不发表；重定向后仍校验域名；只在允许的公开 API 上 GET。
 - 单测：data 42 / host 227 / client 118 = 387/387。
+
+## 79. 走动只调用跑步/运动素材（M76，2026-10-26）
+
+- 用户：移动的时候可以调用跑步相关动图，且只能调用跑步或运动相关的媒体资源。
+- 实现：client 新增 `pickWanderMedia(entries, random)`：从 dsh-pet webm 里按 `WANDER_MEDIA_PATTERN`（跑/奔/踏步/踱步/走路/跳跃/踢/抛接/伸懒腰/运动/锻炼/健身）过滤后随机挑；无匹配/素材未加载 → 退回静态 `dsh-whale-state-running.webp`。走动 8 秒内用 `wanderFile` 覆盖普通小动作与心情图（优先级：表情 > 走动素材 > 小动作 > 心情），走动期间普通 motion 调度暂停；拖拽/交互立即清掉走动素材；视频加载失败回退到跑步静态图。
+- 非运动素材（写代码/吃饭/发呆/舞蹈等）在走动时不允许出现。
+- 单测：data 42 / host 227 / client 119 = 388/388。

@@ -119,6 +119,23 @@ window.__ModuleLoader__.load({
   const WANDER_WALK_MS = 8 * 1000
   const WANDER_MIN_DISTANCE = 120
   const WANDER_INTERACTION_PAUSE_MS = 45 * 1000
+  // v1.65：走动时只能调用「跑步/运动」相关素材（找不到就退回跑步静态图）。
+  const WANDER_MEDIA_PATTERN = /跑|奔|踏步|踱步|走路|跳跃|踢|抛接|伸懒腰|运动|锻炼|健身/
+  const WANDER_STATIC_FILE = 'dsh-whale-state-running.webp'
+
+  /** 从 dsh-pet 动画里挑一个跑步/运动类素材；没有就退回跑步静态立绘。 */
+  function pickWanderMedia(entries, random) {
+  const list = Array.isArray(entries)
+   ? entries.filter(
+     (entry) =>
+      entry && typeof entry.file === 'string' && isVideoMoodFile(entry.file) && WANDER_MEDIA_PATTERN.test(entry.file),
+   )
+   : []
+  if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false }
+  const roll = Number(typeof random === 'function' ? random() : Math.random())
+  const index = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0
+  return { file: list[index].file, video: true }
+  }
   const MOOD_TICK_MS = 60 * 1000
   const MOOD_AI_PATH = 'mood-ai.json'
   const MOOD_AI_TIMEOUT_MS = 35000
@@ -1488,7 +1505,7 @@ window.__ModuleLoader__.load({
   /** 立绘层优先级：pulse > panel > dizzy > meal > expression > motion > mood。 */
   function mascotFilePriority(options) {
   const opts = options && typeof options === 'object' ? options : {}
-  return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.motionFile || opts.moodFile || ''
+  return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || ''
   }
 
   function moodBasisText(weather) {
@@ -3275,7 +3292,7 @@ window.__ModuleLoader__.load({
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
   selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
-  WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget,
+  WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget, pickWanderMedia, WANDER_STATIC_FILE,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
@@ -3571,8 +3588,11 @@ window.__ModuleLoader__.load({
   const panelOpensRef = React.useRef(0)
   const lastInteractionRef = React.useRef(0)
   // v1.64：窗口溜达（目标时间 + 走路计时器）。
-  const wanderRef = React.useRef({ nextAt: 0, timer: null })
+  const wanderRef = React.useRef({ nextAt: 0, timer: null, walking: false })
   const [walking, setWalking] = React.useState(false)
+  const [wanderFile, setWanderFile] = React.useState('')
+  const wanderFileRef = React.useRef('')
+  wanderFileRef.current = wanderFile
   const feihuaWinsRef = React.useRef(0)
   const feihuaLossesRef = React.useRef(0)
   const moodStatsRef = React.useRef(emptyMoodStats())
@@ -3974,12 +3994,17 @@ window.__ModuleLoader__.load({
      current: posRef.current,
     })
     wanderRef.current.nextAt = now + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS)
+    const picked = pickWanderMedia(petMediaEntriesRef.current || [], Math.random)
+    setWanderFile(picked.file)
     setWalking(true)
+    wanderRef.current.walking = true
     setPos(target)
     if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer)
     wanderRef.current.timer = setTimeout(() => {
      wanderRef.current.timer = null
+     wanderRef.current.walking = false
      setWalking(false)
+     setWanderFile('')
     }, WANDER_WALK_MS)
    }, WANDER_TICK_MS)
    return () => {
@@ -4661,6 +4686,10 @@ window.__ModuleLoader__.load({
    if (event.button !== undefined && event.button !== 0) return
    // 用户一碰她，就停下溜达、安静一会儿。
    setWalking(false)
+   wanderRef.current.walking = false
+   setWanderFile('')
+   if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer)
+   wanderRef.current.timer = null
    wanderRef.current.nextAt = Date.now() + 10 * 60 * 1000
    const pointerTime = typeof event.timeStamp === 'number' && event.timeStamp > 0 ? event.timeStamp : Date.now()
    dragRef.current = {
@@ -5488,6 +5517,10 @@ window.__ModuleLoader__.load({
     scheduleMotion(nextMotionDelay())
     return
    }
+   if (wanderRef.current.walking) {
+    scheduleMotion(nextMotionDelay())
+    return
+   }
    if (motionFileRef.current) return
    const picked = nextMotionEntry(entries, motionIndexRef.current)
    if (!picked.entry) return
@@ -5509,6 +5542,14 @@ window.__ModuleLoader__.load({
    }
    if (mealActiveRef.current && file === mealActiveRef.current.file) {
     setMealActive((current) => (current ? Object.assign({}, current, { file: 'dsh-whale-state-daily-eat.webp' }) : current))
+    return
+   }
+   if (wanderFileRef.current && file === wanderFileRef.current) {
+    if (file === WANDER_STATIC_FILE) {
+     setWanderFile('')
+    } else {
+     setWanderFile(WANDER_STATIC_FILE)
+    }
     return
    }
    if (motionFileRef.current && file === motionFileRef.current) {
@@ -5766,8 +5807,9 @@ window.__ModuleLoader__.load({
    const dizzyFile = dizzy && dizzy.file ? dizzy.file : ''
    const mealFile = mealActive && mealActive.file ? mealActive.file : ''
    const motionVideoFile = motionFile && isVideoMoodFile(motionFile) ? motionFile : ''
-   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : dizzyFile ? 'dizzy:' + dizzyFile : mealFile ? 'meal:' + mealFile : expressionFile ? 'egg:' + expressionFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
-   const desiredFile = mascotFilePriority({ pulseFile, panelFile, dizzyFile, mealFile, expressionFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
+   const wanderMediaFile = wanderFile && (isVideoMoodFile(wanderFile) || wanderFile === WANDER_STATIC_FILE) ? wanderFile : ''
+   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : dizzyFile ? 'dizzy:' + dizzyFile : mealFile ? 'meal:' + mealFile : expressionFile ? 'egg:' + expressionFile : wanderMediaFile ? 'wander:' + wanderMediaFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
+   const desiredFile = mascotFilePriority({ pulseFile, panelFile, dizzyFile, mealFile, expressionFile, wanderFile: wanderMediaFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
    const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
    return h(
     'div',
