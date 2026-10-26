@@ -318,7 +318,7 @@
 GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 key）、`weather`（天气类别/描述）、`idleMinutes`、`recent`（最近 3 条自言自语，`|` 分隔）、`recentImages`（最近用过的图片/动画文件名，`|` 分隔，**≤20**，宿主会剔除它们强制轮换）。
 成功：`{ok:true, mood:{label, image, reason, energy?}, model:{provider,model}, generatedAt, cached:boolean}`。
 失败：`{ok:false,error:{code:'MOOD_AI_UNAVAILABLE'|'MOOD_AI_RATE_LIMITED', message}}`（200）。
-约束：prompt 只含日期时间/天气/聚合统计/idle/**最近活动（仅工具名归类，不含参数/命令/URL/页面内容）**/最近体验（experience.json 的 title/kind/emotion/note，≤2h）/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以引导轮换；**但这只是软建议：模型若仍返回最近用过的图，只要在图鉴内就接受，不判失败**；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
+约束（v1.59）：prompt 只含日期时间/天气/她自己的状态（felt）与「最近在体会/琢磨什么」（她自己写进 self-state，不是外部文件）/最近自述/最近图片 + 图鉴（文件+中文标签+tags+media+when，**每次打乱顺序**），**不读会话内容，也不再读外部 experience.json**；模型必须从图鉴（89 静态 + 106 动画）里选，**提示词要求优先选 media=video 的动画**、不要连续重复，返回严格 JSON（label ≤12 字、reason ≤40 字、image 必须是图鉴文件名）；recentImages（≤20）会从图鉴列表移除以引导轮换；**但这只是软建议：模型若仍返回最近用过的图，只要在图鉴内就接受，不判失败**；节日图仅在对应日期可用；temperature 1.0–1.1；时长 20s、缓存 10 分钟（force 绕过）、并发去重、最小间隔 3s；无效 JSON/未知图片/空结果 → 失败。宿主启动时读取图鉴，文件缺失时返回失败（客户端回退启发式心情）。
 
 图鉴静态资产：`GET /api/dsh-poetry/assets?f=data/mood-catalog.json` → `{ok,version,images:[{file,label,tags,scope,when?}],moodImages:[...],panelImages:[...]}`（89 心情图 + 3 panel 图）。
 
@@ -458,4 +458,5 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 - **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
 - **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。
 
-- **v1.58（2026-10-26，M69）**：插件上下文与记忆和对话彻底解耦——移除 `GET /api/dsh-poetry/mood.json` 与 `session/event` 监听；不再统计/传递会话活跃数据（消息数、工具调用、回合、活跃时长、最近活动、互动间隔）；mood-ai/self-talk prompt 与客户端启发式心情不再读取这些数据；旧 `mood.json` 启动时改名为 `.retired-*` 保留、不参与记忆中枢。心情/自处/碎碎念只依赖她自己的状态、天气、时间、记忆与 experience 文件。
+- **v1.59（2026-10-26，M70）**：外部 `experience.json` 退役——她的「最近在体会/琢磨什么」改由自处模型写进 `self-state.json`（`experiencing/experiencingAt`），mood-ai/self-talk prompt 从这里读取；旧文件启动改名 `.retired-*`，不参与记忆中枢（11 个文件）。
+- **v1.58（2026-10-26，M69）**：插件上下文与记忆和对话彻底解耦——移除 `GET /api/dsh-poetry/mood.json` 与 `session/event` 监听；不再统计/传递会话活跃数据（消息数、工具调用、回合、活跃时长、最近活动、互动间隔）；mood-ai/self-talk prompt 与客户端启发式心情不再读取这些数据；旧 `mood.json` 启动时改名为 `.retired-*` 保留、不参与记忆中枢。心情/自处/碎碎念只依赖她自己的状态、天气、时间与记忆。

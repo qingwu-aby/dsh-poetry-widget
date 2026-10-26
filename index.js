@@ -95,6 +95,17 @@ export async function apply(ctx) {
   } catch (error) {
     logger?.warn?.(`[dsh-poetry-widget] 旧 mood.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
+  // v1.59：不再读取外部 experience.json——她的“正在体会”由她自己写进 self-state。
+  // 旧文件改名 .retired 保留，不参与记忆中枢。
+  try {
+    const legacyExperienceFile = path.join(settingsPath.dir, 'experience.json')
+    if (existsSync(legacyExperienceFile)) {
+      renameSync(legacyExperienceFile, `${legacyExperienceFile}.retired-${Date.now()}`)
+      logger?.info?.('[dsh-poetry-widget] 已停用外部 experience.json（改名为 .retired）')
+    }
+  } catch (error) {
+    logger?.warn?.(`[dsh-poetry-widget] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
+  }
 
   ctx.inject(['webServer', 'connection'], (hostCtx) => {
     try {

@@ -820,3 +820,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 移除：index.js 的 `session/event` 监听与 createMoodTracker；`GET /api/dsh-poetry/mood.json` 路由；routes 中 mood-ai/self-talk 的 stats/activity/idleMinutes 上下文；mood-ai/self-talk prompt 的活跃统计/最近在做/互动间隔；memory-recall 的 activity 关键词；客户端 mood.json 拉取、stats 触发与统计型启发式/心情依据。
 - 改为：mood-ai/self-talk 只用她自己的状态（felt/时间线）、天气、时间、最近自述、记忆摘要、话题、experience 文件；客户端启发式心情只用天气/时间/本地点击/飞花战绩；模型心情按独立定时 + 本地事件刷新（不随会话事件）；旧 mood.json 启动改名 `.retired-*`（保留但不再读写）。
 - 单测：data 42 / host 223 / client 117 = 382/382。
+
+## 73. 「在体会」改由她自己写（M70，2026-10-26）
+
+- 用户：都改成她自己的（不再有外部 experience 文件）。
+- 移除：routes 读取 `experience.json` 并注入 mood-ai/self-talk；mood-ai/self-talk prompt 的外部体验段；memory-recall 的 experience 关键词；memory-hub 的 experience.json 登记（12→11 文件）；index 启动改名 `.retired-*`。
+- 改为：self-being 增加 `experiencing/experiencingAt`；自处模型输出可带 `experiencing`（4–40 字，留空沿用上次）；`formatBeingLine` 把 felt 与「最近在体会/琢磨」一起给 mood-ai/self-talk；mood-ai/self-talk prompt 只从 selfState 读。
+- 单测：data 42 / host 223 / client 117 = 382/382。

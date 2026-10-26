@@ -4,6 +4,7 @@
 
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
+- **「在体会」改由她自己写（v1.59）**：外部 `experience.json` 通道退役——她的「最近在体会/琢磨什么」由自处模型写进 `self-state.json` 的 `experiencing`，mood-ai/self-talk prompt 就从这里读；自处 prompt 允许她在输出里带 `experiencing`（4–40 字，可留空沿用上次），`felt` 与「在体会」一起构成她自己的状态。旧 experience.json 启动时改名 `.retired-*`，记忆中枢从 12 个文件降回 11 个。
 - **上下文/记忆与对话完全解耦（v1.58）**：移除 `mood.json`（会话活跃统计）与 `session/event` 监听；mood-ai/self-talk 的 prompt 不再包含消息数/工具调用/回合/活跃时长/最近活动/互动间隔，客户端也不再拉取会话统计、启发式心情只依赖天气/时间/本地小信号；旧 `mood.json` 启动时改名为 `.retired-*` 保留，不参与记忆中枢。她的心情、自处、碎碎念只依赖她自己的状态、天气、时间、记忆和 `experience.json`。
 - **情绪累积提示（v1.57）**：读 E-STEER 论文（arXiv:2604.00005，VAD/SAE 表示层情绪 steering）后，把它的机制性结论迁到我们的语义层——自处 prompt 增加「情绪会累积：连续几次停在同一种状态里，可以换一件不一样的小事，别被上一轮的情绪推着走」。不采用 VAD 打分/表示层干预（黑盒 API 不可行，且与本项目“内在状态不量化”冲突）；阅读笔记见 `docs/reading/e-steer.md`。
 - **行为自由生成（v1.56）**：自处不再从动作菜单里挑——模型用第一人称**自己生成**此刻想做的事（`doing`，4–20 字，如“擦掉桌沿那道水痕”“听楼下谁在弹琴”“把旧票根翻出来”），prompt 只给“举例，不是选项”；只有本质上是吃/喝/玩/冒泡/睡/醒/学时，才在同一次输出里标 `kind`，保证时间线事实准确。动作记录 `label=doing`、气泡用她自己写的 `say`；旧 `action` 形状仍兼容。

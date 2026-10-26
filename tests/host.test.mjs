@@ -4045,45 +4045,25 @@ test('experience：readExperience 缺失/坏 JSON/过期/越界/未知枚举 →
   assert.equal(Array.from(boundary.experience.note).length, 200)
 })
 
-test('mood-ai：prompt 含体验标题/情绪标签/情绪匹配指令；无 experience 时正常', () => {
+test('mood-ai v1.59：她自己写的「在体会」进入 prompt；外部 experience 不再读取', () => {
   const catalog = makeMoodCatalogFixture()
   const now = Date.UTC(2026, 9, 23, 8, 0, 0)
-  const experience = {
-    title: '海上钢琴师',
-    kind: 'video',
-    emotion: 'touched',
-    note: '结尾那段琴声听得眼眶发热',
-    at: Date.UTC(2026, 9, 23, 7, 50, 0),
-  }
-  const prompt = buildMoodPrompt({ now, experience }, catalog, { random: seededRandom(3) })
-  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频）/)
-  assert.match(prompt, /你此刻的心情是：感动鼻酸/)
-  assert.match(prompt, /你记下的感受：结尾那段琴声听得眼眶发热/)
-  assert.match(prompt, /感动\/鼻酸 → 温柔、共情、眼眶发热类/)
-  assert.match(prompt, /紧张 → 屏息、专注、好奇类/)
-  assert.match(prompt, /情绪匹配优先/)
-
-  // v1.58：即使调用方误传 activity，也应被忽略（她的情境不来自对话）
-  const plain = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' } }, catalog)
-  assert.equal(plain.includes('你最近在体验'), false)
-  assert.equal(plain.includes('你最近在做'), false, 'activity 不再进入 mood prompt')
-
-  const both = buildMoodPrompt({ now, activity: { kind: 'read', label: '查资料' }, experience }, catalog)
-  assert.equal(both.includes('你最近在做'), false)
-  assert.match(both, /你最近在体验：《海上钢琴师》/)
-  // 只取白名单字段：note 之外的额外字段不注入
-  const injected = buildMoodPrompt(
-    {
-      now,
-      experience: { ...experience, arguments: { command: 'SECRET_FIELD_VALUE' }, toolArguments: 'SECRET_FIELD_VALUE' },
-    },
+  const selfState = { felt: '有点说不上来的沉。', experiencing: '在听楼下谁弹琴，想到一段旧事。' }
+  const prompt = buildMoodPrompt({ now, selfState }, catalog, { random: seededRandom(3) })
+  assert.match(prompt, /你此刻的状态：有点说不上来的沉。/)
+  assert.match(prompt, /你最近在体会\/琢磨：在听楼下谁弹琴，想到一段旧事。/)
+  // 外部 experience 字段即使误传也不进入 prompt
+  const ignored = buildMoodPrompt(
+    { now, experience: { title: '海上钢琴师', kind: 'video', emotion: 'touched', note: '结尾那段琴声' } },
     catalog,
   )
-  assert.equal(injected.includes('SECRET_FIELD_VALUE'), false)
-  assert.match(injected, /你最近在体验/)
+  assert.equal(ignored.includes('海上钢琴师'), false, 'v1.59：外部体验文件不再进 prompt')
+  assert.equal(ignored.includes('你最近在体验'), false)
+  const plain = buildMoodPrompt({ now }, catalog)
+  assert.equal(plain.includes('你最近在体会'), false)
 })
 
-test('mood-ai 路由：读取 experience 状态文件并注入 prompt，journal 不写体验正文', async () => {
+test('mood-ai 路由 v1.59：不读取外部 experience 文件；selfState 的 felt/体验进入 prompt', async () => {
   const now = FIXED_NOW.getTime()
   const expDir = makeTmpDir('dshp-exp-route')
   const expFile = writeExperienceFile(path.join(expDir, 'experience.json'), {
@@ -4098,33 +4078,20 @@ test('mood-ai 路由：读取 experience 状态文件并注入 prompt，journal 
       JSON.stringify({ label: '有点鼻酸', image: 'dsh-whale-state-happy.webp', reason: '看完那段琴声很感动', energy: 55 }),
   })
   const harness = createHarness({ env: { DSH_POETRY_EXPERIENCE: expFile }, moodAiService: service })
-  const response = await harness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
+  const response = await harness.call(
+    'mood-ai.json',
+    mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }),
+  )
   assert.equal(response.statusCode, 200)
   assert.equal(response.json().ok, true)
   const prompt = llm.calls[0].messages[0].content[0].text
-  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频）/)
-  assert.match(prompt, /你此刻的心情是：感动鼻酸/)
-  assert.match(prompt, /温柔、共情、眼眶发热类/)
+  assert.equal(prompt.includes('海上钢琴师'), false, 'v1.59：不再读取外部体验文件')
+  assert.equal(prompt.includes('结尾那段琴声'), false)
 
-  // journal 只记 mood label/reason/image，不含体验标题/note 正文
+  // journal 仍只记模型自己的心情
   const journalRaw = fs.readFileSync(path.join(harness.journalDir, 'journal.jsonl'), 'utf8')
-  assert.equal(journalRaw.includes('海上钢琴师'), false, 'journal 不写体验标题')
-  assert.equal(journalRaw.includes('结尾那段琴声'), false, 'journal 不写体验 note')
-  assert.match(journalRaw, /dsh-whale-state-happy\.webp/, 'journal 仍记录心情图像')
-
-  // 无体验文件：prompt 正常、不含体验段
-  const plainMood = makeMoodAiHarness()
-  const plainHarness = createHarness({ env: {}, moodAiService: plainMood.service })
-  const plain = await plainHarness.call('mood-ai.json', mockRequest({ url: '/api/dsh-poetry/mood-ai.json?force=1' }))
-  assert.equal(plain.statusCode, 200)
-  assert.equal(plain.json().ok, true)
-  const plainPrompt = plainMood.llm.calls[0].messages[0].content[0].text
-  assert.equal(plainPrompt.includes('你最近在体验'), false, '无体验文件时 prompt 无体验段')
+  assert.match(journalRaw, /dsh-whale-state-happy\.webp/)
 })
-
-// ---------------------------------------------------------------------------
-// M24：recentImages 视频排除修复（webm/x.webm ↔ basename 归一）
-// ---------------------------------------------------------------------------
 
 test('mood-ai M24：normalizeRecentImageList 把视频 recent 归一成完整 webm/ 路径', () => {
   const catalog = makeMoodCatalogWithVideos(25)
@@ -4749,7 +4716,7 @@ test('self-talk：prompt 综合心情/天气/体验 + 话题 fact（对话数据
     activity: { kind: 'read', label: '查资料/学习' },
     stats: { userMessages: 12, toolCalls: 34 },
     idleMinutes: 8,
-    experience: { title: '海上钢琴师', kind: 'video', emotion: 'touched', note: '结尾很感动' },
+    selfState: { felt: '有点犯困，但心里松下来了。', experiencing: '在听雨声，想一段旧事。' },
     topic,
     theme: '杯子',
     recent: ['最近说过的一句话'],
@@ -4757,8 +4724,8 @@ test('self-talk：prompt 综合心情/天气/体验 + 话题 fact（对话数据
   assert.equal(prompt.includes('你最近在做'), false, 'v1.58：activity 不进入 prompt')
   assert.equal(prompt.includes('用户消息'), false, 'v1.58：stats 不进入 prompt')
   assert.equal(prompt.includes('距上次和用户互动'), false, 'v1.58：idle 不进入 prompt')
-  assert.match(prompt, /你最近在体验：《海上钢琴师》（视频），此刻心里有点感动鼻酸/)
-  assert.match(prompt, /你记下的感受：结尾很感动/)
+  assert.match(prompt, /你此刻的状态：有点犯困，但心里松下来了。/)
+  assert.match(prompt, /你最近在体会\/琢磨：在听雨声，想一段旧事。/)
   assert.match(prompt, /章鱼的三颗心脏/)
   assert.match(prompt, /章鱼有三颗心脏。/)
   assert.match(prompt, /综合你此刻的心情、天气、最近在体验的内容（如有）以及上面的小知识/)
@@ -4808,7 +4775,7 @@ test('self-talk 服务：每次挑一个 topic、成功后记 recent、下次排
   assert.deepEqual(service.recentTopics(), ['t1', 't2'], '失败不记 topic')
 })
 
-test('self-talk 路由：只传入 experience（状态文件），不读任何工具/对话数据', async () => {
+test('self-talk 路由 v1.59：不读外部文件，只传她自己的状态/记忆上下文', async () => {
   const captured = []
   const stub = {
     async generate(context) {
@@ -4839,7 +4806,7 @@ test('self-talk 路由：只传入 experience（状态文件），不读任何�
   assert.equal(response.json().ok, true)
   assert.equal('activity' in captured[0], false, 'v1.58：不传工具活动')
   assert.equal('stats' in captured[0], false, 'v1.58：不传会话统计')
-  assert.equal(captured[0].experience.title, '海上钢琴师')
+  assert.equal('experience' in captured[0], false, 'v1.59：不传外部体验文件')
   assert.equal(JSON.stringify(captured[0]).includes(sensitive), false, '工具参数不进入 service 上下文')
 })
 
@@ -5389,6 +5356,10 @@ test('self-being v1.51：只存事实时间线+一句状态，不再有分数', 
   store.setFelt('刚睡醒，有点说不上来的空。')
   assert.equal(store.snapshot().felt, '刚睡醒，有点说不上来的空。')
   assert.match(formatBeingLine(store.snapshot()), /刚睡醒/)
+  // v1.59：她自己写「最近在体会/琢磨什么」，不再读外部 experience 文件
+  store.setExperiencing('在听楼下谁弹琴，想到一段旧事。')
+  assert.equal(store.snapshot().experiencing, '在听楼下谁弹琴，想到一段旧事。')
+  assert.match(formatBeingLine(store.snapshot()), /你最近在体会\/琢磨：在听楼下谁弹琴/)
   store.markChecked(1_700_000_600_000)
   assert.equal(store.snapshot().lastCheckAt, 1_700_000_600_000)
   store.applyEvent('eat', 1_700_000_700_000)
@@ -5398,6 +5369,7 @@ test('self-being v1.51：只存事实时间线+一句状态，不再有分数', 
   assert.equal(saved.energy, undefined)
   assert.equal(saved.lastMealAt, 1_700_000_700_000)
   assert.equal(saved.felt, '刚睡醒，有点说不上来的空。')
+  assert.equal(saved.experiencing, '在听楼下谁弹琴，想到一段旧事。')
   store.dispose()
 })
 
@@ -5430,6 +5402,11 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '忽然很想弄明白潮汐是怎么被月亮拽动的。', action: 'learn', say: '去查查。' })).ok, true)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '短', action: 'play' })).ok, false)
   assert.equal(parseSelfDriveResult(JSON.stringify({ felt: '一句足够长的状态。', action: '吃' })).ok, false)
+  const withExp = parseSelfDriveResult(
+    JSON.stringify({ felt: '有点闷，想开窗。', experiencing: '在琢磨昨天读到的一段历史。', doing: '', kind: '' }),
+  )
+  assert.equal(withExp.ok, true)
+  assert.equal(withExp.experiencing, '在琢磨昨天读到的一段历史。')
   // v1.56：自由生成行为（doing），kind 可选
   const invented = parseSelfDriveResult(
     JSON.stringify({ felt: '坐太久了，腰有点僵。', doing: '把窗台上那盆草转个方向', kind: '', say: '让它也晒晒这一面。' }),
@@ -6001,7 +5978,6 @@ function seedMemoryFiles(paths, overrides = {}) {
     'topics-candidates.json': JSON.stringify({ ok: true, v: 1, topics: [{ id: 'c', title: 'C', fact: 'fc', tags: ['z'] }] }),
     'topics-archive.jsonl': '',
     'feelings.json': JSON.stringify({ ok: true, v: 1, feelings: [{ name: '雨夜的钝感', description: '雨下久了，心里像蒙了一层雾。', createdAt: 1700000000000 }] }),
-    'experience.json': JSON.stringify({ title: '海上钢琴师', kind: 'video', emotion: 'touched', at: 1700000000000 }),
     'self-state.json': JSON.stringify({ ok: true, v: 1, energy: 70 }),
     'self-actions.json': JSON.stringify({ ok: true, v: 1, updatedAt: 1700000000000, actions: [{ id: 'act-1', kind: 'drink', label: '喝', text: '渴了，去喝口水。', at: 1700000000000 }] }),
   }
@@ -6044,21 +6020,21 @@ function makeMemoryHubHarness(overrides = {}) {
   }
 }
 
-test('memory-hub：resolveMemoryHubPaths 登记 12 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/self-actions.json）', () => {
+test('memory-hub：resolveMemoryHubPaths 登记 11 个核心文件（含可选 voice.json/topics-archive.jsonl/feelings.json/self-actions.json）', () => {
   const paths = resolveMemoryHubPaths({ DSH_HOME: '/tmp/dsh-home' }, '/Users/alice')
   assert.equal(paths.memoryDir, '/tmp/dsh-home/agent-memory')
   assert.equal(paths.stateDir, '/tmp/dsh-home/.dsh-poetry')
   assert.equal(paths.backupsDir, '/tmp/dsh-home/agent-memory/backups')
   assert.deepEqual(
     paths.files.map((file) => file.id),
-    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'feelings.json', 'experience.json', 'self-state.json', 'self-actions.json'],
+    ['journal.md', 'journal.jsonl', 'topics.json', 'voice.json', 'README.md', 'learning-log.md', 'topics-candidates.json', 'topics-archive.jsonl', 'feelings.json', 'self-state.json', 'self-actions.json'],
   )
   assert.equal(paths.files[7].path, '/tmp/dsh-home/agent-memory/topics-archive.jsonl')
   assert.equal(paths.files[7].optional, true)
   assert.equal(paths.files[8].path, '/tmp/dsh-home/agent-memory/feelings.json')
   assert.equal(paths.files[8].optional, true)
-  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/experience.json')
-  assert.equal(paths.files[11].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
+  assert.equal(paths.files[9].path, '/tmp/dsh-home/.dsh-poetry/self-state.json')
+  assert.equal(paths.files[10].path, '/tmp/dsh-home/.dsh-poetry/self-actions.json')
   assert.equal(paths.files[0].path, '/tmp/dsh-home/agent-memory/journal.md')
   assert.equal(paths.files[3].path, '/tmp/dsh-home/agent-memory/voice.json')
   assert.equal(paths.files[3].optional, true)
@@ -6070,7 +6046,7 @@ test('memory-hub：snapshot 健康清单/entries/缺失/坏 JSON/坏 JSONL', () 
   const healthy = hub.snapshot()
   assert.equal(healthy.ok, true)
   assert.equal(healthy.health, 'ok')
-  assert.equal(healthy.files.length, 12)
+  assert.equal(healthy.files.length, 11)
   const byId = Object.fromEntries(healthy.files.map((file) => [file.id, file]))
   assert.equal(byId['journal.md'].entries, 2)
   assert.equal(byId['journal.jsonl'].entries, 2)
@@ -6105,7 +6081,7 @@ test('memory-hub：backup 产物/manifest/原子写/retention 20', async () => {
   const first = await hub.backup({ reason: 'manual' })
   assert.equal(first.ok, true)
   assert.match(first.backup.name, /^\d{8}-\d{6}-manual$/)
-  assert.equal(first.backup.files, 11, '只复制存在的 11 个文件（README 缺失）')
+  assert.equal(first.backup.files, 10, '只复制存在的 10 个文件（README 缺失）')
   const dir = path.join(paths.backupsDir, first.backup.name)
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
   assert.equal(manifest.ok, true)
@@ -6236,7 +6212,7 @@ test('memory-hub：memory.json 路由 GET/HEAD/405/no-store/异常降级', async
   assert.equal(get.statusCode, 200)
   assert.equal(get.headers['Cache-Control'], 'no-store')
   assert.equal(get.json().ok, true)
-  assert.equal(get.json().files.length, 12)
+  assert.equal(get.json().files.length, 11)
   assert.equal(typeof get.json().health, 'string')
   const head = await call({ method: 'HEAD' })
   assert.equal(head.statusCode, 200)
