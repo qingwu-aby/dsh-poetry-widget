@@ -110,6 +110,15 @@ window.__ModuleLoader__.load({
   /* 心情系统（M8）：心情引擎限频 + 低频「想读的诗」彩蛋。 */
   const MOOD_SWITCH_MIN_MS = 20 * 60 * 1000
   const MOOD_REFRESH_MS = 5 * 60 * 1000
+  // v1.64：她可以在窗口里自己溜达（贴边走走，不挡聊天输入框）。
+  const WANDER_TICK_MS = 60 * 1000
+  const WANDER_FIRST_MIN_MS = 45 * 1000
+  const WANDER_FIRST_MAX_MS = 2 * 60 * 1000
+  const WANDER_MIN_INTERVAL_MS = 2 * 60 * 1000
+  const WANDER_MAX_INTERVAL_MS = 5 * 60 * 1000
+  const WANDER_WALK_MS = 8 * 1000
+  const WANDER_MIN_DISTANCE = 120
+  const WANDER_INTERACTION_PAUSE_MS = 45 * 1000
   const MOOD_TICK_MS = 60 * 1000
   const MOOD_AI_PATH = 'mood-ai.json'
   const MOOD_AI_TIMEOUT_MS = 35000
@@ -548,6 +557,50 @@ window.__ModuleLoader__.load({
   if (snap === 'left') base.x = 16
   else if (snap === 'right') base.x = Math.max(8, viewport.w - size - 16)
   return base
+  }
+
+  /** 她「在窗口里溜达」时的目标点：贴着边缘走，避开底部中间的聊天输入框。 */
+  function nextWanderTarget(input) {
+  const opts = input && typeof input === 'object' ? input : {}
+  const viewport = opts.viewport && typeof opts.viewport === 'object' ? opts.viewport : {}
+  const size = Math.max(40, Math.round(num(opts.size, 120)))
+  const w = Math.max(size + 40, Math.round(num(viewport.w, 1024)))
+  const h = Math.max(size + 80, Math.round(num(viewport.h, 768)))
+  const margin = 8
+  const minX = margin
+  const maxX = Math.max(minX, w - size - margin)
+  const minY = 56
+  const maxY = Math.max(minY, h - size - margin)
+  const random = typeof opts.random === 'function' ? opts.random : Math.random
+  const rand = () => {
+   const value = Number(random())
+   return Number.isFinite(value) ? Math.min(0.999999, Math.max(0, value)) : 0
+  }
+  const pick = (lo, hi) => Math.round(lo + (Math.max(lo, hi) - lo) * rand())
+  const current = opts.current && typeof opts.current === 'object' ? opts.current : null
+  const farEnough = (point) =>
+   current === null || Math.hypot(point.x - num(current.x, 0), point.y - num(current.y, 0)) >= WANDER_MIN_DISTANCE
+  const candidates = []
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+   const roll = rand()
+   if (roll < 0.3) {
+    candidates.push({ x: minX, y: pick(minY, maxY), edge: 'left' })
+   } else if (roll < 0.6) {
+    candidates.push({ x: maxX, y: pick(minY, maxY), edge: 'right' })
+   } else if (roll < 0.85) {
+    const leftBand = rand() < 0.5
+    const xLo = leftBand ? minX : Math.round(w * 0.7)
+    const xHi = leftBand ? Math.round(w * 0.3) : maxX
+    candidates.push({ x: pick(xLo, xHi), y: maxY, edge: 'bottom' })
+   } else {
+    const leftBand = rand() < 0.5
+    const xLo = leftBand ? minX : Math.round(w * 0.7)
+    const xHi = leftBand ? Math.round(w * 0.3) : maxX
+    candidates.push({ x: pick(xLo, xHi), y: minY, edge: 'top' })
+   }
+  }
+  const chosen = candidates.find(farEnough) || candidates[candidates.length - 1]
+  return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge }
   }
 
   /** 把 fetch/数据错误翻译成面向用户的中文提示。 */
@@ -3222,6 +3275,7 @@ window.__ModuleLoader__.load({
   MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
   SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
   selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
+  WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget,
   shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
   normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
   LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
@@ -3516,6 +3570,9 @@ window.__ModuleLoader__.load({
   const clicksRef = React.useRef(0)
   const panelOpensRef = React.useRef(0)
   const lastInteractionRef = React.useRef(0)
+  // v1.64：窗口溜达（目标时间 + 走路计时器）。
+  const wanderRef = React.useRef({ nextAt: 0, timer: null })
+  const [walking, setWalking] = React.useState(false)
   const feihuaWinsRef = React.useRef(0)
   const feihuaLossesRef = React.useRef(0)
   const moodStatsRef = React.useRef(emptyMoodStats())
@@ -3894,6 +3951,43 @@ window.__ModuleLoader__.load({
    }, MASCOT_IDLE_POLL_MS)
    return () => clearInterval(timer)
   }, [])
+
+  // v1.64：窗口溜达——每 2–5 分钟贴着边缘换一个位置，互相不挡输入框；
+  // 面板打开、用户刚碰过她、页面不可见时不走。
+  React.useEffect(() => {
+   if (settings.hidden) return undefined
+   if (!wanderRef.current.nextAt) {
+    wanderRef.current.nextAt = Date.now() + WANDER_FIRST_MIN_MS + Math.random() * (WANDER_FIRST_MAX_MS - WANDER_FIRST_MIN_MS)
+   }
+   const timer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    const ui = uiRef.current
+    if (ui.panelOpen || settingsRef.current.hidden) return
+    if (dragRef.current) return
+    const now = Date.now()
+    if (now - lastInteractionRef.current < WANDER_INTERACTION_PAUSE_MS) return
+    if (now < wanderRef.current.nextAt) return
+    const size = Math.max(40, Math.round(BASE_SIZE * settingsRef.current.scale))
+    const target = nextWanderTarget({
+     viewport: { w: readWindowWidth(), h: readWindowHeight() },
+     size,
+     current: posRef.current,
+    })
+    wanderRef.current.nextAt = now + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS)
+    setWalking(true)
+    setPos(target)
+    if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer)
+    wanderRef.current.timer = setTimeout(() => {
+     wanderRef.current.timer = null
+     setWalking(false)
+    }, WANDER_WALK_MS)
+   }, WANDER_TICK_MS)
+   return () => {
+    clearInterval(timer)
+    if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer)
+    wanderRef.current.timer = null
+   }
+  }, [settings.hidden])
 
   const viewport = useViewportSize()
   const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale))
@@ -4565,6 +4659,9 @@ window.__ModuleLoader__.load({
 
   function handlePointerDown(event) {
    if (event.button !== undefined && event.button !== 0) return
+   // 用户一碰她，就停下溜达、安静一会儿。
+   setWalking(false)
+   wanderRef.current.nextAt = Date.now() + 10 * 60 * 1000
    const pointerTime = typeof event.timeStamp === 'number' && event.timeStamp > 0 ? event.timeStamp : Date.now()
    dragRef.current = {
     id: event.pointerId,
@@ -5926,6 +6023,7 @@ window.__ModuleLoader__.load({
    position: 'fixed',
    left: Math.round(pos.x) + 'px',
    top: Math.round(pos.y) + 'px',
+   transition: walking ? `left ${WANDER_WALK_MS}ms ease-in-out, top ${WANDER_WALK_MS}ms ease-in-out` : 'none',
    width: rootSize + 'px',
    height: rootSize + 'px',
    zIndex: Z_INDEX,

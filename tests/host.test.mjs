@@ -196,6 +196,14 @@ import {
   parseReflectResult,
 } from '../lib/self-growth.mjs'
 import {
+  SELF_WANDER_ALLOWED_HOSTS,
+  SELF_WANDER_GAP_MS,
+  buildWanderPrompt,
+  createSelfWander,
+  fetchRandomPage,
+  parseWanderResult,
+} from '../lib/self-wander.mjs'
+import {
   SELF_ACTION_LABELS,
   SELF_ACTION_TEXTS,
   SELF_ACTIONS_MAX_ENTRIES,
@@ -6491,6 +6499,95 @@ test('memory-recall：读取最后 300 行/跳过坏行/缺失文件/learning �
   assert.match(sections[1], /第三段/)
 })
 
+test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的话记下', async () => {
+  assert.equal(SELF_WANDER_GAP_MS, 3 * 60 * 60 * 1000)
+  assert.deepEqual(SELF_WANDER_ALLOWED_HOSTS, ['zh.wikipedia.org', 'en.wikipedia.org'])
+  const page = {
+    title: '鲸落',
+    extract: '鲸落指鲸鱼死后沉入深海，尸体支撑起一个延续数十年的生态系统。',
+    host: 'zh.wikipedia.org',
+    url: 'https://zh.wikipedia.org/wiki/鲸落',
+  }
+  // 白名单/摘要长度/重定向域名校验
+  const okPage = await fetchRandomPage({
+    fetchImpl: async () => ({ ok: true, url: page.url, json: async () => ({ title: page.title, extract: page.extract }) }),
+  })
+  assert.deepEqual(okPage, page)
+  assert.equal(
+    await fetchRandomPage({
+      fetchImpl: async () => ({ ok: true, url: 'https://evil.example/x', json: async () => ({ title: 'x', extract: page.extract }) }),
+    }),
+    null,
+    '重定向到非白名单域名必须放弃',
+  )
+  assert.equal(await fetchRandomPage({ fetchImpl: async () => ({ ok: false, json: async () => ({}) }) }), null)
+  assert.equal(
+    await fetchRandomPage({ fetchImpl: async () => ({ ok: true, url: page.url, json: async () => ({ title: 'x', extract: '太短' }) }) }),
+    null,
+  )
+
+  // prompt：只给她标题+摘要，要求第一人称具体写，允许没意思
+  const prompt = buildWanderPrompt({ now: FIXED_NOW.getTime(), page })
+  assert.match(prompt, /页面标题：鲸落/)
+  assert.match(prompt, /你只读了这一小段摘要/)
+  assert.match(prompt, /不要复述摘要/)
+  assert.match(prompt, /没意思/)
+  assert.match(prompt, /对称骨架/)
+  assert.equal(parseWanderResult(JSON.stringify({ note: '读到鲸落的时候我停了一下，想到海底那么黑，它却还能养活一整个地方。', interesting: true })).ok, true)
+  assert.equal(parseWanderResult(JSON.stringify({ note: '太短', interesting: false })).ok, false)
+
+  // 服务：出门一次 → 写 learning-log「· 溜达」+ state 记录
+  const dir = makeTmpDir('dshp-wander')
+  const learningLogPath = path.join(dir, 'learning-log.md')
+  const llm = makeMockLlm(() =>
+    JSON.stringify({ note: '读到鲸落时我停了一下，想到海底那么黑，它却还能养活一整个地方。', interesting: true }),
+  )
+  const wander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'wander' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    learningLogPath,
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => ({ ok: true, url: page.url, json: async () => ({ title: page.title, extract: page.extract }) }),
+  })
+  const result = await wander.wanderNow()
+  assert.equal(result.ok, true)
+  assert.equal(result.title, '鲸落')
+  assert.equal(result.host, 'zh.wikipedia.org')
+  const log = fs.readFileSync(learningLogPath, 'utf8')
+  assert.match(log, /· 溜达/)
+  assert.match(log, /地方：鲸落（zh\.wikipedia\.org）/)
+  assert.match(log, /她写下的：读到鲸落时我停了一下/)
+  assert.match(log, /有意思：是/)
+  const state = JSON.parse(fs.readFileSync(path.join(dir, 'wander-state.json'), 'utf8'))
+  assert.equal(state.lastWanderAt, FIXED_NOW.getTime())
+  // 睡觉/关闭时不出去
+  const sleepingWander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: true }) },
+    llm,
+    learningLogPath,
+    env: {},
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await sleepingWander.wanderNow()).reason, 'sleeping')
+  const disabledWander = createSelfWander({
+    state: { snapshot: () => ({ sleeping: false }) },
+    llm,
+    learningLogPath,
+    env: { DSH_POETRY_WANDER: 'off' },
+    now: () => FIXED_NOW.getTime(),
+    fetchImpl: async () => {
+      throw new Error('不应该请求网络')
+    },
+  })
+  assert.equal((await disabledWander.wanderNow()).reason, 'disabled')
+})
+
 test('memory-recall v1.63：旧时回声按相关性+预算挑更早的条目，不混入最近想法', () => {
   const dir = makeTmpDir('dshp-echo')
   const journalPath = path.join(dir, 'journal.jsonl')
@@ -7542,7 +7639,7 @@ test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,rece
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
   assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
     mood: 'low',
@@ -7551,6 +7648,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     voice: 'high',
     drive: 'low',
     probe: 'low',
+    wander: 'low',
   })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
@@ -7584,6 +7682,7 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.equal(envPolicy.resolve('voice').reasoningEffort, 'off')
   assert.equal(envPolicy.resolve('drive').reasoningEffort, 'low', '自处默认 low')
   assert.equal(envPolicy.resolve('probe').reasoningEffort, 'low', '试探默认 low')
+  assert.equal(envPolicy.resolve('wander').reasoningEffort, 'low', '溜达默认 low')
 
   // 仅 env 提供 provider/model（selection 缺失）也可用
   const envOnly = createModelPolicy({

@@ -2023,6 +2023,49 @@ test('心情引擎 computeMood：天气/时间/本地信号（不再读会话统
   }
 })
 
+test('窗口溜达 v1.64：目标点在视口内、贴边、避开底部中间输入框', () => {
+  const { debug } = loadClient()
+  assert.equal(debug.WANDER_TICK_MS, 60 * 1000)
+  assert.equal(debug.WANDER_WALK_MS, 8 * 1000)
+  assert.equal(debug.WANDER_MIN_DISTANCE, 120)
+  const viewport = { w: 1200, h: 800 }
+  const size = 120
+  const maxX = viewport.w - size - 8
+  const maxY = viewport.h - size - 8
+
+  const target = debug.nextWanderTarget({ viewport, size, current: { x: 16, y: maxY }, random: () => 0 })
+  assert.ok(target.x >= 8 && target.x <= maxX)
+  assert.ok(target.y >= 56 && target.y <= maxY)
+  assert.ok(
+    target.x <= 8 || target.x >= maxX || target.y <= 56 || target.y >= maxY,
+    '必须贴边，不飘到屏幕中间挡住内容',
+  )
+
+  // 底部边缘不能落在中间 30%–70% 的聊天输入框区域
+  const sequence = [0.7, 0.2, 0.5]
+  let index = 0
+  const bottom = debug.nextWanderTarget({
+    viewport,
+    size,
+    current: null,
+    random: () => {
+      const value = sequence[index % sequence.length]
+      index += 1
+      return value
+    },
+  })
+  assert.equal(bottom.y, maxY, '0.7 的骰子走底部')
+  assert.ok(bottom.x <= viewport.w * 0.3, '底部只走外侧两段')
+
+  // 会离开原地（至少 120px）
+  const moved = debug.nextWanderTarget({ viewport, size, current: { x: 600, y: 400 }, random: () => 0.1 })
+  assert.ok(Math.hypot(moved.x - 600, moved.y - 400) >= 100)
+
+  const a = debug.nextWanderTarget({ viewport, size, current: null, random: () => 0.42 })
+  const b = debug.nextWanderTarget({ viewport, size, current: null, random: () => 0.42 })
+  assert.deepEqual(a, b, '同样的随机序列结果可复现')
+})
+
 test('心情限频 throttleMoodSwitch：20min 内不换、strong/force 可破例、同 key 只更新文案', () => {
   const { debug } = loadClient()
   const t0 = 1_800_000_000_000

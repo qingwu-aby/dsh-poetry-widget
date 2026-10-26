@@ -54,6 +54,7 @@ import {
   createMemorySnapshotHandler,
 } from './lib/memory-hub.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
+import { createSelfWander } from './lib/self-wander.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
@@ -311,7 +312,7 @@ export async function apply(ctx) {
       logger?.info?.(
         `[dsh-poetry-widget] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
       )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe']
+      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander']
         .map((role) => {
           let candidates = []
           try {
@@ -401,6 +402,34 @@ export async function apply(ctx) {
           }
         },
         'dsh-poetry-widget: 自处',
+      )
+
+      // v1.64：网络溜达——每隔几小时去允许的公开页面（中文维基随机摘要）看一眼，
+      // 用她自己的话记下看到什么；只读、无用户信息、不登录不评论。
+      const selfWander = createSelfWander({
+        state: selfState,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        learningLogPath: path.join(memoryDir, 'learning-log.md'),
+        env,
+      })
+      selfWander.start()
+      logger?.info?.(
+        `[dsh-poetry-widget] 网络溜达已启动（间隔 3h；${
+          String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
+        }）`,
+      )
+      hostCtx.effect(
+        () => () => {
+          try {
+            selfWander.dispose()
+          } catch (error) {
+            logger?.warn?.(`[dsh-poetry-widget] 网络溜达清理失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        },
+        'dsh-poetry-widget: 网络溜达',
       )
 
       const routes = createRouteTable({

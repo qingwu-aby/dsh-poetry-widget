@@ -458,6 +458,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 - **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
 - **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。
 
+- **v1.64（2026-10-26，M75）**：新增「四处走走」——客户端窗口溜达（贴边换位、避开输入框、拖拽暂停，纯前端）；Host 新增 `lib/self-wander.mjs`：每 3h 只读访问白名单域名（zh/en.wikipedia.org）随机条目摘要，模型角色 `wander` 写第一人称笔记（允许“没意思”），记入 learning-log「· 溜达」；无用户信息/cookie/登录/评论，`DSH_POETRY_WANDER=off` 可关。
 - **v1.63（2026-10-26，M74）**：参考 dsh-memory 只取两小块——memory-recall 新增 `recallEchoes`（24h 以前 journal 条目按关键词确定性打分，≤2 条，进摘要「你以前写下过的（旧时回声）」，不与最近想法重复）；`experiencing` 增加 36h 时效，过期不再作为“最近在体会”注入。不引入 MCP/Rust/确定性语义裁判/固定身份锚点。
 - **v1.62（2026-10-26，M73）**：新增「注意力介入/试探」——自处 prompt 输出 `focus`（仅在真专注时填）；focus 非空 + 醒着 + 距上次 ≥3h 触发 `probe` 角色两段式模型调用（自选 domain/title/hook → 她写 impression 并自己给 liked/why）；结果写入 learning-log「· 试探」，probe-state.json 记 lastProbeAt；喜欢/不喜欢进入自学提示。新增模型策略角色 `probe`（effort low，token floor 1400）。
 - **v1.61（2026-10-26，M72）**：新增 `lib/language-style.mjs` 结构约束并接入 self-talk/mood-ai/self-drive/reflect/learn/voice 六个 prompt（去 AI 味；参考 qu-ai-wei 编辑思路，不列禁词）。
