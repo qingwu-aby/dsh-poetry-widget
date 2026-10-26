@@ -849,3 +849,13 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 用户：她注意力集中的时候，增加介入方案；由模型自主选择类型主题，让她去看看感不感兴趣，最终结论取决于她自身是否喜欢。
 - 实现：自处输出新增 `focus`；focus 非空 + 醒着 + 距上次 ≥3h → `growth.probeNow({focus})` 两段式：① 模型自选 domain/title/hook（避开最近学过/试探过）；② 她写看到/想到的具体印象，并自己给 liked/why（允许不喜欢/说不好）。结果写入 learning-log「· 试探」，probe-state.json 记 lastProbeAt；下次自学 prompt 读取喜欢/不喜欢清单。新增模型角色 `probe`（effort low、floor 1400）。
 - 单测：prompt/解析/两段式流程/冷却/自学提示/自处 focus 触发。
+
+## 77. 参考 dsh-memory：只取两小块记忆能力（M74，2026-10-26）
+
+- 用户：看看 https://github.com/FuRongJun-1999/dsh-memory 有没有可取之处，不照搬，是否适合小鲸鱼。
+- 评估：灵枢是白箱记忆平台（确定性写闸门/committed/原文真源/预算装包/时效/元认知/审计/MCP/Rust/蜂群/蜂巢/评测）。工程自觉可取，基础设施不适合单用户轻量挂件；确定性裁判与固定身份锚点还会伤到她“自生成、会变”的部分。
+- 借鉴 1：`recallEchoes`——从 24h 以前 journal 条目按关键词命中打分取 ≤2 条，进记忆摘要「你以前写下过的（旧时回声）」，确定性、只读、有预算、不与最近想法重复。
+- 借鉴 2：`experiencing` 36h TTL——过期不再当作“最近在体会”。
+- 不做：Rust/MCP/Python/蜂群/蜂巢/双实例互验/30+ 工具/确定性语义裁判/固定身份锚点/静默遗忘。
+- 笔记：`docs/reading/dsh-memory.md`。
+- 单测：data 42 / host 226 / client 117 = 385/385。

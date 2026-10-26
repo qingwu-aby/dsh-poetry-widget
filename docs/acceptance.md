@@ -127,3 +127,4 @@
 | H24 | 自学“看起来停了”修复 | ✅ | 学习日志本地时间；成长页学习/自省事实计数并在启动时按日志校正；重复主题检测（最近 8 条中 ≥3 次）点名并要求换领域；单测覆盖 |
 | H25 | 语言去 AI 味 | ✅ | `lib/language-style.mjs` 9 条结构约束接入 self-talk/mood-ai/self-drive/reflect/learn/voice 六个 prompt；批判性参考 qu-ai-wei（取结构、不列禁词、不硬加人味） |
 | H26 | 注意力介入/试探 | ✅ | 自处 `focus` → 3h 冷却 → 两段式 probe：模型自选类型+题目，她看后自己判断 liked/why；结果写 learning-log「· 试探」并进入下次自学提示；新增 probe 模型角色 |
+| H27 | 参考 dsh-memory 的记忆改进 | ✅ | 只取相关性+预算（旧时回声 ≤2 条、24h 以前、确定性打分、不与最近想法重复）与时效（experiencing 36h TTL）；评估笔记记录取舍；单测覆盖 |

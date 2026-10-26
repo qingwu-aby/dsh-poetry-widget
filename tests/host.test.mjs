@@ -5366,7 +5366,13 @@ test('self-being v1.51：只存事实时间线+一句状态，不再有分数', 
   // v1.59：她自己写「最近在体会/琢磨什么」，不再读外部 experience 文件
   store.setExperiencing('在听楼下谁弹琴，想到一段旧事。')
   assert.equal(store.snapshot().experiencing, '在听楼下谁弹琴，想到一段旧事。')
-  assert.match(formatBeingLine(store.snapshot()), /你最近在体会\/琢磨：在听楼下谁弹琴/)
+  assert.match(formatBeingLine(store.snapshot(), 1_700_000_600_600), /你最近在体会\/琢磨：在听楼下谁弹琴/)
+  // v1.63：太久以前的“在体会”不再当成最近（时效 36h）
+  assert.equal(
+    formatBeingLine(store.snapshot(), 1_700_000_600_600 + 37 * 60 * 60 * 1000).includes('你最近在体会'),
+    false,
+    '超过 36h 的体会不再注入',
+  )
   // v1.60：学习/自省是事实计数，不再冻结
   store.applyEvent('learn', 1_700_000_600_500)
   store.applyEvent('learn', 1_700_000_600_600)
@@ -6483,6 +6489,39 @@ test('memory-recall：读取最后 300 行/跳过坏行/缺失文件/learning �
   assert.equal(sections.length, 2)
   assert.match(sections[0], /第二段/)
   assert.match(sections[1], /第三段/)
+})
+
+test('memory-recall v1.63：旧时回声按相关性+预算挑更早的条目，不混入最近想法', () => {
+  const dir = makeTmpDir('dshp-echo')
+  const journalPath = path.join(dir, 'journal.jsonl')
+  const now = FIXED_NOW.getTime()
+  const day = 24 * 60 * 60 * 1000
+  const lines = [
+    { ts: now - 5 * day, kind: 'murmur', text: '下雨那天我蹲在门口看水洼里的泡，泡破了又起。' },
+    { ts: now - 4 * day, kind: 'thought', text: '夜里想起小时候数雨点的事，数到一半就忘了。' },
+    { ts: now - 2 * day, kind: 'murmur', text: '今天风大，窗框一直在响。' },
+    { ts: now - 60 * 60 * 1000, kind: 'murmur', text: '刚把杯子放回桌角，杯底有点水。' },
+  ]
+    .map((entry) => JSON.stringify(entry))
+    .join('\n')
+  fs.writeFileSync(journalPath, `${lines}\n`, 'utf8')
+  const recall = createMemoryRecall({
+    journalPath,
+    learningLogPath: path.join(dir, 'none.md'),
+    now: () => now,
+    topics: [],
+  })
+  const context = { topic: { title: '水洼', fact: '门口的积水' }, moodLabel: '雨点', recentTexts: [] }
+  const echoes = recall.recallEchoes(context)
+  assert.equal(echoes.length, 2, '预算上限 2 条')
+  assert.match(echoes.join(''), /水洼|雨点/)
+  assert.equal(echoes.some((text) => text.includes('刚把杯子')), false, '最近 24h 内不算旧时回声')
+
+  const digest = recall.digest(context)
+  assert.equal(digest.echoes.length, 2)
+  assert.equal(digest.thoughts.includes(digest.echoes[0]), false, '旧时回声不再在“最近想法”里重复')
+  const formatted = formatMemoryDigest(digest)
+  assert.match(formatted, /你以前写下过的（旧时回声）/)
 })
 
 test('memory-recall：readRecent/extractKeywords/bigram 工具', () => {
