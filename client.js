@@ -6478,7 +6478,7 @@
         function renderHealthStatus() {
           const health = api.healthStatus;
           if (!health) return null;
-          const budgetLine = health.totalLimit > 0 ? `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}/${health.totalLimit}` : "\u6A21\u578B\u8C03\u7528\uFF1A\u6682\u65E0\u6570\u636E";
+          const budgetLine = health.totalLimit > 0 ? `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}/${health.totalLimit}` : `\u4ECA\u65E5\u6A21\u578B\u8C03\u7528 ${health.total}\uFF08\u672A\u8BBE\u4E0A\u9650\uFF09`;
           const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(" \xB7 ");
           const jobs = health.jobs.slice(0, 8);
           const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}\u9519)` : ""}`).join(" \xB7 ") : "\u5FC3\u8DF3\u672A\u6CE8\u518C";

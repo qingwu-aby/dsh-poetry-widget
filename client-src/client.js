@@ -5598,7 +5598,7 @@ window.__ModuleLoader__.load({
   function renderHealthStatus() {
    const health = api.healthStatus
    if (!health) return null
-   const budgetLine = health.totalLimit > 0 ? `今日模型调用 ${health.total}/${health.totalLimit}` : '模型调用：暂无数据'
+   const budgetLine = health.totalLimit > 0 ? `今日模型调用 ${health.total}/${health.totalLimit}` : `今日模型调用 ${health.total}（未设上限）`
    const roles = health.roleCounts.map((item) => `${item.role} ${item.count}`).join(' · ')
    const jobs = health.jobs.slice(0, 8)
    const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}错)` : ''}`).join(' · ') : '心跳未注册'

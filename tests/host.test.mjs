@@ -197,19 +197,24 @@ import {
 } from '../lib/self-growth.mjs'
 import {
   SELF_WANDER_ALLOWED_HOSTS,
+  SELF_WANDER_ALLOWED_SUFFIXES,
   SELF_WANDER_GAP_MS,
   buildWanderPrompt,
   createSelfWander,
   fetchRandomPage,
   parseWanderResult,
+  wanderRandomUrl,
 } from '../lib/self-wander.mjs'
 import {
   SELF_READING_GAP_MS,
+  SELF_READING_RANDOM_API,
   SELF_READING_WORKS,
   buildReadingPrompt,
   cleanReadingHtml,
   createSelfReading,
+  fetchRandomReadingExcerpt,
   fetchReadingText,
+  isAllowedReadingHost,
   parseReadingResult,
   pickReadingExcerpt,
   readingApiUrl,
@@ -233,6 +238,7 @@ import {
   buildNetlangPrompt,
   createSelfNetlang,
   fetchNetlangTitles,
+  parseGithubTrendingHtml,
   parseNetlangPayload,
   parseNetlangResult,
 } from '../lib/self-netlang.mjs'
@@ -1984,19 +1990,19 @@ test('self-talk：parseSelfTalkLines 过滤长度/引号/编号/非中文/重复
   ].join('\n')
   assert.deepEqual(parseSelfTalkLines(text, { kind: 'murmur' }), [
     '今天小雨，我有点想窝在窗边看雨',
-    '我数了数你敲键盘的声音，好像比昨天轻快一点',
+    '我'.repeat(61),
   ])
   // 按句号拆分
   assert.deepEqual(parseSelfTalkLines('第一句话说得长一点吧。第二句话也说得长一点吧', { kind: 'murmur' }), [
     '第一句话说得长一点吧',
     '第二句话也说得长一点吧',
   ])
-  // 长度边界：murmur 8–60
-  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(7)}\n${'好'.repeat(8)}`, { kind: 'murmur' }), ['好'.repeat(8)])
-  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(60)}\n${'妙'.repeat(61)}`, { kind: 'murmur' }), ['好'.repeat(60)])
-  // intro 已废弃（v1.8b）：按 murmur 的 8–60 字处理（24 字以上也保留）
+  // 长度边界（v2.0 放开）：murmur 4–120
+  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(3)}\n${'好'.repeat(4)}`, { kind: 'murmur' }), ['好'.repeat(4)])
+  assert.deepEqual(parseSelfTalkLines(`${'好'.repeat(120)}\n${'妙'.repeat(121)}`, { kind: 'murmur' }), ['好'.repeat(120)])
+  // intro 已废弃（v1.8b）：也按 4–120 处理
   assert.deepEqual(parseSelfTalkLines('明月'.repeat(13), { kind: 'intro' }), ['明月'.repeat(13)])
-  assert.deepEqual(parseSelfTalkLines('山的'.repeat(2), { kind: 'intro' }), [], '过短仍然丢弃')
+  assert.deepEqual(parseSelfTalkLines('山的', { kind: 'intro' }), [], '过短仍然丢弃')
   // recent 去重（忽略标点/空白差异）
   assert.deepEqual(
     parseSelfTalkLines('窗外的雨声让我想起一句没读过的话\n今天的云很低，低到我想伸手碰一碰', {
@@ -2071,7 +2077,7 @@ test('self-talk 服务：成功生成 2 句并透传模型参数', async () => {
   assert.equal(options.model, 'deepseek-flash')
   assert.equal(options.reasoningEffort, undefined, '短请求不透传 reasoningEffort（避免推理吃光 200 token / 拖过客户端 8s 超时）')
   assert.equal(options.system, SELF_TALK_SYSTEM_PROMPT)
-  assert.equal(options.maxTokens, 200)
+  assert.equal(options.maxTokens, 320)
   assert.equal(options.temperature, SELF_TALK_TEMPERATURE)
   assert.equal(options.temperature, 1.0, 'v1.22 temperature 0.95→1.0')
   assert.ok(options.signal instanceof AbortSignal, '传入了 AbortSignal（20s 超时）')
@@ -5430,11 +5436,16 @@ test('self-being v1.51：只存事实时间线+一句状态，不再有分数', 
   store.setExperiencing('在听楼下谁弹琴，想到一段旧事。')
   assert.equal(store.snapshot().experiencing, '在听楼下谁弹琴，想到一段旧事。')
   assert.match(formatBeingLine(store.snapshot(), 1_700_000_600_600), /你最近在体会\/琢磨：在听楼下谁弹琴/)
-  // v1.63：太久以前的“在体会”不再当成最近（时效 36h）
+  // v2.0：体会的时效从 36h 放宽到 7 天；超过 7 天才算过期
   assert.equal(
-    formatBeingLine(store.snapshot(), 1_700_000_600_600 + 37 * 60 * 60 * 1000).includes('你最近在体会'),
+    formatBeingLine(store.snapshot(), 1_700_000_600_600 + 6 * 24 * 60 * 60 * 1000).includes('你最近在体会'),
+    true,
+    '6 天内的体会仍然有效',
+  )
+  assert.equal(
+    formatBeingLine(store.snapshot(), 1_700_000_600_600 + 8 * 24 * 60 * 60 * 1000).includes('你最近在体会'),
     false,
-    '超过 36h 的体会不再注入',
+    '超过 7 天的体会不再注入',
   )
   // v1.60：学习/自省是事实计数，不再冻结
   store.applyEvent('learn', 1_700_000_600_500)
@@ -5951,7 +5962,7 @@ test('self-growth：到点自省写 journal thought、自学写 learning-log 与
 })
 
 test('self-growth v1.62：注意力集中时模型自选入口，她去看并自己判断喜不喜欢', async () => {
-  assert.equal(SELF_PROBE_GAP_MS, 3 * 60 * 60 * 1000)
+  assert.equal(SELF_PROBE_GAP_MS, 40 * 60 * 1000)
   // prompt：类型/题目由模型自己挑；喜欢与否由她自己判断
   const proposalPrompt = buildProbeProposalPrompt({
     now: FIXED_NOW.getTime(),
@@ -6622,7 +6633,7 @@ test('memory-recall：读取最后 300 行/跳过坏行/缺失文件/learning �
 })
 
 test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的话记下', async () => {
-  assert.equal(SELF_WANDER_GAP_MS, 3 * 60 * 60 * 1000)
+  assert.equal(SELF_WANDER_GAP_MS, 40 * 60 * 1000)
   assert.deepEqual(SELF_WANDER_ALLOWED_HOSTS, ['zh.wikipedia.org', 'en.wikipedia.org'])
   const page = {
     title: '鲸落',
@@ -6742,7 +6753,7 @@ test('self-wander v1.64：只去白名单页面、只取摘要、她用自己的
 })
 
 test('self-reading v1.67：读公版现代作品，留意写法并自己写一句（不抄句子）', async () => {
-  assert.equal(SELF_READING_GAP_MS, 24 * 60 * 60 * 1000, 'v1.68：小说放慢到每天一次')
+  assert.equal(SELF_READING_GAP_MS, 90 * 60 * 1000, 'v2.0：读书节奏放开到 90min，可再调')
   assert.equal(SELF_READING_WORKS[0].title, '孔乙己')
   assert.equal(SELF_READING_WORKS[0].author, '鲁迅')
   const translated = SELF_READING_WORKS.filter((work) => work.kind.startsWith('翻译'))
@@ -6870,8 +6881,8 @@ test('self-reading v1.67：读公版现代作品，留意写法并自己写一�
 })
 
 test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的原话', async () => {
-  assert.equal(SELF_NETLANG_GAP_MS, 8 * 60 * 60 * 1000)
-  assert.deepEqual(SELF_NETLANG_SOURCES.map((source) => source.id), ['weibo', 'bilibili'])
+  assert.equal(SELF_NETLANG_GAP_MS, 120 * 60 * 1000)
+  assert.deepEqual(SELF_NETLANG_SOURCES.map((source) => source.id), ['weibo', 'bilibili', 'hackernews', 'baidu', 'github'])
 
   const weiboPayload = {
     ok: 1,
@@ -6887,6 +6898,18 @@ test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的�
   assert.deepEqual(parseNetlangPayload('weibo', weiboPayload), ['#今天也要好好吃饭#', '凌晨四点的街道'])
   const biliPayload = { code: 0, data: { trending: { list: [{ keyword: '秋天第一杯奶茶', show_name: '秋天第一杯奶茶' }, { keyword: '通勤路上' }] } } }
   assert.deepEqual(parseNetlangPayload('bilibili', biliPayload), ['秋天第一杯奶茶', '通勤路上'])
+  assert.deepEqual(
+    parseNetlangPayload('hackernews', { hits: [{ title: 'Show HN: A tiny memory layer for agents' }, { story_title: 'Rust in 2026' }] }),
+    ['Show HN: A tiny memory layer for agents', 'Rust in 2026'],
+  )
+  assert.deepEqual(
+    parseNetlangPayload('baidu', { data: { cards: [{ content: [{ word: '今天降温了' }, { query: '秋天第一杯奶茶' }] }] } }),
+    ['今天降温了', '秋天第一杯奶茶'],
+  )
+  assert.deepEqual(
+    parseGithubTrendingHtml('<h2><a href="/openai/codex">openai / codex</a></h2><h2><a href="/rust-lang/rust">rust-lang / rust</a></h2>'),
+    ['openai/codex', 'rust-lang/rust'],
+  )
 
   const fetched = await fetchNetlangTitles({
     source: SELF_NETLANG_SOURCES[0],
@@ -8093,7 +8116,7 @@ test('self-actions M46：环形 50 条/load 已有动作/坏文件/快照 latest
   assert.equal(normalizeSelfAction({ id: 'x', kind: 'has space', at: 1 }), null)
   assert.equal(normalizeSelfActionsFile({ ok: true, v: 1, actions: [{ id: 'a', kind: 'eat', at: 1 }, { bad: true }] }).length, 1)
   assert.deepEqual(normalizeSelfActionsFile({ ok: false, v: 1, actions: [] }), [])
-  assert.equal(SELF_ACTIONS_MAX_ENTRIES, 50)
+  assert.equal(SELF_ACTIONS_MAX_ENTRIES, 200)
 })
 
 test('self.json M46：路由返回 state.thirst/sleeping 与 actions{latest,recent}', async () => {
@@ -9197,7 +9220,7 @@ test('model-policy M54：dsh 失败（未产出文本）→ deepseek；原生 op
   assert.equal(talkLlm.calls[0].maxTokens, MODEL_POLICY_DSH_OPENCODE_MAX_TOKENS_FLOORS.selfTalk)
   assert.equal(talkLlm.calls[1].temperature, 1.0)
   assert.equal(talkLlm.calls[1].reasoningEffort, 'high')
-  assert.equal(talkLlm.calls[1].maxTokens, 200)
+  assert.equal(talkLlm.calls[1].maxTokens, 320)
   assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 })
 
@@ -9522,4 +9545,69 @@ test('heartbeat v1.82：单一定时器、按 everyMs/offset 触发、失败隔�
   clock += 60_000
   heartbeat.pulse()
   assert.equal(fired, 4)
+})
+
+test('v2.0 资源放宽：wander 全语言维基 / reading 全语言 Wikisource / 随机公版页', async () => {
+  // wander：不再只限 zh/en；后缀校验防止 evil 域名
+  assert.deepEqual(SELF_WANDER_ALLOWED_SUFFIXES, ['wikipedia.org', 'wikisource.org'])
+  assert.equal(wanderRandomUrl('ja'), 'https://ja.wikipedia.org/api/rest_v1/page/random/summary')
+  assert.equal(wanderRandomUrl('xx'), 'https://zh.wikipedia.org/api/rest_v1/page/random/summary')
+  const jaPage = { title: '深海', extract: '深海は、海洋のうち水深200メートル以上の領域を指す。', host: 'ja.wikipedia.org', url: 'https://ja.wikipedia.org/wiki/深海' }
+  const jaFetched = await fetchRandomPage({
+    random: () => 0,
+    fetchImpl: async () => ({ ok: true, url: jaPage.url, json: async () => ({ title: jaPage.title, extract: jaPage.extract }) }),
+  })
+  assert.equal(jaFetched.host, 'ja.wikipedia.org')
+  assert.equal(
+    await fetchRandomPage({
+      fetchImpl: async () => ({ ok: true, url: 'https://wikipedia.org.evil.example/x', json: async () => ({ title: 'x', extract: jaPage.extract }) }),
+    }),
+    null,
+    '后缀相似但非维基域名必须拒绝',
+  )
+
+  // reading：所有语言 Wikisource 都可以；随机公版页解析
+  assert.equal(isAllowedReadingHost('zh.wikisource.org'), true)
+  assert.equal(isAllowedReadingHost('ja.wikisource.org'), true)
+  assert.equal(isAllowedReadingHost('wikisource.org'), true)
+  assert.equal(isAllowedReadingHost('wikisource.org.evil.example'), false)
+  assert.match(SELF_READING_RANDOM_API, /generator=random/)
+  const randomPage = await fetchRandomReadingExcerpt({
+    fetchImpl: async () => ({
+      ok: true,
+      url: 'https://zh.wikisource.org/w/api.php',
+      json: async () => ({ query: { pages: [{ title: '陋室銘', extract: '山不在高，有仙則名。水不在深，有龍則靈。斯是陋室，惟吾德馨。'.repeat(16) }] } }),
+    }),
+  })
+  assert.equal(randomPage.title, '陋室銘')
+  assert.ok(randomPage.text.includes('山不在高'))
+  assert.equal(
+    await fetchRandomReadingExcerpt({
+      fetchImpl: async () => ({ ok: true, url: 'https://evil.example/x', json: async () => ({ query: { pages: [] } }) }),
+    }),
+    null,
+  )
+})
+
+test('v2.0 预算默认不限制；self-talk 主题只在概率内出现', async () => {
+  const dir = makeTmpDir('dshp-budget-open')
+  const budget = createModelBudget({ file: path.join(dir, 'budget.json'), env: {}, now: () => 1000 })
+  assert.equal(budget.snapshot().totalLimit, 0, '默认不设总上限')
+  for (let index = 0; index < 500; index += 1) assert.equal(budget.tryConsume('mood').ok, true)
+  assert.equal(budget.snapshot().total, 500)
+  assert.equal(budget.snapshot().limits.mood, 0, '默认不设 role 上限')
+
+  // themeProbability=0 → prompt 不再带固定小主题
+  const llm = makeMockLlm(() => SELF_TALK_LINES_A.join('\n'))
+  const service = createSelfTalkService({
+    llm,
+    getSelection: () => SELF_TALK_SELECTION,
+    now: () => FIXED_NOW.getTime(),
+    minIntervalMs: 0,
+    random: () => 0.5,
+    themeProbability: 0,
+  })
+  const result = await service.generate({})
+  assert.equal(result.ok, true)
+  assert.equal(llm.calls[0].messages[0].content[0].text.includes('这次试着围绕'), false, '概率为 0 时不强加主题')
 })

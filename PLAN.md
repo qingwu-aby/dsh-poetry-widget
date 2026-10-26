@@ -1037,3 +1037,15 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 迁移 424 行；client.js 7,200 → 6,734 行。
 - 未拆：GrowthTab / SettingsTab / LibraryTab / FeihuaTab——它们依赖 client 闭包里的更多 helper（growthMetricsTree、DetectionView、ToneLine、MASCOT_FILES 等），要继续需先抽共享 UI kit。
 - 测试：client 121 全过；全套 399/399。
+
+## 101. 自主权放开（M97，2026-10-26）
+
+- 用户：学习/状态/行为/碎碎念/获取资源被限制死，要求放开。
+- 节奏：新增 `lib/autonomy.mjs`（环境旋钮 + 更开放的默认值）；index 把 drive/growth/reading/wander/netlang 的 interval/gap/first 传入；env `DSH_POETRY_*_MIN` 可继续放宽，0 表示不设下限。
+- 预算：`model-budget` 默认 total=0 / 各 role=0（不限制）；`DSH_POETRY_DAILY_*` 仍可显式收紧；并发闸门保留（保护而非成长限制）。
+- 状态/行为：self-being felt/experiencing 120 + TTL 7d；self-drive felt 120/doing 48/say 120/focus 48；actions 200 条。
+- 碎碎念：4–120 字、maxTokens 320、主题概率 35%（可调，0=完全不指定）。
+- 资源：wander 全 Wikipedia/Wikisource 语言随机；reading 书架读完后 Wikisource 随机公版页；netlang 增加 HN/百度/GitHub（共 5 源，按 github HTML 解析）。
+- 记忆：selfFacts 120/单条 80/摘要 800；recall 120 字/回声 3。
+- 测试：401/401（新增资源放宽/预算不限/主题概率用例；旧常量/长度断言同步）。
+- 边界：外部访问仍只读公开页面（维基/热搜），不登录、不发表、不读会话；这是安全边界，不是成长限制。

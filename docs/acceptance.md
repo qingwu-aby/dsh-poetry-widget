@@ -152,3 +152,4 @@
 | H49 | self-growth prompt 拆分 + 运行状态只读 | ✅ | prompt/parse 纯函数独立模块，self-growth 兼容导出；设置页只读展示预算/心跳/模型失败，每分钟刷新；399/399 |
 | H50 | client 飞花令模块化 | ✅ | 纯逻辑拆到 `client-src/feihua.js`（索引/查找/出题/判定/成绩），client.js 只留缓存与 UI；单 artifact 构建通过；399/399 |
 | H51 | 面板 tab 模块化 | ✅ | Today/Class/Yun/Ci/PoetrySettingsTab 拆到 tabs-poetry.js；共享 UI 由 client 注入；client.js 6,734 行；399/399 |
+| H52 | 自主权放开（v2.0） | ✅ | 节奏/预算/状态/行为/碎碎念/资源获取全部放宽；`lib/autonomy.mjs` 环境旋钮；wander 全语言维基、reading 随机公版页、netlang 5 源；401/401 |

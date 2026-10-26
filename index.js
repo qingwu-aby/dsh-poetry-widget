@@ -63,6 +63,7 @@ import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
+import { resolveAutonomy } from './lib/autonomy.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
@@ -105,8 +106,11 @@ export async function apply(ctx) {
   })
   const modelGate = createModelGate({ maxConcurrent: 2, logger })
   configureModelRuntime({ budget: modelBudget, gate: modelGate })
+  const budgetSnapshot = modelBudget.snapshot()
   logger?.info?.(
-    `[dsh-little-whale] 模型预算：${modelBudget.snapshot().total}/${modelBudget.snapshot().totalLimit}（今日，亚洲/上海）`,
+    `[dsh-little-whale] 模型预算：今日 ${budgetSnapshot.total} 次${
+      budgetSnapshot.totalLimit > 0 ? ` / 上限 ${budgetSnapshot.totalLimit}` : '（未设上限）'
+    }（亚洲/上海）`,
   )
 
   // v1.73：启动时把旧 schema 的记忆文件就地迁移（失败只 warn，不阻塞启动）。
@@ -150,6 +154,8 @@ export async function apply(ctx) {
       host.effect(hostCtx, () => () => resetModelRuntime(), 'dsh-little-whale: 模型运行时')
       // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
       const serviceRuntime = createServiceRuntime({ logger })
+      // v2.0：自主节奏的环境旋钮（默认比旧版开放很多；DSH_POETRY_*_MIN 可继续放宽）。
+      const autonomy = resolveAutonomy(env)
       // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
       const heartbeat = createHeartbeat({ logger })
       const webServer = host.get(hostCtx, 'webServer')
@@ -284,6 +290,7 @@ export async function apply(ctx) {
         getLlm,
         getSelection,
         logger,
+        themeProbability: autonomy.selfTalkThemeProbability,
         topics: topicBank,
         recall: memoryRecall,
         voice: () => voiceService.get(),
@@ -372,6 +379,9 @@ export async function apply(ctx) {
         recall: memoryRecall,
         feelingsPath,
         feelings: feelingBank,
+        reflectIntervalMs: autonomy.reflectIntervalMs,
+        learnIntervalMs: autonomy.learnIntervalMs,
+        probeGapMs: autonomy.probeGapMs,
         logger,
         policy: modelPolicy,
         modelErrorsPath,
@@ -446,6 +456,12 @@ export async function apply(ctx) {
         onLearn: () => growth.learnNow(),
         // v1.62：注意力集中时，她自己会提出一个“可以去看看”的介入；喜不喜欢由她判断。
         onProbe: (focus) => growth.probeNow({ focus }),
+        checkMinMs: autonomy.driveCheckMinMs,
+        checkMaxMs: autonomy.driveCheckMaxMs,
+        retryMinMs: autonomy.driveRetryMinMs,
+        retryMaxMs: autonomy.driveRetryMaxMs,
+        firstMinMs: autonomy.driveFirstMinMs,
+        firstMaxMs: autonomy.driveFirstMaxMs,
         getRecentMoodLabels: () => {
           try {
             return typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : []
@@ -482,12 +498,15 @@ export async function apply(ctx) {
         logger,
         learningLogPath: path.join(memoryDir, 'learning-log.md'),
         statePath: path.join(settingsPath.dir, 'wander-state.json'),
+        gapMs: autonomy.wanderGapMs,
+        firstMinMs: autonomy.wanderFirstMinMs,
+        firstMaxMs: autonomy.wanderFirstMaxMs,
         env,
       })
       selfWander.start({ heartbeat: true })
       heartbeat.add('网络溜达', () => selfWander.tick())
       logger?.info?.(
-        `[dsh-little-whale] 网络溜达已启动（间隔 3h；${
+        `[dsh-little-whale] 网络溜达已启动（间隔 ${Math.round(autonomy.wanderGapMs / 60000)}min；${
           String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
         }）`,
       )
@@ -511,12 +530,15 @@ export async function apply(ctx) {
         logger,
         learningLogPath: path.join(memoryDir, 'learning-log.md'),
         statePath: path.join(settingsPath.dir, 'read-state.json'),
+        gapMs: autonomy.readingGapMs,
+        firstMinMs: autonomy.readingFirstMinMs,
+        firstMaxMs: autonomy.readingFirstMaxMs,
         env,
       })
       selfReading.start({ heartbeat: true })
       heartbeat.add('读小说', () => selfReading.tick())
       logger?.info?.(
-        `[dsh-little-whale] 读小说已启动（间隔 4h；${
+        `[dsh-little-whale] 读小说已启动（间隔 ${Math.round(autonomy.readingGapMs / 60000)}min；${
           String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
         }）`,
       )
@@ -540,12 +562,15 @@ export async function apply(ctx) {
         logger,
         learningLogPath: path.join(memoryDir, 'learning-log.md'),
         statePath: path.join(settingsPath.dir, 'netlang-state.json'),
+        gapMs: autonomy.netlangGapMs,
+        firstMinMs: autonomy.netlangFirstMinMs,
+        firstMaxMs: autonomy.netlangFirstMaxMs,
         env,
       })
       selfNetlang.start({ heartbeat: true })
       heartbeat.add('看大家说话', () => selfNetlang.tick())
       logger?.info?.(
-        `[dsh-little-whale] 看大家说话已启动（间隔 8h；${
+        `[dsh-little-whale] 看大家说话已启动（间隔 ${Math.round(autonomy.netlangGapMs / 60000)}min；${
           String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
         }）`,
       )
