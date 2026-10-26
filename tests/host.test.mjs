@@ -5514,6 +5514,8 @@ test('self-drive v1.51：由她的模型写状态/决定动作，不靠阈值', 
   assert.equal(/eat 吃 \/ drink 喝/.test(prompt), false, '不再列动作菜单')
   assert.equal(/\d+\/100/.test(prompt), false, 'prompt 不出现分数')
   assert.equal(/hunger >=|>= 75|阈值/.test(prompt), false, 'prompt 不提阈值')
+  assert.match(prompt, /情绪会累积/)
+  assert.match(prompt, /别被上一轮的情绪推着走/)
 
   // 解析
   const ok = parseSelfDriveResult(JSON.stringify({ felt: '屋子里静下来，我想翻两页书。', action: 'play', say: '想翻两页书。' }))
