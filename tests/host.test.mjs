@@ -212,6 +212,7 @@ import {
   fetchReadingText,
   parseReadingResult,
   pickReadingExcerpt,
+  readingApiUrl,
 } from '../lib/self-reading.mjs'
 import {
   SELF_NETLANG_GAP_MS,
@@ -6676,6 +6677,12 @@ test('self-reading v1.67：读公版现代作品，留意写法并自己写一�
   assert.equal(SELF_READING_GAP_MS, 24 * 60 * 60 * 1000, 'v1.68：小说放慢到每天一次')
   assert.equal(SELF_READING_WORKS[0].title, '孔乙己')
   assert.equal(SELF_READING_WORKS[0].author, '鲁迅')
+  const translated = SELF_READING_WORKS.filter((work) => work.kind.startsWith('翻译'))
+  assert.equal(translated.length, 3, 'v1.69：加入近代翻译公版作品')
+  assert.ok(translated.some((work) => work.page.includes('/')), '支持子页面章节')
+  assert.ok(translated.some((work) => work.author.includes('伍光建')))
+  assert.ok(translated.some((work) => work.author.includes('朱生豪')))
+  assert.equal(new URL(readingApiUrl('俠隱記/第01回')).searchParams.get('page'), '俠隱記/第01回', '子页面斜杠不被编码')
 
   // HTML 清洗：导航/脚注残留去掉，正文保留
   const html = [

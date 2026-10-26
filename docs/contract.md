@@ -458,6 +458,7 @@ GET query（均可选）：`force=1`（绕过缓存）、`mood`（当前心情 k
 - **v1.3（2026-10-21，M7）**：新增天气推荐——Host 路由 `/api/dsh-poetry/weather.json`（Open-Meteo、20min 缓存、失败降级）、settings 增加 `weatherCity`/`weatherPoem`；`assets/generated/*` 本地 92 张立绘（dsh-whale-musume，MIT）经现有 `/assets?f=generated/...` 路由提供，客户端按天气/对局状态切换形象。数据产物不变（选诗在客户端用本地 poems/ci 完成）。
 - **v1.2（2026-10-21，M6）**：新增「飞花令」为**纯前端功能**——不新增路由、不改 data/、不改 settings schema；句库由客户端从已加载的 poems/ci 运行时建索引；最佳成绩存 `localStorage` key `dshp-feihua-best-v1`（`{overall, chars}`）。`client.js` 体积预算放宽至 ≤150 KB。
 
+- **v1.69（2026-10-26，M80）**：读小说书单加入近代翻译公版作品（伍光建《侠隐记》、朱生豪《汉姆莱脱》、鲁迅《月界旅行》），只收译者也已进入公有领域的译本；支持子页面章节（斜杠不编码）；仍每天一次。
 - **v1.68（2026-10-26，M79）**：读小说放慢到 24h；新增 `lib/self-netlang.mjs`——每 8h 只读公开热搜（微博/B站白名单），模型角色 `netlang` 写「留意到的表达 + 自己更日常的一句」，记入 learning-log「· 看大家说话」，不保存别人的原话；`DSH_POETRY_NETLANG=off` 可关。
 - **v1.67（2026-10-26，M78）**：新增 `lib/self-reading.mjs`——每 4h 从中文维基文库（白名单）读一段已进入公有领域的现代中文小说/散文，模型角色 `read` 输出「留意到的写法 + 自己写的一句原创 + 可选 ≤40 字短引用」，记入 learning-log「· 读小说」；不存长段原文、不抄句子；睡觉/失败静默；`DSH_POETRY_READING=off` 可关。
 - **v1.65（2026-10-26，M76）**：窗口溜达期间只允许跑步/运动类媒体——`pickWanderMedia` 从 dsh-pet webm 按关键词（跑/奔/踏步/踱步/走路/跳跃/踢/抛接/伸懒腰/运动/锻炼/健身）过滤，无匹配退回静态 `dsh-whale-state-running.webp`；走动素材优先级在表情之下、普通小动作与心情图之上，走动期间普通 motion 暂停。
