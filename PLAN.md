@@ -1272,3 +1272,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - twin-bridge：canSend——30min 窗口 ≤4 封、主动信间隔 10min、重复度 ≥0.85 拒、每日 8 封；对话不会无限 ping-pong。
 - client：POETRY_ENTRY_ENABLED=false；成长页诗词按钮隐藏，openPoetryModule no-op；代码/数据/面板保留。
 - 测试：host 272 / client 122 / 全套 436；第二个插件 plugin_manager 安装成功，路由可读。
+
+## 132. 放开通信频率（M128，2026-10-27）
+
+- twin-bridge：window 4→20/30min、daily 8→60、主动间隔 10→2min、重复 0.85→0.95。
+- twin-system：letterPoll 3min→1min，允许更充分往返。
+- 保留重复拒发与硬上限，避免无意识无限循环。
