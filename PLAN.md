@@ -1318,3 +1318,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - safe-web：content-type JSON 直接返回原始 body，不再走 HTML extractReadableText。
 - twin-research：english 查询必填；验证 en Wikipedia API 可返回 Factory Acts/Sadler report。
 - 测试：JSON API 原文回归；host 274，全套 438/438。
+
+## 140. 反面材料 + 阶段性小结（M136，2026-10-27）
+
+- 英文来源不过滤；counterEnglish 搜索；最多抓 4 篇（含反面）。
+- 第 5 轮起 prompt 要求当前立场/最强反方/什么证据会改变看法；第 6 轮关闭线程。
+- 研究信包含小结；线程 closedAt 后重新开题。
