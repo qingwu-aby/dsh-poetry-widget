@@ -77,6 +77,7 @@
     "archive:memory": "node scripts/archive-memory.mjs",
     "archive:memory:dry": "node scripts/archive-memory.mjs -- --dry-run",
     "experiment:loop": "node scripts/experiment-loop-scope.mjs",
-    "experiment:suite": "node scripts/experiment-loop-suite.mjs"
+    "experiment:suite": "node scripts/experiment-loop-suite.mjs",
+    "twin:chat": "node scripts/twin-chat.mjs"
   }
 }
