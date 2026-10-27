@@ -210,6 +210,7 @@ export async function apply(ctx) {
       // v2.3：有 DeepSeek API Key 时，搜索优先走官方 Search/Fetch（按次计费，可回落）。
       const deepseekWebKey = resolveDeepSeekApiKey(env)
       const deepseekWeb = createDeepSeekWeb({ apiKey: deepseekWebKey, logger })
+      const twinWebAccess = createWebAccess({ env, logger, deepseek: deepseekWeb })
       const webAccess = createWebAccess({
         env,
         logger,
@@ -834,7 +835,14 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
         logger,
-        primary: { state: selfState, journalPath: path.join(memoryDir, 'journal.jsonl') },
+        primary: {
+          state: selfState,
+          journalPath: path.join(memoryDir, 'journal.jsonl'),
+          journal,
+          learningLogPath: path.join(memoryDir, 'learning-log.md'),
+          webAccess,
+          twinWebAccess,
+        },
       })
       disposers.push(() => twinSystem.stop())
       disposers.push(

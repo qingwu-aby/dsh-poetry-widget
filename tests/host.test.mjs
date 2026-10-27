@@ -228,6 +228,7 @@ import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
+import { createTwinResearch } from '../lib/twin-research.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -10811,4 +10812,36 @@ test('twin-bridge v2.28：信件只投递给对方，读写游标隔离', () => 
   assert.equal(bridge.transcript(10).length, 2)
   // 自己不能给自己写信
   assert.equal(bridge.append({ from: 'twin', to: 'twin', text: '自言自语' }), null)
+})
+
+test('twin-research v2.31：自主提问→真实搜索→读材料→写分析', async () => {
+  const dir = makeTmpDir('dshp-research')
+  let call = 0
+  const llm = makeMockLlm(() => {
+    call += 1
+    if (call === 1) return JSON.stringify({ question: '为什么人在压力下会重复已知的失败模式？', why: '理解重复', keywords: '压力 重复 失败 心理' })
+    return JSON.stringify({ title: '重复不是意志薄弱', analysis: '在具体的历史与生活条件下，重复失败往往不是单纯的个人意志问题，而是生产关系、劳动节奏与心理防御共同作用的结果。一个人越是被剥夺了对过程的控制，越容易回到熟悉但无效的做法。这里的主要矛盾不是“知道不知道”，而是“有没有条件改变”。反例也存在：当人获得最低限度的安全感和可实践的新路径时，重复会中断。下一步要追问：改变条件需要谁来承担代价？', nextQuestion: '改变条件需要谁来承担代价？' })
+  })
+  const journalEntries = []
+  const research = createTwinResearch({
+    label: 'twin',
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    webAccess: {
+      async search() { return [{ title: '压力与重复行为', url: 'https://example.org/a' }] },
+      async fetchPage() { return { url: 'https://example.org/a', title: '压力与重复行为', text: '这是一段关于压力与重复行为的真实材料。'.repeat(20) } },
+    },
+    journal: { append: async (entry) => journalEntries.push(entry) },
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await research.research({})
+  assert.equal(result.ok, true)
+  assert.match(result.analysis, /主要矛盾/)
+  assert.equal(result.sources.length, 1)
+  assert.equal(journalEntries.length, 1)
+  const log = fs.readFileSync(path.join(dir, 'learning-log.md'), 'utf8')
+  assert.match(log, /自主研究/)
+  assert.match(log, /https:\/\/example.org\/a/)
 })
