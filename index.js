@@ -840,6 +840,7 @@ export async function apply(ctx) {
           journalPath: path.join(memoryDir, 'journal.jsonl'),
           journal,
           learningLogPath: path.join(memoryDir, 'learning-log.md'),
+          researchThreadFile: path.join(settingsPath.dir, 'research-thread.json'),
           webAccess,
           twinWebAccess,
         },
