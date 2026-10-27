@@ -48,6 +48,7 @@ import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.m
 import { createWorldFeedback } from './lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from './lib/presence.mjs'
 import { createLifecycle, resolveLifecyclePath } from './lib/self-lifecycle.mjs'
+import { createTwinSystem } from './lib/twin-system.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -755,6 +756,7 @@ export async function apply(ctx) {
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),
           lifecycle: selfLifecycle.snapshot(),
+          twin: { enabled: true },
         }),
         env,
         home,
@@ -824,6 +826,33 @@ export async function apply(ctx) {
           handler: createPresenceHandler({ worldFeedback, logger }),
         }),
       )
+      // v2.28：复制一个小鲸鱼，并开启两封信件循环。
+      const twinSystem = createTwinSystem({
+        env,
+        home,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        primary: { state: selfState, journalPath: path.join(memoryDir, 'journal.jsonl') },
+      })
+      disposers.push(() => twinSystem.stop())
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/twin.json',
+          handler: async (req, res) => {
+            const body = JSON.stringify({ ok: true, ...twinSystem.status() })
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store',
+              'Content-Length': String(Buffer.byteLength(body)),
+            })
+            res.end(body)
+          },
+        }),
+      )
+      twinSystem.start()
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。
       disposers.push(
         webServer.register({

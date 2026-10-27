@@ -1257,3 +1257,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 代谢：fullRecovery 24h、callCost .004；白天调用会累积低能量；睡眠 2.2x 恢复；测试恢复改 24h。
 - 项目 stale：lastStepAt/staleAt/staleReason；checkStale(12h)；markStale；事件 loop/satiated 关闭时标 stale；step 清 stale；prompt 要求继续/结束。
 - 测试：stale 标记/清除；host 271，全套 435/435。
+
+## 130. 双鲸鱼通信实验（M126，2026-10-27）
+
+- twin-system：首次 clone 原体 memory + self-state 到隔离目录；镜像有自己的 self-being/journal/projects/events/metabolism/self-drive；不共享记忆。
+- twin-bridge：letters.jsonl，只交换文本；每方每日最多 8 封；读游标隔离；不能给自己写信。
+- 原体 20s 先写第一封，镜像 75s 后回；之后 3min 检查来信，空闲时 90/150min 主动写信。
+- 路由 /twin.json 只读查看；默认开，DSH_POETRY_TWIN=off 关闭。
+- 测试：桥信件投递/游标/自投拒绝；host 272，全套 436/436。

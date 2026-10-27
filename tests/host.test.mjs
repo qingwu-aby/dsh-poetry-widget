@@ -227,6 +227,7 @@ import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
+import { createTwinBridge } from '../lib/twin-bridge.mjs'
 import { createGrowthMetrics } from '../lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../lib/self-works.mjs'
 import { createManualReadHandler, createManualReading, ensureManualToken } from '../lib/manual-reading.mjs'
@@ -1858,7 +1859,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3634,7 +3635,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4971,7 +4972,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 21, 'assets + pet-media + self + works + manual-read + presence + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10793,4 +10794,21 @@ test('self-projects v2.27：项目可被搁置，重新推进时清除', () => {
   projects.apply({ step: '今天把枯叶剪掉。', status: 'continue' }, clock)
   assert.equal(projects.snapshot().current.staleAt, null)
   assert.equal(projects.snapshot().current.staleReason, '')
+})
+
+test('twin-bridge v2.28：信件只投递给对方，读写游标隔离', () => {
+  const dir = makeTmpDir('dshp-twin-bridge')
+  const bridge = createTwinBridge({ dir, now: () => FIXED_NOW.getTime() })
+  const first = bridge.append({ from: 'primary', to: 'twin', kind: 'letter', text: '我今天在窗边坐了一会儿。' })
+  assert.equal(first.ok, true)
+  assert.equal(bridge.unread('primary').length, 0)
+  assert.equal(bridge.unread('twin').length, 1)
+  bridge.markRead('twin', first.message.at)
+  assert.equal(bridge.unread('twin').length, 0)
+  const second = bridge.append({ from: 'twin', to: 'primary', kind: 'reply', text: '我也在看光。' })
+  assert.equal(second.ok, true)
+  assert.equal(bridge.unread('primary').length, 1)
+  assert.equal(bridge.transcript(10).length, 2)
+  // 自己不能给自己写信
+  assert.equal(bridge.append({ from: 'twin', to: 'twin', text: '自言自语' }), null)
 })
