@@ -1312,3 +1312,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - twin-research：plan 增加 english 查询；优先英文维基 API；中文回退；thread 保存 english。
 - 目的：修复中文维基检索词命中差导致的无关材料（公共交通/高达/磨牙症）。
+
+## 139. 修复 JSON API 抓取（M135，2026-10-27）
+
+- safe-web：content-type JSON 直接返回原始 body，不再走 HTML extractReadableText。
+- twin-research：english 查询必填；验证 en Wikipedia API 可返回 Factory Acts/Sadler report。
+- 测试：JSON API 原文回归；host 274，全套 438/438。

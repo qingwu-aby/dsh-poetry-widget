@@ -10845,3 +10845,15 @@ test('twin-research v2.31：自主提问→真实搜索→读材料→写分析'
   assert.match(log, /自主研究/)
   assert.match(log, /https:\/\/example.org\/a/)
 })
+
+test('safe-web v2.36：JSON API 保留原始正文，不被 HTML 文本提取破坏', async () => {
+  const lookup = async () => [{ address: '93.184.216.34', family: 4 }]
+  const requestImpl = async () => ({
+    status: 200,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+    body: Buffer.from(JSON.stringify({ query: { search: [{ title: 'Factory Acts', snippet: '1833 factory act' }] } })),
+  })
+  const page = await fetchPublicPage('https://api.example/search', { lookup, requestImpl })
+  const parsed = JSON.parse(page.text)
+  assert.equal(parsed.query.search[0].title, 'Factory Acts')
+})
