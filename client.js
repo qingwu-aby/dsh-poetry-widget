@@ -1374,9 +1374,9 @@
           "div",
           { className: "dshp-growth-actions" },
           h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: () => sayButton() }, "\u8BF4\u4E00\u53E5"),
-          h("button", { type: "button", className: "dshp-btn", onClick: () => {
+          api.poetryEntryEnabled === true ? h("button", { type: "button", className: "dshp-btn", onClick: () => {
             if (api.openPoetryModule) api.openPoetryModule();
-          } }, "\u8BD7\u8BCD\u6A21\u5757"),
+          } }, "\u8BD7\u8BCD\u6A21\u5757") : null,
           h("button", { type: "button", className: "dshp-btn", onClick: () => {
             if (api.openSettings) api.openSettings();
           } }, "\u8BBE\u7F6E")
@@ -3047,6 +3047,7 @@
       const FETCH_TIMEOUT_MS = 15e3;
       const SAVE_DEBOUNCE_MS = 450;
       const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
+      const POETRY_ENTRY_ENABLED = false;
       const PANEL_TABS = [
         { id: "growth", label: "\u6210\u957F" },
         { id: "settings", label: "\u8BBE\u7F6E" }
@@ -6210,6 +6211,7 @@
           setPanelTab("growth");
         }
         function openPoetryModule() {
+          if (!POETRY_ENTRY_ENABLED) return;
           openPanelTab("poetry");
           setPanelOpen(true);
         }
@@ -7605,6 +7607,7 @@
             readAnotherSpontaneous,
             recentSpoken: recentSpokenRef.current.slice(-5),
             openPoetryModule,
+            poetryEntryEnabled: POETRY_ENTRY_ENABLED,
             startPoetryTour,
             openSettings: openSettingsPanel,
             openPanel,

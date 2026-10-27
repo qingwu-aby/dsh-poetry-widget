@@ -1265,3 +1265,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 原体 20s 先写第一封，镜像 75s 后回；之后 3min 检查来信，空闲时 90/150min 主动写信。
 - 路由 /twin.json 只读查看；默认开，DSH_POETRY_TWIN=off 关闭。
 - 测试：桥信件投递/游标/自投拒绝；host 272，全套 436/436。
+
+## 131. 第二插件 + 通信饱和 + 关闭诗词入口（M127，2026-10-27）
+
+- `../dsh-little-whale-twin`：独立 plugin 包，宿主只读 `/api/dsh-poetry-twin/state.json`，client 浮层展示镜像 felt/最近信件；已安装。
+- twin-bridge：canSend——30min 窗口 ≤4 封、主动信间隔 10min、重复度 ≥0.85 拒、每日 8 封；对话不会无限 ping-pong。
+- client：POETRY_ENTRY_ENABLED=false；成长页诗词按钮隐藏，openPoetryModule no-op；代码/数据/面板保留。
+- 测试：host 272 / client 122 / 全套 436；第二个插件 plugin_manager 安装成功，路由可读。

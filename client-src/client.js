@@ -181,6 +181,8 @@ window.__ModuleLoader__.load({
   const SAVE_DEBOUNCE_MS = 450
   const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
   // v1.76：诗词模块与它的配置降权到二级菜单（从成长页进入）。
+  // v2.29：诗词/格律入口暂时关闭，但代码与数据都保留，后续可随时打开。
+  const POETRY_ENTRY_ENABLED = false
   const PANEL_TABS = [
   { id: 'growth', label: '成长' },
   { id: 'settings', label: '设置' },
@@ -3567,6 +3569,7 @@ window.__ModuleLoader__.load({
   }
 
   function openPoetryModule() {
+   if (!POETRY_ENTRY_ENABLED) return
    openPanelTab('poetry')
    setPanelOpen(true)
   }
@@ -5072,6 +5075,7 @@ window.__ModuleLoader__.load({
     readAnotherSpontaneous,
     recentSpoken: recentSpokenRef.current.slice(-5),
     openPoetryModule,
+    poetryEntryEnabled: POETRY_ENTRY_ENABLED,
     startPoetryTour,
     openSettings: openSettingsPanel,
     openPanel,

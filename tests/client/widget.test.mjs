@@ -6151,11 +6151,12 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   assert.match(text, /自省 3 次/)
   assert.ok(text.includes('「二」') && text.includes('「六」'), '最近话语应显示最后 5 条')
   assert.ok(!text.includes('「一」'), '超过 5 条应只保留最近 5 条')
-  for (const label of ['说一句', '刷新心情', '诗词模块', '设置']) assert.ok(text.includes(label))
+  for (const label of ['说一句', '刷新心情', '设置']) assert.ok(text.includes(label))
+  assert.ok(!text.includes('诗词模块'), 'v2.29：诗词入口暂时关闭，但代码保留')
   const buttons = findAll(tree, (node) => node.type === 'button')
-  assert.equal(buttons.length, 5)
+  assert.equal(buttons.length, 4)
   for (const button of buttons) button.props.onClick()
-  assertDeep(calls, ['refresh', 'say', 'poetry', 'settings'])
+  assertDeep(calls, ['refresh', 'say', 'settings'])
 
   const emptyTree = renderFresh(react, debug.GrowthTab, { api: { settings: {} } })
   const emptyText = textOf(emptyTree)
@@ -6163,7 +6164,7 @@ test('GrowthTab 内容：心情卡/内在状态/最近话语/成长摘要/按钮
   assert.match(emptyText, /还没形成心情/)
   assert.match(emptyText, /还没开口/)
   assert.match(emptyText, /尚未开始/)
-  assert.equal(findAll(emptyTree, (node) => node.type === 'button').length, 5, '空数据也保留按钮')
+  assert.equal(findAll(emptyTree, (node) => node.type === 'button').length, 4, '空数据也保留按钮（诗词入口暂时关闭）')
 })
 
 /* ------------------------------------------------------------------ */
