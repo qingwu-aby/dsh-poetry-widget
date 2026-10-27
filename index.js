@@ -377,6 +377,11 @@ export async function apply(ctx) {
         onEventSatiated: (event) => {
           const topic = event && typeof event.topic === 'string' ? event.topic : ''
           if (topic.length === 0) return undefined
+          try {
+            if (typeof selfProjects.markStale === 'function') selfProjects.markStale(`叙事饱和：${topic}`)
+          } catch {
+            /* ignore */
+          }
           return journal.append({ kind: 'thought', text: `这件事我先放下了：${topic}` }).catch(() => undefined)
         },
         voice: () => voiceService.get(),
