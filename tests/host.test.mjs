@@ -10857,3 +10857,20 @@ test('safe-web v2.36：JSON API 保留原始正文，不被 HTML 文本提取破
   const parsed = JSON.parse(page.text)
   assert.equal(parsed.query.search[0].title, 'Factory Acts')
 })
+
+test('twin-bridge v2.39：一轮对话有终止条件，冷却后自动开新轮', () => {
+  const dir = makeTmpDir('dshp-twin-session')
+  let clock = FIXED_NOW.getTime()
+  const bridge = createTwinBridge({ dir, now: () => clock })
+  for (let i = 0; i < 12; i += 1) {
+    const from = i % 2 === 0 ? 'primary' : 'twin'
+    const to = i % 2 === 0 ? 'twin' : 'primary'
+    const result = bridge.append({ from, to, kind: i % 2 === 0 ? 'letter' : 'reply', text: `第 ${i + 1} 封，内容不同。` })
+    assert.equal(result.ok, true, `第 ${i + 1} 封应能发出`)
+  }
+  assert.equal(bridge.session().closedAt !== null, true)
+  assert.equal(bridge.canSend('primary', 'letter'), false, '本轮已结束')
+  clock += 31 * 60 * 1000
+  assert.equal(bridge.canSend('primary', 'letter'), true, '冷却后开新轮')
+  assert.equal(bridge.session().letters, 0)
+})
