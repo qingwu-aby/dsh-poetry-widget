@@ -10623,8 +10623,8 @@ test('self-metabolism v2.22：模型调用消耗能量、低能量挡住高消�
   assert.equal(metabolism.canAfford('learn'), false)
   assert.equal(metabolism.canAfford('drink'), true)
   assert.match(metabolism.describe(), /没什么力气/)
-  // 8 小时后恢复
-  clock += 8 * 60 * 60 * 1000
+  // 24 小时后恢复（v2.27：白天不再 8h 回满，避免代谢永不生效）
+  clock += 24 * 60 * 60 * 1000
   assert.equal(metabolism.band(), 'full')
 })
 
@@ -10777,4 +10777,20 @@ test('self-lifecycle v2.25：有限世代有起点/终点，结束不自动删�
   assert.equal(next.generation, 2)
   assert.equal(next.status, 'active')
   assert.equal(next.legacy, '上一代到期限了')
+})
+
+test('self-projects v2.27：项目可被搁置，重新推进时清除', () => {
+  const dir = makeTmpDir('dshp-project-stale')
+  let clock = FIXED_NOW.getTime()
+  const projects = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => clock, logger: { warn() {} } })
+  projects.apply({ title: '把薄荷养回来', step: '先转个方向。' }, clock)
+  clock += 13 * 60 * 60 * 1000
+  const stale = projects.checkStale(clock)
+  assert.ok(stale)
+  assert.equal(projects.snapshot().current.staleAt !== null, true)
+  assert.match(projects.description(), /已搁置/)
+  clock += 1000
+  projects.apply({ step: '今天把枯叶剪掉。', status: 'continue' }, clock)
+  assert.equal(projects.snapshot().current.staleAt, null)
+  assert.equal(projects.snapshot().current.staleReason, '')
 })

@@ -1251,3 +1251,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 根因：loop=true 分支直接 return paused，不新增动作；下一轮 recentActions 仍是同一批旧动作，模型继续 loop=true → 永久停机；跨夜后旧动作仍在 prompt 里。
 - 修复：loop=true 只记录 + 关闭当前事件，继续正常动作流程；recentActions 只取最近 6h，超过 6h 给“重新开始”提示。
 - 测试：loop 不再暂停；host 270，全套 434/434。
+
+## 129. 让约束真正咬合（M125，2026-10-27）
+
+- 代谢：fullRecovery 24h、callCost .004；白天调用会累积低能量；睡眠 2.2x 恢复；测试恢复改 24h。
+- 项目 stale：lastStepAt/staleAt/staleReason；checkStale(12h)；markStale；事件 loop/satiated 关闭时标 stale；step 清 stale；prompt 要求继续/结束。
+- 测试：stale 标记/清除；host 271，全套 435/435。
