@@ -1244,3 +1244,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - presence：客户端 pointerdown/keydown/visibility 60s 节流 POST `/presence.json`；主机 60s 限流；只写“用户在场”到世界反馈，不记内容。
 - lifecycle：lifecycle.json generation/startedAt/plannedEndAt/status/legacy；active→closing（到期）→ended（宽限 24h）；describe 给 prompt；startNextGeneration 保留 legacy；不自动归档。
 - index/health/archive 接入；测试：presence 限流、lifecycle 状态/下一代；host 270，全套 434/434。
+
+## 128. 修复自主行为停机（M124，2026-10-27）
+
+- 现象：v2.25 后夜间 self-drive 仍在跑（drive 131 次），但 01:53 后无动作；journal/mood 仍更新。
+- 根因：loop=true 分支直接 return paused，不新增动作；下一轮 recentActions 仍是同一批旧动作，模型继续 loop=true → 永久停机；跨夜后旧动作仍在 prompt 里。
+- 修复：loop=true 只记录 + 关闭当前事件，继续正常动作流程；recentActions 只取最近 6h，超过 6h 给“重新开始”提示。
+- 测试：loop 不再暂停；host 270，全套 434/434。

@@ -10451,7 +10451,7 @@ test('self-drive v2.15：把最近动作摊开，提醒她别在同一件事上�
   assert.match(prompt, /不要只是把同一个动作换一种说法重复一遍/)
 })
 
-test('self-drive v2.16：她承认打转时这一轮暂停，不继续动作', async () => {
+test('self-drive v2.26：承认打转只记信号，不永久停机', async () => {
   const parsed = parseSelfDriveResult(
     JSON.stringify({
       felt: '碗沿的水痕干了一圈，我还在想那两口汤。',
@@ -10492,10 +10492,9 @@ test('self-drive v2.16：她承认打转时这一轮暂停，不继续动作', a
   drive.load()
   const result = await drive.check(1_700_100_000_000)
   assert.equal(result.ok, true)
-  assert.equal(result.paused, true)
-  assert.equal(result.action, null, '承认打转时不执行继续动作')
+  assert.ok(result.action, '承认打转不再强制暂停，仍可以继续做一点')
   const saved = JSON.parse(fs.readFileSync(actionsPath, 'utf8')).actions
-  assert.equal(saved.length, 2, '不新增动作')
+  assert.equal(saved.length, 3, '新增动作，避免因无新动作而永久卡住')
   drive.dispose()
 })
 
