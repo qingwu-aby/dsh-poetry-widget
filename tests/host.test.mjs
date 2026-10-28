@@ -6167,7 +6167,7 @@ test('mood-ai v1.48：最近心情标签反重复（prompt 段落 + 服务内存
   assert.match(prompt, /- 饿得发懒/)
   assert.match(prompt, /不要把同一主题换个形容词再说一遍/)
   assert.match(prompt, /换角度比换词重要/)
-  assert.match(prompt, /label 用日常会说的情绪词/)
+  assert.match(prompt, /label 用日常会说的情绪\/身体状态词/)
   assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, catalog).includes('你最近生成过的心情标签'), false)
 
   // 2) 服务：成功生成后记录标签，下一次 prompt 带上它

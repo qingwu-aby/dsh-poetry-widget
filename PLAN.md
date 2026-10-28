@@ -1358,3 +1358,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - voice-memory：collectVoiceSamples(minTs)；createVoiceService minSampleTs；index 传风格切换时间。
 - 旧 voice.json 备份 pre-v2.41b；新档案待新样本。
+
+## 147. 说人话二期（M143，2026-10-28）
+
+- 研究/信件去掉报幕；synthesis 口语化；mood label 必须感受词；self-talk/self-drive 约束保持。
+- 测试：host 276 / 全套 440。
