@@ -1393,3 +1393,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - buildLetterPrompt 禁止“我认/这个方向/这层/分叉”、中英夹杂、复述问题。
 - softenMetaPhrases 轻量替换；研究信仍保留分析 register。
+
+## 154. QQ/外部聊天桥（M150，2026-10-28）
+
+- chat-bridge：token 路由；1–3 句回复；history/journal/worldFeedback；限频。
+- dsh-little-whale-qq：little_whale_chat 工具 + little-whale-qq preset。
+- 测试：chat 回复/历史；host 277，全套 441/441。

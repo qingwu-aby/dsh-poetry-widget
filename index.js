@@ -49,6 +49,13 @@ import { createWorldFeedback } from './lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from './lib/presence.mjs'
 import { createLifecycle, resolveLifecyclePath } from './lib/self-lifecycle.mjs'
 import { createTwinSystem } from './lib/twin-system.mjs'
+import {
+  CHAT_ROUTE,
+  createChatBridge,
+  createChatHandler,
+  ensureChatToken,
+  resolveChatTokenPath,
+} from './lib/chat-bridge.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import {
@@ -440,6 +447,22 @@ export async function apply(ctx) {
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
       selfStateRef = selfState
+      // v2.45：QQ/外部聊天桥；她的独立记忆和语气，不读 DSH 会话。
+      const chatTokenFile = resolveChatTokenPath(env, home)
+      ensureChatToken(chatTokenFile)
+      const chatBridge = createChatBridge({
+        getLlm,
+        policy: modelPolicy,
+        journal,
+        selfState,
+        recall: memoryRecall,
+        voice: () => voiceService.get(),
+        events: selfEvents,
+        worldFeedback,
+        modelErrorsPath,
+        logger,
+        stateDir: settingsPath.dir,
+      })
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
       const manualTokenFile = resolveManualTokenPath(env, home)
       const manualToken = ensureManualToken(manualTokenFile)
@@ -868,6 +891,14 @@ export async function apply(ctx) {
         }),
       )
       twinSystem.start()
+      // QQ/外部聊天：POST + 本地 token；她的独立记忆回复。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: CHAT_ROUTE,
+          handler: createChatHandler({ service: chatBridge, tokenFile: chatTokenFile }),
+        }),
+      )
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。
       disposers.push(
         webServer.register({

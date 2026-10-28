@@ -226,6 +226,7 @@ import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
+import { createChatBridge } from '../lib/chat-bridge.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
 import { createTwinResearch } from '../lib/twin-research.mjs'
@@ -1860,7 +1861,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3636,7 +3637,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4973,7 +4974,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 22, 'assets + pet-media + self + works + manual-read + presence + twin + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10905,4 +10906,30 @@ test('twin-research v2.40：第 3 轮后提炼方法论并写入独立账本', a
   assert.equal(methodology.rules.length >= 1, true)
   assert.match(methodology.rules[0].statement, /口径|分母|截止日/)
   assert.equal(methodology.antiPatterns.length >= 1, true)
+})
+
+test('chat-bridge v2.45：外部一句话由她自己的记忆回复，并写入 history', async () => {
+  const dir = makeTmpDir('dshp-chat')
+  const journal = []
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '在，刚把衣服收完。你那边呢？' }))
+  const bridge = createChatBridge({
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async (entry) => journal.push(entry) },
+    selfState: { snapshot: () => ({ felt: '刚收完衣服，手有点干', experiencing: '想歇一会儿', sleeping: false }) },
+    recall: { digest: () => ({ todayJournal: ['下午收了衣服。'], project: '' }) },
+    worldFeedback: { record() {} },
+    stateDir: dir,
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await bridge.chat({ text: '在吗', peerId: 'qq-user-1' })
+  assert.equal(result.ok, true)
+  assert.match(result.reply, /刚把衣服收完/)
+  assert.equal(journal.length, 1)
+  assert.match(journal[0].text, /QQ 上的人对你说/)
+  const history = JSON.parse(fs.readFileSync(path.join(dir, 'chat-history.json'), 'utf8'))
+  assert.equal(history['qq-user-1'].length, 2)
+  assert.equal(history['qq-user-1'][0].role, 'user')
+  assert.equal(history['qq-user-1'][1].role, 'whale')
 })
