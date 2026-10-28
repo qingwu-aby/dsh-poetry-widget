@@ -1414,3 +1414,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - 成本 .004→.0015；跨日 floor .55；低能量允许 make；work loop 全部 optional。
 - 根因：24h 回满 vs 600 calls/day；break-even 250。
+
+## 158. 正史学习大纲（M154，2026-10-28）
+
+- self-curriculum：二十四史顺序，每本 2–3 问；研究强制题目；6 轮后推进。
+- 反重复：state dedupe + chat/drive/self-talk prompt；当前边角料线程将换成正史。

@@ -227,6 +227,7 @@ import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createChatBridge } from '../lib/chat-bridge.mjs'
+import { createCurriculum } from '../lib/self-curriculum.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
 import { createTwinResearch } from '../lib/twin-research.mjs'
@@ -10940,4 +10941,17 @@ test('chat-bridge v2.45：外部一句话由她自己的记忆回复，并写入
   assert.equal(history['qq-user-1'].length, 2)
   assert.equal(history['qq-user-1'][0].role, 'user')
   assert.equal(history['qq-user-1'][1].role, 'whale')
+})
+
+test('self-curriculum v2.49：正史从《史记》开始，完成后按顺序推进', () => {
+  const dir = makeTmpDir('dshp-curriculum')
+  const curriculum = createCurriculum({ file: path.join(dir, 'curriculum.json'), now: () => FIXED_NOW.getTime() })
+  const first = curriculum.current()
+  assert.match(first.book, /史记/)
+  assert.match(first.question, /商鞅|秦统一|郡县|军功/)
+  const second = curriculum.completeCurrent('读完第一问')
+  assert.equal(second.stage, 0)
+  assert.equal(second.unit, 1)
+  assert.match(second.question, /秦亡|汉初|郡国/)
+  assert.equal(curriculum.snapshot().completed, 1)
 })
