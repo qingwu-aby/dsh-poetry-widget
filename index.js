@@ -354,6 +354,8 @@ export async function apply(ctx) {
         modelErrorsPath,
         journalPath: path.join(memoryDir, 'journal.jsonl'),
         voicePath: resolveVoicePath(env, home),
+        // v2.41：只学新风格之后的句子；旧声音档案会把她拉回“微散文”腔。
+        minSampleTs: Math.max(1, Math.floor(Date.now() / 1000) * 1000),
         logger,
       })
       voiceService.start()

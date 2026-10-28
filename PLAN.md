@@ -1353,3 +1353,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive felt/doing/say、self-talk、mood label、voice prompt 场景化约束。
 - voice.json 旧档案备份为 pre-v2.41，服务按新 prompt 重建。
 - 测试：host 276 / client 122 / 全套 440。
+
+## 146. 声音档案只学新风格（M142，2026-10-28）
+
+- voice-memory：collectVoiceSamples(minTs)；createVoiceService minSampleTs；index 传风格切换时间。
+- 旧 voice.json 备份 pre-v2.41b；新档案待新样本。
