@@ -10874,3 +10874,35 @@ test('twin-bridge v2.39：一轮对话有终止条件，冷却后自动开新轮
   assert.equal(bridge.canSend('primary', 'letter'), true, '冷却后开新轮')
   assert.equal(bridge.session().letters, 0)
 })
+
+test('twin-research v2.40：第 3 轮后提炼方法论并写入独立账本', async () => {
+  const dir = makeTmpDir('dshp-methodology')
+  const threadFile = path.join(dir, 'research-thread.json')
+  const methodologyFile = path.join(dir, 'methodology.json')
+  fs.writeFileSync(threadFile, JSON.stringify({ question: '数字对不上时先查什么？', keywords: '统计 口径', round: 2 }))
+  let call = 0
+  const llm = makeMockLlm(() => {
+    call += 1
+    if (call === 1) return JSON.stringify({ question: '数字对不上时先查什么？', keywords: '统计 口径', english: 'statistics definition denominator', counterEnglish: 'misleading statistics' })
+    if (call === 2) return '标题：先查口径\n正文：两个数字对不上时，先核对定义、分母和截止日，再判断真假，而不是先怀疑其中一方造假。这是本轮的核心方法，也是下一轮需要继续检验的地方。\n下一步：找同期的两套报表对照。\n方法使用：先查口径，这次帮我避免了把差异当造假。'
+    return '规则：数字对不上时先核对定义、分母和截止日，再判断真假。\n规则：保留来源之间的冲突，不要强行调和。\n反模式：用方法推演冒充史料。'
+  })
+  const research = createTwinResearch({
+    label: 'twin',
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    webAccess: { async search() { return [] }, async fetchPage() { throw new Error('none') } },
+    journal: { append: async () => {} },
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    threadFile,
+    methodologyFile,
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await research.research({})
+  assert.equal(result.ok, true)
+  const methodology = JSON.parse(fs.readFileSync(methodologyFile, 'utf8'))
+  assert.equal(methodology.rules.length >= 1, true)
+  assert.match(methodology.rules[0].statement, /口径|分母|截止日/)
+  assert.equal(methodology.antiPatterns.length >= 1, true)
+})

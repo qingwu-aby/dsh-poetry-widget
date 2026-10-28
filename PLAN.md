@@ -1336,3 +1336,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - session.json 持久化；UI/API 显示本轮进度/结束原因。
 - 研究线程 6 轮 + synthesis；每日 200 封；生命周期 7 天。
 - 测试：12 封后停止、冷却后新轮；host 275，全套 439/439。
+
+## 143. 方法论账本（M139，2026-10-28）
+
+- twin-research：methodologyFile；每 3 轮提取规则/反模式；prompt 注入规则；分析输出 methodUse；peerNotes 参与提炼。
+- index/twin-system：原体/镜像各一份 methodology.json。
+- 测试：3 轮后规则落盘；host 276，全套 440/440。
