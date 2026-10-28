@@ -2003,7 +2003,7 @@ test('self-talk：buildSelfTalkPrompt 只有聚合上下文（无今日诗、无
   assert.equal(prompt.includes('intro'), false, 'intro 已废弃，不进入 prompt')
   assert.equal(prompt.includes('绝密原文'), false, '会话原文绝不允许进入 prompt')
   assert.match(prompt, /对称骨架/, 'v1.61：带上去 AI 味的自然语言约束')
-  assert.match(prompt, /像在心里说话/)
+  assert.match(prompt, /碎碎念不是微散文/)
 })
 
 test('self-talk：parseSelfTalkLines 过滤长度/引号/编号/非中文/重复', () => {
@@ -6167,7 +6167,7 @@ test('mood-ai v1.48：最近心情标签反重复（prompt 段落 + 服务内存
   assert.match(prompt, /- 饿得发懒/)
   assert.match(prompt, /不要把同一主题换个形容词再说一遍/)
   assert.match(prompt, /换角度比换词重要/)
-  assert.match(prompt, /label 请尽量从具体细节切入/)
+  assert.match(prompt, /label 用日常会说的情绪词/)
   assert.equal(buildMoodPrompt({ now: FIXED_NOW.getTime() }, catalog).includes('你最近生成过的心情标签'), false)
 
   // 2) 服务：成功生成后记录标签，下一次 prompt 带上它
@@ -7489,7 +7489,7 @@ test('voice-memory：提炼 prompt 明确「自己写的不是用户说的」/JS
   assert.match(prompt, /都是\*\*你自己\*\*过去写过的/)
   assert.match(prompt, /不是用户说的话/)
   assert.match(prompt, /不要用「温柔」「调皮」这种扁平标签/)
-  assert.match(prompt, /句长、节奏、常用意象、语气、开头收尾习惯/)
+  assert.match(prompt, /句长、节奏、常用词、口头习惯/)
   assert.match(prompt, /exemplars/)
   assert.match(prompt, /不要新造/)
   assert.match(prompt, /窗边的光很轻。/)

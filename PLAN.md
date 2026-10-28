@@ -1346,3 +1346,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 144. 方法论补触发（M140，2026-10-28）
 
 - round>=3 且 methodology.rules 为空 → 下一轮立即提炼；随后每3轮。
+
+## 145. 说人话：内在声音去微散文（M141，2026-10-28）
+
+- language-style v2.41：参考 shuorenhua；允许普通/无聊/半截话；禁止每句写画面/金句/比喻；事务性念头。
+- self-drive felt/doing/say、self-talk、mood label、voice prompt 场景化约束。
+- voice.json 旧档案备份为 pre-v2.41，服务按新 prompt 重建。
+- 测试：host 276 / client 122 / 全套 440。
