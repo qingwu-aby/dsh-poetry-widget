@@ -1419,3 +1419,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - self-curriculum：二十四史顺序，每本 2–3 问；研究强制题目；6 轮后推进。
 - 反重复：state dedupe + chat/drive/self-talk prompt；当前边角料线程将换成正史。
+
+## 159. 主动聊天与放宽限制（M155，2026-10-28）
+
+- chat：min gap .3s、无小时上限、history 40。
+- proactive：35min 空闲后每 75min 可主动发；8–23 点；qqbot patch route token。

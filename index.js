@@ -56,6 +56,8 @@ import {
   ensureChatToken,
   resolveChatTokenPath,
 } from './lib/chat-bridge.mjs'
+import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
+import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
@@ -489,6 +491,26 @@ export async function apply(ctx) {
           }
         },
       })
+      // v2.50：主动找用户说话（只在他已经聊过、且最近空闲时）。
+      const qqProactiveTokenFile = resolveQQProactiveTokenPath(env, home)
+      ensureQQProactiveToken(qqProactiveTokenFile)
+      const proactiveChat = startProactiveChat({
+        chat: chatBridge,
+        stateFile: path.join(settingsPath.dir, 'proactive-chat-state.json'),
+        logger,
+        env,
+        sendQQ: async (text) => {
+          let origin = ''
+          try {
+            origin = typeof webServer.getOrigin === 'function' ? webServer.getOrigin() : ''
+          } catch {
+            origin = ''
+          }
+          if (!origin) return { ok: false, error: 'no_origin' }
+          return sendQQProactive({ origin, token: ensureQQProactiveToken(qqProactiveTokenFile), text })
+        },
+      })
+      disposers.push(() => proactiveChat.stop())
       // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
       const workLoop = startWorkLoop({
         works: selfWorks,
