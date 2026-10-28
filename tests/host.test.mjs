@@ -228,6 +228,7 @@ import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createChatBridge } from '../lib/chat-bridge.mjs'
 import { createCurriculum } from '../lib/self-curriculum.mjs'
+import { fetchShugeEntry, searchShuge } from '../lib/shuge.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
 import { createTwinResearch } from '../lib/twin-research.mjs'
@@ -10954,4 +10955,28 @@ test('self-curriculum v2.49：正史从《史记》开始，完成后按顺序�
   assert.equal(second.unit, 1)
   assert.match(second.question, /秦亡|汉初|郡国/)
   assert.equal(curriculum.snapshot().completed, 1)
+})
+
+test('shuge v2.51：WordPress 搜索与条目信息只作目录/版本材料', async () => {
+  const calls = []
+  const webAccess = {
+    async fetchPage(url) {
+      calls.push(url)
+      if (url.includes('/wp-json/wp/v2/search')) {
+        return { text: JSON.stringify([{ id: 7812, title: '史记', url: 'https://www.shuge.org/view/song_ben_shi_ji/' }]) }
+      }
+      if (url.includes('/wp-json/wp/v2/portfolio/7812')) {
+        return { text: JSON.stringify({ title: { rendered: '史记' }, excerpt: { rendered: '<p>南宋黄善夫刊本</p>' }, content: { rendered: '<div>三家注合刻本，扫描本。</div>' } }) }
+      }
+      throw new Error('unexpected ' + url)
+    },
+  }
+  const hits = await searchShuge(webAccess, '史记', { limit: 3 })
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].title, '史记')
+  const entry = await fetchShugeEntry(webAccess, hits[0])
+  assert.equal(entry.kind, 'catalog')
+  assert.match(entry.text, /南宋黄善夫/)
+  assert.match(entry.note, /扫描/)
+  assert.ok(calls.length >= 2)
 })

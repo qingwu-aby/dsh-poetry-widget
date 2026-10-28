@@ -1424,3 +1424,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - chat：min gap .3s、无小时上限、history 40。
 - proactive：30min 空闲后每 45min 可主动发；8–23 点；qqbot patch route token。
+
+## 160. 书格数据源（M156，2026-10-28）
+
+- shuge.mjs：WP REST 搜索/条目；只作版本目录来源；研究 sourceLines 标注；测试。
+- 全套 443/443。
