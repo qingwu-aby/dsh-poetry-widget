@@ -58,6 +58,7 @@ import {
 } from './lib/chat-bridge.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
+import { startWorkLoop } from './lib/work-loop.mjs'
 import {
   createManualReadHandler,
   createManualReading,
@@ -209,6 +210,8 @@ export async function apply(ctx) {
   }
 
   host.inject(['webServer', 'connection'], (hostCtx) => {
+    /** @type {Array<() => void>} */
+    const disposers = []
     try {
       // v1.81：插件停用/测试清理时释放全局模型运行时。
       host.effect(hostCtx, () => () => resetModelRuntime(), 'dsh-little-whale: 模型运行时')
@@ -291,6 +294,14 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
         logger,
+        getContext: () => {
+          try {
+            const snap = selfStateRef !== null ? selfStateRef.snapshot() : null
+            return snap || null
+          } catch {
+            return null
+          }
+        },
       })
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
@@ -478,6 +489,16 @@ export async function apply(ctx) {
           }
         },
       })
+      // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
+      const workLoop = startWorkLoop({
+        works: selfWorks,
+        selfState,
+        metabolism: selfMetabolism,
+        worldFeedback,
+        logger,
+        env,
+      })
+      disposers.push(() => workLoop.stop())
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
       const manualTokenFile = resolveManualTokenPath(env, home)
       const manualToken = ensureManualToken(manualTokenFile)
@@ -806,8 +827,6 @@ export async function apply(ctx) {
         home,
       })
 
-      /** @type {Array<() => void>} */
-      const disposers = []
       // M0 静态资源路由：行为原样保留（不套信任栅栏；只读、无敏感信息）。
       disposers.push(
         webServer.register({

@@ -1404,3 +1404,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - chat-bridge 输出 felt/experiencing/murmur；setFelt/setExperiencing；journal murmur；onStateChanged 清 mood cache + force generate。
 - 测试：聊天后 state/murmur 更新；host 277，全套 441/441。
+
+## 156. 作品机会循环（M152，2026-10-28）
+
+- work-loop：首次 45s 强制一次；之后 90min 可选；低能量/睡眠跳过；works prompt 注入状态。
+- 测试：441/441。
