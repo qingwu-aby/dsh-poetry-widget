@@ -59,8 +59,9 @@ import {
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
 import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
-import { createSelfWorks, createWorksHandler, resolveWorksDir } from './lib/self-works.mjs'
+import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
+import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
 import {
   createManualReadHandler,
   createManualReading,
@@ -290,12 +291,15 @@ export async function apply(ctx) {
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
       const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
+      const mediaBudget = createMediaBudget({ file: resolveMediaBudgetPath(env, home) })
       const selfWorks = createSelfWorks({
         dir: resolveWorksDir(env, home),
+        mediaBudget,
         getLlm,
         policy: modelPolicy,
         modelErrorsPath,
         logger,
+        assetsDir: ASSETS_DIR,
         getContext: () => {
           try {
             const snap = selfStateRef !== null ? selfStateRef.snapshot() : null
@@ -839,6 +843,7 @@ export async function apply(ctx) {
           modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
           growthMetrics: growthMetrics.snapshot(),
           works: selfWorks.snapshot(),
+          mediaBudget: mediaBudget.snapshot(),
           events: selfEvents.snapshot(),
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),
@@ -962,6 +967,13 @@ export async function apply(ctx) {
           kind: 'exact',
           path: '/api/dsh-poetry/works.json',
           handler: createWorksHandler({ works: selfWorks }),
+        }),
+      )
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/works/media',
+          handler: createWorksMediaHandler({ works: selfWorks }),
         }),
       )
       // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。

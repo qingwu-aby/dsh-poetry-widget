@@ -1429,3 +1429,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - shuge.mjs：WP REST 搜索/条目；只作版本目录来源；研究 sourceLines 标注；测试。
 - 全套 443/443。
+
+## 161. 本地图片/视频与媒体预算（M157，2026-10-28）
+
+- local-media：静态素材海报 PNG + 6s MP4；works image/video + media route；client 展示。
+- media-budget：日 6 图/2 视频/USD .5；health 可见。
+- 全套 444/444。

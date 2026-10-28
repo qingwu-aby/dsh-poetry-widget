@@ -228,6 +228,7 @@ import { createWorldFeedback } from '../lib/world-feedback.mjs'
 import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createChatBridge } from '../lib/chat-bridge.mjs'
 import { createCurriculum } from '../lib/self-curriculum.mjs'
+import { createMediaBudget } from '../lib/media-budget.mjs'
 import { fetchShugeEntry, searchShuge } from '../lib/shuge.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
@@ -1863,7 +1864,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3639,7 +3640,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4976,7 +4977,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 23, 'assets + pet-media + self + works + manual-read + presence + twin + chat + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10979,4 +10980,18 @@ test('shuge v2.51：WordPress 搜索与条目信息只作目录/版本材料', a
   assert.match(entry.text, /南宋黄善夫/)
   assert.match(entry.note, /扫描/)
   assert.ok(calls.length >= 2)
+})
+
+test('media-budget v2.52：图片/视频每日配额与 USD 上限', () => {
+  const dir = makeTmpDir('dshp-media-budget')
+  const budget = createMediaBudget({ file: path.join(dir, 'budget.json'), imageLimit: 1, videoLimit: 1, usdLimit: 0.5, now: () => FIXED_NOW.getTime() })
+  assert.equal(budget.canMake('image').ok, true)
+  budget.record('image', 0)
+  assert.equal(budget.canMake('image').ok, false)
+  assert.equal(budget.canMake('video').ok, true)
+  budget.record('video', 0)
+  assert.equal(budget.canMake('video').ok, false)
+  const snap = budget.snapshot()
+  assert.equal(snap.images, 1)
+  assert.equal(snap.videos, 1)
 })

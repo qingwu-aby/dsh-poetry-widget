@@ -1455,17 +1455,23 @@ window.__ModuleLoader__.load({
    if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] }
    const works = []
    for (const item of raw.works) {
-    if (!item || typeof item.title !== 'string' || typeof item.body !== 'string') continue
-    const kind = item.kind === 'svg' ? 'svg' : 'text'
-    const body = String(item.body)
-    if (body.length < 4) continue
+    if (!item || typeof item.title !== 'string') continue
+    const kind = item.kind === 'svg' || item.kind === 'image' || item.kind === 'video' ? item.kind : 'text'
+    const body = typeof item.body === 'string' ? String(item.body) : ''
+    if (kind === 'text' && body.length < 4) continue
+    const mediaUrl = typeof item.mediaUrl === 'string' && item.mediaUrl.length > 0 ? item.mediaUrl : ''
+    if ((kind === 'image' || kind === 'video') && mediaUrl.length === 0) continue
     works.push({
      id: String(item.id || ''),
      title: item.title.slice(0, 60),
      kind,
      createdAt: num(item.createdAt, 0),
      body: kind === 'text' ? body.slice(0, 2000) : '',
-     src: kind === 'svg' ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(body) : '',
+     src: kind === 'svg'
+      ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(body)
+      : kind === 'image' || kind === 'video'
+       ? mediaUrl
+       : '',
     })
     if (works.length >= 6) break
    }

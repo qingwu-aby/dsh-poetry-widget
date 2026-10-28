@@ -6,6 +6,7 @@
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
 - **信件去“我认/审稿套话”（v2.44.1）**：用户指出“让我回去看目录是机构一级还是细到账册名，这个方向我认”不像人话。回信 prompt 明确禁止“我认/这个方向/这层/分叉”接话套话、禁止中英夹杂（papers/records/UK）和复述问题；输出再做一层轻量替换（这些套话→“这点我同意”，papers→档案，records→卷宗，UK→英国）。
+- **本地图片/视频与媒体预算（v2.52）**：核实 opencode-go / OpenCode 的 `minimax-m3`、`mimo-v2.6-flash-free` 都是 text-output（能看图/视频，不能生成像素），所以不接假模型。先用现有 100 张鲸鱼静态图做**本地合成**：海报 PNG（渐变+素材+标题/句子）和 6 秒慢推 MP4；`/works.json` 支持 image/video，新增 `/works/media` 只读路由；作品循环可自己选择 image/video。媒体预算 `media-budget.json`：默认每天 6 图/2 视频、USD 上限 0.5（本地成本 0），并进入 health。
 - **书格数据源（v2.51）**：接入 shuge.org 的 WordPress REST（`/wp-json/wp/v2/search` + `/portfolio/{id}`）。书格以扫描影像本、目录、版本信息为主，不是全文语料，因此研究里只作**版本/目录/序跋/收藏**来源，明确标注“扫描/目录材料，不是正文”，避免把书名和目录当正文。正史学习多了一条版本学材料线。
 - **主动找用户说话 & 放宽聊天限制（v2.50）**：① QQ 聊天限制从 1.2s/30 条每小时改为 0.3s 最小间隔、无每小时上限，history 12→40；② 新增 proactive：在用户已聊过、且 30 分钟没说话时，她每 45 分钟可主动发一条（8:00–23:00，不刷屏）；③ 本机 patch `scripts/patch-qqbot-proactive.py` 给 dsh-qqbot 加 `/api/qqbot/proactive` 路由 + token；④ 她主动发的消息也写入聊天历史/journal。
 - **正史大纲持久化（v2.49.1）**：首次读取大纲即写入 curriculum.json，避免重启后进度被当成新大纲；正史第一问已在跑（《史记》商鞅变法—秦统一）。

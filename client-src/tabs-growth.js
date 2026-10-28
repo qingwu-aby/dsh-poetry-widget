@@ -109,9 +109,11 @@ function GrowthTab(props) {
      'div',
      { className: 'dshp-work', key: 'work-' + (work.id || index) },
      h('div', { className: 'dshp-work-title' }, work.title),
-     work.kind === 'svg' && work.src
+     (work.kind === 'svg' || work.kind === 'image') && work.src
       ? h('img', { className: 'dshp-work-art', src: work.src, alt: work.title, loading: 'lazy' })
-      : h('div', { className: 'dshp-growth-quote' }, work.body),
+      : work.kind === 'video' && work.src
+       ? h('video', { className: 'dshp-work-art', src: work.src, controls: true, playsInline: true, preload: 'metadata' })
+       : h('div', { className: 'dshp-growth-quote' }, work.body),
      h('div', { className: 'dshp-work-time' }, weatherUpdatedLabel(work.createdAt) || '--:--'),
     )),
    )
