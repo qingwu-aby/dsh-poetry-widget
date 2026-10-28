@@ -1388,3 +1388,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 152. 信件说人话（M148，2026-10-28）
 
 - twin-system buildLetterPrompt：naturalStyleLines；去“你让我……我认”式回应；像微信不像审稿。
+
+## 153. 信件去审稿套话（M149，2026-10-28）
+
+- buildLetterPrompt 禁止“我认/这个方向/这层/分叉”、中英夹杂、复述问题。
+- softenMetaPhrases 轻量替换；研究信仍保留分析 register。
