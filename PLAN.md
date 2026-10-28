@@ -1413,4 +1413,4 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 157. 代谢根因修复（M153，2026-10-28）
 
 - 成本 .004→.0015；跨日 floor .55；低能量允许 make；work loop 全部 optional。
-- 根因：24h 回满 vs 600 calls/day；break-even 104。
+- 根因：24h 回满 vs 600 calls/day；break-even 250。
