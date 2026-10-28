@@ -1380,3 +1380,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - buildLetterPrompt history（最近4封）；只回最后一条；换题先说明。
 - tick 写信后若出现更新来信 → 丢弃本次回复。
+
+## 151. 双鲸对话收口（M147，2026-10-28）
+
+- pendingResearch 在 session 已有信时丢弃；compose maxTokens 900；reset session/read 重新试。
