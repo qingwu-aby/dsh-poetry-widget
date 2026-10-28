@@ -1384,3 +1384,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 151. 双鲸对话收口（M147，2026-10-28）
 
 - pendingResearch 在 session 已有信时丢弃；compose maxTokens 900；reset session/read 重新试。
+
+## 152. 信件说人话（M148，2026-10-28）
+
+- twin-system buildLetterPrompt：naturalStyleLines；去“你让我……我认”式回应；像微信不像审稿。
