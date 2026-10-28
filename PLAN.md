@@ -1363,3 +1363,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 
 - 研究/信件去掉报幕；synthesis 口语化；mood label 必须感受词；self-talk/self-drive 约束保持。
 - 测试：host 276 / 全套 440。
+
+## 148. 镜像不消耗原体代谢（M144，2026-10-28）
+
+- model-budget.tryConsume(role,meta)；llm-call 传 agent；index onConsume 跳过 agent=twin。
+- self-drive/twin-research/twin compose 均带 agent。
+- 原体能量一次性校正（之前被 twin 调用误扣到 0）。
+- 测试：host 276；全套 440。

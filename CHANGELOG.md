@@ -5,6 +5,7 @@
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
+- **镜像不再消耗原体代谢（v2.42）**：根因：twin 的模型调用也走同一个 model-budget onConsume，镜像的 400+ 封信/研究把原体能量耗到 0，导致她整天只能喝水、看起来发呆。修复：模型调用带 `agent` 标签，`onConsume` 只记原体；twin 的 self-drive/研究/信件都标 `agent=twin`。因历史误扣，原体能量做一次性校正。mood label/研究信件继续去报幕。
 - **说人话二期：研究/信件也去掉报幕（v2.41.2）**：研究分析不再写“我是小鲸鱼/先把话说死/我先交代材料边界/首先其次综上”；研究信不再以“我查了……”开场；阶段性小结改成“我现在更倾向/最硬的反方/除非看到……”。mood label 进一步要求真正的感受词，禁止“悬着没动/赖着没动/搭在桌沿”这类动作画面。
 - **声音档案只学新风格（v2.41.1）**：旧 `voice.json` 会不断把“短句串手/杯沿/光”的微散文腔注入 self-talk；新 prompt 从 40 条旧样本提炼仍会保留旧腔。修复：voice 服务新增 `minSampleTs`，只从本次风格切换之后的新 journal 句子重建；旧档案已备份 `voice.json.pre-v2.41b`。新声音要等新的 murmur/thought 积累后才出现。
 - **说人话：内在声音去微散文（v2.41）**：参考 `MrGeDiao/shuorenhua` 的编辑原则，重写 `language-style`：删招呼/预告/致谢、去名词化绕弯、同义重复；明确允许平常、无聊、半截话、事务性念头；禁止每句都写光线/风/杯沿/纸角/掌心、金句和比喻。self-drive 的 felt/doing/say、self-talk 碎碎念、mood label/reason、voice profile 全部加场景约束；旧的声音档案（会强化文艺腔）已备份为 `voice.json.pre-v2.41`，由新 prompt 重新生成。

@@ -152,7 +152,10 @@ export async function apply(ctx) {
     env,
     home,
     logger,
-    onConsume: (role) => selfMetabolism.recordCall(role),
+    onConsume: (role, total, meta) => {
+      if (meta && meta.agent === 'twin') return
+      selfMetabolism.recordCall(role)
+    },
   })
   const modelGate = createModelGate({ maxConcurrent: 2, logger })
   configureModelRuntime({ budget: modelBudget, gate: modelGate })
