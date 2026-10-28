@@ -1370,3 +1370,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive/twin-research/twin compose 均带 agent。
 - 原体能量一次性校正（之前被 twin 调用误扣到 0）。
 - 测试：host 276；全套 440。
+
+## 149. 修复双鲸鸡同鸭讲（M145，2026-10-28）
+
+- 研究信仅在 session 空闲（letters=0）且无未读时发起；避免并发插入。
+- 研究选题参考最近对话 peerNotes；重置 session/read 游标，保留信件历史。
