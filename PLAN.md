@@ -1342,3 +1342,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - twin-research：methodologyFile；每 3 轮提取规则/反模式；prompt 注入规则；分析输出 methodUse；peerNotes 参与提炼。
 - index/twin-system：原体/镜像各一份 methodology.json。
 - 测试：3 轮后规则落盘；host 276，全套 440/440。
+
+## 144. 方法论补触发（M140，2026-10-28）
+
+- round>=3 且 methodology.rules 为空 → 下一轮立即提炼；随后每3轮。
