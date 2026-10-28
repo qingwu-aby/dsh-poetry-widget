@@ -1423,4 +1423,4 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 159. 主动聊天与放宽限制（M155，2026-10-28）
 
 - chat：min gap .3s、无小时上限、history 40。
-- proactive：35min 空闲后每 75min 可主动发；8–23 点；qqbot patch route token。
+- proactive：30min 空闲后每 45min 可主动发；8–23 点；qqbot patch route token。
