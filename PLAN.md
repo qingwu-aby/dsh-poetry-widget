@@ -1399,3 +1399,8 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - chat-bridge：token 路由；1–3 句回复；history/journal/worldFeedback；限频。
 - dsh-little-whale-qq：little_whale_chat 工具 + little-whale-qq preset。
 - 测试：chat 回复/历史；host 277，全套 441/441。
+
+## 155. 聊天更新动态状态（M151，2026-10-28）
+
+- chat-bridge 输出 felt/experiencing/murmur；setFelt/setExperiencing；journal murmur；onStateChanged 清 mood cache + force generate。
+- 测试：聊天后 state/murmur 更新；host 277，全套 441/441。

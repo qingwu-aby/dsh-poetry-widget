@@ -199,3 +199,4 @@
 | H96 | 镜像不消耗原体代谢 | ✅ | agent 标签隔离；twin 调用不扣原体能量；能量校正；440/440 |
 | H97 | 双鲸通信不再鸡同鸭讲 | ✅ | 研究信只在对话空闲时发起；参考最近对话；重置游标/新 session；440/440 |
 | H98 | QQ/外部聊天桥 | ✅ | chat.json token 路由；独立 history/journal；工具+preset 包；441/441 |
+| H99 | 聊天更新动态状态 | ✅ | QQ 对话可写 felt/experiencing/murmur，心情异步重算；441/441 |

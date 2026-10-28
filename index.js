@@ -462,6 +462,21 @@ export async function apply(ctx) {
         modelErrorsPath,
         logger,
         stateDir: settingsPath.dir,
+        // 聊天改变 felt/experiencing/murmur 后，清掉心情缓存并让心情图鉴重新判断。
+        onStateChanged: async () => {
+          try {
+            moodAiService.clearCache()
+            await moodAiService.generate(
+              {
+                selfState: selfState.snapshot(),
+                recentMoodLabels: typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : [],
+              },
+              { force: true },
+            )
+          } catch {
+            /* 心情刷新失败不影响聊天 */
+          }
+        },
       })
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
       const manualTokenFile = resolveManualTokenPath(env, home)

@@ -10911,12 +10911,17 @@ test('twin-research v2.40：第 3 轮后提炼方法论并写入独立账本', a
 test('chat-bridge v2.45：外部一句话由她自己的记忆回复，并写入 history', async () => {
   const dir = makeTmpDir('dshp-chat')
   const journal = []
-  const llm = makeMockLlm(() => JSON.stringify({ reply: '在，刚把衣服收完。你那边呢？' }))
+  const state = { felt: '刚收完衣服，手有点干', experiencing: '想歇一会儿', sleeping: false }
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '在，刚把衣服收完。你那边呢？', felt: '聊了几句，没那么闷了', experiencing: '原来有人也会累到不想动', murmur: '那就先坐一会儿。' }))
   const bridge = createChatBridge({
     llm,
     policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
     journal: { append: async (entry) => journal.push(entry) },
-    selfState: { snapshot: () => ({ felt: '刚收完衣服，手有点干', experiencing: '想歇一会儿', sleeping: false }) },
+    selfState: {
+      snapshot: () => ({ ...state }),
+      setFelt: (text) => { state.felt = text },
+      setExperiencing: (text) => { state.experiencing = text },
+    },
     recall: { digest: () => ({ todayJournal: ['下午收了衣服。'], project: '' }) },
     worldFeedback: { record() {} },
     stateDir: dir,
@@ -10926,8 +10931,11 @@ test('chat-bridge v2.45：外部一句话由她自己的记忆回复，并写入
   const result = await bridge.chat({ text: '在吗', peerId: 'qq-user-1' })
   assert.equal(result.ok, true)
   assert.match(result.reply, /刚把衣服收完/)
-  assert.equal(journal.length, 1)
+  assert.equal(journal.length, 2)
   assert.match(journal[0].text, /QQ 上的人对你说/)
+  assert.equal(journal[1].kind, 'murmur')
+  assert.equal(state.felt, '聊了几句，没那么闷了')
+  assert.equal(state.experiencing, '原来有人也会累到不想动')
   const history = JSON.parse(fs.readFileSync(path.join(dir, 'chat-history.json'), 'utf8'))
   assert.equal(history['qq-user-1'].length, 2)
   assert.equal(history['qq-user-1'][0].role, 'user')
