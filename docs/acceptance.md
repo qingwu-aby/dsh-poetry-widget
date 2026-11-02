@@ -206,3 +206,6 @@
 | H103 | 主动找用户说话 | ✅ | 用户空闲35min后每75min可发；QQ route patch；限制放宽；442/442 |
 | H104 | 书格数据源 | ✅ | WP REST 搜索/条目；标注扫描目录非正文；443/443 |
 | H105 | 本地图片/视频与媒体预算 | ✅ | 静态素材 PNG/MP4；作品展示；媒体预算；444/444 |
+| H106 | Attention Gate + 观察模式 | ✅ | 主动草稿/放行/模式切换；默认 observe；446/446 |
+| H107 | Source/Trigger/Thread + authority | ✅ | QQ explicit、镜像 context、threadId 回复；446/446 |
+| H108 | Durable Outbox | ✅ | 先落盘、退避、幂等、health；446/446 |

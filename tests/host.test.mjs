@@ -229,6 +229,8 @@ import { PRESENCE_ROUTE, createPresenceHandler } from '../lib/presence.mjs'
 import { createChatBridge } from '../lib/chat-bridge.mjs'
 import { createCurriculum } from '../lib/self-curriculum.mjs'
 import { createMediaBudget } from '../lib/media-budget.mjs'
+import { createAttentionStore } from '../lib/attention.mjs'
+import { createOutbox } from '../lib/outbox.mjs'
 import { fetchShugeEntry, searchShuge } from '../lib/shuge.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
@@ -1864,7 +1866,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3640,7 +3642,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4977,7 +4979,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 24, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -10994,4 +10996,45 @@ test('media-budget v2.52：图片/视频每日配额与 USD 上限', () => {
   const snap = budget.snapshot()
   assert.equal(snap.images, 1)
   assert.equal(snap.videos, 1)
+})
+
+test('attention v2.53：默认 observe、社会草稿去重、人工放行/模式切换', () => {
+  const dir = makeTmpDir('dshp-attention')
+  const attention = createAttentionStore({ file: path.join(dir, 'attention.json'), now: () => FIXED_NOW.getTime() })
+  assert.equal(attention.mode(), 'observe')
+  const first = attention.add({ kind: 'social', text: '今天看到一件小事。', reason: '想说', draft: true })
+  assert.equal(first.ok, true)
+  const dup = attention.add({ kind: 'social', text: '今天看到一件小事。' })
+  assert.equal(dup.duplicate, true)
+  const second = attention.add({ kind: 'social', text: '另一句话。' })
+  assert.equal(second.ok, false)
+  attention.markSent(first.item.id)
+  assert.equal(attention.pending().length, 0)
+  assert.equal(attention.setMode('auto'), 'auto')
+  const result = attention.add({ kind: 'question', text: '你今晚有空吗？' })
+  assert.equal(result.ok, true)
+  assert.equal(attention.pending().length, 1)
+})
+
+test('outbox v2.55：先落盘、失败退避、成功标 sent、同 id 幂等', async () => {
+  const dir = makeTmpDir('dshp-outbox')
+  let attempts = 0
+  const outbox = createOutbox({
+    file: path.join(dir, 'outbox.json'),
+    now: () => FIXED_NOW.getTime(),
+    senders: { qq: async () => { attempts += 1; return attempts === 1 ? { ok: false, error: 'temporary' } : { ok: true } } },
+  })
+  const queued = outbox.enqueue({ id: 'm1', source: 'qq', text: '你好' })
+  assert.equal(queued.ok, true)
+  const duplicate = outbox.enqueue({ id: 'm1', source: 'qq', text: '你好' })
+  assert.equal(duplicate.duplicate, true)
+  const first = await outbox.flush()
+  assert.equal(first.sent, 0)
+  assert.equal(first.failed, 1)
+  assert.equal(outbox.snapshot().pending, 1)
+  // 第二次 flush 时 nextAt 还没到；测试里直接改写时间不必要，重新创建并立即发送会等待 2s。
+  // 用 deliverNow 另一个消息验证成功路径。
+  const second = await outbox.deliverNow({ id: 'm2', source: 'qq', text: '第二句' })
+  assert.equal(second.ok, true)
+  assert.equal(attempts, 2)
 })

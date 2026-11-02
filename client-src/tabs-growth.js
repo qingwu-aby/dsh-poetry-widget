@@ -24,10 +24,51 @@ function GrowthTab(props) {
  const memoryLabels = { ok: '健康', warn: '注意', error: '异常' }
  const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : []
  const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : []
+ const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: 'observe', items: [], pending: 0 }
+ const pendingAttention = Array.isArray(attention.items) ? attention.items : []
+ const attentionMode = attention.mode === 'auto' ? 'auto' : 'observe'
+ const attentionButtons = (item) => h(
+  'div',
+  { style: { display: 'flex', gap: 6, marginTop: 6 } },
+  h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'send') } }, item.draft ? '发出去' : '回复'),
+  h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'dismiss') } }, '先不用'),
+ )
  return h(
   'div',
   { className: 'dshp-growth' },
   h('div', { className: 'dshp-growth-title' }, '我的成长'),
+  pendingAttention.length
+   ? h(
+    'div',
+    { className: 'dshp-growth-section', style: { borderColor: '#b58a4a', background: 'rgba(181,138,74,.08)' } },
+    h('div', { className: 'dshp-growth-section-head' }, '需要你 · ' + pendingAttention.length),
+    h('div', { className: 'dshp-growth-mood-note', style: { marginBottom: 6 } }, attentionMode === 'observe' ? '观察模式：她准备好了，等你决定要不要发。' : '自动模式：她已有具体的事，发送前先在这里留一份。'),
+    ...pendingAttention.map((item) => h(
+     'div',
+     { className: 'dshp-growth-action', key: 'attention-' + item.id, style: { display: 'block', marginBottom: 10 } },
+     h('div', { className: 'dshp-growth-action-text', style: { whiteSpace: 'normal' } }, String(item.text || '')),
+     item.reason ? h('div', { className: 'dshp-growth-empty' }, String(item.reason)) : null,
+     attentionButtons(item),
+    )),
+    h(
+     'div',
+     { style: { display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 } },
+     h('span', { className: 'dshp-growth-empty' }, '主动消息：'),
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.setAttentionMode) api.setAttentionMode(attentionMode === 'auto' ? 'observe' : 'auto') } }, attentionMode === 'auto' ? '自动' : '观察中'),
+    ),
+   )
+   : null,
+  h(
+   'div',
+   { className: 'dshp-growth-section' },
+   h('div', { className: 'dshp-growth-section-head' }, '主动消息'),
+   h(
+    'div',
+    { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+    h('span', { className: 'dshp-growth-empty' }, attentionMode === 'auto' ? '自动：有具体的事就直接发' : '观察中：她先准备，等你放行'),
+    h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.setAttentionMode) api.setAttentionMode(attentionMode === 'auto' ? 'observe' : 'auto') } }, attentionMode === 'auto' ? '切回观察' : '改为自动'),
+   ),
+  ),
   h(
    'div',
    { className: 'dshp-growth-mood' },

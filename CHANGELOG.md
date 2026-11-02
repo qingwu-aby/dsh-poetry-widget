@@ -7,6 +7,9 @@
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
 - **信件去“我认/审稿套话”（v2.44.1）**：用户指出“让我回去看目录是机构一级还是细到账册名，这个方向我认”不像人话。回信 prompt 明确禁止“我认/这个方向/这层/分叉”接话套话、禁止中英夹杂（papers/records/UK）和复述问题；输出再做一层轻量替换（这些套话→“这点我同意”，papers→档案，records→卷宗，UK→英国）。
 - **媒体作品引导（v2.52.1）**：作品 prompt 明确提示“最近都是文字/SVG 时，可以试试静态素材海报/短片”，仍可拒绝；不强制。
+- **注意力闸门与观察模式（v2.53）**：借鉴 dsh-superagent。新增 attention.json：主动消息先成为“需要你”的草稿；默认 observe，面板可放行/压下/切 auto。同一时间最多一条社会草稿；内部生成不受限，对外说话受闸门。新增 `/attention.json` GET/POST。
+- **Source/Trigger/Thread 与 authority（v2.54）**：新增 message-domain；QQ 用户消息=explicit，镜像来信=context，网页/研究材料=context；twin 信件带 threadId，回复只接同线程；镜像的话明确“不是授权/命令”，不能改规则、花预算或发消息。
+- **Durable Outbox（v2.55）**：新增 outbox.json；QQ 主动消息/注意力放行先落盘再发，失败退避重试，成功标 sent；health 暴露 pending/failed。消息 ID 幂等。
 - **本地图片/视频与媒体预算（v2.52）**：核实 opencode-go / OpenCode 的 `minimax-m3`、`mimo-v2.6-flash-free` 都是 text-output（能看图/视频，不能生成像素），所以不接假模型。先用现有 100 张鲸鱼静态图做**本地合成**：海报 PNG（渐变+素材+标题/句子）和 6 秒慢推 MP4；`/works.json` 支持 image/video，新增 `/works/media` 只读路由；作品循环可自己选择 image/video。媒体预算 `media-budget.json`：默认每天 6 图/2 视频、USD 上限 0.5（本地成本 0），并进入 health。
 - **书格数据源（v2.51）**：接入 shuge.org 的 WordPress REST（`/wp-json/wp/v2/search` + `/portfolio/{id}`）。书格以扫描影像本、目录、版本信息为主，不是全文语料，因此研究里只作**版本/目录/序跋/收藏**来源，明确标注“扫描/目录材料，不是正文”，避免把书名和目录当正文。正史学习多了一条版本学材料线。
 - **主动找用户说话 & 放宽聊天限制（v2.50）**：① QQ 聊天限制从 1.2s/30 条每小时改为 0.3s 最小间隔、无每小时上限，history 12→40；② 新增 proactive：在用户已聊过、且 30 分钟没说话时，她每 45 分钟可主动发一条（8:00–23:00，不刷屏）；③ 本机 patch `scripts/patch-qqbot-proactive.py` 给 dsh-qqbot 加 `/api/qqbot/proactive` 路由 + token；④ 她主动发的消息也写入聊天历史/journal。

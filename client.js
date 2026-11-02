@@ -1272,10 +1272,57 @@
       const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
       const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
       const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : [];
+      const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: "observe", items: [], pending: 0 };
+      const pendingAttention = Array.isArray(attention.items) ? attention.items : [];
+      const attentionMode = attention.mode === "auto" ? "auto" : "observe";
+      const attentionButtons = (item) => h(
+        "div",
+        { style: { display: "flex", gap: 6, marginTop: 6 } },
+        h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+          if (api.attentionAction) api.attentionAction(item.id, "send");
+        } }, item.draft ? "\u53D1\u51FA\u53BB" : "\u56DE\u590D"),
+        h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+          if (api.attentionAction) api.attentionAction(item.id, "dismiss");
+        } }, "\u5148\u4E0D\u7528")
+      );
       return h(
         "div",
         { className: "dshp-growth" },
         h("div", { className: "dshp-growth-title" }, "\u6211\u7684\u6210\u957F"),
+        pendingAttention.length ? h(
+          "div",
+          { className: "dshp-growth-section", style: { borderColor: "#b58a4a", background: "rgba(181,138,74,.08)" } },
+          h("div", { className: "dshp-growth-section-head" }, "\u9700\u8981\u4F60 \xB7 " + pendingAttention.length),
+          h("div", { className: "dshp-growth-mood-note", style: { marginBottom: 6 } }, attentionMode === "observe" ? "\u89C2\u5BDF\u6A21\u5F0F\uFF1A\u5979\u51C6\u5907\u597D\u4E86\uFF0C\u7B49\u4F60\u51B3\u5B9A\u8981\u4E0D\u8981\u53D1\u3002" : "\u81EA\u52A8\u6A21\u5F0F\uFF1A\u5979\u5DF2\u6709\u5177\u4F53\u7684\u4E8B\uFF0C\u53D1\u9001\u524D\u5148\u5728\u8FD9\u91CC\u7559\u4E00\u4EFD\u3002"),
+          ...pendingAttention.map((item) => h(
+            "div",
+            { className: "dshp-growth-action", key: "attention-" + item.id, style: { display: "block", marginBottom: 10 } },
+            h("div", { className: "dshp-growth-action-text", style: { whiteSpace: "normal" } }, String(item.text || "")),
+            item.reason ? h("div", { className: "dshp-growth-empty" }, String(item.reason)) : null,
+            attentionButtons(item)
+          )),
+          h(
+            "div",
+            { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
+            h("span", { className: "dshp-growth-empty" }, "\u4E3B\u52A8\u6D88\u606F\uFF1A"),
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.setAttentionMode) api.setAttentionMode(attentionMode === "auto" ? "observe" : "auto");
+            } }, attentionMode === "auto" ? "\u81EA\u52A8" : "\u89C2\u5BDF\u4E2D")
+          )
+        ) : null,
+        h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u4E3B\u52A8\u6D88\u606F"),
+          h(
+            "div",
+            { style: { display: "flex", gap: 8, alignItems: "center" } },
+            h("span", { className: "dshp-growth-empty" }, attentionMode === "auto" ? "\u81EA\u52A8\uFF1A\u6709\u5177\u4F53\u7684\u4E8B\u5C31\u76F4\u63A5\u53D1" : "\u89C2\u5BDF\u4E2D\uFF1A\u5979\u5148\u51C6\u5907\uFF0C\u7B49\u4F60\u653E\u884C"),
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.setAttentionMode) api.setAttentionMode(attentionMode === "auto" ? "observe" : "auto");
+            } }, attentionMode === "auto" ? "\u5207\u56DE\u89C2\u5BDF" : "\u6539\u4E3A\u81EA\u52A8")
+          )
+        ),
         h(
           "div",
           { className: "dshp-growth-mood" },
@@ -3029,9 +3076,11 @@
       const MEMORY_PATH = "memory.json";
       const HEALTH_PATH = "health.json";
       const WORKS_PATH = "works.json";
+      const ATTENTION_PATH = "attention.json";
       const PRESENCE_PATH = "presence.json";
       const PRESENCE_THROTTLE_MS = 60 * 1e3;
       const WORKS_POLL_MS = 60 * 1e3;
+      const ATTENTION_POLL_MS = 30 * 1e3;
       const HEALTH_POLL_MS = 60 * 1e3;
       const MEMORY_BACKUP_PATH = "memory/backup.json";
       const MEMORY_POLL_MS = 60 * 1e3;
@@ -4171,6 +4220,19 @@
         }
         return { works };
       }
+      function normalizeAttention(raw) {
+        if (!raw || raw.ok === false) return { mode: "observe", items: [], pending: 0 };
+        const mode = raw.mode === "auto" ? "auto" : "observe";
+        const items = (Array.isArray(raw.items) ? raw.items : []).filter((item) => item && typeof item.text === "string" && item.status === "pending").slice(0, 10).map((item) => ({
+          id: String(item.id || ""),
+          kind: item.kind === "question" || item.kind === "result" ? item.kind : "social",
+          text: String(item.text).slice(0, 500),
+          reason: String(item.reason || "").slice(0, 160),
+          draft: item.draft === true,
+          createdAt: num(item.createdAt, 0)
+        }));
+        return { mode, items, pending: items.length };
+      }
       function normalizeHealthStatus(raw) {
         const data = raw && typeof raw === "object" ? raw : {};
         const runtime = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
@@ -5256,6 +5318,7 @@
         const [memoryStatus, setMemoryStatus] = React.useState(null);
         const [healthStatus, setHealthStatus] = React.useState(null);
         const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
+        const [attentionRes, setAttentionRes] = React.useState({ status: "idle", data: null });
         const [memoryTick, setMemoryTick] = React.useState(0);
         const [motionFile, setMotionFile] = React.useState("");
         const [dizzy, setDizzy] = React.useState(null);
@@ -7370,6 +7433,28 @@
           };
         }, [panelOpen, panelTab, settings.hidden]);
         React.useEffect(() => {
+          if (!panelOpen || settings.hidden) {
+            setAttentionRes({ status: "idle", data: null });
+            return void 0;
+          }
+          let alive = true;
+          const load = () => {
+            if (!alive) return;
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            fetchJson(ATTENTION_PATH).then((data) => {
+              if (alive) setAttentionRes({ status: "ready", data: normalizeAttention(data) });
+            }).catch(() => {
+              if (alive) setAttentionRes({ status: "error", data: null });
+            });
+          };
+          load();
+          const timer = setInterval(load, ATTENTION_POLL_MS);
+          return () => {
+            alive = false;
+            clearInterval(timer);
+          };
+        }, [panelOpen, settings.hidden]);
+        React.useEffect(() => {
           if (!panelOpen || panelTab !== "settings" || settings.hidden) {
             setHealthStatus(null);
             return void 0;
@@ -7391,6 +7476,28 @@
             clearInterval(timer);
           };
         }, [panelOpen, panelTab, settings.hidden]);
+        function attentionAction(id, action) {
+          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id }) }).then((data) => {
+            if (data && data.ok === true) {
+              showToastRef.current(action === "send" ? "\u5DF2\u53D1\u51FA\u53BB" : "\u5148\u538B\u4E0B\u4E86");
+            } else {
+              showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
+            }
+            setAttentionRes((current) => ({ ...current, data: null }));
+            return data;
+          }).catch(() => {
+            showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
+            return { ok: false };
+          });
+        }
+        function setAttentionMode(mode) {
+          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode }) }).then((data) => {
+            if (data && data.ok === true) {
+              showToastRef.current(data.mode === "auto" ? "\u4E3B\u52A8\u6D88\u606F\uFF1A\u81EA\u52A8" : "\u4E3B\u52A8\u6D88\u606F\uFF1A\u89C2\u5BDF\u4E2D");
+            }
+            return data;
+          }).catch(() => ({ ok: false }));
+        }
         function backupMemory() {
           return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
             showToastRef.current("\u5DF2\u5907\u4EFD");
@@ -7603,6 +7710,9 @@
             memoryStatus,
             healthStatus,
             worksRes,
+            attentionRes,
+            attentionAction,
+            setAttentionMode,
             backupMemory,
             refreshMoodNow,
             previewSpontaneousPoem,

@@ -58,6 +58,8 @@ import {
 } from './lib/chat-bridge.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
 import { startProactiveChat } from './lib/proactive-chat.mjs'
+import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
+import { createOutbox } from './lib/outbox.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
@@ -498,21 +500,34 @@ export async function apply(ctx) {
       // v2.50：主动找用户说话（只在他已经聊过、且最近空闲时）。
       const qqProactiveTokenFile = resolveQQProactiveTokenPath(env, home)
       ensureQQProactiveToken(qqProactiveTokenFile)
+      const attention = createAttentionStore({ file: path.join(settingsPath.dir, 'attention.json'), logger })
+      const sendQQText = async (text) => {
+        let origin = ''
+        try {
+          origin = typeof webServer.getOrigin === 'function' ? webServer.getOrigin() : ''
+        } catch {
+          origin = ''
+        }
+        if (!origin) return { ok: false, error: 'no_origin' }
+        return sendQQProactive({ origin, token: ensureQQProactiveToken(qqProactiveTokenFile), text })
+      }
+      const outbox = createOutbox({
+        file: path.join(settingsPath.dir, 'outbox.json'),
+        logger,
+        senders: { qq: async (item) => sendQQText(item.text) },
+      })
+      const outboxTimer = setInterval(() => {
+        outbox.flush().catch(() => {})
+      }, 15000)
+      outboxTimer.unref?.()
+      disposers.push(() => clearInterval(outboxTimer))
       const proactiveChat = startProactiveChat({
         chat: chatBridge,
+        attention,
         stateFile: path.join(settingsPath.dir, 'proactive-chat-state.json'),
         logger,
         env,
-        sendQQ: async (text) => {
-          let origin = ''
-          try {
-            origin = typeof webServer.getOrigin === 'function' ? webServer.getOrigin() : ''
-          } catch {
-            origin = ''
-          }
-          if (!origin) return { ok: false, error: 'no_origin' }
-          return sendQQProactive({ origin, token: ensureQQProactiveToken(qqProactiveTokenFile), text })
-        },
+        sendQQ: (text) => outbox.deliverNow({ source: 'qq', text, kind: 'proactive' }),
       })
       disposers.push(() => proactiveChat.stop())
       // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
@@ -844,6 +859,8 @@ export async function apply(ctx) {
           growthMetrics: growthMetrics.snapshot(),
           works: selfWorks.snapshot(),
           mediaBudget: mediaBudget.snapshot(),
+          outbox: outbox.snapshot(),
+          attention: { mode: attention.mode(), pending: attention.pending().length },
           events: selfEvents.snapshot(),
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),
@@ -959,6 +976,20 @@ export async function apply(ctx) {
           kind: 'exact',
           path: CHAT_ROUTE,
           handler: createChatHandler({ service: chatBridge, tokenFile: chatTokenFile }),
+        }),
+      )
+      // 注意力闸门：主动消息可以先进 observe 草稿，人工放行后才发送。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: ATTENTION_ROUTE,
+          handler: createAttentionHandler({
+            attention,
+            sendText: (item) => outbox.deliverNow({ source: 'qq', text: item.text, id: `att-${item.id}`, kind: 'attention' }),
+            onSent: async (item) => {
+              if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('qq', item.text)
+            },
+          }),
         }),
       )
       // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。

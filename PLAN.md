@@ -1435,3 +1435,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - local-media：静态素材海报 PNG + 6s MP4；works image/video + media route；client 展示。
 - media-budget：日 6 图/2 视频/USD .5；health 可见。
 - 全套 444/444。
+
+## 162. 注意力/消息域/Outbox（M158-M160，2026-11-02）
+
+- attention：observe 默认，social 单草稿，面板放行；/attention.json。
+- message-domain：authority explicit/inferred/context；twin threadId；镜像仅 context。
+- outbox：落盘、退避、幂等、health pending/failed。

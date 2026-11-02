@@ -162,9 +162,11 @@ window.__ModuleLoader__.load({
   const MEMORY_PATH = 'memory.json'
   const HEALTH_PATH = 'health.json'
   const WORKS_PATH = 'works.json'
+  const ATTENTION_PATH = 'attention.json'
   const PRESENCE_PATH = 'presence.json'
   const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
+  const ATTENTION_POLL_MS = 30 * 1000
   const HEALTH_POLL_MS = 60 * 1000
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
   const MEMORY_POLL_MS = 60 * 1000
@@ -1478,6 +1480,24 @@ window.__ModuleLoader__.load({
    return { works }
   }
 
+  /** 注意力：主动消息草稿 / 需要用户处理的问题。 */
+  function normalizeAttention(raw) {
+   if (!raw || raw.ok === false) return { mode: 'observe', items: [], pending: 0 }
+   const mode = raw.mode === 'auto' ? 'auto' : 'observe'
+   const items = (Array.isArray(raw.items) ? raw.items : [])
+    .filter((item) => item && typeof item.text === 'string' && item.status === 'pending')
+    .slice(0, 10)
+    .map((item) => ({
+     id: String(item.id || ''),
+     kind: item.kind === 'question' || item.kind === 'result' ? item.kind : 'social',
+     text: String(item.text).slice(0, 500),
+     reason: String(item.reason || '').slice(0, 160),
+     draft: item.draft === true,
+     createdAt: num(item.createdAt, 0),
+    }))
+   return { mode, items, pending: items.length }
+  }
+
   /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
   function normalizeHealthStatus(raw) {
    const data = raw && typeof raw === 'object' ? raw : {}
@@ -2539,6 +2559,7 @@ window.__ModuleLoader__.load({
   const [memoryStatus, setMemoryStatus] = React.useState(null)
   const [healthStatus, setHealthStatus] = React.useState(null)
   const [worksRes, setWorksRes] = React.useState({ status: 'idle', data: null })
+  const [attentionRes, setAttentionRes] = React.useState({ status: 'idle', data: null })
   const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -4830,6 +4851,30 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden])
 
+  // 注意力：面板打开时轮询 attention.json；只在有 pending 时展示，健康时安静。
+  React.useEffect(() => {
+   if (!panelOpen || settings.hidden) {
+    setAttentionRes({ status: 'idle', data: null })
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(ATTENTION_PATH).then((data) => {
+     if (alive) setAttentionRes({ status: 'ready', data: normalizeAttention(data) })
+    }).catch(() => {
+     if (alive) setAttentionRes({ status: 'error', data: null })
+    })
+   }
+   load()
+   const timer = setInterval(load, ATTENTION_POLL_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [panelOpen, settings.hidden])
+
   // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
   React.useEffect(() => {
    if (!panelOpen || panelTab !== 'settings' || settings.hidden) {
@@ -4853,6 +4898,30 @@ window.__ModuleLoader__.load({
     clearInterval(timer)
    }
   }, [panelOpen, panelTab, settings.hidden])
+
+  function attentionAction(id, action) {
+   return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) }).then((data) => {
+    if (data && data.ok === true) {
+     showToastRef.current(action === 'send' ? '已发出去' : '先压下了')
+    } else {
+     showToastRef.current('没发出去', 'error')
+    }
+    setAttentionRes((current) => ({ ...current, data: null }))
+    return data
+   }).catch(() => {
+    showToastRef.current('没发出去', 'error')
+    return { ok: false }
+   })
+  }
+
+  function setAttentionMode(mode) {
+   return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'mode', mode }) }).then((data) => {
+    if (data && data.ok === true) {
+     showToastRef.current(data.mode === 'auto' ? '主动消息：自动' : '主动消息：观察中')
+    }
+    return data
+   }).catch(() => ({ ok: false }))
+  }
 
   function backupMemory() {
    return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: 'POST' }).then((data) => {
@@ -5075,6 +5144,9 @@ window.__ModuleLoader__.load({
     memoryStatus,
     healthStatus,
     worksRes,
+    attentionRes,
+    attentionAction,
+    setAttentionMode,
     backupMemory,
     refreshMoodNow,
     previewSpontaneousPoem,
