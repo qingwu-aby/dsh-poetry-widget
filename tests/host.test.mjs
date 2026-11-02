@@ -11064,3 +11064,24 @@ test('self-projects v2.57：Project 有 stage/report/attention，可从持久化
   const reread = createSelfProjects({ file, now: () => clock })
   assert.equal(reread.snapshot().stage, 'waiting_mirror')
 })
+
+test('self-projects v2.58：项目问题进入全局 attention，回答后回到 working', () => {
+  const dir = makeTmpDir('dshp-project-attention')
+  const items = []
+  const attention = {
+    add(input) { items.push({ ...input, status: 'pending' }); return { ok: true, item: input } },
+    pending() { return items.filter((item) => item.status === 'pending') },
+    dismiss(id) { const item = items.find((entry) => entry.id === id); if (item) item.status = 'dismissed' },
+  }
+  const projects = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => FIXED_NOW.getTime() })
+  projects.bindAttention(attention)
+  const change = projects.apply({ title: '整理那箱旧信', step: '先按年份分开。', report: 'progress', question: '旧信要保留信封吗？' }, FIXED_NOW.getTime())
+  assert.equal(change.project.stage, 'waiting_user')
+  assert.equal(items.length, 1)
+  assert.equal(items[0].kind, 'question')
+  assert.match(items[0].text, /信封/)
+  assert.equal(projects.answerAttention(change.project.id, '保留信封，按邮戳排。'), null === null ? projects.current() : projects.current())
+  assert.equal(projects.current().attention, null)
+  assert.equal(items[0].status, 'dismissed')
+  assert.equal(projects.current().stage, 'working')
+})

@@ -1278,7 +1278,13 @@
       const attentionButtons = (item) => h(
         "div",
         { style: { display: "flex", gap: 6, marginTop: 6 } },
-        h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+        item.kind === "question" ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+          if (!api.attentionAction) return;
+          const answer = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("\u56DE\u7B54\u5979\uFF1A", "") : "";
+          if (answer && answer.trim().length > 0) api.attentionAction(item.id, "answer", answer.trim());
+        } }, "\u56DE\u7B54") : item.kind === "result" ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+          if (api.attentionAction) api.attentionAction(item.id, "dismiss");
+        } }, "\u77E5\u9053\u4E86") : h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
           if (api.attentionAction) api.attentionAction(item.id, "send");
         } }, item.draft ? "\u53D1\u51FA\u53BB" : "\u56DE\u590D"),
         h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
@@ -7482,8 +7488,10 @@
             clearInterval(timer);
           };
         }, [panelOpen, panelTab, settings.hidden]);
-        function attentionAction(id, action) {
-          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id }) }).then((data) => {
+        function attentionAction(id, action, text) {
+          const payload = { action, id };
+          if (typeof text === "string" && text.length > 0) payload.text = text;
+          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
             if (data && data.ok === true) {
               showToastRef.current(action === "send" ? "\u5DF2\u53D1\u51FA\u53BB" : "\u5148\u538B\u4E0B\u4E86");
             } else {

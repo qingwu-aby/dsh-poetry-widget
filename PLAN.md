@@ -1451,3 +1451,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-projects：stage/latestReport/attention/blockedReason；projectStage/projectCanRetry；旧项目兼容。
 - self-drive：project.stage/report/summary/question；成长页展示阶段与待答问题。
 - 447/447。
+
+## 165. 项目问题接入全局 attention（M163，2026-11-02）
+
+- bindAttention/answerAttention；question 同步/撤下；UI 回答按钮；448/448。

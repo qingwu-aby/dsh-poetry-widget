@@ -4906,8 +4906,10 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden])
 
-  function attentionAction(id, action) {
-   return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) }).then((data) => {
+  function attentionAction(id, action, text) {
+   const payload = { action, id }
+   if (typeof text === 'string' && text.length > 0) payload.text = text
+   return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then((data) => {
     if (data && data.ok === true) {
      showToastRef.current(action === 'send' ? '已发出去' : '先压下了')
     } else {

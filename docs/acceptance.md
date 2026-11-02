@@ -211,3 +211,4 @@
 | H108 | Durable Outbox | ✅ | 先落盘、退避、幂等、health；446/446 |
 | H109 | Outbox 回执联动 | ✅ | 成功后才标 sent/补历史；首次失败保留 pending；446/446 |
 | H110 | Project/Step/Report/Stage | ✅ | 项目阶段/最近报告/待答问题/兼容旧数据；447/447 |
+| H111 | 项目问题接入 attention | ✅ | waiting_user question 同步；回答回写项目；448/448 |

@@ -30,7 +30,15 @@ function GrowthTab(props) {
  const attentionButtons = (item) => h(
   'div',
   { style: { display: 'flex', gap: 6, marginTop: 6 } },
-  h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'send') } }, item.draft ? '发出去' : '回复'),
+  item.kind === 'question'
+   ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => {
+      if (!api.attentionAction) return
+      const answer = typeof window !== 'undefined' && typeof window.prompt === 'function' ? window.prompt('回答她：', '') : ''
+      if (answer && answer.trim().length > 0) api.attentionAction(item.id, 'answer', answer.trim())
+     } }, '回答')
+   : item.kind === 'result'
+    ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'dismiss') } }, '知道了')
+    : h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'send') } }, item.draft ? '发出去' : '回复'),
   h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.attentionAction) api.attentionAction(item.id, 'dismiss') } }, '先不用'),
  )
  return h(

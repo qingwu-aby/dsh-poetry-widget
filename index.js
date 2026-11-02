@@ -501,6 +501,7 @@ export async function apply(ctx) {
       const qqProactiveTokenFile = resolveQQProactiveTokenPath(env, home)
       ensureQQProactiveToken(qqProactiveTokenFile)
       const attention = createAttentionStore({ file: path.join(settingsPath.dir, 'attention.json'), logger })
+      if (typeof selfProjects.bindAttention === 'function') selfProjects.bindAttention(attention)
       const sendQQText = async (text) => {
         let origin = ''
         try {
@@ -992,6 +993,11 @@ export async function apply(ctx) {
           handler: createAttentionHandler({
             attention,
             sendText: (item) => outbox.deliverNow({ source: 'qq', text: item.text, id: `att-${item.id}`, kind: 'attention', meta: { attentionId: item.id } }),
+            onAnswer: async (item, text) => {
+              const projectId = item && item.meta && typeof item.meta.projectId === 'string' ? item.meta.projectId : ''
+              if (!projectId || typeof selfProjects.answerAttention !== 'function') return null
+              return selfProjects.answerAttention(projectId, text)
+            },
           }),
         }),
       )
