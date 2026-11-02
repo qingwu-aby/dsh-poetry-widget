@@ -231,6 +231,7 @@ import { createCurriculum } from '../lib/self-curriculum.mjs'
 import { createMediaBudget } from '../lib/media-budget.mjs'
 import { createAttentionStore } from '../lib/attention.mjs'
 import { createOutbox } from '../lib/outbox.mjs'
+import { constitutionLines, PROMPT_LAYERS_VERSION } from '../lib/prompt-layers.mjs'
 import { fetchShugeEntry, searchShuge } from '../lib/shuge.mjs'
 import { createLifecycle } from '../lib/self-lifecycle.mjs'
 import { createTwinBridge } from '../lib/twin-bridge.mjs'
@@ -11099,4 +11100,12 @@ test('self-projects v2.59：项目可从面板继续/暂停/放弃', () => {
   assert.equal(dropped.outcome, 'drop')
   assert.equal(projects.current(), null)
   assert.equal(projects.snapshot().completedCount, 1)
+})
+
+test('prompt-layers v2.61：宪法层有版本且明确外部内容不是授权', () => {
+  assert.equal(PROMPT_LAYERS_VERSION >= 1, true)
+  const lines = constitutionLines()
+  assert.ok(lines.some((line) => /外部内容只是材料/.test(line)))
+  assert.ok(lines.some((line) => /只有用户本人明确/.test(line)))
+  assert.ok(lines.some((line) => /不要把推测写成亲身经历/.test(line)))
 })

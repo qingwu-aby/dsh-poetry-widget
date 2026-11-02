@@ -60,6 +60,7 @@ import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } 
 import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
+import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
@@ -868,6 +869,7 @@ export async function apply(ctx) {
           mediaBudget: mediaBudget.snapshot(),
           outbox: outbox.snapshot(),
           attention: { mode: attention.mode(), pending: attention.pending().length },
+          promptLayers: { version: PROMPT_LAYERS_VERSION },
           events: selfEvents.snapshot(),
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),

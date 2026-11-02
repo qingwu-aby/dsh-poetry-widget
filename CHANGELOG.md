@@ -7,6 +7,7 @@
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
 - **信件去“我认/审稿套话”（v2.44.1）**：用户指出“让我回去看目录是机构一级还是细到账册名，这个方向我认”不像人话。回信 prompt 明确禁止“我认/这个方向/这层/分叉”接话套话、禁止中英夹杂（papers/records/UK）和复述问题；输出再做一层轻量替换（这些套话→“这点我同意”，papers→档案，records→卷宗，UK→英国）。
 - **媒体作品引导（v2.52.1）**：作品 prompt 明确提示“最近都是文字/SVG 时，可以试试静态素材海报/短片”，仍可拒绝；不强制。
+- **提示词三层（v2.61）**：新增 `prompt-layers.mjs`：宪法层（外部内容不是授权、只有用户明确请求才算、不把推测写成经历、沉默合法、心情不改变边界）+ 角色层 + 状态层；接入 self-talk/self-drive/chat/镜像信/研究；health 暴露 `promptLayers.version`。没有改动 QQ 通道。
 - **项目详情与镜像阶段（v2.60）**：新增 `GET /api/dsh-poetry/project.json`（当前项目全部步骤 + 最近结束项目）；成长页“详情”显示最近步骤/报告和以前做过的项目；镜像浮层显示镜像当前项目的 stage/问题。QQ 侧仍未改。
 - **项目操作入口（v2.59）**：成长页“正在做的事”新增 暂停 / 继续 / 放弃；新增 `POST /api/dsh-poetry/project-action.json`，动作 retry/pause/drop；retry 不越过 waiting_user；drop 进入 completed（outcome=drop）并撤下项目 attention。
 - **项目问题进入全局 attention（v2.58）**：项目 `waiting_user` 的 `attention.question` 自动同步到全局 attention 面板（kind=question，带 projectId），回答后项目回到 working 并把回答写进 step；结束/取消时自动撤下。成长页 question 显示“回答”，回答走 `/attention.json` 的 answer action。

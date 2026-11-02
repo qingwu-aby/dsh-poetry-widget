@@ -1463,3 +1463,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 167. 项目详情与镜像阶段（M165，2026-11-02）
 
 - GET project.json；成长页详情；镜像浮层 stage/question；449/449。
+
+## 168. 提示词三层（M166，2026-11-02）
+
+- prompt-layers：宪法/角色/状态；接入 talk/drive/chat/twin/research；version 1；450/450。
