@@ -1029,6 +1029,38 @@ export async function apply(ctx) {
           }),
         }),
       )
+      // 项目详情：当前项目全部步骤 + 最近结束的项目。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/project.json',
+          handler: async (req, res) => {
+            const body = String(req?.method ?? 'GET').toUpperCase() === 'GET'
+              ? JSON.stringify({
+                  ok: true,
+                  current: selfProjects.current(),
+                  stage: selfProjects.snapshot().stage,
+                  latestReport: selfProjects.snapshot().latestReport,
+                  attention: selfProjects.snapshot().attention,
+                  steps: (selfProjects.current() && Array.isArray(selfProjects.current().steps) ? selfProjects.current().steps : []).slice(-24),
+                  completed: selfProjects.completed().slice(-10).map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    outcome: item.outcome,
+                    endedAt: item.endedAt,
+                    steps: (Array.isArray(item.steps) ? item.steps : []).slice(-3),
+                  })),
+                })
+              : JSON.stringify({ ok: false, error: 'method_not_allowed' })
+            res.writeHead(String(req?.method ?? 'GET').toUpperCase() === 'GET' ? 200 : 405, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store',
+              'Content-Length': String(Buffer.byteLength(body)),
+            })
+            res.end(body)
+          },
+        }),
+      )
       // 项目动作：用户从成长页继续/暂停/放弃；项目状态本身由 self.json 只读。
       disposers.push(
         webServer.register({

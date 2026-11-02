@@ -164,6 +164,7 @@ window.__ModuleLoader__.load({
   const WORKS_PATH = 'works.json'
   const ATTENTION_PATH = 'attention.json'
   const PROJECT_ACTION_PATH = 'project-action.json'
+  const PROJECT_PATH = 'project.json'
   const PRESENCE_PATH = 'presence.json'
   const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
@@ -2568,6 +2569,7 @@ window.__ModuleLoader__.load({
   const [healthStatus, setHealthStatus] = React.useState(null)
   const [worksRes, setWorksRes] = React.useState({ status: 'idle', data: null })
   const [attentionRes, setAttentionRes] = React.useState({ status: 'idle', data: null })
+  const [projectDetail, setProjectDetail] = React.useState(null)
   const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -4907,6 +4909,13 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden])
 
+  function loadProjectDetail() {
+   return fetchJson(PROJECT_PATH).then((data) => {
+    if (data && data.ok === true) setProjectDetail(data)
+    return data
+   }).catch(() => null)
+  }
+
   function projectAction(action) {
    const current = selfStatus && selfStatus.project
    if (!current || !current.id) return Promise.resolve({ ok: false })
@@ -5176,6 +5185,8 @@ window.__ModuleLoader__.load({
     attentionRes,
     attentionAction,
     projectAction,
+    projectDetail,
+    loadProjectDetail,
     setAttentionMode,
     backupMemory,
     refreshMoodNow,

@@ -1866,7 +1866,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3642,7 +3642,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4979,7 +4979,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 

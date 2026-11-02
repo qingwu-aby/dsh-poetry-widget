@@ -213,3 +213,4 @@
 | H110 | Project/Step/Report/Stage | ✅ | 项目阶段/最近报告/待答问题/兼容旧数据；447/447 |
 | H111 | 项目问题接入 attention | ✅ | waiting_user question 同步；回答回写项目；448/448 |
 | H112 | 项目操作入口 | ✅ | 暂停/继续/放弃；路由动作；449/449 |
+| H113 | 项目详情与镜像阶段 | ✅ | project.json/详情按钮/镜像 stage；449/449 |

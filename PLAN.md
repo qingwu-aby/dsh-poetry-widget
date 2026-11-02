@@ -1459,3 +1459,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 166. 项目操作入口（M164，2026-11-02）
 
 - retryProject/pauseProject/dropProject；project-action 路由；成长页按钮；449/449。
+
+## 167. 项目详情与镜像阶段（M165，2026-11-02）
+
+- GET project.json；成长页详情；镜像浮层 stage/question；449/449。

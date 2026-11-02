@@ -116,6 +116,7 @@ function GrowthTab(props) {
     h(
      'div',
      { style: { display: 'flex', gap: 6, marginTop: 6 } },
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.loadProjectDetail) api.loadProjectDetail() } }, '详情'),
      status.project.stage === 'working'
       ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.projectAction) api.projectAction('pause') } }, '暂停')
       : status.project.stage === 'waiting_user'
@@ -125,6 +126,21 @@ function GrowthTab(props) {
       if (api.projectAction && (typeof window === 'undefined' || typeof window.confirm !== 'function' || window.confirm('确定放下这个项目吗？'))) api.projectAction('drop')
      } }, '放弃'),
     ),
+   )
+   : null,
+  api.projectDetail && api.projectDetail.ok
+   ? h(
+    'div',
+    { className: 'dshp-growth-section' },
+    h('div', { className: 'dshp-growth-section-head' }, '项目详情'),
+    (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index) => h(
+     'div',
+     { className: 'dshp-growth-empty', key: 'detail-step-' + index },
+     (weatherUpdatedLabel(step.at) || '--:--') + ' · ' + String(step.text || '') + (step.report ? '（' + step.report + '）' : ''),
+    )),
+    api.projectDetail.completed && api.projectDetail.completed.length
+     ? h('div', { className: 'dshp-growth-empty' }, '以前做过的：' + api.projectDetail.completed.map((item) => String(item.title || '')).join('、'))
+     : null,
    )
    : null,
   h(

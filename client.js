@@ -1369,6 +1369,9 @@
           h(
             "div",
             { style: { display: "flex", gap: 6, marginTop: 6 } },
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.loadProjectDetail) api.loadProjectDetail();
+            } }, "\u8BE6\u60C5"),
             status.project.stage === "working" ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.projectAction) api.projectAction("pause");
             } }, "\u6682\u505C") : status.project.stage === "waiting_user" ? null : h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
@@ -1378,6 +1381,17 @@
               if (api.projectAction && (typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm("\u786E\u5B9A\u653E\u4E0B\u8FD9\u4E2A\u9879\u76EE\u5417\uFF1F"))) api.projectAction("drop");
             } }, "\u653E\u5F03")
           )
+        ) : null,
+        api.projectDetail && api.projectDetail.ok ? h(
+          "div",
+          { className: "dshp-growth-section" },
+          h("div", { className: "dshp-growth-section-head" }, "\u9879\u76EE\u8BE6\u60C5"),
+          (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index) => h(
+            "div",
+            { className: "dshp-growth-empty", key: "detail-step-" + index },
+            (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
+          )),
+          api.projectDetail.completed && api.projectDetail.completed.length ? h("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
         ) : null,
         h(
           "div",
@@ -3099,6 +3113,7 @@
       const WORKS_PATH = "works.json";
       const ATTENTION_PATH = "attention.json";
       const PROJECT_ACTION_PATH = "project-action.json";
+      const PROJECT_PATH = "project.json";
       const PRESENCE_PATH = "presence.json";
       const PRESENCE_THROTTLE_MS = 60 * 1e3;
       const WORKS_POLL_MS = 60 * 1e3;
@@ -5344,6 +5359,7 @@
         const [healthStatus, setHealthStatus] = React.useState(null);
         const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
         const [attentionRes, setAttentionRes] = React.useState({ status: "idle", data: null });
+        const [projectDetail, setProjectDetail] = React.useState(null);
         const [memoryTick, setMemoryTick] = React.useState(0);
         const [motionFile, setMotionFile] = React.useState("");
         const [dizzy, setDizzy] = React.useState(null);
@@ -7501,6 +7517,12 @@
             clearInterval(timer);
           };
         }, [panelOpen, panelTab, settings.hidden]);
+        function loadProjectDetail() {
+          return fetchJson(PROJECT_PATH).then((data) => {
+            if (data && data.ok === true) setProjectDetail(data);
+            return data;
+          }).catch(() => null);
+        }
         function projectAction(action) {
           const current = selfStatus && selfStatus.project;
           if (!current || !current.id) return Promise.resolve({ ok: false });
@@ -7758,6 +7780,8 @@
             attentionRes,
             attentionAction,
             projectAction,
+            projectDetail,
+            loadProjectDetail,
             setAttentionMode,
             backupMemory,
             refreshMoodNow,
