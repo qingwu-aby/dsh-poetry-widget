@@ -41,6 +41,7 @@ import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
+import { resolveVideoCoursesDir } from './lib/video-courses.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
 import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
@@ -353,6 +354,7 @@ export async function apply(ctx) {
         feelingsPath,
         layersPath,
         projectsPath: resolveProjectsPath(env, home),
+        videoCoursesDir: resolveVideoCoursesDir(env, home),
       })
       // v1.71：每天把几天前的零碎记忆慢慢整合成一段回忆，并提炼“越来越清楚的自己”。
       const memoryConsolidator = createMemoryConsolidator({

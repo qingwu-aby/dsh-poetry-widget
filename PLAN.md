@@ -1484,3 +1484,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-drive：prompt 显示最近一步重复次数与首/末时间，提示换做法、写 question 或收尾。
 - client：项目步骤保留 `repeatCount`/`lastAt`；成长页新增“最近这步重复了 N 次，上次真正推进在…”提示。
 - 453/453。
+
+## 172. 书架进入记忆（M170，2026-11-02）
+
+- `lib/video-courses.mjs`：`resolveVideoCoursesDir` / `normalizeVideoCourse` / `readVideoCourses` / `formatVideoCourseLine` / `readVideoCoursesShelf`；只读 course.json 元数据（标题、讲数、看完进度、最后一讲），坏文件/缺目录静默跳过。
+- `memory-recall`：新增 `videoCoursesDir` 选项，`digest()` 返回 `shelf`（最近 3 本各一行），`formatMemoryDigest` 增加「你看过的课和书（书架上还留着）」。
+- `chat-bridge`：主动消息 prompt 带一行书架（想不出说什么可提一个具体点，别报书单）；聊天本来就走 digest，自动带上。
+- 实数据：`存在主义讲座 TTC`（15 讲，全部看完）在摘要里显示为一行；456/456。

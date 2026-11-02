@@ -222,6 +222,7 @@ import {
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../lib/self-projects.mjs'
+import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../lib/video-courses.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
@@ -11219,4 +11220,104 @@ test('self-drive v2.64：重复步骤写进自处 prompt，提醒重复不算推
     project: { title: '把薄荷养回来', steps: [{ text: '把枯叶剪掉。', at: now }] },
   })
   assert.doesNotMatch(plain, /不算推进/)
+})
+
+
+test('video-courses v2.65：书架读 course.json，只给一行摘要', () => {
+  const dir = makeTmpDir('dshp-video-courses')
+  fs.mkdirSync(path.join(dir, 'ttc'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'partial'), { recursive: true })
+  fs.mkdirSync(path.join(dir, 'bad'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'ttc', 'course.json'), JSON.stringify({
+    slug: 'ttc',
+    title: '存在主义讲座 TTC',
+    importedAt: 1,
+    watchedAt: 3,
+    episodes: [{ n: 1, title: '什么是存在主义？' }, { n: 2, title: '加缪《局外人》' }],
+    watched: [{ n: 1, title: '什么是存在主义？' }, { n: 2, title: '加缪《局外人》' }],
+  }))
+  fs.writeFileSync(path.join(dir, 'partial', 'course.json'), JSON.stringify({
+    slug: 'partial',
+    title: '另一门课',
+    importedAt: 2,
+    episodes: [{ n: 1, title: '第一讲' }, { n: 2, title: '第二讲' }, { n: 3, title: '第三讲' }],
+    watched: [{ n: 1, title: '第一讲' }, { n: 2, title: '第二讲' }],
+  }))
+  fs.writeFileSync(path.join(dir, 'bad', 'course.json'), '{not json')
+  const shelf = readVideoCoursesShelf(dir)
+  assert.equal(shelf.length, 2)
+  assert.match(shelf[0], /存在主义讲座 TTC：2 讲全看完了（最后一讲：加缪《局外人》）/)
+  assert.match(shelf[1], /另一门课：看到第 2 讲（共 3 讲），最近是：第二讲/)
+  assert.equal(readVideoCourses(dir)[0].slug, 'ttc')
+  assert.equal(readVideoCoursesShelf(dir, { limit: 1 }).length, 1)
+  assert.deepEqual(readVideoCoursesShelf(path.join(dir, 'missing')), [])
+  assert.equal(normalizeVideoCourse({}), null)
+  assert.match(readVideoCoursesShelf(dir)[0].length <= 120 ? 'ok' : 'too long', /ok/)
+})
+
+test('memory-recall v2.65：书架进入记忆摘要，她能自己提起看过的课', () => {
+  const dir = makeTmpDir('dshp-recall-video')
+  const coursesDir = path.join(dir, 'video-courses')
+  fs.mkdirSync(path.join(coursesDir, 'ttc'), { recursive: true })
+  fs.writeFileSync(path.join(coursesDir, 'ttc', 'course.json'), JSON.stringify({
+    slug: 'ttc',
+    title: '存在主义讲座 TTC',
+    watchedAt: 5,
+    episodes: [{ n: 1, title: '什么是存在主义？' }],
+    watched: [{ n: 1, title: '什么是存在主义？' }],
+  }))
+  const recall = createMemoryRecall({
+    journalPath: path.join(dir, 'none.jsonl'),
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+    videoCoursesDir: coursesDir,
+  })
+  const digest = recall.digest({})
+  assert.equal(digest.shelf.length, 1)
+  const formatted = formatMemoryDigest(digest)
+  assert.match(formatted, /你看过的课和书/)
+  assert.match(formatted, /存在主义讲座 TTC：1 讲全看完了/)
+  // 不传书架目录 → 摘要里没有这一节
+  const plain = createMemoryRecall({
+    journalPath: path.join(dir, 'none.jsonl'),
+    learningLogPath: path.join(dir, 'none.md'),
+    topics: [],
+  })
+  assert.deepEqual(plain.digest({}).shelf, [])
+  assert.doesNotMatch(formatMemoryDigest(plain.digest({})), /你看过的课和书/)
+})
+
+test('chat-bridge v2.65：主动找话时带上书架，记得自己看过的课', async () => {
+  const dir = makeTmpDir('dshp-chat-proactive-shelf')
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '存在主义那门课我看到海德格尔了，说意识总是关于某物的意识——我封信封那会儿算关于什么？' }))
+  const bridge = createChatBridge({
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async () => {} },
+    selfState: { snapshot: () => ({ felt: '醒着' }) },
+    recall: { digest: () => ({ shelf: ['存在主义讲座 TTC：15 讲全看完了（最后一讲：海德格尔与现象学）'] }) },
+    stateDir: dir,
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await bridge.proactive({ peerId: 'qq-user-2', dryRun: true })
+  assert.equal(result.ok, true)
+  const sent = JSON.stringify(llm.calls[0])
+  assert.match(sent, /你最近在看的课：存在主义讲座 TTC/)
+  assert.match(sent, /别报书单/)
+  // 没有书架就完全不提
+  const dir2 = makeTmpDir('dshp-chat-proactive-noshelf')
+  const llm2 = makeMockLlm(() => JSON.stringify({ reply: '窗外风大了。' }))
+  const bridge2 = createChatBridge({
+    llm: llm2,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async () => {} },
+    selfState: { snapshot: () => ({ felt: '醒着' }) },
+    recall: { digest: () => ({ shelf: [] }) },
+    stateDir: dir2,
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  await bridge2.proactive({ peerId: 'qq-user-3', dryRun: true })
+  assert.doesNotMatch(JSON.stringify(llm2.calls[0]), /你最近在看的课/)
 })
