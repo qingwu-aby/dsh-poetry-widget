@@ -221,7 +221,7 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
-import { createSelfProjects } from '../lib/self-projects.mjs'
+import { createSelfProjects, projectCanRetry, projectStage } from '../lib/self-projects.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
@@ -11037,4 +11037,30 @@ test('outbox v2.55：先落盘、失败退避、成功标 sent、同 id 幂等',
   const second = await outbox.deliverNow({ id: 'm2', source: 'qq', text: '第二句' })
   assert.equal(second.ok, true)
   assert.equal(attempts, 2)
+})
+
+test('self-projects v2.57：Project 有 stage/report/attention，可从持久化事实推导', () => {
+  const dir = makeTmpDir('dshp-project-stage')
+  const file = path.join(dir, 'projects.json')
+  let clock = 5000
+  const projects = createSelfProjects({ file, now: () => clock })
+  let change = projects.apply({ title: '把薄荷养回来', step: '先挪到有光的地方。', report: 'progress' }, clock)
+  assert.equal(change.action, 'started')
+  assert.equal(change.project.stage, 'working')
+  clock += 1000
+  change = projects.apply({ step: '把枯叶剪掉。', report: 'ready', summary: '新叶长出来了。' }, clock)
+  assert.equal(change.project.stage, 'idle')
+  assert.equal(change.project.latestReport.state, 'ready')
+  clock += 1000
+  change = projects.apply({ report: 'blocked', summary: '找不到合适的花盆。', question: '你能帮我找个小花盆吗？' }, clock)
+  assert.equal(change.project.stage, 'waiting_user')
+  assert.match(change.project.attention.question, /花盆/)
+  assert.equal(projectStage(change.project), 'waiting_user')
+  assert.equal(projectCanRetry(change.project), false, '等用户回答不是自动重试')
+  clock += 1000
+  change = projects.apply({ stage: 'waiting_mirror', summary: '在等镜像那封信。' }, clock)
+  assert.equal(change.project.stage, 'waiting_mirror')
+  assert.equal(projectStage(change.project), 'waiting_mirror')
+  const reread = createSelfProjects({ file, now: () => clock })
+  assert.equal(reread.snapshot().stage, 'waiting_mirror')
 })

@@ -1356,6 +1356,9 @@
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u6B63\u5728\u505A\u7684\u4E8B"),
           h("div", { className: "dshp-growth-quote" }, status.project.title + (status.project.note ? " \xB7 " + status.project.note : "")),
+          status.project.stage ? h("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
+          status.project.latestReport ? h("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
+          status.project.attention && status.project.attention.question ? h("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
           ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text))
         ) : null,
         h(
@@ -4126,7 +4129,10 @@
             id: String(rawProject.id || ""),
             title: text(rawProject.title, 60),
             note: text(rawProject.note, 160),
-            steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({ at: num(step.at, 0), text: text(step.text, 160) }))
+            steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({ at: num(step.at, 0), text: text(step.text, 160) })),
+            stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(rawProject.stage) ? rawProject.stage : "working",
+            attention: rawProject.attention && typeof rawProject.attention.question === "string" ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) } : null,
+            latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === "string" ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) } : null
           } : null
         };
       }

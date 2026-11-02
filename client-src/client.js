@@ -1368,6 +1368,13 @@ window.__ModuleLoader__.load({
         .filter((step) => step && typeof step.text === 'string')
         .slice(-3)
         .map((step) => ({ at: num(step.at, 0), text: text(step.text, 160) })),
+      stage: ['working', 'waiting_user', 'waiting_mirror', 'blocked', 'idle'].includes(rawProject.stage) ? rawProject.stage : 'working',
+      attention: rawProject.attention && typeof rawProject.attention.question === 'string'
+        ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) }
+        : null,
+      latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === 'string'
+        ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) }
+        : null,
     }
     : null,
   }

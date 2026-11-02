@@ -1445,3 +1445,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 163. Outbox 回执联动（M161，2026-11-02）
 
 - onSent/meta；attention 发送成功才标记；pending 保留重试；446/446。
+
+## 164. Project/Step/Report/Stage（M162，2026-11-02）
+
+- self-projects：stage/latestReport/attention/blockedReason；projectStage/projectCanRetry；旧项目兼容。
+- self-drive：project.stage/report/summary/question；成长页展示阶段与待答问题。
+- 447/447。
