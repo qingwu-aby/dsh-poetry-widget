@@ -11321,3 +11321,45 @@ test('chat-bridge v2.65：主动找话时带上书架，记得自己看过的课
   await bridge2.proactive({ peerId: 'qq-user-3', dryRun: true })
   assert.doesNotMatch(JSON.stringify(llm2.calls[0]), /你最近在看的课/)
 })
+
+test('manual-reading v2.66：读文章不再被“手头那件事”锚住，且防复读', async () => {
+  const dir = makeTmpDir('dshp-manual-read-v266')
+  const appended = []
+  let digestContext = null
+  const llm = makeMockLlm(() => JSON.stringify({ thought: '这篇讲自由选择，我不同意它把“被抛”说得那么轻；至少“被抛”不是自己选的。', liked: false }))
+  const reading = createManualReading({
+    llm,
+    policy: { resolveCandidates: (role) => (role === 'read' ? [{ provider: 'p', model: 'm' }] : []) },
+    journal: { append: async (entry) => appended.push(entry) },
+    recall: {
+      digest: (context) => {
+        digestContext = context
+        return { todayJournal: ['封了半天的信封。'], thoughts: ['信封口还翘着。'] }
+      },
+      recentEntries: () => ([
+        { kind: 'thought', text: '读《存在主义讲座 TTC · 第1讲》：信封按了三回还没平。' },
+        { kind: 'thought', text: '读《存在主义讲座 TTC · 第2讲》：胶带翘着，眼睛在数还剩几封。' },
+      ]),
+    },
+    selfState: { snapshot: () => ({ felt: '手按在胶条上', sleeping: false }) },
+    logger: { warn() {}, info() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  const result = await reading.read({
+    title: '存在主义讲座 TTC · 第3讲',
+    text: '存在主义讲自由与选择，也讲被抛。'.repeat(30),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(appended.length, 1)
+  // 1) 检索带上文章内容，而不是只按“最近”取
+  assert.equal(Array.isArray(digestContext.recentTexts), true)
+  assert.match(digestContext.recentTexts.join(' '), /存在主义讲座 TTC · 第3讲/)
+  // 2) prompt 里有新指令与上一批读书想法
+  const sent = JSON.stringify(llm.calls[0])
+  assert.match(sent, /不用每篇都拿它打比方/)
+  assert.match(sent, /不要每篇都写回同一个动作/)
+  assert.match(sent, /至少要有一句贴着文章本身/)
+  assert.match(sent, /你前几篇读东西时写过的/)
+  assert.match(sent, /信封按了三回还没平/)
+  assert.match(sent, /换个角度重写/)
+})
