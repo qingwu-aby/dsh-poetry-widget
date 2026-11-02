@@ -165,10 +165,12 @@ window.__ModuleLoader__.load({
   const ATTENTION_PATH = 'attention.json'
   const PROJECT_ACTION_PATH = 'project-action.json'
   const PROJECT_PATH = 'project.json'
+  const TWIN_PATH = 'twin.json'
   const PRESENCE_PATH = 'presence.json'
   const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
   const ATTENTION_POLL_MS = 30 * 1000
+  const TWIN_POLL_MS = 60 * 1000
   const HEALTH_POLL_MS = 60 * 1000
   const MEMORY_BACKUP_PATH = 'memory/backup.json'
   const MEMORY_POLL_MS = 60 * 1000
@@ -1507,6 +1509,20 @@ window.__ModuleLoader__.load({
    return { mode, items, pending: items.length }
   }
 
+  function normalizeTwinState(raw) {
+   if (!raw || raw.ok === false || raw.enabled === false) return null
+   const twin = raw.twin && typeof raw.twin === 'object' ? raw.twin : {}
+   const projects = twin.projects && typeof twin.projects === 'object' ? twin.projects : {}
+   const project = projects.current && typeof projects.current === 'object'
+    ? {
+      title: String(projects.current.title || '').slice(0, 60),
+      stage: ['working', 'waiting_user', 'waiting_mirror', 'blocked', 'idle'].includes(projects.current.stage) ? projects.current.stage : 'working',
+      question: projects.current.attention && typeof projects.current.attention.question === 'string' ? projects.current.attention.question.slice(0, 200) : '',
+     }
+    : null
+   return { enabled: true, project }
+  }
+
   /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
   function normalizeHealthStatus(raw) {
    const data = raw && typeof raw === 'object' ? raw : {}
@@ -2570,6 +2586,7 @@ window.__ModuleLoader__.load({
   const [worksRes, setWorksRes] = React.useState({ status: 'idle', data: null })
   const [attentionRes, setAttentionRes] = React.useState({ status: 'idle', data: null })
   const [projectDetail, setProjectDetail] = React.useState(null)
+  const [twinRes, setTwinRes] = React.useState({ status: 'idle', data: null })
   const [memoryTick, setMemoryTick] = React.useState(0)
   const [motionFile, setMotionFile] = React.useState('')
   const [dizzy, setDizzy] = React.useState(null)
@@ -4885,6 +4902,30 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, settings.hidden])
 
+  // 镜像在做什么：面板打开时轮询 twin.json；没有项目就安静。
+  React.useEffect(() => {
+   if (!panelOpen || panelTab !== 'growth' || settings.hidden) {
+    setTwinRes({ status: 'idle', data: null })
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(TWIN_PATH).then((data) => {
+     if (alive) setTwinRes({ status: 'ready', data: normalizeTwinState(data) })
+    }).catch(() => {
+     if (alive) setTwinRes({ status: 'error', data: null })
+    })
+   }
+   load()
+   const timer = setInterval(load, TWIN_POLL_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [panelOpen, panelTab, settings.hidden])
+
   // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
   React.useEffect(() => {
    if (!panelOpen || panelTab !== 'settings' || settings.hidden) {
@@ -5186,6 +5227,7 @@ window.__ModuleLoader__.load({
     attentionAction,
     projectAction,
     projectDetail,
+    twinRes,
     loadProjectDetail,
     setAttentionMode,
     backupMemory,

@@ -143,6 +143,15 @@ function GrowthTab(props) {
      : null,
    )
    : null,
+  api.twinRes && api.twinRes.data && api.twinRes.data.project
+   ? h(
+    'div',
+    { className: 'dshp-growth-section' },
+    h('div', { className: 'dshp-growth-section-head' }, '镜像在做什么'),
+    h('div', { className: 'dshp-growth-quote' }, api.twinRes.data.project.title + ' · ' + ({ working: '正在做', waiting_user: '等主人回答', waiting_mirror: '等原体回信', blocked: '卡住了', idle: '暂时不动' }[api.twinRes.data.project.stage] || api.twinRes.data.project.stage)),
+    api.twinRes.data.project.question ? h('div', { className: 'dshp-growth-empty' }, '她在等：' + api.twinRes.data.project.question) : null,
+   )
+   : null,
   h(
    'div',
    { className: 'dshp-growth-section' },
