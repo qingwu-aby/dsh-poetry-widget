@@ -1505,3 +1505,9 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 心情：`routes.mjs` mood-ai 上下文增 `readings`（`getReadings` 由 index 传入），`buildMoodPrompt` 允许 label 从读的东西长出来，但禁止硬挂；聊天触发的强制心情刷新也带 readings。
 - 语言：self-talk/chat digest 本就有书架与最近想法（读记）；voice-memory 每 24h 从最后 200 行 journal 抽样重写 profile，叙述语气会慢慢吸收读过的内容。
 - 459/459。
+
+## 175. 自处预算与截断重试（M173，2026-11-02）
+
+- 现象：v2.67 后自处多次 `INVALID_OUTPUT`/`EMPTY_RESPONSE`，两候选都 `finishKind=max-tokens`（opencode-go 1200、deepseek-account 600），推理 token 吃满、正文 JSON 被截断；16:12 后约 28 分钟无动作。
+- 修法：自处基础 maxTokens 600→1200；若解析失败且 `request.finishKind==='max-tokens'`，同候选预算翻倍重试一次（上限 4800），日志记「自处输出被截断（max-tokens）」。
+- 测试：mock 第一次返回截断 JSON+max-tokens、第二次合法 → 断言 calls=2 且动作落盘；460/460。

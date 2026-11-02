@@ -11402,3 +11402,35 @@ test('mood-ai v2.67：读过的材料可以成为心情来源（不硬挂）', (
   const plain = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0) }, catalog)
   assert.doesNotMatch(plain, /你最近读到\/学到的/)
 })
+
+test('self-drive v2.68：输出被 max-tokens 截断时翻倍预算重试', async () => {
+  const dir = makeTmpDir('dshp-drive-truncate')
+  const valid = JSON.stringify({ felt: '醒了一下，想翻点别的。', doing: '把窗推开一条缝', kind: 'doing', expect: '风进来会凉一点。' })
+  let calls = 0
+  const llm = makeMockLlm(() => {
+    calls += 1
+    if (calls === 1) return { text: '{"felt":"醒了一下","doing":"把窗推开一条', finish: { kind: 'max-tokens' } }
+    return valid
+  })
+  const drive = createSelfDrive({
+    state: { snapshot: () => ({ sleeping: false, lastActionAt: null }), setFelt() {}, markChecked() {}, applyEvent() {} },
+    llm,
+    actionsPath: path.join(dir, 'self-actions.json'),
+    policy: { resolveCandidates: (role) => (role === 'drive' ? [{ provider: 'p', model: 'm' }] : []) },
+    logger: { warn() {}, info() {} },
+    now: () => 1_700_100_000_000,
+    checkMinMs: 15 * 60_000,
+    checkMaxMs: 20 * 60_000,
+    firstMinMs: 0,
+    firstMaxMs: 0,
+  })
+  drive.load()
+  const result = await drive.check(1_700_100_000_000)
+  assert.equal(result.ok, true)
+  assert.equal(result.felt, '醒了一下，想翻点别的。')
+  assert.equal(calls, 2, '第一次截断后应重试一次')
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'self-actions.json'), 'utf8')).actions
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].label, '把窗推开一条缝')
+  drive.dispose()
+})
