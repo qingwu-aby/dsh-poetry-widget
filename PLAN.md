@@ -1511,3 +1511,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 现象：v2.67 后自处多次 `INVALID_OUTPUT`/`EMPTY_RESPONSE`，两候选都 `finishKind=max-tokens`（opencode-go 1200、deepseek-account 600），推理 token 吃满、正文 JSON 被截断；16:12 后约 28 分钟无动作。
 - 修法：自处基础 maxTokens 600→1200；若解析失败且 `request.finishKind==='max-tokens'`，同候选预算翻倍重试一次（上限 4800），日志记「自处输出被截断（max-tokens）」。
 - 测试：mock 第一次返回截断 JSON+max-tokens、第二次合法 → 断言 calls=2 且动作落盘；460/460。
+
+## 176. 消息改走 DSH 对话（M174，2026-11-02）
+
+- `lib/gui-inbox.mjs`：push/drain/peek；最多 20 条、单条 500 字；坏文件静默。
+- `index`：主动消息（proactive-chat peerId=gui、sendMessage→outbox source=gui）、attention 放行（source=gui）都只入队；`chatBridge.takePending` 把队列内容随下一次 chat 返回并清空；QQ 发送代码路径不再调用。
+- `chat-bridge`：措辞/threadId/日志从 QQ 改成「对话」；`channelLabel` 可配；返回体带 `pending`。
+- `dsh-little-whale-qq` 0.1.2：工具返回/渲染 `pending` + reply（各起一行）；新增 preset「小鲸鱼（对话）」（id little-whale-chat, peerId=gui）。
+- 测试：gui-inbox 上限/坏文件/清空；chat 带 pending 且只带一次；462/462。

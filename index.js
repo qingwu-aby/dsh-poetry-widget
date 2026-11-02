@@ -61,6 +61,7 @@ import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } 
 import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
+import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
@@ -127,6 +128,8 @@ export async function apply(ctx) {
   const env = process.env
   const home = env.HOME || os.homedir()
   const settingsPath = resolveSettingsPath(env, home)
+  // v2.69：不再往 QQ 送消息；她的主动消息/放行草稿先排队，下次对话时由传话层带出来。
+  const guiInbox = createGuiInbox({ file: path.join(settingsPath.dir, 'gui-inbox.json') })
   // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
   const memoryDir = resolveMemoryDir(env, home)
   // v2.6：缺失的记忆文件先创建一个空白容器，避免记忆中枢把「空白起点」当成异常。
@@ -527,6 +530,9 @@ export async function apply(ctx) {
         modelErrorsPath,
         logger,
         stateDir: settingsPath.dir,
+        channelLabel: '对话',
+        // v2.69：她攒着的主动消息，下一次对话时随回复带出来（每条各起一行）。
+        takePending: (peerId) => (peerId === 'gui' ? guiInbox.drain(5).map((item) => item.text) : []),
         // 聊天改变 felt/experiencing/murmur 后，清掉心情缓存并让心情图鉴重新判断。
         onStateChanged: async () => {
           try {
@@ -544,30 +550,30 @@ export async function apply(ctx) {
           }
         },
       })
-      // v2.50：主动找用户说话（只在他已经聊过、且最近空闲时）。
-      const qqProactiveTokenFile = resolveQQProactiveTokenPath(env, home)
-      ensureQQProactiveToken(qqProactiveTokenFile)
+      // v2.50 主动找用户说话；v2.69 起不再走 QQ，统一排进对话队列（下次聊天时带出）。
       const attention = createAttentionStore({ file: path.join(settingsPath.dir, 'attention.json'), logger })
       if (typeof selfProjects.bindAttention === 'function') selfProjects.bindAttention(attention)
-      const sendQQText = async (text) => {
-        let origin = ''
+      const queueGuiMessage = (text, meta = {}) => {
         try {
-          origin = typeof webServer.getOrigin === 'function' ? webServer.getOrigin() : ''
-        } catch {
-          origin = ''
+          guiInbox.push({
+            text,
+            kind: typeof meta.kind === 'string' && meta.kind.length > 0 ? meta.kind : 'proactive',
+            reason: typeof meta.reason === 'string' ? meta.reason : '',
+          })
+          return { ok: true, status: 'queued' }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
         }
-        if (!origin) return { ok: false, error: 'no_origin' }
-        return sendQQProactive({ origin, token: ensureQQProactiveToken(qqProactiveTokenFile), text })
       }
       const outbox = createOutbox({
         file: path.join(settingsPath.dir, 'outbox.json'),
         logger,
-        senders: { qq: async (item) => sendQQText(item.text) },
+        senders: { gui: async (item) => queueGuiMessage(item.text, item.meta) },
         onSent: async (item) => {
           if (item.meta && typeof item.meta.attentionId === 'string') {
             attention.markSent(item.meta.attentionId)
           }
-          if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('qq', item.text)
+          if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('gui', item.text)
         },
       })
       const outboxTimer = setInterval(() => {
@@ -581,7 +587,8 @@ export async function apply(ctx) {
         stateFile: path.join(settingsPath.dir, 'proactive-chat-state.json'),
         logger,
         env,
-        sendQQ: (text, meta = {}) => outbox.deliverNow({ source: 'qq', text, kind: 'proactive', meta }),
+        peerId: 'gui',
+        sendMessage: (text, meta = {}) => outbox.deliverNow({ source: 'gui', text, kind: 'proactive', meta }),
       })
       disposers.push(() => proactiveChat.stop())
       // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
@@ -1042,7 +1049,7 @@ export async function apply(ctx) {
           path: ATTENTION_ROUTE,
           handler: createAttentionHandler({
             attention,
-            sendText: (item) => outbox.deliverNow({ source: 'qq', text: item.text, id: `att-${item.id}`, kind: 'attention', meta: { attentionId: item.id } }),
+            sendText: (item) => outbox.deliverNow({ source: 'gui', text: item.text, id: `att-${item.id}`, kind: 'attention', meta: { attentionId: item.id } }),
             onAnswer: async (item, text) => {
               const projectId = item && item.meta && typeof item.meta.projectId === 'string' ? item.meta.projectId : ''
               if (!projectId || typeof selfProjects.answerAttention !== 'function') return null

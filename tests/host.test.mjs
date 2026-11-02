@@ -222,6 +222,7 @@ import {
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
 import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../lib/self-projects.mjs'
+import { createGuiInbox, pushGuiInbox, readGuiInbox, GUI_INBOX_MAX } from '../lib/gui-inbox.mjs'
 import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../lib/video-courses.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
@@ -10939,7 +10940,7 @@ test('chat-bridge v2.45：外部一句话由她自己的记忆回复，并写入
   assert.equal(result.ok, true)
   assert.match(result.reply, /刚把衣服收完/)
   assert.equal(journal.length, 2)
-  assert.match(journal[0].text, /QQ 上的人对你说/)
+  assert.match(journal[0].text, /对你说：在吗/)
   assert.equal(journal[1].kind, 'murmur')
   assert.equal(state.felt, '聊了几句，没那么闷了')
   assert.equal(state.experiencing, '原来有人也会累到不想动')
@@ -11433,4 +11434,49 @@ test('self-drive v2.68：输出被 max-tokens 截断时翻倍预算重试', asyn
   assert.equal(saved.length, 1)
   assert.equal(saved[0].label, '把窗推开一条缝')
   drive.dispose()
+})
+
+
+test('gui-inbox v2.69：坏文件不炸、队列有上限、取走即清空', () => {
+  const dir = makeTmpDir('dshp-gui-inbox')
+  const file = path.join(dir, 'gui-inbox.json')
+  assert.deepEqual(readGuiInbox(file), [])
+  fs.writeFileSync(file, '{not json')
+  assert.deepEqual(readGuiInbox(file), [])
+  for (let index = 0; index < GUI_INBOX_MAX + 5; index += 1) pushGuiInbox(file, { text: `第 ${index} 条` })
+  const items = readGuiInbox(file)
+  assert.equal(items.length, GUI_INBOX_MAX)
+  assert.match(items[items.length - 1].text, /第 24 条/)
+  const box = createGuiInbox({ file })
+  assert.equal(box.drain(3).length, 3)
+  assert.equal(box.peek().length, GUI_INBOX_MAX - 3)
+})
+
+test('chat-bridge v2.69：她攒着的话随聊天带出且只带一次', async () => {
+  const dir = makeTmpDir('dshp-chat-pending')
+  const file = path.join(dir, 'gui-inbox.json')
+  const box = createGuiInbox({ file })
+  box.push({ text: '想跟你说一句：那七讲卡点我换了个次序。' })
+  box.push({ text: '另外抽屉我收好了。' })
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '在，刚把黑格尔那页翻出来。' }))
+  let clock = FIXED_NOW.getTime()
+  const bridge = createChatBridge({
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async () => {} },
+    selfState: { snapshot: () => ({ felt: '醒着' }) },
+    recall: { digest: () => ({}) },
+    stateDir: dir,
+    logger: { warn() {} },
+    now: () => clock,
+    channelLabel: '对话',
+    takePending: () => box.drain(5).map((item) => item.text),
+  })
+  const first = await bridge.chat({ text: '在吗', peerId: 'gui' })
+  assert.equal(first.ok, true)
+  assert.deepEqual(first.pending, ['想跟你说一句：那七讲卡点我换了个次序。', '另外抽屉我收好了。'])
+  assert.equal(box.peek().length, 0)
+  clock += 5 * 60_000
+  const second = await bridge.chat({ text: '再问一句', peerId: 'gui' })
+  assert.deepEqual(second.pending, [])
 })
