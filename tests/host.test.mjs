@@ -1866,7 +1866,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3642,7 +3642,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4979,7 +4979,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 25, 'assets + pet-media + self + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 26, 'assets + pet-media + self + project-action + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -11084,4 +11084,19 @@ test('self-projects v2.58：项目问题进入全局 attention，回答后回到
   assert.equal(projects.current().attention, null)
   assert.equal(items[0].status, 'dismissed')
   assert.equal(projects.current().stage, 'working')
+})
+
+test('self-projects v2.59：项目可从面板继续/暂停/放弃', () => {
+  const dir = makeTmpDir('dshp-project-actions')
+  const projects = createSelfProjects({ file: path.join(dir, 'projects.json'), now: () => FIXED_NOW.getTime() })
+  const started = projects.apply({ title: '修好那盏台灯', step: '先看灯泡。', report: 'progress' }, FIXED_NOW.getTime())
+  assert.equal(started.action, 'started')
+  const paused = projects.pauseProject(started.project.id)
+  assert.equal(paused.stage, 'idle')
+  const retried = projects.retryProject(started.project.id)
+  assert.equal(retried.stage, 'working')
+  const dropped = projects.dropProject(started.project.id)
+  assert.equal(dropped.outcome, 'drop')
+  assert.equal(projects.current(), null)
+  assert.equal(projects.snapshot().completedCount, 1)
 })

@@ -163,6 +163,7 @@ window.__ModuleLoader__.load({
   const HEALTH_PATH = 'health.json'
   const WORKS_PATH = 'works.json'
   const ATTENTION_PATH = 'attention.json'
+  const PROJECT_ACTION_PATH = 'project-action.json'
   const PRESENCE_PATH = 'presence.json'
   const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
@@ -4906,6 +4907,25 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden])
 
+  function projectAction(action) {
+   const current = selfStatus && selfStatus.project
+   if (!current || !current.id) return Promise.resolve({ ok: false })
+   return fetchJsonUrl(ROUTE + PROJECT_ACTION_PATH, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
+    if (data && data.ok === true) {
+     showToastRef.current(action === 'drop' ? '项目已放下' : action === 'pause' ? '先暂停' : '继续做')
+     return fetchJson(SELF_PATH).then((next) => {
+      setSelfStatus(normalizeSelfStatus(next))
+      return data
+     }).catch(() => data)
+    }
+    showToastRef.current('项目状态没变', 'error')
+    return data
+   }).catch(() => {
+    showToastRef.current('项目状态没变', 'error')
+    return { ok: false }
+   })
+  }
+
   function attentionAction(id, action, text) {
    const payload = { action, id }
    if (typeof text === 'string' && text.length > 0) payload.text = text
@@ -5155,6 +5175,7 @@ window.__ModuleLoader__.load({
     worksRes,
     attentionRes,
     attentionAction,
+    projectAction,
     setAttentionMode,
     backupMemory,
     refreshMoodNow,

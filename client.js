@@ -1365,7 +1365,19 @@
           status.project.stage ? h("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
           status.project.latestReport ? h("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
           status.project.attention && status.project.attention.question ? h("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
-          ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text))
+          ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text)),
+          h(
+            "div",
+            { style: { display: "flex", gap: 6, marginTop: 6 } },
+            status.project.stage === "working" ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.projectAction) api.projectAction("pause");
+            } }, "\u6682\u505C") : status.project.stage === "waiting_user" ? null : h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.projectAction) api.projectAction("retry");
+            } }, "\u7EE7\u7EED"),
+            h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+              if (api.projectAction && (typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm("\u786E\u5B9A\u653E\u4E0B\u8FD9\u4E2A\u9879\u76EE\u5417\uFF1F"))) api.projectAction("drop");
+            } }, "\u653E\u5F03")
+          )
         ) : null,
         h(
           "div",
@@ -3086,6 +3098,7 @@
       const HEALTH_PATH = "health.json";
       const WORKS_PATH = "works.json";
       const ATTENTION_PATH = "attention.json";
+      const PROJECT_ACTION_PATH = "project-action.json";
       const PRESENCE_PATH = "presence.json";
       const PRESENCE_THROTTLE_MS = 60 * 1e3;
       const WORKS_POLL_MS = 60 * 1e3;
@@ -7488,6 +7501,24 @@
             clearInterval(timer);
           };
         }, [panelOpen, panelTab, settings.hidden]);
+        function projectAction(action) {
+          const current = selfStatus && selfStatus.project;
+          if (!current || !current.id) return Promise.resolve({ ok: false });
+          return fetchJsonUrl(ROUTE + PROJECT_ACTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
+            if (data && data.ok === true) {
+              showToastRef.current(action === "drop" ? "\u9879\u76EE\u5DF2\u653E\u4E0B" : action === "pause" ? "\u5148\u6682\u505C" : "\u7EE7\u7EED\u505A");
+              return fetchJson(SELF_PATH).then((next) => {
+                setSelfStatus(normalizeSelfStatus(next));
+                return data;
+              }).catch(() => data);
+            }
+            showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
+            return data;
+          }).catch(() => {
+            showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
+            return { ok: false };
+          });
+        }
         function attentionAction(id, action, text) {
           const payload = { action, id };
           if (typeof text === "string" && text.length > 0) payload.text = text;
@@ -7726,6 +7757,7 @@
             worksRes,
             attentionRes,
             attentionAction,
+            projectAction,
             setAttentionMode,
             backupMemory,
             refreshMoodNow,

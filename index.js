@@ -1029,6 +1029,50 @@ export async function apply(ctx) {
           }),
         }),
       )
+      // 项目动作：用户从成长页继续/暂停/放弃；项目状态本身由 self.json 只读。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/project-action.json',
+          handler: async (req, res) => {
+            const send = (status, payload) => {
+              const body = JSON.stringify(payload)
+              res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(body)) })
+              res.end(body)
+            }
+            if ((req.method || 'GET').toUpperCase() !== 'POST') {
+              res.writeHead(405, { Allow: 'POST', 'Content-Type': 'text/plain; charset=utf-8' })
+              res.end('method not allowed')
+              return
+            }
+            let payload = null
+            try {
+              const chunks = []
+              for await (const chunk of req) chunks.push(chunk)
+              payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+            } catch {
+              send(400, { ok: false, error: 'invalid_json' })
+              return
+            }
+            const action = String(payload?.action ?? '')
+            const current = selfProjects.current()
+            const id = String(payload?.id ?? (current ? current.id : ''))
+            if (!current || current.id !== id) {
+              send(404, { ok: false, error: 'not_found' })
+              return
+            }
+            let result = null
+            if (action === 'retry') result = selfProjects.retryProject(id)
+            else if (action === 'pause') result = selfProjects.pauseProject(id)
+            else if (action === 'drop') result = selfProjects.dropProject(id)
+            if (result === null) {
+              send(400, { ok: false, error: 'action_refused' })
+              return
+            }
+            send(200, { ok: true, action, project: selfProjects.snapshot() })
+          },
+        }),
+      )
       for (const route of routes) disposers.push(webServer.register(route))
 
       serviceRuntime.register('HTTP 路由', {

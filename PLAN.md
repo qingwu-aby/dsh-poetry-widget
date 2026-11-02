@@ -1455,3 +1455,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 ## 165. 项目问题接入全局 attention（M163，2026-11-02）
 
 - bindAttention/answerAttention；question 同步/撤下；UI 回答按钮；448/448。
+
+## 166. 项目操作入口（M164，2026-11-02）
+
+- retryProject/pauseProject/dropProject；project-action 路由；成长页按钮；449/449。

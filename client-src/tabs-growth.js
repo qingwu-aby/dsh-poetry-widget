@@ -113,6 +113,18 @@ function GrowthTab(props) {
     status.project.latestReport ? h('div', { className: 'dshp-growth-empty' }, '最近一次：' + status.project.latestReport.state + (status.project.latestReport.summary ? ' · ' + status.project.latestReport.summary : '')) : null,
     status.project.attention && status.project.attention.question ? h('div', { className: 'dshp-growth-quote', style: { color: '#b58a4a' } }, '等你决定：' + status.project.attention.question) : null,
     ...status.project.steps.map((step, index) => h('div', { className: 'dshp-growth-empty', key: 'project-step-' + index }, (weatherUpdatedLabel(step.at) || '--:--') + ' · ' + step.text)),
+    h(
+     'div',
+     { style: { display: 'flex', gap: 6, marginTop: 6 } },
+     status.project.stage === 'working'
+      ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.projectAction) api.projectAction('pause') } }, '暂停')
+      : status.project.stage === 'waiting_user'
+       ? null
+       : h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => { if (api.projectAction) api.projectAction('retry') } }, '继续'),
+     h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => {
+      if (api.projectAction && (typeof window === 'undefined' || typeof window.confirm !== 'function' || window.confirm('确定放下这个项目吗？'))) api.projectAction('drop')
+     } }, '放弃'),
+    ),
    )
    : null,
   h(
