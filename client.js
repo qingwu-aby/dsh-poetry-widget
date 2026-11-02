@@ -1365,7 +1365,7 @@
           status.project.stage ? h("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
           status.project.latestReport ? h("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
           status.project.attention && status.project.attention.question ? h("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
-          ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text)),
+          ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
           h(
             "div",
             { style: { display: "flex", gap: 6, marginTop: 6 } },
@@ -1389,7 +1389,7 @@
           (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index) => h(
             "div",
             { className: "dshp-growth-empty", key: "detail-step-" + index },
-            (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
+            (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
           )),
           api.projectDetail.completed && api.projectDetail.completed.length ? h("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
         ) : null,

@@ -11109,3 +11109,42 @@ test('prompt-layers v2.61：宪法层有版本且明确外部内容不是授权'
   assert.ok(lines.some((line) => /只有用户本人明确/.test(line)))
   assert.ok(lines.some((line) => /不要把推测写成亲身经历/.test(line)))
 })
+
+test('self-projects v2.63：连续相似步骤合并，不把复读当推进', () => {
+  const dir = makeTmpDir('dshp-project-dedupe')
+  const file = path.join(dir, 'projects.json')
+  let clock = 1000
+  const projects = createSelfProjects({ file, now: () => clock })
+  projects.apply({ title: '睡前别刷手机', step: '手机留在客厅充电。', report: 'progress' }, clock)
+  clock += 1000
+  projects.apply({ step: '手机留在客厅充电。', report: 'progress' }, clock)
+  clock += 1000
+  projects.apply({ step: '手机留在客厅充电吧', report: 'progress' }, clock)
+  const mergedAt = clock
+  let steps = projects.current().steps
+  assert.equal(steps.length, 1)
+  assert.equal(steps[0].text, '手机留在客厅充电。')
+  assert.equal(steps[0].repeatCount, 3)
+  assert.equal(steps[0].lastAt, mergedAt)
+  // 不一样的一步照样记下来，别把推进也吞掉
+  clock += 1000
+  projects.apply({ step: '把充电线收进抽屉。', report: 'progress' }, clock)
+  steps = projects.current().steps
+  assert.equal(steps.length, 2)
+  assert.equal(steps[1].text, '把充电线收进抽屉。')
+  // 旧的重复数据读入时也压成一条
+  fs.writeFileSync(file, JSON.stringify({
+    ok: true, v: 1, current: { id: 'p1', title: '旧项目', note: '', createdAt: 1, updatedAt: 1, steps: [
+      { at: 1, text: '倒杯水，不碰手机。' },
+      { at: 2, text: '倒杯水，不碰手机。' },
+      { at: 3, text: '倒杯水不碰手机' },
+      { at: 4, text: '关灯躺下。' },
+    ] }, completed: [],
+  }))
+  const reread = createSelfProjects({ file, now: () => clock })
+  const rereadSteps = reread.current().steps
+  assert.equal(rereadSteps.length, 2)
+  assert.equal(rereadSteps[0].repeatCount, 3)
+  assert.equal(rereadSteps[0].lastAt, 3)
+  assert.equal(rereadSteps[1].text, '关灯躺下。')
+})

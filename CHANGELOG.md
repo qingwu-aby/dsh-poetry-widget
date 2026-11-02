@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **项目步骤去重（v2.63）**：连续相似步骤（bigram Dice ≥ 0.86）合并成一条，保留第一次的文字/时间和 `repeatCount`/`lastAt`，不再把同一句复读当成推进；旧 projects.json 读入时也压缩。451/451。
 - **自学反哺自省（v1.45）**：reflect prompt 新增「你最近自学到：…」一行（取 learning-log 最后一段），允许把学到的理解自然带进自省，但要求不复述原文、不写成知识讲解/科普；`reflectNow` 通过 memoryRecall.recentLearning(1) 注入。至此自学有三条反哺路径：自省（思维）、碎碎念记忆摘要「你最近自学到的」（想法/语言）、声音档案从 journal 旧句提炼（语言）。
 - **自学话题免审核并入话题库（v1.46）**：用户决定「不用审核」——自学校验通过的 topic 直接写进 `agent-memory/topics.json`（带 `learned:true` + `addedAt`），碎碎念选题、随机话题种子、相关话题匹配立刻可见；`topics-candidates.json` 保留为审计日志。
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
