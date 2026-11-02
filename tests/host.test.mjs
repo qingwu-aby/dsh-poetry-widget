@@ -11363,3 +11363,42 @@ test('manual-reading v2.66：读文章不再被“手头那件事”锚住，且
   assert.match(sent, /信封按了三回还没平/)
   assert.match(sent, /换个角度重写/)
 })
+
+test('self-drive v2.67：读过的材料进入自处 prompt，行为能被读的东西带出来', () => {
+  const base = { now: FIXED_NOW.getTime(), state: { felt: '醒着' } }
+  const prompt = buildSelfDrivePrompt({
+    ...base,
+    recallDigest: {
+      learned: ['自学：黑格尔说“非有限也是有限”是一个过渡，不是结果'],
+      shelf: ['黑格尔《逻辑学》：7 讲全看完了（最后一讲：本质论）'],
+      thoughts: ['读《黑格尔《逻辑学》 · 第5讲》：一和虚空那段我停了一下'],
+    },
+  })
+  assert.match(prompt, /你最近接触过的东西/)
+  assert.match(prompt, /自学：黑格尔/)
+  assert.match(prompt, /书架：黑格尔《逻辑学》/)
+  assert.match(prompt, /读记：读《黑格尔/)
+  assert.match(prompt, /不要为了显得在学习而重复同一句/)
+  const plain = buildSelfDrivePrompt(base)
+  assert.doesNotMatch(plain, /你最近接触过的东西/)
+})
+
+test('mood-ai v2.67：读过的材料可以成为心情来源（不硬挂）', () => {
+  const catalog = makeMoodCatalogFixture()
+  const prompt = buildMoodPrompt(
+    {
+      now: Date.UTC(2026, 9, 21, 2, 0, 0),
+      readings: [
+        '读记：读《黑格尔《逻辑学》 · 第5讲》：一和虚空那段我停了一下',
+        '书架：黑格尔《逻辑学》：7 讲全看完了（最后一讲：本质论）',
+      ],
+    },
+    catalog,
+  )
+  assert.match(prompt, /你最近读到\/学到的/)
+  assert.match(prompt, /一和虚空那段/)
+  assert.match(prompt, /不用硬挂到心情上/)
+  assert.match(prompt, /不要为了显得读过而提/)
+  const plain = buildMoodPrompt({ now: Date.UTC(2026, 9, 21, 2, 0, 0) }, catalog)
+  assert.doesNotMatch(plain, /你最近读到\/学到的/)
+})

@@ -1497,3 +1497,11 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - 根因：`manual-reading` 的 digest 不带文章内容 ⇒ 关键词为空 ⇒ 记忆检索退化成“最近三条”，而最近三条正是她手头那件家务（信封/胶带）；prompt 又问“它让你想到什么”，连续 15 讲形成正反馈，同一个比方反复出现。
 - 修法：digest 传 `recentTexts:[标题, 正文开头400字]` 做相关检索；prompt 加“可以把手头的事放下，不用每篇都拿它打比方”“至少一句贴着文章本身”“句式和上一篇近似就换角度重写”；从 journal 的“读《…》”条目里取前两篇角度列出来，提醒别复用（journal 不存 title，从 text 前缀解析）。
 - 测试：新增 v2.66 用例（检索带文章内容 + prompt 含新约束 + 前两篇角度）；457/457。
+
+## 174. 读过的资料反哺行为/语言/心情（M172，2026-11-02）
+
+- `readingHint`：从 memory-recall 取自学（learning-log 末段）、书架（video-courses 摘要）、最近一条“读《…》”原文；`readingDigest` 把该读记塞进自处 prompt 的 thoughts。
+- starter：`createSelfDrive({ getRecallDigest })` → buildSelfDrivePrompt 加「你最近接触过的东西」+ 可以做/可以不做 + 不重复同一句。
+- 心情：`routes.mjs` mood-ai 上下文增 `readings`（`getReadings` 由 index 传入），`buildMoodPrompt` 允许 label 从读的东西长出来，但禁止硬挂；聊天触发的强制心情刷新也带 readings。
+- 语言：self-talk/chat digest 本就有书架与最近想法（读记）；voice-memory 每 24h 从最后 200 行 journal 抽样重写 profile，叙述语气会慢慢吸收读过的内容。
+- 459/459。

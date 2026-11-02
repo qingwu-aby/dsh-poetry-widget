@@ -356,6 +356,49 @@ export async function apply(ctx) {
         projectsPath: resolveProjectsPath(env, home),
         videoCoursesDir: resolveVideoCoursesDir(env, home),
       })
+      // v2.67：她最近读到/学到的（自学、书架、读记）——自处/心情/聊天共用同一份提示，
+      // 让“看过的资料”真的反哺行为、语言和心情，而不是只躺在 journal 里。
+      const latestReadText = () => {
+        try {
+          const entries = typeof memoryRecall.recentEntries === 'function' ? memoryRecall.recentEntries() : []
+          for (let index = entries.length - 1; index >= 0; index -= 1) {
+            const text = entries[index] && typeof entries[index].text === 'string' ? entries[index].text : ''
+            if (text.startsWith('读《')) return text
+          }
+          return ''
+        } catch {
+          return ''
+        }
+      }
+      const readingHint = () => {
+        try {
+          const digest = memoryRecall.digest({})
+          const out = []
+          if (Array.isArray(digest.learned) && digest.learned.length > 0) {
+            out.push(`自学：${String(digest.learned[digest.learned.length - 1]).slice(0, 100)}`)
+          }
+          if (Array.isArray(digest.shelf) && digest.shelf.length > 0) {
+            out.push(`书架：${String(digest.shelf[0]).slice(0, 100)}`)
+          }
+          const readThought = latestReadText()
+          if (readThought.length > 0) out.push(`读记：${readThought.slice(0, 110)}`)
+          return out
+        } catch {
+          return []
+        }
+      }
+      const readingDigest = () => {
+        try {
+          const digest = memoryRecall.digest({})
+          const readThought = latestReadText()
+          if (readThought.length > 0 && Array.isArray(digest.thoughts)) {
+            digest.thoughts = [readThought, ...digest.thoughts.filter((item) => item !== readThought)].slice(0, 4)
+          }
+          return digest
+        } catch {
+          return null
+        }
+      }
       // v1.71：每天把几天前的零碎记忆慢慢整合成一段回忆，并提炼“越来越清楚的自己”。
       const memoryConsolidator = createMemoryConsolidator({
         layers: memoryLayers,
@@ -492,6 +535,7 @@ export async function apply(ctx) {
               {
                 selfState: selfState.snapshot(),
                 recentMoodLabels: typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : [],
+                readings: readingHint(),
               },
               { force: true },
             )
@@ -716,6 +760,7 @@ export async function apply(ctx) {
             return []
           }
         },
+        getRecallDigest: readingDigest,
       })
       selfDrive.start({ heartbeat: true })
       heartbeat.add('自处', () => selfDrive.tick())
@@ -851,6 +896,7 @@ export async function apply(ctx) {
         journal,
         feihuaFullService,
         getSelfState: () => selfState.snapshot(),
+        getReadings: readingHint,
         memoryHub,
         // v1.73：health.json 暴露后台服务快照，方便看 8 个定时器是不是还活着。
         getRuntime: () => ({
