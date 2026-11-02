@@ -221,7 +221,7 @@ import {
 } from '../lib/self-reading.mjs'
 import { runMemoryMigrations } from '../lib/memory-migrations.mjs'
 import { createDshHost } from '../lib/dsh-host.mjs'
-import { createSelfProjects, projectCanRetry, projectStage } from '../lib/self-projects.mjs'
+import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../lib/self-projects.mjs'
 import { createSelfEvents } from '../lib/self-events.mjs'
 import { createMetabolism } from '../lib/self-metabolism.mjs'
 import { createWorldFeedback } from '../lib/world-feedback.mjs'
@@ -11147,4 +11147,76 @@ test('self-projects v2.63：连续相似步骤合并，不把复读当推进', (
   assert.equal(rereadSteps[0].repeatCount, 3)
   assert.equal(rereadSteps[0].lastAt, 3)
   assert.equal(rereadSteps[1].text, '关灯躺下。')
+})
+
+
+test('self-projects v2.64：重复同一步不算推进，stale 只认真的新步骤', () => {
+  const dir = makeTmpDir('dshp-project-progress')
+  const file = path.join(dir, 'projects.json')
+  let clock = 1_000_000
+  const projects = createSelfProjects({ file, now: () => clock })
+  projects.apply({ title: '把薄荷养回来', step: '把枯叶剪掉，浇半杯水。' }, clock)
+  const firstAt = clock
+  assert.equal(projectProgressAt(projects.current()), firstAt)
+  // 8 小时后重复同一步：算活动，不算推进
+  clock = firstAt + 8 * 3600 * 1000
+  const repeatChange = projects.apply({ step: '把枯叶剪掉，浇半杯水。' }, clock)
+  assert.equal(repeatChange.action, 'repeated')
+  assert.equal(projects.current().steps.length, 1)
+  assert.equal(projects.current().steps[0].repeatCount, 2)
+  assert.equal(projects.current().steps[0].at, firstAt)
+  assert.equal(projects.current().steps[0].lastAt, clock)
+  assert.equal(projectProgressAt(projects.current()), firstAt)
+  // 13 小时没有新步骤 → 搁置，不被重复续命
+  clock = firstAt + 13 * 3600 * 1000
+  const stale = projects.checkStale(clock)
+  assert.ok(stale !== null)
+  assert.match(stale.staleReason, /重复/)
+  assert.equal(stale.stage, 'idle')
+  // 搁置后再重复一步：仍然是重复，不把搁置洗掉
+  clock = firstAt + 14 * 3600 * 1000
+  const again = projects.apply({ step: '把枯叶剪掉，浇半杯水。' }, clock)
+  assert.equal(again.action, 'repeated')
+  assert.equal(projects.current().staleAt, stale.staleAt)
+  assert.equal(projectStage(projects.current()), 'idle')
+  // 真正的新步骤才算推进：清掉 stale，进度时间前移
+  clock = firstAt + 15 * 3600 * 1000
+  const stepped = projects.apply({ step: '把花盆转到朝南那边，剪掉两片发黄的叶子。' }, clock)
+  assert.equal(stepped.action, 'stepped')
+  assert.equal(projects.current().staleAt, null)
+  assert.equal(projectProgressAt(projects.current()), clock)
+  assert.equal(projects.current().steps.length, 2)
+  assert.equal(projectStage(projects.current()), 'working')
+  // 快照带派生字段，成长页/自处 prompt 能直接用
+  const snap = projects.snapshot()
+  assert.equal(snap.current.progressAt, clock)
+  assert.equal(snap.current.latestRepeat, 1)
+  // 没有重复的普通项目保持原来的搁置理由
+  const plainDir = makeTmpDir('dshp-project-progress-plain')
+  const plain = createSelfProjects({ file: path.join(plainDir, 'projects.json'), now: () => 2_000_000 })
+  plain.apply({ title: '把邮票收进册子', step: '按年份把邮票分堆。' }, 2_000_000)
+  const stalePlain = plain.checkStale(2_000_000 + 13 * 3600 * 1000)
+  assert.ok(stalePlain !== null)
+  assert.equal(stalePlain.staleReason, '已经很久没推进了')
+})
+
+test('self-drive v2.64：重复步骤写进自处 prompt，提醒重复不算推进', () => {
+  const now = FIXED_NOW.getTime()
+  const prompt = buildSelfDrivePrompt({
+    now,
+    state: { felt: '醒着' },
+    project: {
+      title: '把薄荷养回来',
+      steps: [{ text: '把枯叶剪掉。', at: now - 9 * 3600 * 1000, lastAt: now - 3600 * 1000, repeatCount: 3 }],
+    },
+  })
+  assert.match(prompt, /重复了 3 次/)
+  assert.match(prompt, /不算推进/)
+  assert.match(prompt, /project\.question/)
+  const plain = buildSelfDrivePrompt({
+    now,
+    state: { felt: '醒着' },
+    project: { title: '把薄荷养回来', steps: [{ text: '把枯叶剪掉。', at: now }] },
+  })
+  assert.doesNotMatch(plain, /不算推进/)
 })

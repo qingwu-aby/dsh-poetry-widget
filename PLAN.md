@@ -1477,3 +1477,10 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - self-projects：连续相似步骤（bigram Dice ≥ 0.86）合并为一条，保留首次文字/时间，累加 `repeatCount`、更新 `lastAt`；不同步骤照常追加，非 progress 报告覆盖旧报告。
 - 旧 projects.json 读入时同样压缩，镜像那些“手机留在客厅充电”式复读不再堆满步骤。
 - 451/451。
+
+## 171. 重复不算推进（M169，2026-11-02）
+
+- self-projects：`projectProgressAt` 取最后一条新步骤的 `at`（重复只更新 `lastAt`）；`checkStale` 改按它判定，重复同一步不再续命，理由区分“重复同一步”与“很久没推进”；`apply` 合并不清 stale、不改阶段，只有新步骤/阶段变化/提问才算推进；snapshot 增 `progressAt`/`latestRepeat`。
+- self-drive：prompt 显示最近一步重复次数与首/末时间，提示换做法、写 question 或收尾。
+- client：项目步骤保留 `repeatCount`/`lastAt`；成长页新增“最近这步重复了 N 次，上次真正推进在…”提示。
+- 453/453。

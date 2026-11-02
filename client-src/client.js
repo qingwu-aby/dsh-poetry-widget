@@ -1371,8 +1371,17 @@ window.__ModuleLoader__.load({
       steps: (Array.isArray(rawProject.steps) ? rawProject.steps : [])
         .filter((step) => step && typeof step.text === 'string')
         .slice(-3)
-        .map((step) => ({ at: num(step.at, 0), text: text(step.text, 160) })),
+        .map((step) => ({
+          at: num(step.at, 0),
+          text: text(step.text, 160),
+          repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
+          lastAt: num(step.lastAt, 0),
+        })),
       stage: ['working', 'waiting_user', 'waiting_mirror', 'blocked', 'idle'].includes(rawProject.stage) ? rawProject.stage : 'working',
+      progressAt: num(rawProject.progressAt, 0),
+      latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
+      staleAt: num(rawProject.staleAt, 0),
+      staleReason: text(rawProject.staleReason, 120),
       attention: rawProject.attention && typeof rawProject.attention.question === 'string'
         ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) }
         : null,

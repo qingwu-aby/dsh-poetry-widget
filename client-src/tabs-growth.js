@@ -111,6 +111,9 @@ function GrowthTab(props) {
     h('div', { className: 'dshp-growth-quote' }, status.project.title + (status.project.note ? ' · ' + status.project.note : '')),
     status.project.stage ? h('div', { className: 'dshp-growth-empty' }, '阶段：' + ({ working: '正在做', waiting_user: '等你回答', waiting_mirror: '等镜像回信', blocked: '卡住了', idle: '暂时不动' }[status.project.stage] || status.project.stage)) : null,
     status.project.latestReport ? h('div', { className: 'dshp-growth-empty' }, '最近一次：' + status.project.latestReport.state + (status.project.latestReport.summary ? ' · ' + status.project.latestReport.summary : '')) : null,
+    status.project.latestRepeat > 1
+     ? h('div', { className: 'dshp-growth-empty', style: { color: '#b58a4a' } }, '最近这步重复了 ' + status.project.latestRepeat + ' 次' + (status.project.progressAt ? '，上次真正推进在 ' + (weatherUpdatedLabel(status.project.progressAt) || '--:--') : '') + '，还没有新进展')
+     : null,
     status.project.attention && status.project.attention.question ? h('div', { className: 'dshp-growth-quote', style: { color: '#b58a4a' } }, '等你决定：' + status.project.attention.question) : null,
     ...status.project.steps.map((step, index) => h('div', { className: 'dshp-growth-empty', key: 'project-step-' + index }, (weatherUpdatedLabel(step.at) || '--:--') + ' · ' + step.text + (step.repeatCount > 1 ? ' ×' + step.repeatCount : ''))),
     h(
