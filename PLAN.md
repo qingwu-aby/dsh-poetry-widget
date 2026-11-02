@@ -1441,3 +1441,7 @@ Tab：**今日**（诗 + 平仄 + 解析）、**课堂**（12 卡目录）、**�
 - attention：observe 默认，social 单草稿，面板放行；/attention.json。
 - message-domain：authority explicit/inferred/context；twin threadId；镜像仅 context。
 - outbox：落盘、退避、幂等、health pending/failed。
+
+## 163. Outbox 回执联动（M161，2026-11-02）
+
+- onSent/meta；attention 发送成功才标记；pending 保留重试；446/446。

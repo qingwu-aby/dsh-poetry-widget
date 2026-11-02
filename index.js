@@ -515,6 +515,12 @@ export async function apply(ctx) {
         file: path.join(settingsPath.dir, 'outbox.json'),
         logger,
         senders: { qq: async (item) => sendQQText(item.text) },
+        onSent: async (item) => {
+          if (item.meta && typeof item.meta.attentionId === 'string') {
+            attention.markSent(item.meta.attentionId)
+          }
+          if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('qq', item.text)
+        },
       })
       const outboxTimer = setInterval(() => {
         outbox.flush().catch(() => {})
@@ -527,7 +533,7 @@ export async function apply(ctx) {
         stateFile: path.join(settingsPath.dir, 'proactive-chat-state.json'),
         logger,
         env,
-        sendQQ: (text) => outbox.deliverNow({ source: 'qq', text, kind: 'proactive' }),
+        sendQQ: (text, meta = {}) => outbox.deliverNow({ source: 'qq', text, kind: 'proactive', meta }),
       })
       disposers.push(() => proactiveChat.stop())
       // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
@@ -985,10 +991,7 @@ export async function apply(ctx) {
           path: ATTENTION_ROUTE,
           handler: createAttentionHandler({
             attention,
-            sendText: (item) => outbox.deliverNow({ source: 'qq', text: item.text, id: `att-${item.id}`, kind: 'attention' }),
-            onSent: async (item) => {
-              if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('qq', item.text)
-            },
+            sendText: (item) => outbox.deliverNow({ source: 'qq', text: item.text, id: `att-${item.id}`, kind: 'attention', meta: { attentionId: item.id } }),
           }),
         }),
       )

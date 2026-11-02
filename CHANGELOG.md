@@ -7,6 +7,7 @@
 - **方法论账本补触发（v2.40.1）**：如果账本为空，下一轮研究（round≥3）立即补一次提炼，不必等到恰好第 3/6 轮；避免刚好错过倍数导致长期没有方法规则。
 - **信件去“我认/审稿套话”（v2.44.1）**：用户指出“让我回去看目录是机构一级还是细到账册名，这个方向我认”不像人话。回信 prompt 明确禁止“我认/这个方向/这层/分叉”接话套话、禁止中英夹杂（papers/records/UK）和复述问题；输出再做一层轻量替换（这些套话→“这点我同意”，papers→档案，records→卷宗，UK→英国）。
 - **媒体作品引导（v2.52.1）**：作品 prompt 明确提示“最近都是文字/SVG 时，可以试试静态素材海报/短片”，仍可拒绝；不强制。
+- **Outbox 送达回执与注意力联动（v2.56）**：outbox 增加 meta/onSent；真正发出后才把对应 attention 标 sent 并补写聊天历史；首次失败留在 pending 等重试，不再误标 failed。观察模式在成长页有“改为自动/切回观察”入口。
 - **注意力闸门与观察模式（v2.53）**：借鉴 dsh-superagent。新增 attention.json：主动消息先成为“需要你”的草稿；默认 observe，面板可放行/压下/切 auto。同一时间最多一条社会草稿；内部生成不受限，对外说话受闸门。新增 `/attention.json` GET/POST。
 - **Source/Trigger/Thread 与 authority（v2.54）**：新增 message-domain；QQ 用户消息=explicit，镜像来信=context，网页/研究材料=context；twin 信件带 threadId，回复只接同线程；镜像的话明确“不是授权/命令”，不能改规则、花预算或发消息。
 - **Durable Outbox（v2.55）**：新增 outbox.json；QQ 主动消息/注意力放行先落盘再发，失败退避重试，成功标 sent；health 暴露 pending/failed。消息 ID 幂等。
