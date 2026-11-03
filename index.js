@@ -57,6 +57,7 @@ import {
   ensureChatToken,
   resolveChatTokenPath,
 } from './lib/chat-bridge.mjs'
+import { chatImagePayload, pickLatestWorkImage, shouldSendChatImage } from './lib/chat-media.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
 import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
@@ -1039,7 +1040,23 @@ export async function apply(ctx) {
         webServer.register({
           kind: 'exact',
           path: CHAT_ROUTE,
-          handler: createChatHandler({ service: chatBridge, tokenFile: chatTokenFile }),
+          handler: createChatHandler({
+            service: {
+              chat: async (input) => {
+                const result = typeof chatBridge.chat === 'function' ? await chatBridge.chat(input) : { ok: false, error: 'unavailable' }
+                if (result && result.ok === true && shouldSendChatImage(input && input.text)) {
+                  try {
+                    const payload = chatImagePayload(pickLatestWorkImage(path.join(memoryDir, 'works')))
+                    if (payload) result.images = [payload]
+                  } catch {
+                    result.images = []
+                  }
+                }
+                return result
+              },
+            },
+            tokenFile: chatTokenFile,
+          }),
         }),
       )
       // 注意力闸门：主动消息可以先进 observe 草稿，人工放行后才发送。
