@@ -330,7 +330,7 @@ export async function apply(ctx) {
       const localVoice = createLocalVoice({
         enabled: localVoiceMode === 'on' || localVoiceMode === 'chat' || localVoiceMode === 'mood',
         baseURL: String(env.DSH_POETRY_LOCAL_VOICE_URL || 'http://127.0.0.1:8080/v1'),
-        model: String(env.DSH_POETRY_LOCAL_VOICE_MODEL || ''),
+        model: String(env.DSH_POETRY_LOCAL_VOICE_MODEL || 'default_model'),
         logger,
       })
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。

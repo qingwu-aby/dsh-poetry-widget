@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **本地口吻层试用结论（v2.80.1）**：mlx server 必须用 `default_model` 才会加载 LoRA；有 adapter 时她的短句口吻成立，但 0.5B 做“改写”会跑题，故未接入实时聊天/心情（试用开关保持关闭）；后台开始下载 1.5B 供下一轮。477/477。
 - **本地权重模型试接入：口吻层（v2.80）**：新增 `lib/local-voice.mjs`——把已生成好的句子（聊天回复/mood 理由）交给本地 LoRA 模型（mlx_lm.server, OpenAI 兼容）重写成她的口吻；失败/超时/拒答一律保留原句。env `DSH_POETRY_LOCAL_VOICE=on|chat|mood`、`_URL`、`_MODEL`；health 暴露调用/成功次数。477/477。
 - **修推送会话 id 形态（v2.79.5）**：给宿主服务的 SessionId 必须是完整的 `session-<uuid>`；之前剥前缀返回裸 id → `sessionController.prompt` 报 `session "eb7cba45-…" not found`。现在查目录用裸 id，返回给服务用完整 id。476/476。
 - **修 prompt 缺 AbortSignal（v2.79.4）**：`sessionController.prompt` 实现里会调用 `signal.throwIfAborted()`；之前没传 signal → `TypeError: Cannot read properties of undefined (reading throwIfAborted)`，推送全部失败。现在每次投递新建 AbortController 并传 signal。失败原因已能在 `gui-push-state.json` 看到。476/476。
