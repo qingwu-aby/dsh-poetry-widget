@@ -1076,7 +1076,7 @@ export async function apply(ctx) {
           webBench: webBench.snapshot(),
           worldview: (() => {
             const snap = worldview.snapshot()
-            return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, essayAt: snap.essay.at }
+            return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, contradictions: snap.contradictions.filter((item) => item.status === 'open').length, essayAt: snap.essay.at }
           })(),
         }),
         env,

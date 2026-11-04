@@ -11633,3 +11633,32 @@ test('worldview v2.75：世界观档案的合并、去重与 prompt 摘要', asy
   assert.match(prompt, /你最近自学到的/)
   assert.match(prompt, /只输出严格 JSON/)
 })
+
+test('worldview v2.76：反证降置信与矛盾账', async () => {
+  const wv = await import('../lib/worldview.mjs')
+  const first = wv.parseWorldviewSynthesis(JSON.stringify({
+    essence: '第一版：制度是关系，不是写在纸上的条文；条文只是最后一层。',
+    beliefs: [{ claim: '赋税征收方式会改变土地关系', confidence: 'high', basis: 'secondary', evidence: '旧依据' }],
+    concepts: [],
+    questions: [],
+    changed: '',
+  }))
+  let applied = wv.applyWorldviewSynthesis(wv.emptyWorldview(), first, 1)
+  assert.equal(applied.state.beliefs[0].confidence, 'high')
+  const second = wv.parseWorldviewSynthesis(JSON.stringify({
+    essence: '第二版：关系也会被观念反过来塑形，但赋税这条我发现了反例，先降一档。',
+    beliefs: [{ claim: '赋税征收方式会改变土地关系', confidence: 'high', basis: 'secondary', evidence: '旧依据', counter: '某地改折银后土地关系没变' }],
+    concepts: [],
+    questions: [],
+    contradictions: [{ a: '赋税征收方式会改变土地关系', b: '土地关系主要由人口压力决定', why: '一个说财政主动，一个说人口主动' }],
+    changed: '遇到反例',
+  }))
+  applied = wv.applyWorldviewSynthesis(applied.state, second, 2)
+  assert.equal(applied.state.beliefs[0].confidence, 'medium')
+  assert.equal(applied.state.beliefs[0].counter, '某地改折银后土地关系没变')
+  assert.equal(applied.state.contradictions.length, 1)
+  assert.equal(applied.state.contradictions[0].status, 'open')
+  assert.ok(applied.state.beliefs[0].tension.includes('土地关系主要由人口压力决定'))
+  const digest = wv.formatWorldviewDigest(applied.state)
+  assert.ok(digest.some((line) => /自相矛盾/.test(line)))
+})
