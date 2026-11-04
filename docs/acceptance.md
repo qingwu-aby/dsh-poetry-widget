@@ -237,3 +237,4 @@
 | H134 | 停用镜像 | ✅ | twin 默认关/bundle 禁用/接口返回 disabled；473/473 |
 | H135 | 真实世界 RSS 窗口 | ✅ | parseRssFeed + 5 个真实来源；473/473 |
 | H136 | 对话推送修复 | ✅ | inject schedule/补投循环；474/474 |
+| H137 | prompt 直投推送 | ✅ | sessionController.prompt 优先/状态文件；475/475 |

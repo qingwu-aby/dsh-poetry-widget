@@ -11795,3 +11795,41 @@ test('gui-push v2.79：队列里还有留言时会补投', async () => {
   assert.ok(created.length >= 1)
   assert.equal(created[0].sessionId, 'live')
 })
+
+test('gui-push v2.79.2：优先用 session prompt 推送', async () => {
+  const guiPushModule = await import('../lib/gui-push.mjs')
+  const dir = makeTmpDir('dshp-gui-push-prompt')
+  const cwd = '/tmp/dshp-whale-prompt'
+  const sessionsRoot = path.join(dir, 'sessions')
+  const wsDir = path.join(sessionsRoot, guiPushModule.sessionDirName(cwd))
+  const sessionDir = path.join(wsDir, 'session-live')
+  fs.mkdirSync(sessionDir, { recursive: true })
+  fs.writeFileSync(path.join(sessionDir, 'session.v4.jsonl.zstd'), 'x')
+  const workspaceFile = path.join(dir, 'workspace.json')
+  fs.writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, sessionIds: ['live'] } } } }))
+  const sent = []
+  const guiPush = guiPushModule.createGuiPush({
+    schedule: {
+      list: async () => [],
+      create: async () => {
+        throw new Error('should not fall back')
+      },
+    },
+    workspaceFile,
+    sessionsRoot,
+    workspacePath: cwd,
+    logger: null,
+    stateFile: path.join(dir, 'gui-push-state.json'),
+    sendPrompt: async (sessionId, text) => {
+      sent.push({ sessionId, text })
+    },
+  })
+  const result = await guiPush.ping()
+  assert.equal(result.ok, true)
+  assert.equal(result.via, 'prompt')
+  assert.equal(sent[0].sessionId, 'live')
+  assert.match(sent[0].text, /留言检查/)
+  const saved = JSON.parse(fs.readFileSync(path.join(dir, 'gui-push-state.json'), 'utf8'))
+  assert.equal(saved.last.ok, true)
+  assert.equal(saved.last.via, 'prompt')
+})

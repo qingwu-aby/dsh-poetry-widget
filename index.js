@@ -223,7 +223,7 @@ export async function apply(ctx) {
     logger?.warn?.(`[dsh-little-whale] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
 
-  host.inject(['webServer', 'connection', 'schedule'], (hostCtx) => {
+  host.inject(['webServer', 'connection', 'schedule', 'sessionController'], (hostCtx) => {
     /** @type {Array<() => void>} */
     const disposers = []
     try {
@@ -721,6 +721,18 @@ export async function apply(ctx) {
           } catch {
             return 0
           }
+        },
+        stateFile: path.join(settingsPath.dir, 'gui-push-state.json'),
+        sendPrompt: async (sessionId, text) => {
+          const controller = host.get(hostCtx, 'sessionController')
+          if (!controller || typeof controller.prompt !== 'function') throw new Error('sessionController 不可用')
+          await controller.prompt({
+            requestId: `whale-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            sessionId,
+            mode: 'queue',
+            content: [{ type: 'text', text }],
+            clientTimeZone: 'Asia/Shanghai',
+          })
         },
       })
       guiPush.start()
