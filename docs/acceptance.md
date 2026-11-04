@@ -243,3 +243,4 @@
 | H140 | 会话 id 形态修复 | ✅ | 目录用裸 id/服务用完整 SessionId；476/476 |
 | H141 | 本地口吻层 | ✅ | 润色 chat/mood/失败保留原句；477/477 |
 | H142 | 宿主内常驻 runner | ✅ | spawn resident/持久 session/2h；478/478 |
+| H143 | 语气：少细节多情绪 | ✅ | 风格规则/各 prompt/voice 档案；478/478 |

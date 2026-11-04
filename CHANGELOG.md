@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **语气调整：少细节、多情绪、去冒号开头（v2.82）**：自然语言约束新增「细节最多一个/情绪直接说/不要名目+冒号开头」；self-talk、chat、mood 理由、自处状态的提示同步调整；voice 档案刷新提示加入情绪维度，并把当前 voice.json 里「先报名目再冒号」「逐条列细节」的旧习惯改掉。478/478。
 - **常驻 runner 会话持久化（v2.81.1）**：首次无 session 时加 `--json` 以捕获并保存 sessionId，后续轮次 resume 同一会话；已实测第一轮巡检（20:25 跑完，账本/健康快照更新）。478/478。
 - **常驻巡检改用宿主内 runner（v2.81）**：新增 `lib/agent-loop-runner.mjs`——从 DSH 宿主进程 spawn `dsh --profile resident`（继承宿主权限，绕开 launchd 的 TCC 限制）；默认关闭，`DSH_AGENT_LOOP=on` 开启，首次 5 分钟后、之后每 2 小时一轮；持久 session + 日志在 `~/Library/Logs`。478/478。
 - **本地口吻层试用结论（v2.80.1）**：mlx server 必须用 `default_model` 才会加载 LoRA；有 adapter 时她的短句口吻成立，但 0.5B 做“改写”会跑题，故未接入实时聊天/心情（试用开关保持关闭）；后台开始下载 1.5B 供下一轮。477/477。
