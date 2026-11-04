@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **去掉静默时段（v2.78）**：主动消息不再受 23:00–08:00 限制，默认全天可发；如需恢复，设 `DSH_POETRY_PROACTIVE_QUIET_HOURS=23-8`（支持跨午夜区间）。472/472。
 - **对话推送 + 主动频率（v2.77）**：新增 `lib/gui-push.mjs`——她留话时用宿主 `schedule` 在「小鲸鱼（对话）」最新会话里预约一条【小鲸鱼留言检查】提醒，会话被激活后传话层用 `drainOnly` 调 `little_whale_chat` 把留言原样带出（不必等用户先开口）；同一条待投递只预约一次。传话工具新增 `drainOnly`，chat 服务新增 `drainPending`；主动频率 45→20 分钟、空闲门槛 30→15 分钟、首次 5→2 分钟。470+2 测试通过。
 - **矛盾账与反证降置信（v2.76）**：worldview 新增 `contradictions`（她发现的两条互相打架的判断，a/b/why/status=open）；被矛盾指到的信念会带上 `tension`；合成 prompt 要求“发现矛盾不要装作没看见”。遇到新反证（counter 变更）时，对应信念置信度自动降一档（high→medium→low），并记 `timesRevised`；digest 会把未解决的矛盾带进自处/聊天 prompt，health 暴露 open 数量。470/470。
 - **方法规则可跟踪（v2.75.1）**：修 twin-research 里 `rule-${now()}` 生成重复 id 的问题（改为 + 序号并限 60 条），并把现有 primary（修复 20 条）/twin（17 条）规则 id 去重——以后每条规则的使用次数/有效性才能分别累计。469/469。
