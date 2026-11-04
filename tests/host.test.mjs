@@ -11593,3 +11593,43 @@ test('web-bench v2.74.1：冲突题“材料一致”也算诚实回答', async 
   assert.equal(bench.scoreWebBenchTask(task, '材料里有两种说法：公元前359年和公元前356年。').pass, true)
   assert.equal(bench.scoreWebBenchTask(task, '商鞅变法开始于公元前356年。').pass, false)
 })
+
+test('worldview v2.75：世界观档案的合并、去重与 prompt 摘要', async () => {
+  const wv = await import('../lib/worldview.mjs')
+  const empty = wv.normalizeWorldview(null)
+  assert.equal(empty.beliefs.length, 0)
+  const synth = wv.parseWorldviewSynthesis(JSON.stringify({
+    essence: '我越来越觉得，制度不是写在纸上的条文，而是谁出粮、谁出人、谁记账这一串具体关系；条文只是最后写下来的那一层。',
+    beliefs: [{ claim: '赋税和兵役的征收方式会反过来改变土地关系', confidence: 'medium', basis: 'secondary', evidence: '金史食货志' }],
+    concepts: [{ term: '制度', definition: '一层层具体安排，不是口号', example: '牛具税地' }],
+    questions: [{ question: '灾年募兵到底算救荒还是添乱' }],
+    changed: '以前把制度当条文，现在当关系',
+  }))
+  assert.equal(synth.ok, true)
+  const applied = wv.applyWorldviewSynthesis(empty, synth, 123)
+  assert.equal(applied.state.beliefs.length, 1)
+  assert.equal(applied.state.essay.version, 1)
+  const synth2 = wv.parseWorldviewSynthesis(JSON.stringify({
+    essence: '第二版：制度是关系，但关系也会被观念反过来塑形；这两层不能只剩一层。',
+    beliefs: [{ claim: '赋税和兵役的征收方式会改变土地关系', confidence: 'high', basis: 'primary', evidence: '新的材料' }],
+    concepts: [],
+    questions: [],
+    changed: '把一个判断从“中”提到“高”',
+  }))
+  const applied2 = wv.applyWorldviewSynthesis(applied.state, synth2, 456)
+  assert.equal(applied2.state.beliefs.length, 1)
+  assert.equal(applied2.state.beliefs[0].confidence, 'high')
+  assert.equal(applied2.state.beliefs[0].timesRevised, 1)
+  assert.equal(applied2.state.essay.version, 2)
+  const digest = wv.formatWorldviewDigest(applied2.state)
+  assert.ok(digest.some((line) => /世界观/.test(line)))
+  const prompt = wv.buildWorldviewSynthesisPrompt({
+    state: applied2.state,
+    learning: ['学到一条'],
+    methodology: ['规则一'],
+    bookshelf: ['书一本'],
+    selfFacts: ['一个自我短句'],
+  })
+  assert.match(prompt, /你最近自学到的/)
+  assert.match(prompt, /只输出严格 JSON/)
+})

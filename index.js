@@ -64,6 +64,7 @@ import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from '.
 import { createOutbox } from './lib/outbox.mjs'
 import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
+import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
@@ -412,6 +413,94 @@ export async function apply(ctx) {
         projectsPath: resolveProjectsPath(env, home),
         videoCoursesDir: resolveVideoCoursesDir(env, home),
       })
+      // v2.75：世界观档案（她信什么/怎么定义概念/还没弄明白什么/成文的“世界怎么运作”）。
+      const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
+      const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
+      memoryRecall.digest = (context = {}) => {
+        try {
+          return { ...memoryRecallDigestRaw(context), worldview: worldview.digest() }
+        } catch {
+          return memoryRecallDigestRaw(context)
+        }
+      }
+      // 每周整理一版世界观：从最近自学、方法规则、书架、自我短句里重写；启动 5 分钟后先跑一次。
+      const synthesizeWorldview = async ({ reason = 'weekly' } = {}) => {
+        try {
+          const state = worldview.snapshot()
+          let digest = {}
+          try {
+            digest = memoryRecall.digest({})
+          } catch {
+            digest = {}
+          }
+          let rules = []
+          try {
+            const raw = JSON.parse(readFileSync(path.join(settingsPath.dir, 'methodology.json'), 'utf8'))
+            rules = (Array.isArray(raw.rules) ? raw.rules : [])
+              .map((item) => String(item && item.statement ? item.statement : ''))
+              .filter((item) => item.length > 0)
+              .slice(-5)
+          } catch {
+            rules = []
+          }
+          const prompt = buildWorldviewSynthesisPrompt({
+            state,
+            learning: Array.isArray(digest.learned) ? digest.learned : [],
+            methodology: rules,
+            bookshelf: Array.isArray(digest.shelf) ? digest.shelf : [],
+            selfFacts: Array.isArray(digest.selfFacts) ? digest.selfFacts : [],
+          })
+          const result = await callModelForRole({
+            role: 'growth',
+            policy: modelPolicy,
+            resolveLlm: getLlm,
+            system: '你是小鲸鱼，在整理自己的世界观；只输出严格 JSON，不写套话。',
+            prompt,
+            maxTokens: 1800,
+            timeoutMs: 60000,
+            timeoutCode: 'WORLDVIEW_TIMEOUT',
+            timeoutMessage: '世界观整理超时',
+            prefix: '世界观整理候选失败',
+            modelErrorsPath,
+            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
+          })
+          const parsed = result === null ? null : parseWorldviewSynthesis(result.text)
+          if (parsed === null) {
+            logger?.warn?.('[dsh-little-whale] 世界观整理没有产出可用 JSON')
+            return { ok: false, reason: 'no-output', reasonTag: reason }
+          }
+          const applied = worldview.apply(parsed)
+          const version = worldview.snapshot().essay.version
+          try {
+            await journal.append({
+              kind: 'thought',
+              text: `世界观第 ${version} 版整理好了${parsed.changed ? `：${parsed.changed}` : ''}`,
+            })
+          } catch {
+            /* ignore */
+          }
+          logger?.info?.(`[dsh-little-whale] 世界观整理：第 ${version} 版，改动 ${applied.changed} 处`)
+          return { ok: true, version, changed: applied.changed }
+        } catch (error) {
+          return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+        }
+      }
+      if (String(env.DSH_POETRY_WORLDVIEW || '').toLowerCase() !== 'off') {
+        let worldviewTimer = setTimeout(async () => {
+          await synthesizeWorldview({ reason: 'first' })
+          worldviewTimer = setInterval(() => synthesizeWorldview({ reason: 'weekly' }), 7 * 24 * 60 * 60 * 1000)
+          worldviewTimer.unref?.()
+        }, 5 * 60 * 1000)
+        worldviewTimer.unref?.()
+        disposers.push(() => {
+          try {
+            clearTimeout(worldviewTimer)
+            clearInterval(worldviewTimer)
+          } catch {
+            /* ignore */
+          }
+        })
+      }
       // v2.67：她最近读到/学到的（自学、书架、读记）——自处/心情/聊天共用同一份提示，
       // 让“看过的资料”真的反哺行为、语言和心情，而不是只躺在 journal 里。
       const latestReadText = () => {
@@ -985,6 +1074,10 @@ export async function apply(ctx) {
           lifecycle: selfLifecycle.snapshot(),
           twin: { enabled: true },
           webBench: webBench.snapshot(),
+          worldview: (() => {
+            const snap = worldview.snapshot()
+            return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, essayAt: snap.essay.at }
+          })(),
         }),
         env,
         home,
