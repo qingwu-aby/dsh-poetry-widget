@@ -11833,3 +11833,17 @@ test('gui-push v2.79.2：优先用 session prompt 推送', async () => {
   assert.equal(saved.last.ok, true)
   assert.equal(saved.last.via, 'prompt')
 })
+
+test('gui-push v2.79.3：workspace 里的 session- 前缀 id 也能找到', async () => {
+  const guiPushModule = await import('../lib/gui-push.mjs')
+  const dir = makeTmpDir('dshp-gui-push-prefix')
+  const cwd = '/tmp/dshp-whale-prefix'
+  const sessionsRoot = path.join(dir, 'sessions')
+  const wsDir = path.join(sessionsRoot, guiPushModule.sessionDirName(cwd))
+  const sessionDir = path.join(wsDir, 'session-abc123')
+  fs.mkdirSync(sessionDir, { recursive: true })
+  fs.writeFileSync(path.join(sessionDir, 'session.v4.jsonl.zstd'), 'x')
+  const workspaceFile = path.join(dir, 'workspace.json')
+  fs.writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, sessionIds: ['session-abc123'] } } } }))
+  assert.equal(guiPushModule.findRelaySessionId({ workspaceFile, sessionsRoot, workspacePath: cwd }), 'abc123')
+})
