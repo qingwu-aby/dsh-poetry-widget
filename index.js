@@ -65,6 +65,7 @@ import { createOutbox } from './lib/outbox.mjs'
 import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
+import { createLocalVoice } from './lib/local-voice.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
@@ -323,6 +324,15 @@ export async function apply(ctx) {
         }
       }
       const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
+      // v2.80：本地权重模型的「口吻层」（试用）。DSH_POETRY_LOCAL_VOICE=on|chat|mood 开启；
+      // 失败/超时/胡话一律保留原句，不影响正常链路。
+      const localVoiceMode = String(env.DSH_POETRY_LOCAL_VOICE ?? '').toLowerCase()
+      const localVoice = createLocalVoice({
+        enabled: localVoiceMode === 'on' || localVoiceMode === 'chat' || localVoiceMode === 'mood',
+        baseURL: String(env.DSH_POETRY_LOCAL_VOICE_URL || 'http://127.0.0.1:8080/v1'),
+        model: String(env.DSH_POETRY_LOCAL_VOICE_MODEL || ''),
+        logger,
+      })
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
       const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v2.73（改造 C）：每周一次“真实网页小测”——找原文/核年份/对冲突/只有目录/承认查不到。
@@ -1090,7 +1100,27 @@ export async function apply(ctx) {
         settingsFile: settingsPath.file,
         weatherService,
         selfTalkService,
-        moodAiService,
+        moodAiService: {
+          ...moodAiService,
+          async generate(context, options) {
+            const result = await moodAiService.generate(context, options)
+            if (
+              result &&
+              result.ok === true &&
+              result.mood &&
+              typeof result.mood.reason === 'string' &&
+              (localVoiceMode === 'on' || localVoiceMode === 'mood')
+            ) {
+              try {
+                const polished = await localVoice.polish(result.mood.reason, { maxChars: 40 })
+                if (polished !== null) result.mood.reason = polished
+              } catch {
+                /* 保留原句 */
+              }
+            }
+            return result
+          },
+        },
         journal,
         feihuaFullService,
         getSelfState: () => selfState.snapshot(),
@@ -1123,6 +1153,7 @@ export async function apply(ctx) {
           twin: { enabled: twinEnabled },
           webBench: webBench.snapshot(),
           guiPush: guiPush.snapshot(),
+          localVoice: localVoice.snapshot(),
           worldview: (() => {
             const snap = worldview.snapshot()
             return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, contradictions: snap.contradictions.filter((item) => item.status === 'open').length, essayAt: snap.essay.at }
@@ -1278,6 +1309,20 @@ export async function apply(ctx) {
                     })
                   : { ok: false, error: 'unavailable' }
                 if (result && result.ok === true && imagePayload) result.images = [imagePayload]
+                if (
+                  result &&
+                  result.ok === true &&
+                  (localVoiceMode === 'on' || localVoiceMode === 'chat') &&
+                  typeof result.reply === 'string' &&
+                  Array.from(result.reply).length >= 4
+                ) {
+                  try {
+                    const polished = await localVoice.polish(result.reply, { maxChars: 240 })
+                    if (polished !== null) result.reply = polished
+                  } catch {
+                    /* 保留原句 */
+                  }
+                }
                 return result
               },
             },

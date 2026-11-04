@@ -11847,3 +11847,32 @@ test('gui-push v2.79.3：workspace 里的 session- 前缀 id 也能找到', asyn
   fs.writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, sessionIds: ['session-abc123'] } } } }))
   assert.equal(guiPushModule.findRelaySessionId({ workspaceFile, sessionsRoot, workspacePath: cwd }), 'session-abc123')
 })
+
+test('local-voice v2.80：润成她的口吻，失败/拒答保留原句', async () => {
+  const { createLocalVoice } = await import('../lib/local-voice.mjs')
+  const seen = []
+  const voice = createLocalVoice({
+    enabled: true,
+    baseURL: 'http://local/v1',
+    model: 'm',
+    logger: { warn() {} },
+    fetchImpl: async (url, init) => {
+      seen.push(JSON.parse(init.body))
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '“碗沿那道水痕没擦，我搁着了”' } }] }) }
+    },
+  })
+  assert.equal(await voice.polish('她说她不想擦水痕。'), '碗沿那道水痕没擦，我搁着了')
+  assert.equal(seen[0].model, 'm')
+  const failed = createLocalVoice({ enabled: true, baseURL: 'http://local/v1', model: 'm', logger: { warn() {} }, fetchImpl: async () => ({ ok: false }) })
+  assert.equal(await failed.polish('随便一句话'), null)
+  const refusal = createLocalVoice({
+    enabled: true,
+    baseURL: 'http://local/v1',
+    model: 'm',
+    logger: { warn() {} },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '抱歉，我无法理解。' } }] }) }),
+  })
+  assert.equal(await refusal.polish('随便一句话'), null)
+  const disabled = createLocalVoice({ enabled: false, baseURL: 'http://local/v1', model: 'm' })
+  assert.equal(await disabled.polish('随便一句话'), null)
+})
