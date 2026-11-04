@@ -11876,3 +11876,17 @@ test('local-voice v2.80：润成她的口吻，失败/拒答保留原句', async
   const disabled = createLocalVoice({ enabled: false, baseURL: 'http://local/v1', model: 'm' })
   assert.equal(await disabled.polish('随便一句话'), null)
 })
+
+test('agent-loop-runner v2.81：命令行/会话 id/凭据解析与默认关闭', async () => {
+  const runner = await import('../lib/agent-loop-runner.mjs')
+  assert.equal(runner.parseSessionIdFromLine('{"type":"session","sessionId":"session-abc"}'), 'session-abc')
+  assert.equal(runner.parseSessionIdFromLine('not json'), null)
+  const env = runner.buildAgentLoopEnv({ PATH: '/bin' }, 'sk-1')
+  assert.equal(env.OPENCODE_GO_API_KEY, 'sk-1')
+  assert.equal(env.PATH, '/bin')
+  const disabled = runner.createAgentLoopRunner({ enabled: true, env: {} })
+  assert.equal(disabled.snapshot().enabled, false)
+  const enabled = runner.createAgentLoopRunner({ env: { DSH_AGENT_LOOP: 'on' }, promptFile: '/nonexistent-prompt.md' })
+  assert.equal(enabled.snapshot().enabled, true)
+  assert.equal((await enabled.runOnce()).reason, 'no-prompt')
+})

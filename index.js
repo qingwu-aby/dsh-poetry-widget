@@ -66,6 +66,7 @@ import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
+import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
@@ -362,6 +363,10 @@ export async function apply(ctx) {
       })
       webBench.start()
       disposers.push(() => webBench.stop())
+      // v2.81：常驻自进化巡检（宿主内 spawn，TCC 友好）；默认关，DSH_AGENT_LOOP=on 开启。
+      const agentLoop = createAgentLoopRunner({ home, env, logger })
+      agentLoop.start()
+      disposers.push(() => agentLoop.stop())
       // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
       const mediaBudget = createMediaBudget({ file: resolveMediaBudgetPath(env, home) })
       const selfWorks = createSelfWorks({
@@ -1152,6 +1157,7 @@ export async function apply(ctx) {
           lifecycle: selfLifecycle.snapshot(),
           twin: { enabled: twinEnabled },
           webBench: webBench.snapshot(),
+          agentLoop: agentLoop.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),
           worldview: (() => {
