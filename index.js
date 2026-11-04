@@ -726,13 +726,18 @@ export async function apply(ctx) {
         sendPrompt: async (sessionId, text) => {
           const controller = host.get(hostCtx, 'sessionController')
           if (!controller || typeof controller.prompt !== 'function') throw new Error('sessionController 不可用')
-          await controller.prompt({
-            requestId: `whale-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            sessionId,
-            mode: 'queue',
-            content: [{ type: 'text', text }],
-            clientTimeZone: 'Asia/Shanghai',
-          })
+          // prompt 的实现会调用 signal.throwIfAborted()，必须传一个真实的 AbortSignal。
+          const abort = new AbortController()
+          await controller.prompt(
+            {
+              requestId: `whale-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              sessionId,
+              mode: 'queue',
+              content: [{ type: 'text', text }],
+              clientTimeZone: 'Asia/Shanghai',
+            },
+            abort.signal,
+          )
         },
       })
       guiPush.start()

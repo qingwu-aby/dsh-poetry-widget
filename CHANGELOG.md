@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **修 prompt 缺 AbortSignal（v2.79.4）**：`sessionController.prompt` 实现里会调用 `signal.throwIfAborted()`；之前没传 signal → `TypeError: Cannot read properties of undefined (reading throwIfAborted)`，推送全部失败。现在每次投递新建 AbortController 并传 signal。失败原因已能在 `gui-push-state.json` 看到。476/476。
 - **修好推送找不到会话（v2.79.3）**：`workspace.json` 里 sessionIds 带 `session-` 前缀，而会话目录名是 `session-<裸id>`，之前拼成了 `session-session-…` → 永远找不到会话，ping 静默返回 no-session（schedule 路径也一样）。已归一化 id；no-session 也写入 gui-push-state.json。476/476。
 - **改用 sessionController 直接投递（v2.79.2）**：`schedule` 服务在宿主里预约不成功（无日志可查），改为优先用 `sessionController.prompt` 向「小鲸鱼（对话）」最新会话直接入队一条【小鲸鱼留言检查】；失败再回落 schedule。推送状态写 `gui-push-state.json`（last: via/ok/reason），便于排查。475/475。
 - **修好对话推送（v2.79.1）**：`schedule` 服务不在插件 inject 列表里，`hostCtx.get("schedule")` 拿不到 → 推送从未真正预约（队列里 4 条留言从 14:49 起一直没送达）。inject 加入 `schedule`，并给 gui-push 加补投循环（每 5 分钟检查队列，有留言就预约；启动 20 秒后先查一次）。474/474。
