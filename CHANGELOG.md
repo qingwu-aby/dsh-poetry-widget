@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **修好对话推送（v2.79.1）**：`schedule` 服务不在插件 inject 列表里，`hostCtx.get("schedule")` 拿不到 → 推送从未真正预约（队列里 4 条留言从 14:49 起一直没送达）。inject 加入 `schedule`，并给 gui-push 加补投循环（每 5 分钟检查队列，有留言就预约；启动 20 秒后先查一次）。474/474。
 - **停用镜像（v2.79）**：primary 里的 twin 系统默认关闭（`DSH_POETRY_TWIN=on` 可恢复），profile 里的 `dsh-little-whale-twin` bundle 已禁用，`/twin.json` 返回 `{enabled:false}`；镜像的独立记忆/信件数据保留不删。正史大纲（curriculum）只服务于 twin 研究，停用镜像后她不再被大纲约束，学什么由她自己从接触到的东西里决定。
 - **真实世界窗口（v2.79）**：netlang 新增公开 RSS/Atom 来源（少数派、BBC 中文、36氪、Hacker News RSS、阮一峰），`safe-web` 新增 `parseRssFeed`（RSS2.0/Atom，取标题/链接/摘要）；wander 早已按她的“最近在琢磨什么”做 web 搜索并顺着链接走；现在她的外界从“热搜词”扩展到“真实文章标题与摘要”。473/473。
 - **去掉静默时段（v2.78）**：主动消息不再受 23:00–08:00 限制，默认全天可发；如需恢复，设 `DSH_POETRY_PROACTIVE_QUIET_HOURS=23-8`（支持跨午夜区间）。472/472。

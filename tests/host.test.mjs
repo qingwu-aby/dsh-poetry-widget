@@ -11762,3 +11762,36 @@ test('safe-web v2.79：RSS/Atom 解析与真实世界来源', async () => {
   assert.ok(fetched)
   assert.deepEqual(fetched.titles, ['少数派文章'])
 })
+
+test('gui-push v2.79：队列里还有留言时会补投', async () => {
+  const guiPushModule = await import('../lib/gui-push.mjs')
+  const dir = makeTmpDir('dshp-gui-push-catchup')
+  const cwd = '/tmp/dshp-whale-catchup'
+  const sessionsRoot = path.join(dir, 'sessions')
+  const wsDir = path.join(sessionsRoot, guiPushModule.sessionDirName(cwd))
+  const sessionDir = path.join(wsDir, 'session-live')
+  fs.mkdirSync(sessionDir, { recursive: true })
+  fs.writeFileSync(path.join(sessionDir, 'session.v4.jsonl.zstd'), 'x')
+  const workspaceFile = path.join(dir, 'workspace.json')
+  fs.writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, sessionIds: ['live'] } } } }))
+  const created = []
+  const guiPush = guiPushModule.createGuiPush({
+    schedule: {
+      list: async () => [],
+      create: async (sessionId, request) => {
+        created.push({ sessionId, request })
+        return { id: 's1' }
+      },
+    },
+    workspaceFile,
+    sessionsRoot,
+    workspacePath: cwd,
+    logger: null,
+    getPendingCount: () => 2,
+  })
+  guiPush.start({ firstMs: 5, intervalMs: 20 })
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  guiPush.stop()
+  assert.ok(created.length >= 1)
+  assert.equal(created[0].sessionId, 'live')
+})

@@ -223,7 +223,7 @@ export async function apply(ctx) {
     logger?.warn?.(`[dsh-little-whale] 旧 experience.json 处理失败：${error instanceof Error ? error.message : String(error)}`)
   }
 
-  host.inject(['webServer', 'connection'], (hostCtx) => {
+  host.inject(['webServer', 'connection', 'schedule'], (hostCtx) => {
     /** @type {Array<() => void>} */
     const disposers = []
     try {
@@ -715,7 +715,16 @@ export async function apply(ctx) {
         workspaceFile: path.join(home, '.dsh', 'storages', 'workspace.json'),
         sessionsRoot: path.join(home, '.dsh', 'sessions'),
         workspacePath: String(env.DSH_POETRY_PUSH_WORKSPACE || path.join(home, 'Documents', 'little-whale-chat')),
+        getPendingCount: () => {
+          try {
+            return guiInbox.peek().length
+          } catch {
+            return 0
+          }
+        },
       })
+      guiPush.start()
+      disposers.push(() => guiPush.stop())
       const queueGuiMessage = (text, meta = {}) => {
         try {
           guiInbox.push({
