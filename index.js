@@ -1068,15 +1068,23 @@ export async function apply(ctx) {
           handler: createChatHandler({
             service: {
               chat: async (input) => {
-                const result = typeof chatBridge.chat === 'function' ? await chatBridge.chat(input) : { ok: false, error: 'unavailable' }
-                if (result && result.ok === true && shouldSendChatImage(input && input.text)) {
+                const asksImage = shouldSendChatImage(input && input.text)
+                let imagePayload = null
+                if (asksImage) {
                   try {
-                    const payload = chatImagePayload(pickLatestWorkImage(path.join(memoryDir, 'works')))
-                    if (payload) result.images = [payload]
+                    imagePayload = chatImagePayload(pickLatestWorkImage(path.join(memoryDir, 'works')))
                   } catch {
-                    result.images = []
+                    imagePayload = null
                   }
                 }
+                const result = typeof chatBridge.chat === 'function'
+                  ? await chatBridge.chat({
+                      ...input,
+                      imageRequested: asksImage,
+                      imageHint: imagePayload ? { name: imagePayload.name } : null,
+                    })
+                  : { ok: false, error: 'unavailable' }
+                if (result && result.ok === true && imagePayload) result.images = [imagePayload]
                 return result
               },
             },

@@ -11508,3 +11508,22 @@ test('self-drive v2.71：可以自己决定去查网页/搜东西', () => {
   assert.equal(bad.ok, true)
   assert.equal(bad.browse, undefined)
 })
+
+test('chat-bridge v2.72：要图时她知道图会附上，不再说发不了', async () => {
+  const dir = makeTmpDir('dshp-chat-image-hint')
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '给你看我最近画的这张。' }))
+  const bridge = createChatBridge({
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async () => {} },
+    selfState: { snapshot: () => ({ felt: '醒着' }) },
+    recall: { digest: () => ({}) },
+    stateDir: dir,
+    logger: { warn() {} },
+    now: () => FIXED_NOW.getTime(),
+  })
+  await bridge.chat({ text: '发张图看看', peerId: 'gui', imageRequested: true, imageHint: { name: 'work.png' } })
+  const sent = JSON.stringify(llm.calls[0])
+  assert.match(sent, /自动把你最近的一张作品（work\.png）/)
+  assert.match(sent, /绝对不要说“发不了图/)
+})

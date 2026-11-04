@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **发图时的自我认知（v2.72）**：聊天前先判断要不要附图；要图时把「这次会附上你最近一张作品（文件名）」写进她的 prompt，并明确禁止说“发不了图/画不出来”；没有可发作品时如实说没有，不编。465/465。
 - **自由浏览网页 + 预算上调（v2.71）**：自处输出新增 `browse`（公开 http/https 网址）与 `search`（想搜的一句话）；她自己决定去看时，宿主用 safe-web 打开（任意公开站、SSRF 保护不变），把正文摘录写进 journal，抓取结果同时进 worldFeedback；搜索在 DeepSeek/SearXNG 不可用时先试 DuckDuckGo、Bing，再回落维基。单次 token 下限整体上调：mood 1600→2400、selfTalk 1200→1800、growth 1600→2600、drive 1200→2200、probe/wander/netlang→2000、read/consolidate/voice→2200，缓解 thinking 吃满预算导致的 EMPTY_RESPONSE。实测任意公开页可抓（少数派、BBC 中文 200）。464/464。
 - **对话里能发图了（v2.70）**：新增 `lib/chat-media.mjs`——从她的作品目录挑最近一张可用图（SVG 用 rsvg-convert 转 PNG）；只在“发张图/看看你画的/拍一张”这类话时随回复附带；传话插件用宿主 attachments 服务渲染成图片附件（工具卡里显示）。463/463。
 - **消息改走 DSH 对话，不再发 QQ（v2.69）**：新增 `lib/gui-inbox.mjs`（她攒着想说的话，最多 20 条）；主动消息/放行的注意力草稿不再用 QQ，先排队；传话工具下一次调用时把队列内容一并带出（每条一行，带完即清），聊天措辞去掉 QQ 字样（thread/日志改“对话”）。同一轮把 `dsh-little-whale-qq` 升级到 0.1.1，新增网页对话 preset「小鲸鱼（对话）」（peerId=gui）；0.1.2 起传话层会带 pending。462/462。
