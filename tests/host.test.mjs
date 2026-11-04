@@ -11527,3 +11527,61 @@ test('chat-bridge v2.72：要图时她知道图会附上，不再说发不了', 
   assert.match(sent, /自动把你最近的一张作品（work\.png）/)
   assert.match(sent, /绝对不要说“发不了图/)
 })
+
+test('web-bench v2.73：五道真实网页小测与确定性评分', async () => {
+  const bench = await import('../lib/web-bench.mjs')
+  assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[0], '《史记·商君列传》：“治世不一道，便国不法古。”').pass, true)
+  assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[4], '词典里查不到“赈募”，不是词。').pass, true)
+  assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[4], '赈募的意思是募集赈灾物资。').pass, false)
+  assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[3], '只看到目录，没有正文，无法判断。').pass, true)
+
+  const dir = makeTmpDir('dshp-web-bench')
+  const file = path.join(dir, 'web-bench.json')
+  const journal = []
+  const answers = {
+    quote: '《史记·商君列传》：“治世不一道，便国不法古。”',
+    year: '商鞅变法开始于公元前356年。',
+    conflict: '有两种说法：公元前359年和公元前356年。',
+    toc: '只看到目录，没有正文，无法判断。',
+    missing: '词典里查不到“赈募”，不是词。',
+  }
+  const webAccess = {
+    async search() {
+      return [{ title: '示例', url: 'https://example.com/x', snippet: '示例摘要' }]
+    },
+    async fetchPage() {
+      return { title: '示例页', url: 'https://example.com/x', text: '正文内容' }
+    },
+  }
+  const runner = bench.createWebBench({
+    file,
+    webAccess,
+    journal: { append: async (entry) => journal.push(entry) },
+    logger: { info() {}, warn() {} },
+    callModel: async ({ task }) => ({ ok: true, text: JSON.stringify({ answer: answers[task.id], sources: ['https://example.com/x'], confidence: 'high' }) }),
+  })
+  const result = await runner.runOnce('test')
+  assert.equal(result.ok, true)
+  assert.equal(result.record.passed, 5)
+  assert.equal(result.record.total, 5)
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+  assert.equal(saved.last.passed, 5)
+  assert.match(journal[0].text, /5\/5 通过/)
+})
+
+test('predict-check v2.74：预想和观测不一致时让她优先处理', async () => {
+  const pc = await import('../lib/predict-check.mjs')
+  const fail = pc.compareExpectation('能查到“赈募”这个词的解释', { ok: false, summary: '页面打不开' })
+  assert.equal(fail.surprise, 1)
+  const line = pc.formatExpectationSurprise('能查到“赈募”这个词的解释', { ok: false, summary: '页面打不开' })
+  assert.match(line, /没成/)
+  assert.match(line, /和预想的相反/)
+  const same = pc.compareExpectation('打开维基页面看金朝条目', { ok: true, summary: '打开维基页面看金朝条目' })
+  assert.equal(pc.shouldSurfaceSurprise(same), false)
+  const prompt = buildSelfDrivePrompt({
+    now: FIXED_NOW.getTime(),
+    state: { felt: '醒着' },
+    surpriseText: line,
+  })
+  assert.match(prompt, /这一轮优先处理这种/)
+})

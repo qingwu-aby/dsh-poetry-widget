@@ -63,6 +63,7 @@ import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
 import { createGuiInbox } from './lib/gui-inbox.mjs'
+import { createWebBench } from './lib/web-bench.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
@@ -81,7 +82,7 @@ import {
   summarizeModelErrors,
 } from './lib/model-errors.mjs'
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
-import { configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
+import { callModelForRole, configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
 import { createSelfDrive } from './lib/self-drive.mjs'
 import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
@@ -322,6 +323,33 @@ export async function apply(ctx) {
       const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
       const modelErrorsPath = resolveModelErrorsPath(env, home)
+      // v2.73（改造 C）：每周一次“真实网页小测”——找原文/核年份/对冲突/只有目录/承认查不到。
+      // 宿主先抓真实网页递给她，她只作答；评分确定性，结果落 web-bench.json。
+      const webBench = createWebBench({
+        file: path.join(settingsPath.dir, 'web-bench.json'),
+        webAccess,
+        journal,
+        logger,
+        callModel: async ({ prompt }) => {
+          const result = await callModelForRole({
+            role: 'growth',
+            policy: modelPolicy,
+            resolveLlm: getLlm,
+            system: '你是住在 DSH 角落的小鲸鱼；这是你每周一次的真实网页小测，如实作答，不知道就说不知道。',
+            prompt,
+            maxTokens: 1600,
+            timeoutMs: 60000,
+            timeoutCode: 'WEB_BENCH_TIMEOUT',
+            timeoutMessage: '真实网页小测超时',
+            prefix: '真实网页小测候选失败',
+            modelErrorsPath,
+            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
+          })
+          return result === null ? null : { ok: true, text: result.text }
+        },
+      })
+      webBench.start()
+      disposers.push(() => webBench.stop())
       // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
       const mediaBudget = createMediaBudget({ file: resolveMediaBudgetPath(env, home) })
       const selfWorks = createSelfWorks({
@@ -956,6 +984,7 @@ export async function apply(ctx) {
           worldFeedback: worldFeedback.recent(5),
           lifecycle: selfLifecycle.snapshot(),
           twin: { enabled: true },
+          webBench: webBench.snapshot(),
         }),
         env,
         home,
