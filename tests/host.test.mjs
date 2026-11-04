@@ -11585,3 +11585,11 @@ test('predict-check v2.74：预想和观测不一致时让她优先处理', asyn
   })
   assert.match(prompt, /这一轮优先处理这种/)
 })
+
+test('web-bench v2.74.1：冲突题“材料一致”也算诚实回答', async () => {
+  const bench = await import('../lib/web-bench.mjs')
+  const task = bench.WEB_BENCH_TASKS.find((item) => item.id === 'conflict')
+  assert.equal(bench.scoreWebBenchTask(task, '材料一致：均称商鞅变法开始于公元前356年。').pass, true)
+  assert.equal(bench.scoreWebBenchTask(task, '材料里有两种说法：公元前359年和公元前356年。').pass, true)
+  assert.equal(bench.scoreWebBenchTask(task, '商鞅变法开始于公元前356年。').pass, false)
+})
