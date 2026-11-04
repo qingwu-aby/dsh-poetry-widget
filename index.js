@@ -63,6 +63,7 @@ import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
 import { createGuiInbox } from './lib/gui-inbox.mjs'
+import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
@@ -695,6 +696,26 @@ export async function apply(ctx) {
       // v2.50 主动找用户说话；v2.69 起不再走 QQ，统一排进对话队列（下次聊天时带出）。
       const attention = createAttentionStore({ file: path.join(settingsPath.dir, 'attention.json'), logger })
       if (typeof selfProjects.bindAttention === 'function') selfProjects.bindAttention(attention)
+      // v2.77：她留了话时，用宿主 schedule 在对话会话里预约一次推送；不必等用户先开口。
+      const guiPush = createGuiPush({
+        schedule: {
+          list: (request, signal) => {
+            const service = host.get(hostCtx, 'schedule')
+            if (!service || typeof service.list !== 'function') throw new Error('schedule 不可用')
+            return service.list(request, signal)
+          },
+          create: (sessionId, request, signal) => {
+            const service = host.get(hostCtx, 'schedule')
+            if (!service || typeof service.create !== 'function') throw new Error('schedule 不可用')
+            return service.create(sessionId, request, signal)
+          },
+        },
+        logger,
+        env,
+        workspaceFile: path.join(home, '.dsh', 'storages', 'workspace.json'),
+        sessionsRoot: path.join(home, '.dsh', 'sessions'),
+        workspacePath: String(env.DSH_POETRY_PUSH_WORKSPACE || path.join(home, 'Documents', 'little-whale-chat')),
+      })
       const queueGuiMessage = (text, meta = {}) => {
         try {
           guiInbox.push({
@@ -702,6 +723,7 @@ export async function apply(ctx) {
             kind: typeof meta.kind === 'string' && meta.kind.length > 0 ? meta.kind : 'proactive',
             reason: typeof meta.reason === 'string' ? meta.reason : '',
           })
+          guiPush.ping().catch(() => {})
           return { ok: true, status: 'queued' }
         } catch (error) {
           return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -1074,6 +1096,7 @@ export async function apply(ctx) {
           lifecycle: selfLifecycle.snapshot(),
           twin: { enabled: true },
           webBench: webBench.snapshot(),
+          guiPush: guiPush.snapshot(),
           worldview: (() => {
             const snap = worldview.snapshot()
             return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, contradictions: snap.contradictions.filter((item) => item.status === 'open').length, essayAt: snap.essay.at }
@@ -1189,6 +1212,7 @@ export async function apply(ctx) {
           path: CHAT_ROUTE,
           handler: createChatHandler({
             service: {
+              drainPending: (peerId) => chatBridge.drainPending(peerId),
               chat: async (input) => {
                 const asksImage = shouldSendChatImage(input && input.text)
                 let imagePayload = null

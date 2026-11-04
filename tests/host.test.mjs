@@ -11662,3 +11662,72 @@ test('worldview v2.76：反证降置信与矛盾账', async () => {
   const digest = wv.formatWorldviewDigest(applied.state)
   assert.ok(digest.some((line) => /自相矛盾/.test(line)))
 })
+
+test('chat-bridge v2.77：drainOnly 只取留言不叫她', async () => {
+  const dir = makeTmpDir('dshp-drain-only')
+  const taken = []
+  const bridge = createChatBridge({
+    llm: makeMockLlm(() => JSON.stringify({ reply: '不该被调用' })),
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async () => {} },
+    selfState: { snapshot: () => ({ felt: '醒着' }) },
+    recall: { digest: () => ({}) },
+    stateDir: dir,
+    logger: { warn() {} },
+    takePending: (peerId) => {
+      taken.push(peerId)
+      return ['她留的第一句', '第二句']
+    },
+  })
+  const result = await bridge.drainPending('gui')
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.pending, ['她留的第一句', '第二句'])
+  assert.deepEqual(taken, ['gui'])
+})
+
+test('gui-push v2.77：找到分组里最新会话并只预约一次', async () => {
+  const guiPushModule = await import('../lib/gui-push.mjs')
+  const dir = makeTmpDir('dshp-gui-push')
+  const cwd = '/tmp/dshp-whale-chat'
+  const sessionsRoot = path.join(dir, 'sessions')
+  const wsDir = path.join(sessionsRoot, guiPushModule.sessionDirName(cwd))
+  fs.mkdirSync(wsDir, { recursive: true })
+  const older = path.join(wsDir, 'session-older')
+  const newer = path.join(wsDir, 'session-newer')
+  for (const sessionDir of [older, newer]) {
+    fs.mkdirSync(sessionDir, { recursive: true })
+    fs.writeFileSync(path.join(sessionDir, 'session.v4.jsonl.zstd'), 'x')
+  }
+  const now = Date.now()
+  fs.utimesSync(path.join(older, 'session.v4.jsonl.zstd'), new Date(now - 60000), new Date(now - 60000))
+  fs.utimesSync(path.join(newer, 'session.v4.jsonl.zstd'), new Date(now), new Date(now))
+  const workspaceFile = path.join(dir, 'workspace.json')
+  fs.writeFileSync(
+    workspaceFile,
+    JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, title: '鲸鱼对话', sessionIds: ['older', 'newer'] } } } }),
+  )
+  assert.equal(guiPushModule.findRelaySessionId({ workspaceFile, sessionsRoot, workspacePath: cwd }), 'newer')
+  const created = []
+  const guiPush = guiPushModule.createGuiPush({
+    schedule: {
+      list: async () => [],
+      create: async (sessionId, request) => {
+        created.push({ sessionId, request })
+        return { id: 's1' }
+      },
+    },
+    workspaceFile,
+    sessionsRoot,
+    workspacePath: cwd,
+    logger: null,
+    now: () => now,
+  })
+  const first = await guiPush.ping()
+  assert.equal(first.ok, true)
+  assert.equal(created.length, 1)
+  assert.equal(created[0].sessionId, 'newer')
+  assert.match(created[0].request.prompt, /drainOnly/)
+  const second = await guiPush.ping()
+  assert.equal(second.ok, false)
+  assert.equal(second.reason, 'recent')
+})

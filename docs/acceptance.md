@@ -232,3 +232,4 @@
 | H129 | 世界观档案 | ✅ | beliefs/概念/问题/版本化essay + 周更 + prompt 注入；469/469 |
 | H130 | 方法规则 id 修复 | ✅ | 唯一 id/上限/历史数据去重；469/469 |
 | H131 | 矛盾账与反证降置信 | ✅ | contradictions/tension/自动降档/digest+health；470/470 |
+| H132 | 对话推送与频率 | ✅ | schedule 推送/drainOnly/20分钟间隔；472/472 |
