@@ -11880,6 +11880,8 @@ test('local-voice v2.80：润成她的口吻，失败/拒答保留原句', async
 test('agent-loop-runner v2.81：命令行/会话 id/凭据解析与默认关闭', async () => {
   const runner = await import('../lib/agent-loop-runner.mjs')
   assert.equal(runner.parseSessionIdFromLine('{"type":"session","sessionId":"session-abc"}'), 'session-abc')
+  assert.deepEqual(runner.buildAgentLoopArgs({ profile: 'resident', prompt: 'p', sessionId: null }), ['--profile', 'resident', '--json', 'p'])
+  assert.deepEqual(runner.buildAgentLoopArgs({ profile: 'resident', prompt: 'p', sessionId: 'session-x' }), ['--profile', 'resident', '--session-id', 'session-x', 'p'])
   assert.equal(runner.parseSessionIdFromLine('not json'), null)
   const env = runner.buildAgentLoopEnv({ PATH: '/bin' }, 'sk-1')
   assert.equal(env.OPENCODE_GO_API_KEY, 'sk-1')
