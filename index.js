@@ -1094,7 +1094,7 @@ export async function apply(ctx) {
           metabolism: selfMetabolism.snapshot(),
           worldFeedback: worldFeedback.recent(5),
           lifecycle: selfLifecycle.snapshot(),
-          twin: { enabled: true },
+          twin: { enabled: twinEnabled },
           webBench: webBench.snapshot(),
           guiPush: guiPush.snapshot(),
           worldview: (() => {
@@ -1168,43 +1168,64 @@ export async function apply(ctx) {
           handler: createPresenceHandler({ worldFeedback, logger }),
         }),
       )
-      // v2.28：复制一个小鲸鱼，并开启两封信件循环。
-      const twinSystem = createTwinSystem({
-        env,
-        home,
-        getLlm,
-        policy: modelPolicy,
-        modelErrorsPath,
-        logger,
-        primary: {
-          state: selfState,
-          journalPath: path.join(memoryDir, 'journal.jsonl'),
-          journal,
-          learningLogPath: path.join(memoryDir, 'learning-log.md'),
-          researchThreadFile: path.join(settingsPath.dir, 'research-thread.json'),
-          methodologyFile: path.join(settingsPath.dir, 'methodology.json'),
-          curriculumFile: path.join(settingsPath.dir, 'curriculum.json'),
-          webAccess,
-          twinWebAccess,
-        },
-      })
-      disposers.push(() => twinSystem.stop())
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/twin.json',
-          handler: async (req, res) => {
-            const body = JSON.stringify({ ok: true, ...twinSystem.status() })
-            res.writeHead(200, {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Cache-Control': 'no-store',
-              'Content-Length': String(Buffer.byteLength(body)),
-            })
-            res.end(body)
+      // v2.79：镜像停用——她不再需要另一个自己，直接去接触真实世界；DSH_POETRY_TWIN=on 可恢复。
+      const twinEnabled = String(env.DSH_POETRY_TWIN ?? '').toLowerCase() === 'on'
+      let twinSystem = null
+      if (twinEnabled) {
+        twinSystem = createTwinSystem({
+          env,
+          home,
+          getLlm,
+          policy: modelPolicy,
+          modelErrorsPath,
+          logger,
+          primary: {
+            state: selfState,
+            journalPath: path.join(memoryDir, 'journal.jsonl'),
+            journal,
+            learningLogPath: path.join(memoryDir, 'learning-log.md'),
+            researchThreadFile: path.join(settingsPath.dir, 'research-thread.json'),
+            methodologyFile: path.join(settingsPath.dir, 'methodology.json'),
+            curriculumFile: path.join(settingsPath.dir, 'curriculum.json'),
+            webAccess,
+            twinWebAccess,
           },
-        }),
-      )
-      twinSystem.start()
+        })
+        disposers.push(() => twinSystem.stop())
+        disposers.push(
+          webServer.register({
+            kind: 'exact',
+            path: '/api/dsh-poetry/twin.json',
+            handler: async (req, res) => {
+              const body = JSON.stringify({ ok: true, ...twinSystem.status() })
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store',
+                'Content-Length': String(Buffer.byteLength(body)),
+              })
+              res.end(body)
+            },
+          }),
+        )
+        twinSystem.start()
+      } else {
+        disposers.push(
+          webServer.register({
+            kind: 'exact',
+            path: '/api/dsh-poetry/twin.json',
+            handler: async (req, res) => {
+              const body = JSON.stringify({ ok: true, enabled: false, note: '镜像已停用' })
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Cache-Control': 'no-store',
+                'Content-Length': String(Buffer.byteLength(body)),
+              })
+              res.end(body)
+            },
+          }),
+        )
+        logger?.info?.('[dsh-little-whale] 镜像已停用（DSH_POETRY_TWIN=on 可恢复）')
+      }
       // QQ/外部聊天：POST + 本地 token；她的独立记忆回复。
       disposers.push(
         webServer.register({

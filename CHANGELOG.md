@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **停用镜像（v2.79）**：primary 里的 twin 系统默认关闭（`DSH_POETRY_TWIN=on` 可恢复），profile 里的 `dsh-little-whale-twin` bundle 已禁用，`/twin.json` 返回 `{enabled:false}`；镜像的独立记忆/信件数据保留不删。正史大纲（curriculum）只服务于 twin 研究，停用镜像后她不再被大纲约束，学什么由她自己从接触到的东西里决定。
+- **真实世界窗口（v2.79）**：netlang 新增公开 RSS/Atom 来源（少数派、BBC 中文、36氪、Hacker News RSS、阮一峰），`safe-web` 新增 `parseRssFeed`（RSS2.0/Atom，取标题/链接/摘要）；wander 早已按她的“最近在琢磨什么”做 web 搜索并顺着链接走；现在她的外界从“热搜词”扩展到“真实文章标题与摘要”。473/473。
 - **去掉静默时段（v2.78）**：主动消息不再受 23:00–08:00 限制，默认全天可发；如需恢复，设 `DSH_POETRY_PROACTIVE_QUIET_HOURS=23-8`（支持跨午夜区间）。472/472。
 - **对话推送 + 主动频率（v2.77）**：新增 `lib/gui-push.mjs`——她留话时用宿主 `schedule` 在「小鲸鱼（对话）」最新会话里预约一条【小鲸鱼留言检查】提醒，会话被激活后传话层用 `drainOnly` 调 `little_whale_chat` 把留言原样带出（不必等用户先开口）；同一条待投递只预约一次。传话工具新增 `drainOnly`，chat 服务新增 `drainPending`；主动频率 45→20 分钟、空闲门槛 30→15 分钟、首次 5→2 分钟。470+2 测试通过。
 - **矛盾账与反证降置信（v2.76）**：worldview 新增 `contradictions`（她发现的两条互相打架的判断，a/b/why/status=open）；被矛盾指到的信念会带上 `tension`；合成 prompt 要求“发现矛盾不要装作没看见”。遇到新反证（counter 变更）时，对应信念置信度自动降一档（high→medium→low），并记 `timesRevised`；digest 会把未解决的矛盾带进自处/聊天 prompt，health 暴露 open 数量。470/470。

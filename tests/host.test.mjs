@@ -253,6 +253,7 @@ import {
   fetchPublicPage,
   isPrivateAddress,
   parseDuckDuckGoResults,
+  parseRssFeed,
   parseSearxResults,
   parseWikipediaSearchPayload,
   resolvePublicAddress,
@@ -6925,7 +6926,7 @@ test('self-reading v1.67：读公版现代作品，留意写法并自己写一�
 
 test('self-netlang v1.68：只看公开热搜词学表达，不保存别人的原话', async () => {
   assert.equal(SELF_NETLANG_GAP_MS, 120 * 60 * 1000)
-  assert.deepEqual(SELF_NETLANG_SOURCES.map((source) => source.id), ['weibo', 'bilibili', 'hackernews', 'baidu', 'github'])
+  assert.deepEqual(SELF_NETLANG_SOURCES.map((source) => source.id), ['weibo', 'bilibili', 'hackernews', 'baidu', 'github', 'sspai', 'bbc-zh', '36kr', 'hn-rss', 'ruanyf'])
 
   const weiboPayload = {
     ok: 1,
@@ -11730,4 +11731,34 @@ test('gui-push v2.77：找到分组里最新会话并只预约一次', async () 
   const second = await guiPush.ping()
   assert.equal(second.ok, false)
   assert.equal(second.reason, 'recent')
+})
+
+test('safe-web v2.79：RSS/Atom 解析与真实世界来源', async () => {
+  const rss = `<?xml version="1.0"?><rss><channel>
+    <item><title><![CDATA[标题一 &amp; 符号]]></title><link>https://example.com/a</link><description>摘要&lt;a&gt;文本</description></item>
+    <item><title>标题二</title><link>https://example.com/b</link></item>
+  </channel></rss>`
+  const parsed = parseRssFeed(rss, 5)
+  assert.equal(parsed.length, 2)
+  assert.equal(parsed[0].title, '标题一 & 符号')
+  assert.equal(parsed[0].url, 'https://example.com/a')
+  assert.equal(parsed[0].summary, '摘要<a>文本')
+  const atom = `<feed><entry><title>Atom 一</title><link href="https://example.com/c"/><summary>摘要二</summary></entry></feed>`
+  const atomItems = parseRssFeed(atom, 5)
+  assert.equal(atomItems.length, 1)
+  assert.equal(atomItems[0].url, 'https://example.com/c')
+  const { fetchNetlangTitles, SELF_NETLANG_SOURCES } = await import('../lib/self-netlang.mjs')
+  const feedSource = SELF_NETLANG_SOURCES.find((source) => source.id === 'sspai')
+  const fetched = await fetchNetlangTitles({
+    source: feedSource,
+    fetchImpl: async () => ({
+      ok: true,
+      url: 'https://sspai.com/feed',
+      async text() {
+        return '<rss><channel><item><title>少数派文章</title><link>https://sspai.com/post/1</link></item></channel></rss>'
+      },
+    }),
+  })
+  assert.ok(fetched)
+  assert.deepEqual(fetched.titles, ['少数派文章'])
 })

@@ -234,3 +234,5 @@
 | H131 | 矛盾账与反证降置信 | ✅ | contradictions/tension/自动降档/digest+health；470/470 |
 | H132 | 对话推送与频率 | ✅ | schedule 推送/drainOnly/20分钟间隔；472/472 |
 | H133 | 去静默时段 | ✅ | 默认全天/可配环境变量；472/472 |
+| H134 | 停用镜像 | ✅ | twin 默认关/bundle 禁用/接口返回 disabled；473/473 |
+| H135 | 真实世界 RSS 窗口 | ✅ | parseRssFeed + 5 个真实来源；473/473 |
