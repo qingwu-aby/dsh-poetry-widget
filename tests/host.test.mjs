@@ -11496,3 +11496,15 @@ test('chat-media v2.70：问图时挑最近一张可用图', async () => {
   const payload = media.chatImagePayload(picked)
   assert.ok(payload && payload.dataBase64.length > 10)
 })
+
+test('self-drive v2.71：可以自己决定去查网页/搜东西', () => {
+  const parsed = parseSelfDriveResult(
+    JSON.stringify({ felt: '想查一下这个', doing: '', browse: 'https://example.com/a', search: '存在主义 与 现象学' }),
+  )
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.browse, 'https://example.com/a')
+  assert.equal(parsed.search, '存在主义 与 现象学')
+  const bad = parseSelfDriveResult(JSON.stringify({ felt: '想查一下这个', doing: '', browse: 'ftp://example.com/x' }))
+  assert.equal(bad.ok, true)
+  assert.equal(bad.browse, undefined)
+})

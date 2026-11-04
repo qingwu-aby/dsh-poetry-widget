@@ -249,6 +249,30 @@ export async function apply(ctx) {
               : `${observation.url}：${observation.error || '失败'}`,
           }),
       })
+
+      // v2.71：她想查网页/搜东西时，替她打开，并把看到的东西写进 journal（世界反馈另由 onFetch 记录）。
+      const browseForWhale = async (input = {}) => {
+        const url = typeof input.browse === 'string' ? input.browse.trim() : ''
+        const query = typeof input.search === 'string' ? input.search.trim() : ''
+        if (url.length === 0 && query.length === 0) return ''
+        let observation = ''
+        if (url.length > 0) {
+          const page = await webAccess.fetchPage(url)
+          const text = String(page.text || '').replace(/\s+/g, ' ').slice(0, 500)
+          observation = `我打开了 ${page.title || url}：${text}`
+        } else {
+          const results = await webAccess.search(query, { limit: 4 })
+          const lines = results.map((item) => `- ${item.title || ''} ${item.url || ''}${item.snippet ? `：${String(item.snippet).slice(0, 120)}` : ''}`)
+          observation = `我搜了「${query}」，看到：\n${lines.join('\n')}`.slice(0, 760)
+        }
+        if (observation.length === 0) return ''
+        try {
+          await journal.append({ kind: 'thought', text: observation.slice(0, 500) })
+        } catch {
+          /* 记忆写入失败不影响她这次出去看 */
+        }
+        return observation
+      }
       logger?.info?.(
         `[dsh-little-whale] 公网搜索：${deepseekWeb !== null ? 'DeepSeek Search/Fetch（有 key）' : 'Wikipedia（无 key，可用 DSH_POETRY_DEEPSEEK_API_KEY 升级）'}`,
       )
@@ -769,6 +793,7 @@ export async function apply(ctx) {
           }
         },
         getRecallDigest: readingDigest,
+        onBrowse: browseForWhale,
       })
       selfDrive.start({ heartbeat: true })
       heartbeat.add('自处', () => selfDrive.tick())
