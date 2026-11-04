@@ -11845,5 +11845,5 @@ test('gui-push v2.79.3：workspace 里的 session- 前缀 id 也能找到', asyn
   fs.writeFileSync(path.join(sessionDir, 'session.v4.jsonl.zstd'), 'x')
   const workspaceFile = path.join(dir, 'workspace.json')
   fs.writeFileSync(workspaceFile, JSON.stringify({ tables: { workspaces: { w1: { id: 'w1', path: cwd, sessionIds: ['session-abc123'] } } } }))
-  assert.equal(guiPushModule.findRelaySessionId({ workspaceFile, sessionsRoot, workspacePath: cwd }), 'abc123')
+  assert.equal(guiPushModule.findRelaySessionId({ workspaceFile, sessionsRoot, workspacePath: cwd }), 'session-abc123')
 })

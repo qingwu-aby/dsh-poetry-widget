@@ -240,3 +240,4 @@
 | H137 | prompt 直投推送 | ✅ | sessionController.prompt 优先/状态文件；475/475 |
 | H138 | 会话 id 前缀修复 | ✅ | session- 前缀归一化/no-session 落盘；476/476 |
 | H139 | prompt signal 修复 | ✅ | AbortController.signal 直投；476/476 |
+| H140 | 会话 id 形态修复 | ✅ | 目录用裸 id/服务用完整 SessionId；476/476 |
