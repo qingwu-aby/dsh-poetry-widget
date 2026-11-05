@@ -12034,3 +12034,14 @@ test('v2.96：要图的说法覆盖更广，被催图不再顶人', async () => 
     assert.equal(shouldSendChatImage(text), false, `不应识别为要图：${text}`)
   }
 })
+
+test('v2.97：自训练调度默认关闭、开启后有排期', async () => {
+  const { createSelfTrainer } = await import('../lib/self-trainer.mjs')
+  const off = createSelfTrainer({ env: {}, home: '/tmp' })
+  assert.equal(off.snapshot().enabled, false)
+  const on = createSelfTrainer({ env: { DSH_POETRY_SELF_TRAIN: 'on' }, home: '/tmp' })
+  assert.equal(on.snapshot().enabled, true)
+  on.stop()
+  const disabledRun = await off.runOnce()
+  assert.equal(disabledRun.reason, 'disabled')
+})

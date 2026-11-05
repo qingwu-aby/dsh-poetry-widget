@@ -68,6 +68,7 @@ import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
 import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
+import { createSelfTrainer } from './lib/self-trainer.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
@@ -446,6 +447,10 @@ export async function apply(ctx) {
       })
       knowledgeGraph.start()
       disposers.push(() => knowledgeGraph.stop())
+      // v2.97：每周一次自训练（只练本地语言层；评估不过就保留旧 adapter）。
+      const selfTrainer = createSelfTrainer({ home, env, logger })
+      selfTrainer.start()
+      disposers.push(() => selfTrainer.stop())
       disposers.push(
         webServer.register({
           kind: 'exact',
@@ -1235,6 +1240,7 @@ export async function apply(ctx) {
           webBench: webBench.snapshot(),
           agentLoop: agentLoop.snapshot(),
           knowledgeGraph: knowledgeGraph.snapshot(),
+          selfTrainer: selfTrainer.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),
           worldview: (() => {
