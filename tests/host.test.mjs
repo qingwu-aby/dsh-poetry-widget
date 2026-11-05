@@ -12081,3 +12081,32 @@ test('v2.98：情绪持续性——加强、衰减、摘要', async () => {
   const pruned = emo.pruneEmotions(again.emotions, t0 + 3600000 + 120 * 3600000)
   assert.equal(pruned.threads.length, 0)
 })
+
+test('v2.99：日常素材——反重复 prompt 与解析', async () => {
+  const daily = await import('../lib/daily-life.mjs')
+  const prompt = daily.buildDailyLifePrompt({ now: FIXED_NOW.getTime(), state: { felt: '有点蔫' }, recentEvents: ['刚把水杯洗了', '楼下有人在搬东西'] })
+  assert.match(prompt, /不写学习、笔记、书/)
+  assert.match(prompt, /不要再重复里面的事物：刚把水杯洗了；楼下有人在搬东西/)
+  assert.match(prompt, /"event"/)
+  assert.deepEqual(daily.parseDailyLifeResult(JSON.stringify({ event: '顺手把窗台擦了', feeling: '灰太多' })), { event: '顺手把窗台擦了', feeling: '灰太多' })
+  assert.equal(daily.parseDailyLifeResult('not json'), null)
+})
+
+test('v2.99：承诺账本——去重、逾期优先、标记完成', async () => {
+  const cm = await import('../lib/commitments.mjs')
+  const t0 = FIXED_NOW.getTime()
+  const empty = cm.emptyCommitments()
+  const first = cm.addAgreement(empty, '答应给他画一张自画像', t0)
+  assert.equal(first.added, true)
+  const duplicate = cm.addAgreement(first.commitments, '答应给他画一张自画像', t0 + 1000)
+  assert.equal(duplicate.added, false)
+  const late = cm.addAgreement(duplicate.commitments, '明天给他看读到的那段', t0 + 2000)
+  late.commitments.entries[1].dueAt = t0 - 3600000
+  const digest = cm.formatCommitmentsDigest(late.commitments, t0 + 7200000, 3)
+  assert.ok(digest.some((line) => /已逾期/.test(line)))
+  assert.ok(digest[0].includes('逾期'))
+  const done = cm.markCommitment(late.commitments, late.commitments.entries[0].id, 'done', t0 + 9000000)
+  assert.equal(done.updated, true)
+  const after = cm.formatCommitmentsDigest(done.commitments, t0 + 9000000, 3)
+  assert.ok(after.every((line) => !line.includes('自画像')))
+})

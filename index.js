@@ -71,6 +71,8 @@ import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
 import { createSelfTrainer } from './lib/self-trainer.mjs'
 import { createRelationshipMemory } from './lib/relationship-memory.mjs'
 import { createEmotionalState } from './lib/emotional-continuity.mjs'
+import { createDailyLife } from './lib/daily-life.mjs'
+import { createCommitments } from './lib/commitments.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
@@ -463,6 +465,7 @@ export async function apply(ctx) {
         env,
       })
       const emotional = createEmotionalState({ file: path.join(settingsPath.dir, 'emotional-state.json') })
+      const commitments = createCommitments({ file: path.join(settingsPath.dir, 'commitments.json') })
       disposers.push(
         webServer.register({
           kind: 'exact',
@@ -749,6 +752,19 @@ export async function apply(ctx) {
       }
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
+      // v2.99：日常素材（每 2 小时一件手边小事，反重复）+ 承诺账本（约定/答应的事，逾期提醒）。
+      const dailyLife = createDailyLife({
+        file: path.join(settingsPath.dir, 'daily-life.jsonl'),
+        state: selfState,
+        policy: modelPolicy,
+        getLlm,
+        modelErrorsPath,
+        logger,
+        env,
+      })
+      dailyLife.start()
+      disposers.push(() => dailyLife.stop())
+
       selfStateRef = selfState
       // v2.45：QQ/外部聊天桥；她的独立记忆和语气，不读 DSH 会话。
       const chatTokenFile = resolveChatTokenPath(env, home)
@@ -1053,6 +1069,8 @@ export async function apply(ctx) {
         },
         getRecallDigest: readingDigest,
         getEmotionalDigest: () => emotional.digest(3),
+        getDailyLifeDigest: () => dailyLife.digest(3),
+        getCommitmentDigest: () => commitments.digest(3),
         onBrowse: browseForWhale,
         onShare: (text) => {
           try {
@@ -1263,6 +1281,8 @@ export async function apply(ctx) {
           selfTrainer: selfTrainer.snapshot(),
           relationship: relationship.snapshot(),
           emotional: emotional.snapshot(),
+          dailyLife: dailyLife.snapshot(),
+          commitments: commitments.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),
           worldview: (() => {
@@ -1431,6 +1451,18 @@ export async function apply(ctx) {
                 } catch {
                   emotionLines = []
                 }
+                let dailyLifeLines = []
+                try {
+                  dailyLifeLines = dailyLife.digest(3)
+                } catch {
+                  dailyLifeLines = []
+                }
+                let commitmentLines = []
+                try {
+                  commitmentLines = commitments.digest(3)
+                } catch {
+                  commitmentLines = []
+                }
                 const result = typeof chatBridge.chat === 'function'
                   ? await chatBridge.chat({
                       ...input,
@@ -1439,6 +1471,8 @@ export async function apply(ctx) {
                       graphLines,
                       relationshipLines,
                       emotionLines,
+                      dailyLifeLines,
+                      commitmentLines,
                     })
                   : { ok: false, error: 'unavailable' }
                 if (result && result.ok === true && imagePayload) result.images = [imagePayload]
@@ -1450,6 +1484,15 @@ export async function apply(ctx) {
                         { role: 'user', text: String(input && input.text ? input.text : '') },
                         { role: 'assistant', text: String(result.reply || '') },
                       ])
+                      .then((ingested) => {
+                        try {
+                          for (const entry of (ingested && ingested.entries) || []) {
+                            if (entry.kind === 'agreement') commitments.addAgreement(entry.text)
+                          }
+                        } catch {
+                          /* ignore */
+                        }
+                      })
                       .catch(() => {})
                   } catch {
                     /* ignore */
