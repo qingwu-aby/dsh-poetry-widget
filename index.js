@@ -1438,7 +1438,9 @@ export async function apply(ctx) {
                   }
                   userText = sanitizeUserText(rawText)
                 }
-                const asksImage = shouldSendChatImage(userText)
+                const asksImage = imagePaths.length > 0
+                  ? /(给我看|你的画|你画的|自画像|发张|再来一张|再画|凑一张)/.test(userText)
+                  : shouldSendChatImage(userText)
                 let imagePayload = null
                 if (asksImage) {
                   try {
