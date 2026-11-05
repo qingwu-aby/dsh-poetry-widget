@@ -138,6 +138,7 @@ import {
   createMemoryRecall,
   extractRecallKeywords,
   formatMemoryDigest,
+  pickRelevantLearning,
   readLearningSections,
   readRecentJournalEntries,
   resolveMemoryRecallPaths,
@@ -202,6 +203,7 @@ import {
   buildWanderPrompt,
   createSelfWander,
   fetchRandomPage,
+  isJunkWanderPage,
   parseWanderResult,
   wanderRandomUrl,
 } from '../lib/self-wander.mjs'
@@ -215,6 +217,7 @@ import {
   fetchRandomReadingExcerpt,
   fetchReadingText,
   isAllowedReadingHost,
+  isJunkReadingPage,
   parseReadingResult,
   pickReadingExcerpt,
   readingApiUrl,
@@ -5881,8 +5884,8 @@ test('self-growth：prompt 白名单/JSON 解析/候选 topic 校验', () => {
     recentLearning: '章鱼有三颗心脏。',
   })
   assert.match(withLearning, /你最近自学到：章鱼有三颗心脏。/)
-  assert.match(withLearning, /可以自然地把这层理解带进自省/)
-  assert.match(withLearning, /不要写成知识讲解或科普/)
+  assert.match(withLearning, /就把这层理解带进自省/)
+  assert.match(withLearning, /至少提到其中具体的一点/)
   // 只读白名单：额外敏感字段不进入 prompt
   const injectedPrompt = buildReflectPrompt({
     now: FIXED_NOW.getTime(),
@@ -11891,4 +11894,27 @@ test('agent-loop-runner v2.81：命令行/会话 id/凭据解析与默认关闭'
   const enabled = runner.createAgentLoopRunner({ env: { DSH_AGENT_LOOP: 'on' }, promptFile: '/nonexistent-prompt.md' })
   assert.equal(enabled.snapshot().enabled, true)
   assert.equal((await enabled.runOnce()).reason, 'no-prompt')
+})
+
+test('v2.89：学习反哺——来源过滤 + 相关检索 + 自省引用', async () => {
+  const { isJunkWanderPage } = await import('../lib/self-wander.mjs')
+  const { isJunkReadingPage } = await import('../lib/self-reading.mjs')
+  const { pickRelevantLearning } = await import('../lib/memory-recall.mjs')
+  assert.equal(isJunkWanderPage('维基百科:关于'), true)
+  assert.equal(isJunkWanderPage('创建账号'), true)
+  assert.equal(isJunkWanderPage('黑色五叶草角色列表'), true)
+  assert.equal(isJunkWanderPage('黑格尔'), false)
+  assert.equal(isJunkReadingPage('海南省五指山市人民法院（2022）琼9001民初5336号民事判决书'), true)
+  assert.equal(isJunkReadingPage('故乡（鲁迅）'), false)
+
+  const dir = makeTmpDir('dshp-relevant-learning')
+  const log = path.join(dir, 'learning-log.md')
+  fs.writeFileSync(log, [
+    '\n## 2026-11-05 09:14 · 自学\n\nQ: 1952年达卡学生游行要求孟加拉语当国语？\n答：语言运动。\n',
+    '\n## 2026-11-05 09:39 · 自学\n\nQ: 党锢禁了快二十年，最后是怎么松开的？\n答：外戚与士人。\n',
+  ].join(''))
+  const relevant = pickRelevantLearning(log, '党锢 禁了 二十年 松开', 2)
+  assert.ok(relevant.length >= 1)
+  assert.match(relevant[0], /党锢/)
+  assert.equal(pickRelevantLearning(log, '', 2).length, 0)
 })
