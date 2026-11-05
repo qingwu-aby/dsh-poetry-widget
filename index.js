@@ -757,6 +757,7 @@ export async function apply(ctx) {
       })
       guiPush.start()
       disposers.push(() => guiPush.stop())
+      let lastWhaleShareAt = 0
       const queueGuiMessage = (text, meta = {}) => {
         try {
           guiInbox.push({
@@ -974,6 +975,20 @@ export async function apply(ctx) {
         },
         getRecallDigest: readingDigest,
         onBrowse: browseForWhale,
+        onShare: (text) => {
+          try {
+            const value = typeof text === 'string' ? text.trim() : ''
+            if (value.length < 4) return
+            // 只在用户聊过、且离上次分享够久时才发，避免刷屏。
+            if (typeof chatBridge.lastUserAt === 'function' && chatBridge.lastUserAt() <= 0) return
+            const nowMs = Date.now()
+            if (nowMs - lastWhaleShareAt < 45 * 60 * 1000) return
+            lastWhaleShareAt = nowMs
+            queueGuiMessage(value, { kind: 'share' })
+          } catch {
+            /* 分享失败不影响自处 */
+          }
+        },
       })
       selfDrive.start({ heartbeat: true })
       heartbeat.add('自处', () => selfDrive.tick())

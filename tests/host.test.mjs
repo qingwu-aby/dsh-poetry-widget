@@ -11918,3 +11918,36 @@ test('v2.89：学习反哺——来源过滤 + 相关检索 + 自省引用', asy
   assert.match(relevant[0], /党锢/)
   assert.equal(pickRelevantLearning(log, '', 2).length, 0)
 })
+
+test('v2.90：学习日志的 TF-IDF 向量检索', async () => {
+  const { pickRelevantLearning } = await import('../lib/memory-recall.mjs')
+  const dir = makeTmpDir('dshp-vector-learning')
+  const log = path.join(dir, 'learning-log.md')
+  fs.writeFileSync(log, [
+    '\n## 2026-11-05 09:14 · 自学\n\nQ: 1952年达卡学生游行要求孟加拉语当国语？\n答：语言运动。\n',
+    '\n## 2026-11-05 09:39 · 自学\n\nQ: 党锢禁了快二十年，最后是怎么松开的？\n答：黄巾起，吕强建议大赦，中平元年解禁。\n',
+    '\n## 2026-11-05 09:50 · 遛弯\n\n地方：某个无关的页面。\n',
+    '\n## 2026-11-05 09:55 · 自学\n\nQ: 自动扶梯边上那排毛刷真有人蹭鞋吗？\n答：安全毛刷。\n',
+  ].join(''))
+  const dk = pickRelevantLearning(log, '达卡 孟加拉语 学生游行', 2)
+  assert.ok(dk.length >= 1)
+  assert.match(dk[0], /达卡|孟加拉语/)
+  const dg = pickRelevantLearning(log, '黄巾 解禁 中平元年', 2)
+  assert.ok(dg.length >= 1)
+  assert.match(dg[0], /党锢|黄巾/)
+  assert.equal(pickRelevantLearning(log, '量子色动力学 胶子', 2).length, 0)
+  // 文件更新后索引应重建
+  fs.appendFileSync(log, '\n## 2026-11-05 10:10 · 自学\n\nQ: 胶子是什么？\n答：强相互作用的传播子。\n')
+  const later = pickRelevantLearning(log, '胶子 强相互作用', 1)
+  assert.ok(later.length === 1)
+  assert.match(later[0], /胶子/)
+})
+
+test('v2.91：自处可以主动分享', () => {
+  const parsed = parseSelfDriveResult(JSON.stringify({ felt: '刚看到个有意思的，想跟他说', doing: '', share: '党锢是黄巾起来后才松的，中平元年。' }))
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.share, '党锢是黄巾起来后才松的，中平元年。')
+  const prompt = buildSelfDrivePrompt({ now: FIXED_NOW.getTime(), state: defaultSelfState(FIXED_NOW.getTime()) })
+  assert.match(prompt, /"share"/)
+  assert.match(prompt, /分享欲是你自己的/)
+})
