@@ -1873,7 +1873,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON 路由')
+    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3649,7 +3649,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 条 JSON')
+    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4986,7 +4986,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 27, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -11950,4 +11950,45 @@ test('v2.91：自处可以主动分享', () => {
   const prompt = buildSelfDrivePrompt({ now: FIXED_NOW.getTime(), state: defaultSelfState(FIXED_NOW.getTime()) })
   assert.match(prompt, /"share"/)
   assert.match(prompt, /分享欲是你自己的/)
+})
+
+test('v2.92：认知图谱——合并去重、查询、抽取解析', async () => {
+  const { mergeGraph, emptyGraph, queryGraph, formatGraphDigest } = await import('../lib/knowledge-graph.mjs')
+  const { parseKnowledgeExtraction, buildKnowledgeExtractionPrompt } = await import('../lib/knowledge-extract.mjs')
+  const batch1 = {
+    nodes: [
+      { name: '党锢', type: 'event', summary: '东汉士人遭禁锢' },
+      { name: '黄巾', type: 'event', summary: '东汉末年民变' },
+      { name: '吕强', type: 'person', summary: '中常侍，建议大赦' },
+    ],
+    edges: [
+      { from: '黄巾', to: '党锢', relation: 'causal', note: '黄巾起后解禁', confidence: 'high' },
+      { from: '吕强', to: '党锢', relation: 'causal', note: '进言', confidence: 'medium' },
+      { from: '不存在', to: '党锢', relation: 'causal' },
+    ],
+    claims: [{ text: '黄巾起后，吕强建议大赦，党锢才解。', nodes: ['吕强', '党锢'], confidence: 'medium' }],
+  }
+  const first = mergeGraph(emptyGraph(), batch1, 1000, 3)
+  assert.equal(first.addedNodes, 3)
+  assert.equal(first.addedEdges, 2)
+  assert.equal(first.addedClaims, 1)
+  const second = mergeGraph(first.graph, batch1, 2000, 4)
+  assert.equal(second.addedNodes, 0)
+  assert.equal(second.addedEdges, 0)
+  assert.equal(second.addedClaims, 0)
+  assert.equal(second.graph.nodes[0].sources.length, 2)
+  const found = queryGraph(second.graph, '党锢 黄巾 吕强', { limit: 3 })
+  assert.ok(found.nodes.length >= 2)
+  assert.ok(found.edges.length >= 1)
+  assert.ok(found.claims.length >= 1)
+  const digest = formatGraphDigest(found)
+  assert.ok(digest.some((line) => /党锢/.test(line)))
+
+  assert.equal(parseKnowledgeExtraction('not json'), null)
+  const parsed = parseKnowledgeExtraction(JSON.stringify({ nodes: [{ name: '黄册', type: 'institution', summary: '户籍册' }, { name: '鱼鳞图册', type: 'institution' }], edges: [{ from: '黄册', to: '鱼鳞图册', relation: 'part_of', confidence: 'low' }], claims: [{ text: '黄册与鱼鳞图册都是簿籍。', confidence: 'medium' }] }))
+  assert.equal(parsed.nodes.length, 2)
+  assert.equal(parsed.edges[0].relation, 'part_of')
+  const prompt = buildKnowledgeExtractionPrompt(['材料：黄册是户籍册。'])
+  assert.match(prompt, /只根据下面的材料抽取/)
+  assert.match(prompt, /"nodes"/)
 })

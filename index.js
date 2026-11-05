@@ -67,6 +67,8 @@ import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
+import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
+import { readGraph } from './lib/knowledge-graph.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
@@ -429,6 +431,43 @@ export async function apply(ctx) {
         projectsPath: resolveProjectsPath(env, home),
         videoCoursesDir: resolveVideoCoursesDir(env, home),
       })
+      // v2.92：她自己的认知图谱（从 learning-log 增量抽取节点/关系/判断）。
+      const knowledgeGraph = createKnowledgeExtractor({
+        file: path.join(settingsPath.dir, 'knowledge-graph.json'),
+        statePath: path.join(settingsPath.dir, 'knowledge-graph-state.json'),
+        learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
+        policy: modelPolicy,
+        getLlm,
+        modelErrorsPath,
+        journal,
+        logger,
+        env,
+      })
+      knowledgeGraph.start()
+      disposers.push(() => knowledgeGraph.stop())
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/graph.json',
+          handler: async (req, res) => {
+            try {
+              const graph = readGraph(path.join(settingsPath.dir, 'knowledge-graph.json'))
+              const body = JSON.stringify({
+                ok: true,
+                ...knowledgeGraph.snapshot(),
+                nodes: graph.nodes.slice(-200),
+                edges: graph.edges.slice(-200),
+                claims: graph.claims.slice(-100),
+              })
+              res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(body)) })
+              res.end(body)
+            } catch (error) {
+              res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+              res.end(String(error instanceof Error ? error.message : error))
+            }
+          },
+        }),
+      )
       // v2.75：世界观档案（她信什么/怎么定义概念/还没弄明白什么/成文的“世界怎么运作”）。
       const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
       const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
@@ -1173,6 +1212,7 @@ export async function apply(ctx) {
           twin: { enabled: twinEnabled },
           webBench: webBench.snapshot(),
           agentLoop: agentLoop.snapshot(),
+          knowledgeGraph: knowledgeGraph.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),
           worldview: (() => {
@@ -1312,6 +1352,7 @@ export async function apply(ctx) {
           handler: createChatHandler({
             service: {
               drainPending: (peerId) => chatBridge.drainPending(peerId),
+              graphDigest: (text) => knowledgeGraph.digest(text, 3),
               chat: async (input) => {
                 const asksImage = shouldSendChatImage(input && input.text)
                 let imagePayload = null
@@ -1322,11 +1363,18 @@ export async function apply(ctx) {
                     imagePayload = null
                   }
                 }
+                let graphLines = []
+                try {
+                  graphLines = knowledgeGraph.digest(String(input && input.text ? input.text : ''), 3)
+                } catch {
+                  graphLines = []
+                }
                 const result = typeof chatBridge.chat === 'function'
                   ? await chatBridge.chat({
                       ...input,
                       imageRequested: asksImage,
                       imageHint: imagePayload ? { name: imagePayload.name } : null,
+                      graphLines,
                     })
                   : { ok: false, error: 'unavailable' }
                 if (result && result.ok === true && imagePayload) result.images = [imagePayload]
