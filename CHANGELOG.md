@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **修图谱抽取失败（v2.95）**：根因不是 JSON schema，而是 `EMPTY_RESPONSE`——thinking 吃满 3000/5000 token，正文空。改用 `consolidate` 角色（低 reasoning effort）、16 段/8000 token，失败再退 6 段/12000 token；仍失败则把原始输出写 `knowledge-graph-debug.json` 并区分 empty/invalid-json。483/483。
 - **图谱集成进插件面板（v2.94）**：新增 `client-src/tabs-graph.js`，面板顶层第三个 tab「图谱」——直接画节点/关系，点节点看摘要、关系、判断；30 秒轮询 graph.json，空图谱时显示抽取状态；不再依赖单独路由页面。483/483。
 - **图谱页改走 graph.json?view=1（v2.93.1）**：新路径 graph-view 被宿主鉴权挡 401，改为同一 `/api/dsh-poetry/graph.json` 在 `?view=1` 时返回 HTML 可视化页；抽取失败时自动用更小批次、更大 token 重试一次。483/483。
 - **认知图谱三件套（v2.93）**：①可视化页 `lib/graph-view.mjs`（单文件 SVG 力导向图，`/api/dsh-poetry/graph-view`，点节点看摘要/关系/判断）；②图谱缺口驱动学习——`graphGaps` 找孤立节点/低置信判断，注入自学 prompt“你图谱里还没接上的地方”；③图谱进世界观——每周整理时读关系/判断/缺口，要求从关系提炼机制而非复述事件。483/483。
