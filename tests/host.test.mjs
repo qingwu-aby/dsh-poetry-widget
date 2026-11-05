@@ -12024,3 +12024,13 @@ test('v2.93：图谱缺口驱动学习 + 图谱进世界观 + 可视化页', asy
   assert.match(html, /<svg/)
   assert.match(html, /测试图谱/)
 })
+
+test('v2.96：要图的说法覆盖更广，被催图不再顶人', async () => {
+  const { shouldSendChatImage } = await import('../lib/chat-media.mjs')
+  for (const text of ['再要一张，精致一点的', '自画像呢', '图呢', '催你画一张', '发张图看看', '你的样子', '凑一张']) {
+    assert.equal(shouldSendChatImage(text), true, `应识别为要图：${text}`)
+  }
+  for (const text of ['在吗', '今天有点累', '你觉得我烦吗']) {
+    assert.equal(shouldSendChatImage(text), false, `不应识别为要图：${text}`)
+  }
+})

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **修“被催图时顶人”+ 要图识别（v2.96）**：要图正则覆盖“再要一张/精致一点/自画像/图呢/凑一张/新图”等说法；新增语气规则——被重复要求不代表对方挑剔，直接说进展/给不了，禁止“你倒好/别拿…哄我/你到底/你追着要这个是想逗我吗”这类反问。484/484。
 - **修图谱抽取失败（v2.95）**：根因不是 JSON schema，而是 `EMPTY_RESPONSE`——thinking 吃满 3000/5000 token，正文空。改用 `consolidate` 角色（低 reasoning effort）、16 段/8000 token，失败再退 6 段/12000 token；仍失败则把原始输出写 `knowledge-graph-debug.json` 并区分 empty/invalid-json。483/483。
 - **图谱集成进插件面板（v2.94）**：新增 `client-src/tabs-graph.js`，面板顶层第三个 tab「图谱」——直接画节点/关系，点节点看摘要、关系、判断；30 秒轮询 graph.json，空图谱时显示抽取状态；不再依赖单独路由页面。483/483。
 - **图谱页改走 graph.json?view=1（v2.93.1）**：新路径 graph-view 被宿主鉴权挡 401，改为同一 `/api/dsh-poetry/graph.json` 在 `?view=1` 时返回 HTML 可视化页；抽取失败时自动用更小批次、更大 token 重试一次。483/483。
