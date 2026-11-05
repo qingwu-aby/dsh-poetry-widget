@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **关系记忆 + 情绪持续性（v2.98）**：新增 `lib/relationship-memory.mjs`——聊天后异步抽取“他的偏好/边界/在意的事/约定/共同经历”，去重存 `relationship.json`，pinned 条目和按话题相关的条目注入聊天 prompt；新增 `lib/emotional-continuity.mjs`——聊天/心情产生“还挂着的情绪线程”，36 小时半衰期衰减、再提及时加强，注入聊天与自处 prompt；health 暴露两项。487/487。
 - **自训练闭环（v2.97）**：新增 `agent-loop/self-train.mjs` + `lib/self-trainer.mjs`——收她最近 200 条输出→远端生成中性对照→MLX LoRA（1.5B，400 iters）→留出集评估（期望相似度均值≥0.3 且 ≥8/14 有输出）→过闸才把 `adapters-live` 换新并重启本地服务，不过闸保留旧层；每周一次（首次约 12 小时后），`DSH_POETRY_SELF_TRAIN=on` 开启。首次手动跑通并已换上一版。485/485。
 - **修“被催图时顶人”+ 要图识别（v2.96）**：要图正则覆盖“再要一张/精致一点/自画像/图呢/凑一张/新图”等说法；新增语气规则——被重复要求不代表对方挑剔，直接说进展/给不了，禁止“你倒好/别拿…哄我/你到底/你追着要这个是想逗我吗”这类反问。484/484。
 - **修图谱抽取失败（v2.95）**：根因不是 JSON schema，而是 `EMPTY_RESPONSE`——thinking 吃满 3000/5000 token，正文空。改用 `consolidate` 角色（低 reasoning effort）、16 段/8000 token，失败再退 6 段/12000 token；仍失败则把原始输出写 `knowledge-graph-debug.json` 并区分 empty/invalid-json。483/483。

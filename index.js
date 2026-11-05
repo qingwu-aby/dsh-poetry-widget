@@ -69,6 +69,8 @@ import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
 import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
 import { createSelfTrainer } from './lib/self-trainer.mjs'
+import { createRelationshipMemory } from './lib/relationship-memory.mjs'
+import { createEmotionalState } from './lib/emotional-continuity.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
@@ -451,6 +453,16 @@ export async function apply(ctx) {
       const selfTrainer = createSelfTrainer({ home, env, logger })
       selfTrainer.start()
       disposers.push(() => selfTrainer.stop())
+      // v2.98：关系记忆（他的偏好/边界/约定/共同经历）+ 情绪持续性（还挂着的情绪，带衰减）。
+      const relationship = createRelationshipMemory({
+        file: path.join(settingsPath.dir, 'relationship.json'),
+        policy: modelPolicy,
+        getLlm,
+        modelErrorsPath,
+        logger,
+        env,
+      })
+      const emotional = createEmotionalState({ file: path.join(settingsPath.dir, 'emotional-state.json') })
       disposers.push(
         webServer.register({
           kind: 'exact',
@@ -1040,6 +1052,7 @@ export async function apply(ctx) {
           }
         },
         getRecallDigest: readingDigest,
+        getEmotionalDigest: () => emotional.digest(3),
         onBrowse: browseForWhale,
         onShare: (text) => {
           try {
@@ -1190,6 +1203,13 @@ export async function apply(ctx) {
           ...moodAiService,
           async generate(context, options) {
             const result = await moodAiService.generate(context, options)
+            if (result && result.ok === true && result.mood) {
+              try {
+                emotional.record({ topic: String(result.mood.reason || result.mood.label || ''), emotion: String(result.mood.label || ''), note: '', intensity: 0.5 })
+              } catch {
+                /* ignore */
+              }
+            }
             if (
               result &&
               result.ok === true &&
@@ -1241,6 +1261,8 @@ export async function apply(ctx) {
           agentLoop: agentLoop.snapshot(),
           knowledgeGraph: knowledgeGraph.snapshot(),
           selfTrainer: selfTrainer.snapshot(),
+          relationship: relationship.snapshot(),
+          emotional: emotional.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),
           worldview: (() => {
@@ -1397,15 +1419,51 @@ export async function apply(ctx) {
                 } catch {
                   graphLines = []
                 }
+                let relationshipLines = []
+                try {
+                  relationshipLines = relationship.digest(String(input && input.text ? input.text : ''))
+                } catch {
+                  relationshipLines = []
+                }
+                let emotionLines = []
+                try {
+                  emotionLines = emotional.digest(3)
+                } catch {
+                  emotionLines = []
+                }
                 const result = typeof chatBridge.chat === 'function'
                   ? await chatBridge.chat({
                       ...input,
                       imageRequested: asksImage,
                       imageHint: imagePayload ? { name: imagePayload.name } : null,
                       graphLines,
+                      relationshipLines,
+                      emotionLines,
                     })
                   : { ok: false, error: 'unavailable' }
                 if (result && result.ok === true && imagePayload) result.images = [imagePayload]
+                if (result && result.ok === true) {
+                  // 异步更新关系记忆与情绪线程，不阻塞回复。
+                  try {
+                    relationship
+                      .ingest([
+                        { role: 'user', text: String(input && input.text ? input.text : '') },
+                        { role: 'assistant', text: String(result.reply || '') },
+                      ])
+                      .catch(() => {})
+                  } catch {
+                    /* ignore */
+                  }
+                  try {
+                    emotional.recordFromChat({
+                      felt: result.felt || '',
+                      murmur: result.murmur || '',
+                      reply: String(result.reply || ''),
+                    })
+                  } catch {
+                    /* ignore */
+                  }
+                }
                 if (
                   result &&
                   result.ok === true &&

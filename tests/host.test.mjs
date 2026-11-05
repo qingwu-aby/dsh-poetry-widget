@@ -12045,3 +12045,39 @@ test('v2.97：自训练调度默认关闭、开启后有排期', async () => {
   const disabledRun = await off.runOnce()
   assert.equal(disabledRun.reason, 'disabled')
 })
+
+test('v2.98：关系记忆——抽取解析、合并去重、摘要', async () => {
+  const rel = await import('../lib/relationship-memory.mjs')
+  const parsed = rel.parseRelationshipExtraction(JSON.stringify({ entries: [
+    { kind: 'preference', text: '他喜欢晚上做东西', evidence: '我晚上才有空', confidence: 'high' },
+    { kind: 'boundary', text: '他不喜欢被追问动机', evidence: '你别老问我为什么', confidence: 'high' },
+  ] }))
+  assert.ok(parsed && parsed.length === 2)
+  const first = rel.mergeRelationship(rel.emptyRelationship(), parsed, 1000)
+  assert.equal(first.added, 2)
+  const second = rel.mergeRelationship(first.relationship, [{ kind: 'preference', text: '他喜欢晚上做东西', evidence: '晚上比较静', confidence: 'high' }], 2000)
+  assert.equal(second.added, 0)
+  assert.equal(second.relationship.entries.length, 2)
+  const digest = rel.formatRelationshipDigest(second.relationship, '晚上做东西')
+  assert.ok(digest.some((line) => /晚上做东西/.test(line)))
+  assert.ok(digest.some((line) => /他的边界/.test(line)))
+  assert.equal(rel.parseRelationshipExtraction('not json'), null)
+})
+
+test('v2.98：情绪持续性——加强、衰减、摘要', async () => {
+  const emo = await import('../lib/emotional-continuity.mjs')
+  const t0 = 1000000000
+  let result = emo.recordEmotion(emo.emptyEmotions(), { topic: '他说有点累', emotion: '担心', intensity: 0.6 }, t0)
+  assert.equal(result.added, true)
+  const again = emo.recordEmotion(result.emotions, { topic: '他说有点累', emotion: '心疼', intensity: 0.5 }, t0 + 3600000)
+  assert.equal(again.reinforced, true)
+  assert.equal(again.emotions.threads.length, 1)
+  const strong = emo.effectiveIntensity(again.emotions.threads[0], t0 + 3600000)
+  const weak = emo.effectiveIntensity(again.emotions.threads[0], t0 + 3600000 + 96 * 3600000)
+  assert.ok(strong > weak)
+  assert.ok(weak < 0.12 + 0.01)
+  const digest = emo.formatEmotionalDigest(again.emotions, t0 + 3600000)
+  assert.ok(digest.some((line) => /还很强|还挂着|快淡了/.test(line)))
+  const pruned = emo.pruneEmotions(again.emotions, t0 + 3600000 + 120 * 3600000)
+  assert.equal(pruned.threads.length, 0)
+})
