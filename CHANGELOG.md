@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **图谱集成进插件面板（v2.94）**：新增 `client-src/tabs-graph.js`，面板顶层第三个 tab「图谱」——直接画节点/关系，点节点看摘要、关系、判断；30 秒轮询 graph.json，空图谱时显示抽取状态；不再依赖单独路由页面。483/483。
 - **图谱页改走 graph.json?view=1（v2.93.1）**：新路径 graph-view 被宿主鉴权挡 401，改为同一 `/api/dsh-poetry/graph.json` 在 `?view=1` 时返回 HTML 可视化页；抽取失败时自动用更小批次、更大 token 重试一次。483/483。
 - **认知图谱三件套（v2.93）**：①可视化页 `lib/graph-view.mjs`（单文件 SVG 力导向图，`/api/dsh-poetry/graph-view`，点节点看摘要/关系/判断）；②图谱缺口驱动学习——`graphGaps` 找孤立节点/低置信判断，注入自学 prompt“你图谱里还没接上的地方”；③图谱进世界观——每周整理时读关系/判断/缺口，要求从关系提炼机制而非复述事件。483/483。
 - **认知图谱（v2.92）**：新增 `lib/knowledge-graph.mjs` + `lib/knowledge-extract.mjs`——节点（人/制度/事件/地点/概念/作品）+ 关系（因果/时间/对照/组成/例证）+ 判断（带置信度/来源段号），从 learning-log 每 2 小时增量抽取 40 段（合并去重、限 400 节点/900 关系/240 判断）；聊天 prompt 带“知识图谱里和这相关的”；`/api/dsh-poetry/graph.json` 可查看。482/482。

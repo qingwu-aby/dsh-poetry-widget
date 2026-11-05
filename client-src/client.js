@@ -72,6 +72,7 @@ import {
 import { createPoetryTabs } from './tabs-poetry.js'
 import { createSettingsTab } from './tabs-settings.js'
 import { createGrowthTab } from './tabs-growth.js'
+import { createGraphTab } from './tabs-graph.js'
 import { createFeihuaTab } from './tabs-feihua.js'
 import { createLibraryTab } from './tabs-library.js'
 import {
@@ -191,6 +192,7 @@ window.__ModuleLoader__.load({
   const POETRY_ENTRY_ENABLED = false
   const PANEL_TABS = [
   { id: 'growth', label: '成长' },
+  { id: 'graph', label: '图谱' },
   { id: 'settings', label: '设置' },
   ]
   const POETRY_TABS = [
@@ -3628,6 +3630,10 @@ window.__ModuleLoader__.load({
     setPanelTab('settings')
     return
    }
+   if (tabId === 'graph') {
+    setPanelTab('graph')
+    return
+   }
    setPanelTab('growth')
   }
 
@@ -5259,6 +5265,7 @@ window.__ModuleLoader__.load({
     libraryFocus,
    }
    if (panelTab === 'growth') return h(GrowthTab, { api })
+   if (panelTab === 'graph') return h(GraphTab, { api })
    if (panelTab === 'settings') return h(SettingsTab, { api })
    if (panelTab === 'poetry') {
     if (poetryTab === 'poetry-settings') return h(PoetrySettingsTab, { api })
@@ -5490,6 +5497,16 @@ window.__ModuleLoader__.load({
    return growthTabFactory
   }
   function GrowthTab(props) { return ensureGrowthTab()(props) }
+
+  // v2.94：认知图谱面板（面板内直接画图，不依赖单独路由）。
+  let graphTabFactory = null
+  function ensureGraphTab() {
+   if (graphTabFactory === null) {
+    graphTabFactory = createGraphTab({ React, h })
+   }
+   return graphTabFactory
+  }
+  function GraphTab(props) { return ensureGraphTab()(props) }
 
   // v2.4：飞花令面板已移到 tabs-feihua.js。
   let feihuaTabFactory = null

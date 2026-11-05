@@ -1057,7 +1057,7 @@ test('气泡序列：从诗词二级菜单进入，点形象依次推进 6 步�
   assert.match(textOf(bubbles[0]), /今日一诗/)
 })
 
-test('面板 2 顶层 tab（默认成长）+ 诗词二级菜单；隐藏后热区双击可恢复', () => {
+test('面板 3 顶层 tab（默认成长/图谱/设置）+ 诗词二级菜单；隐藏后热区双击可恢复', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -1069,8 +1069,8 @@ test('面板 2 顶层 tab（默认成长）+ 诗词二级菜单；隐藏后热�
   const tabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-primary-tab'))
-  assert.equal(tabs.length, 2)
-  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '设置'])
+  assert.equal(tabs.length, 3)
+  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '图谱', '设置'])
   const poetryEntry = findAll(tree, (node) => node.type === 'button'
     && node.props['aria-label'] === '打开诗词二级菜单')[0]
   assert.ok(poetryEntry, '主面板应有诗词二级菜单入口')
@@ -6089,7 +6089,7 @@ test('成长状态轮询：App 级请求 self.json、页面隐藏跳过、404 �
 
 test('M40 顶层 tab：成长/设置 + 诗词二级菜单，openPanel 深链', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
-  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'settings'])
+  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'graph', 'settings'])
   assertDeep(debug.POETRY_TABS.map((tab) => tab.id), ['today', 'class', 'yun', 'ci', 'library', 'feihua', 'poetry-settings'])
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -6098,7 +6098,7 @@ test('M40 顶层 tab：成长/设置 + 诗词二级菜单，openPanel 深链', (
   const topTabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-primary-tab'))
-  assert.equal(topTabs.length, 2)
+  assert.equal(topTabs.length, 3)
   assert.ok(findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单').length, '应有诗词二级入口')
   const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
   assert.ok(settingsEl)
