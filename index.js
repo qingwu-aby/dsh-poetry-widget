@@ -452,6 +452,13 @@ export async function apply(ctx) {
           path: '/api/dsh-poetry/graph.json',
           handler: async (req, res) => {
             try {
+              // 浏览器打开 ?view=1 时直接给可视化页（同一 path 避免额外路由的鉴权问题）。
+              if (/[?&]view=1/.test(String(req && req.url ? req.url : ''))) {
+                const html = graphViewHtml({ title: '小鲸鱼的认知图谱' })
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(html)) })
+                res.end(html)
+                return
+              }
               const graph = readGraph(path.join(settingsPath.dir, 'knowledge-graph.json'))
               const body = JSON.stringify({
                 ok: true,
