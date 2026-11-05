@@ -73,6 +73,7 @@ import { createRelationshipMemory } from './lib/relationship-memory.mjs'
 import { createEmotionalState } from './lib/emotional-continuity.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { createCommitments } from './lib/commitments.mjs'
+import { describeImages, extractImagePaths, sanitizeUserText } from './lib/image-ocr.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
@@ -1424,7 +1425,20 @@ export async function apply(ctx) {
               drainPending: (peerId) => chatBridge.drainPending(peerId),
               graphDigest: (text) => knowledgeGraph.digest(text, 3),
               chat: async (input) => {
-                const asksImage = shouldSendChatImage(input && input.text)
+                // v3.00：他发来的图，先 OCR 成文字再给她（模型本身看不到图）。
+                const rawText = String(input && input.text ? input.text : '')
+                const imagePaths = extractImagePaths(rawText)
+                let imageContext = ''
+                let userText = rawText
+                if (imagePaths.length > 0) {
+                  try {
+                    imageContext = describeImages(imagePaths).text
+                  } catch {
+                    imageContext = '他发来一张图，但这边读不出图上的字。'
+                  }
+                  userText = sanitizeUserText(rawText)
+                }
+                const asksImage = shouldSendChatImage(userText)
                 let imagePayload = null
                 if (asksImage) {
                   try {
@@ -1435,13 +1449,13 @@ export async function apply(ctx) {
                 }
                 let graphLines = []
                 try {
-                  graphLines = knowledgeGraph.digest(String(input && input.text ? input.text : ''), 3)
+                  graphLines = knowledgeGraph.digest(userText, 3)
                 } catch {
                   graphLines = []
                 }
                 let relationshipLines = []
                 try {
-                  relationshipLines = relationship.digest(String(input && input.text ? input.text : ''))
+                  relationshipLines = relationship.digest(userText)
                 } catch {
                   relationshipLines = []
                 }
@@ -1466,6 +1480,8 @@ export async function apply(ctx) {
                 const result = typeof chatBridge.chat === 'function'
                   ? await chatBridge.chat({
                       ...input,
+                      text: userText,
+                      imageContext,
                       imageRequested: asksImage,
                       imageHint: imagePayload ? { name: imagePayload.name } : null,
                       graphLines,

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **图片 OCR + 幽默/叙事（v3.00）**：新增 `lib/image-ocr.mjs`——从对话里识别 attachments 路径，用 macOS Vision OCR 读出图上的字再给她（读出空就说看不清，不编），原始路径先脱敏；聊天 prompt 加“接玩笑/讲故事 3–6 句有小转折”指导，风格规则补幽默与叙事。490/490。
 - **日常素材 + 承诺账本（v2.99）**：新增 `lib/daily-life.mjs`——每 2 小时生成一件手边小事（结合时间/状态、列最近事件反重复、不写学习内容），注入聊天与自处 prompt，每天最多 8 条；新增 `lib/commitments.mjs`——关系记忆里的 agreement 自动入账，逾期/到期提醒进 prompt，去重、可标记完成，health 暴露。489/489。
 - **关系记忆 + 情绪持续性（v2.98）**：新增 `lib/relationship-memory.mjs`——聊天后异步抽取“他的偏好/边界/在意的事/约定/共同经历”，去重存 `relationship.json`，pinned 条目和按话题相关的条目注入聊天 prompt；新增 `lib/emotional-continuity.mjs`——聊天/心情产生“还挂着的情绪线程”，36 小时半衰期衰减、再提及时加强，注入聊天与自处 prompt；health 暴露两项。487/487。
 - **自训练闭环（v2.97）**：新增 `agent-loop/self-train.mjs` + `lib/self-trainer.mjs`——收她最近 200 条输出→远端生成中性对照→MLX LoRA（1.5B，400 iters）→留出集评估（期望相似度均值≥0.3 且 ≥8/14 有输出）→过闸才把 `adapters-live` 换新并重启本地服务，不过闸保留旧层；每周一次（首次约 12 小时后），`DSH_POETRY_SELF_TRAIN=on` 开启。首次手动跑通并已换上一版。485/485。

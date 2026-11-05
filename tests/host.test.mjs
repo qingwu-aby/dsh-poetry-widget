@@ -12110,3 +12110,14 @@ test('v2.99：承诺账本——去重、逾期优先、标记完成', async () 
   const after = cm.formatCommitmentsDigest(done.commitments, t0 + 9000000, 3)
   assert.ok(after.every((line) => !line.includes('自画像')))
 })
+
+test('v3.00：用户附图 OCR 路径识别与脱敏', async () => {
+  const ocr = await import('../lib/image-ocr.mjs')
+  const text = '图片发给你了 （附图：/Users/x/.dsh/attachments/v1/objects/ab/abcdef）'
+  const paths = ocr.extractImagePaths(text, { mustExist: false, home: '/Users/x' })
+  assert.deepEqual(paths, ['/Users/x/.dsh/attachments/v1/objects/ab/abcdef'])
+  assert.equal(ocr.sanitizeUserText(text), '图片发给你了 （发来一张图）')
+  assert.equal(ocr.extractImagePaths('普通消息', { mustExist: false }).length, 0)
+  const safe = ocr.extractImagePaths('https://example.com/attachments/v1/objects/ab/cd', { mustExist: false, home: '/Users/x' })
+  assert.equal(safe.length, 0, '只接受本机 attachments 路径')
+})
