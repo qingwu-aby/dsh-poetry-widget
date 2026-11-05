@@ -69,6 +69,7 @@ import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
 import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
+import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
@@ -468,6 +469,18 @@ export async function apply(ctx) {
           },
         }),
       )
+      // v2.93：图谱可视化页（单文件 SVG，只读 graph.json）。
+      disposers.push(
+        webServer.register({
+          kind: 'exact',
+          path: '/api/dsh-poetry/graph-view',
+          handler: async (req, res) => {
+            const html = graphViewHtml({ title: '小鲸鱼的认知图谱' })
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(html)) })
+            res.end(html)
+          },
+        }),
+      )
       // v2.75：世界观档案（她信什么/怎么定义概念/还没弄明白什么/成文的“世界怎么运作”）。
       const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
       const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
@@ -504,6 +517,7 @@ export async function apply(ctx) {
             methodology: rules,
             bookshelf: Array.isArray(digest.shelf) ? digest.shelf : [],
             selfFacts: Array.isArray(digest.selfFacts) ? digest.selfFacts : [],
+            graphLines: typeof knowledgeGraph.worldviewLines === 'function' ? knowledgeGraph.worldviewLines(8) : [],
           })
           const result = await callModelForRole({
             role: 'growth',
@@ -903,6 +917,7 @@ export async function apply(ctx) {
         logger,
         policy: modelPolicy,
         modelErrorsPath,
+        getGraphGaps: (limit) => knowledgeGraph.gaps(limit),
       })
       growth.start({ heartbeat: true })
       heartbeat.add('自驱成长', () => growth.tick())

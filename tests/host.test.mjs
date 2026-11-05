@@ -1873,7 +1873,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + 13 条 JSON 路由')
+    assert.equal(routes.length, 29, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')
@@ -3649,7 +3649,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + 13 条 JSON')
+    assert.equal(routes.length, 29, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 
@@ -4986,7 +4986,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 28, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
+    assert.equal(routes.length, 29, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + 13 JSON')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 
@@ -11991,4 +11991,36 @@ test('v2.92：认知图谱——合并去重、查询、抽取解析', async () 
   const prompt = buildKnowledgeExtractionPrompt(['材料：黄册是户籍册。'])
   assert.match(prompt, /只根据下面的材料抽取/)
   assert.match(prompt, /"nodes"/)
+})
+
+test('v2.93：图谱缺口驱动学习 + 图谱进世界观 + 可视化页', async () => {
+  const kg = await import('../lib/knowledge-graph.mjs')
+  const view = await import('../lib/graph-view.mjs')
+  const prompts = await import('../lib/self-growth-prompts.mjs')
+  const worldview = await import('../lib/worldview.mjs')
+  const state = kg.normalizeGraph({
+    nodes: [
+      { id: 'n1', name: '黄册', type: 'institution', summary: '户籍册' },
+      { id: 'n2', name: '鱼鳞图册', type: 'institution', summary: '田亩册' },
+      { id: 'n3', name: '孤例', type: 'concept', summary: '没有关系的条目' },
+    ],
+    edges: [{ id: 'e1', from: '黄册', to: '鱼鳞图册', relation: 'part_of', note: '同属簿籍', confidence: 'high' }],
+    claims: [{ id: 'c1', text: '两者都是簿籍。', nodes: ['黄册'], confidence: 'low' }],
+  })
+  const gaps = kg.graphGaps(state, { limit: 4 })
+  assert.ok(gaps.some((gap) => /孤例/.test(gap)))
+  assert.ok(gaps.some((gap) => /缺证据/.test(gap)))
+  const wvLines = kg.worldviewGraphDigest(state, { limit: 5 })
+  assert.ok(wvLines.some((line) => /黄册.*属于.*鱼鳞图册/.test(line)))
+
+  const learnPrompt = prompts.buildLearnPrompt({ now: FIXED_NOW.getTime(), state: defaultSelfState(FIXED_NOW.getTime()), graphGaps: gaps })
+  assert.match(learnPrompt, /你图谱里还没接上的地方/)
+  const wvPrompt = worldview.buildWorldviewSynthesisPrompt({ state: worldview.emptyWorldview(), graphLines: wvLines })
+  assert.match(wvPrompt, /认知图谱里已有的关系和判断/)
+  assert.match(wvPrompt, /黄册/)
+
+  const html = view.graphViewHtml({ title: '测试图谱' })
+  assert.match(html, /\/api\/dsh-poetry\/graph\.json/)
+  assert.match(html, /<svg/)
+  assert.match(html, /测试图谱/)
 })
