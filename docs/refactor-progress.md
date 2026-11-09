@@ -59,7 +59,8 @@
 - [x] 状态 schema 覆盖 5 → 8 个文件（新增 self-actions/self-state/voice）
 - [ ] 剩余状态文件（约 22 个，多为 jsonl/浏览态）
 - [ ] 364 处 domain 静默 catch 分级与关键路径观测
-- [ ] domain 目录逐步 `// @ts-check` + biome
+- [x] domain 试水：memory 域加 `@ts-check` 试跑（36 个历史 JSDoc 不准错误）→ 暂缓，保留为后续逐域清理
+- [ ] domain 目录逐步 `// @ts-check` + biome（需先修历史 JSDoc）
 
 ## W4 ✅（类型/文档/门禁，2026-11-09）
 - [x] 4 个历史大模块拆到 <800 行
