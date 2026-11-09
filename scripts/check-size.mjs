@@ -5,7 +5,7 @@ import path from 'node:path'
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 const INDEX_MAX = 300
-const MODULE_MAX = 1100 // 目标 800；4 个历史大模块（self-talk/mood-ai/self-drive/self-growth）待拆
+const MODULE_MAX = 800
 const warnings = []
 
 function lines(rel) {
