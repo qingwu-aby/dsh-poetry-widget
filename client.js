@@ -14926,6 +14926,69 @@
   function isVideoMoodFile(file) {
     return /\.webm$/i.test(String(file == null ? "" : file));
   }
+  function readWindowWidth() {
+    try {
+      return window.innerWidth || 1280;
+    } catch {
+      return 1280;
+    }
+  }
+  function readWindowHeight() {
+    try {
+      return window.innerHeight || 800;
+    } catch {
+      return 800;
+    }
+  }
+
+  // client-src/hooks.js
+  function createHooks({ React, resourceStore }) {
+    function useViewportSize() {
+      const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
+      React.useEffect(() => {
+        const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() });
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+      return size;
+    }
+    function useResource(kind, active) {
+      const [state, setState] = React.useState(() => ({
+        status: resourceStore.get(kind) ? "ready" : "idle",
+        data: resourceStore.get(kind) || null,
+        error: null
+      }));
+      const alive = React.useRef(true);
+      const statusRef = React.useRef(state.status);
+      statusRef.current = state.status;
+      React.useEffect(() => () => {
+        alive.current = false;
+      }, []);
+      const reload = React.useCallback(() => {
+        if (statusRef.current === "loading") return Promise.resolve();
+        statusRef.current = "loading";
+        setState((previous) => ({ status: "loading", data: previous.data, error: null }));
+        return resourceStore.load(kind).then(
+          (data) => {
+            statusRef.current = "ready";
+            if (alive.current) setState({ status: "ready", data, error: null });
+            return data;
+          },
+          (error) => {
+            statusRef.current = "error";
+            if (alive.current) setState({ status: "error", data: null, error });
+            throw error;
+          }
+        );
+      }, [kind]);
+      React.useEffect(() => {
+        if (active && statusRef.current === "idle") reload().catch(() => {
+        });
+      }, [active, reload]);
+      return [state, reload];
+    }
+    return { useViewportSize, useResource };
+  }
 
   // client-src/mood-engine.js
   var SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
@@ -25155,6 +25218,7 @@
         clearFeihuaFullCache,
         clearPetMediaCache
       });
+      const { useViewportSize, useResource } = createHooks({ React, resourceStore });
       const fetchJson = createFetchJson(ROUTE);
       function putSettings(patch) {
         const request = buildSettingsRequest(patch);
@@ -25416,64 +25480,6 @@
       try {
         if (typeof globalThis !== "undefined") globalThis.__dshPoetryDebug = DEBUG;
       } catch (error) {
-      }
-      function readWindowWidth() {
-        try {
-          return window.innerWidth || 1280;
-        } catch (error) {
-          return 1280;
-        }
-      }
-      function readWindowHeight() {
-        try {
-          return window.innerHeight || 800;
-        } catch (error) {
-          return 800;
-        }
-      }
-      function useViewportSize() {
-        const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
-        React.useEffect(() => {
-          const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() });
-          window.addEventListener("resize", onResize);
-          return () => window.removeEventListener("resize", onResize);
-        }, []);
-        return size;
-      }
-      function useResource(kind, active) {
-        const [state, setState] = React.useState(() => ({
-          status: resourceStore.get(kind) ? "ready" : "idle",
-          data: resourceStore.get(kind) || null,
-          error: null
-        }));
-        const alive = React.useRef(true);
-        const statusRef = React.useRef(state.status);
-        statusRef.current = state.status;
-        React.useEffect(() => () => {
-          alive.current = false;
-        }, []);
-        const reload = React.useCallback(() => {
-          if (statusRef.current === "loading") return Promise.resolve();
-          statusRef.current = "loading";
-          setState((previous) => ({ status: "loading", data: previous.data, error: null }));
-          return resourceStore.load(kind).then(
-            (data) => {
-              statusRef.current = "ready";
-              if (alive.current) setState({ status: "ready", data, error: null });
-              return data;
-            },
-            (error) => {
-              statusRef.current = "error";
-              if (alive.current) setState({ status: "error", data: null, error });
-              throw error;
-            }
-          );
-        }, [kind]);
-        React.useEffect(() => {
-          if (active && statusRef.current === "idle") reload().catch(() => {
-          });
-        }, [active, reload]);
-        return [state, reload];
       }
       function LoadingState(props) {
         return h(

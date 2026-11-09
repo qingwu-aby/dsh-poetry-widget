@@ -44,7 +44,8 @@
 - [x] HTTP JSON 契约测试 `tests/domains/http-contract.test.mjs`（10 条）
 - [x] 测试拆分：host.test.mjs（12,146 行）→ tests/domains/ 9 个文件 + tests/helpers/harness.mjs
 - [x] 客户端数据层 `client-src/data.js`（fetch/超时/首屏缓存/getStorage）
-- [x] 客户端本地状态/资源层：`local-state.js`（位置/立绘限频）、`resources.js`（数据缓存/失效/懒加载）；client.js 5598 → 5409
+- [x] 客户端本地状态/资源层：`local-state.js`、`resources.js`
+- [x] 客户端 hooks 层：`hooks.js`（useViewportSize/useResource），窗口尺寸工具进 `base.js`；client.js 5598 → 5350
 - [x] 覆盖率门槛进 CI（lines 65 / branches 65 / functions 70）
 - [ ] 客户端组件 state/hook 层与 tab 注册表（剩余 ~5.4k 行；数据/资源/本地状态已抽）— 可选后续
 

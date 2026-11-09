@@ -1,4 +1,5 @@
-import { clamp, isVideoMoodFile, num } from './base.js'
+import { clamp, isVideoMoodFile, num, readWindowHeight, readWindowWidth } from './base.js'
+import { createHooks } from './hooks.js'
 import {
   SELF_TALK_PATH,
   SELF_TALK_RECENT_MAX,
@@ -2061,6 +2062,7 @@ window.__ModuleLoader__.load({
     clearFeihuaFullCache,
     clearPetMediaCache,
   })
+  const { useViewportSize, useResource } = createHooks({ React, resourceStore })
   const fetchJson = createFetchJson(ROUTE)
 
   /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
@@ -2160,70 +2162,9 @@ window.__ModuleLoader__.load({
   if (typeof globalThis !== 'undefined') globalThis.__dshPoetryDebug = DEBUG
   } catch (error) {
   }
-  function readWindowWidth() {
-  try {
-   return window.innerWidth || 1280
-  } catch (error) {
-   return 1280
-  }
-  }
-
-  function readWindowHeight() {
-  try {
-   return window.innerHeight || 800
-  } catch (error) {
-   return 800
-  }
-  }
-
-  function useViewportSize() {
-  const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }))
-  React.useEffect(() => {
-   const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() })
-   window.addEventListener('resize', onResize)
-   return () => window.removeEventListener('resize', onResize)
-  }, [])
-  return size
-  }
-
   /**
 
   */
-  function useResource(kind, active) {
-  const [state, setState] = React.useState(() => ({
-   status: resourceStore.get(kind) ? 'ready' : 'idle',
-   data: resourceStore.get(kind) || null,
-   error: null,
-  }))
-  const alive = React.useRef(true)
-  const statusRef = React.useRef(state.status)
-  statusRef.current = state.status
-  React.useEffect(() => () => {
-   alive.current = false
-  }, [])
-  const reload = React.useCallback(() => {
-   if (statusRef.current === 'loading') return Promise.resolve()
-   statusRef.current = 'loading'
-   setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
-   return resourceStore.load(kind).then(
-    (data) => {
-    statusRef.current = 'ready'
-    if (alive.current) setState({ status: 'ready', data, error: null })
-    return data
-    },
-    (error) => {
-    statusRef.current = 'error'
-    if (alive.current) setState({ status: 'error', data: null, error })
-    throw error
-    },
-   )
-  }, [kind])
-  React.useEffect(() => {
-   if (active && statusRef.current === 'idle') reload().catch(() => {})
-  }, [active, reload])
-  return [state, reload]
-  }
-
   function LoadingState(props) {
   return h(
    'div',

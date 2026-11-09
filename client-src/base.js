@@ -14,3 +14,19 @@ return n
 export function isVideoMoodFile(file) {
 return /\.webm$/i.test(String(file == null ? '' : file))
 }
+
+export function readWindowWidth() {
+  try {
+    return window.innerWidth || 1280
+  } catch {
+    return 1280
+  }
+}
+
+export function readWindowHeight() {
+  try {
+    return window.innerHeight || 800
+  } catch {
+    return 800
+  }
+}
