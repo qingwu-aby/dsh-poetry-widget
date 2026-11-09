@@ -43,18 +43,8 @@ import { resolveProjectsPath } from './lib/self-projects.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
 import { PRESENCE_ROUTE } from './lib/presence.mjs'
 import { createTwinSystem } from './lib/twin-system.mjs'
-import {
-  CHAT_ROUTE,
-  createChatBridge,
-  createChatHandler,
-  ensureChatToken,
-  resolveChatTokenPath,
-} from './lib/chat-bridge.mjs'
+import { CHAT_ROUTE, createChatHandler, ensureChatToken, resolveChatTokenPath } from './lib/chat-bridge.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
-import { startProactiveChat } from './lib/proactive-chat.mjs'
-import { createAttentionStore } from './lib/attention.mjs'
-import { createOutbox } from './lib/outbox.mjs'
-import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
@@ -69,6 +59,7 @@ import { createMemoryConsolidatorService, createMemoryHubService, createMemorySt
 import { createNetlangService, createReadingService, createWanderService } from './lib/composition/learning-loop-services.mjs'
 import { createGrowthService } from './lib/composition/being-services.mjs'
 import { createSelfDriveService } from './lib/composition/self-drive-service.mjs'
+import { createChatRuntime } from './lib/composition/chat-runtime.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
@@ -79,7 +70,6 @@ import { readGraph } from './lib/knowledge-graph.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
-import { startWorkLoop } from './lib/work-loop.mjs'
 import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
 import { createManualReading, ensureManualToken, resolveManualTokenPath } from './lib/manual-reading.mjs'
 import {
@@ -662,137 +652,31 @@ export async function apply(ctx) {
       // v2.45：QQ/外部聊天桥；她的独立记忆和语气，不读 DSH 会话。
       const chatTokenFile = resolveChatTokenPath(env, home)
       ensureChatToken(chatTokenFile)
-      const chatBridge = createChatBridge({
+      const chatRuntime = createChatRuntime({
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         journal,
         selfState,
-        recall: memoryRecall,
-        voice: () => voiceService.get(),
-        events: selfEvents,
+        memoryRecall,
+        voiceService,
+        selfEvents,
         worldFeedback,
         modelErrorsPath,
         logger,
-        stateDir: settingsPath.dir,
-        channelLabel: '对话',
-        // v2.69：她攒着的主动消息，下一次对话时随回复带出来（每条各起一行）。
-        takePending: (peerId) => (peerId === 'gui' ? guiInbox.drain(5).map((item) => item.text) : []),
-        // 聊天改变 felt/experiencing/murmur 后，清掉心情缓存并让心情图鉴重新判断。
-        onStateChanged: async () => {
-          try {
-            moodAiService.clearCache()
-            await moodAiService.generate(
-              {
-                selfState: selfState.snapshot(),
-                recentMoodLabels: typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : [],
-                readings: readingHint(),
-              },
-              { force: true },
-            )
-          } catch {
-            /* 心情刷新失败不影响聊天 */
-          }
-        },
-      })
-      // v2.50 主动找用户说话；v2.69 起不再走 QQ，统一排进对话队列（下次聊天时带出）。
-      const attention = createAttentionStore({ file: path.join(settingsPath.dir, 'attention.json'), logger })
-      if (typeof selfProjects.bindAttention === 'function') selfProjects.bindAttention(attention)
-      // v2.77：她留了话时，用宿主 schedule 在对话会话里预约一次推送；不必等用户先开口。
-      const guiPush = createGuiPush({
-        schedule: {
-          list: (request, signal) => {
-            const service = host.get(hostCtx, 'schedule')
-            if (!service || typeof service.list !== 'function') throw new Error('schedule 不可用')
-            return service.list(request, signal)
-          },
-          create: (sessionId, request, signal) => {
-            const service = host.get(hostCtx, 'schedule')
-            if (!service || typeof service.create !== 'function') throw new Error('schedule 不可用')
-            return service.create(sessionId, request, signal)
-          },
-        },
-        logger,
+        settingsDir: settingsPath.dir,
+        home,
         env,
-        workspaceFile: path.join(home, '.dsh', 'storages', 'workspace.json'),
-        sessionsRoot: path.join(home, '.dsh', 'sessions'),
-        workspacePath: String(env.DSH_POETRY_PUSH_WORKSPACE || path.join(home, 'Documents', 'little-whale-chat')),
-        getPendingCount: () => {
-          try {
-            return guiInbox.peek().length
-          } catch {
-            return 0
-          }
-        },
-        stateFile: path.join(settingsPath.dir, 'gui-push-state.json'),
-        sendPrompt: async (sessionId, text) => {
-          const controller = host.get(hostCtx, 'sessionController')
-          if (!controller || typeof controller.prompt !== 'function') throw new Error('sessionController 不可用')
-          // prompt 的实现会调用 signal.throwIfAborted()，必须传一个真实的 AbortSignal。
-          const abort = new AbortController()
-          await controller.prompt(
-            {
-              requestId: `whale-push-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              sessionId,
-              mode: 'queue',
-              content: [{ type: 'text', text }],
-              clientTimeZone: 'Asia/Shanghai',
-            },
-            abort.signal,
-          )
-        },
+        guiInbox,
+        selfProjects,
+        moodAiService,
+        readingHint,
+        getHostService: (serviceName) => host.get(hostCtx, serviceName),
+        selfWorks,
+        selfMetabolism,
       })
-      guiPush.start()
-      disposers.push(() => guiPush.stop())
-      let lastWhaleShareAt = 0
-      const queueGuiMessage = (text, meta = {}) => {
-        try {
-          guiInbox.push({
-            text,
-            kind: typeof meta.kind === 'string' && meta.kind.length > 0 ? meta.kind : 'proactive',
-            reason: typeof meta.reason === 'string' ? meta.reason : '',
-          })
-          guiPush.ping().catch(() => {})
-          return { ok: true, status: 'queued' }
-        } catch (error) {
-          return { ok: false, error: error instanceof Error ? error.message : String(error) }
-        }
-      }
-      const outbox = createOutbox({
-        file: path.join(settingsPath.dir, 'outbox.json'),
-        logger,
-        senders: { gui: async (item) => queueGuiMessage(item.text, item.meta) },
-        onSent: async (item) => {
-          if (item.meta && typeof item.meta.attentionId === 'string') {
-            attention.markSent(item.meta.attentionId)
-          }
-          if (typeof chatBridge.recordProactive === 'function') chatBridge.recordProactive('gui', item.text)
-        },
-      })
-      const outboxTimer = setInterval(() => {
-        outbox.flush().catch(() => {})
-      }, 15000)
-      outboxTimer.unref?.()
-      disposers.push(() => clearInterval(outboxTimer))
-      const proactiveChat = startProactiveChat({
-        chat: chatBridge,
-        attention,
-        stateFile: path.join(settingsPath.dir, 'proactive-chat-state.json'),
-        logger,
-        env,
-        peerId: 'gui',
-        sendMessage: (text, meta = {}) => outbox.deliverNow({ source: 'gui', text, kind: 'proactive', meta }),
-      })
-      disposers.push(() => proactiveChat.stop())
-      // v2.47：作品机会循环——每 90 分钟问一次“想不想留点东西”，可拒绝；首次给一次非可选机会。
-      const workLoop = startWorkLoop({
-        works: selfWorks,
-        selfState,
-        metabolism: selfMetabolism,
-        worldFeedback,
-        logger,
-        env,
-      })
-      disposers.push(() => workLoop.stop())
+      disposers.push(() => chatRuntime.dispose())
+      const { chatBridge, attention, guiPush, outbox, proactiveChat, workLoop, queueGuiMessage } = chatRuntime
+
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
       const manualTokenFile = resolveManualTokenPath(env, home)
       const manualToken = ensureManualToken(manualTokenFile)
@@ -896,12 +780,7 @@ export async function apply(ctx) {
         commitments,
         browseForWhale,
         chatBridge,
-        shareGate: {
-          get: () => lastWhaleShareAt,
-          set: (value) => {
-            lastWhaleShareAt = value
-          },
-        },
+        shareGate: chatRuntime.shareGate,
         queueGuiMessage,
         heartbeat,
         serviceRuntime,
