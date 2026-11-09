@@ -50,6 +50,17 @@
 - [x] 客户端 hooks/注册表层：`hooks.js`（useViewportSize/useResource）、`panel-tabs.js`（顶层 tab 注册表）；client.js 5598 → 5341
 - [ ] 客户端剩余组件闭包（~5.3k 行）— 可选后续
 
+## P0 依赖与扩展点收口 ✅（2026-11-09）
+- [x] 依赖收口：lib 根目录 0 模块、legacy shim 全部删除，import 指向真实模块；kernel 补齐 model runtime（llm-call/model-errors/model-policy）；weather 常量下沉 kernel
+- [x] 规则更新：domain 不得依赖 legacy/根模块；domain 间允许直接依赖（必须无循环，优先 facade）
+- [x] 扩展点采纳：`callModel` 统一适配器覆盖 12 个历史调用文件（含 callModel 影子函数修复）；config 注册表接入 runtime-setup/http-wiring；service 注册表接入 health（domainServices 快照）
+
+## P1 状态与错误（进行中）
+- [x] 状态 schema 覆盖 5 → 8 个文件（新增 self-actions/self-state/voice）
+- [ ] 剩余状态文件（约 22 个，多为 jsonl/浏览态）
+- [ ] 364 处 domain 静默 catch 分级与关键路径观测
+- [ ] domain 目录逐步 `// @ts-check` + biome
+
 ## W4 ✅（类型/文档/门禁，2026-11-09）
 - [x] 4 个历史大模块拆到 <800 行
 - [x] 体量门禁：index ≤300、单模块 ≤800（全部通过）
