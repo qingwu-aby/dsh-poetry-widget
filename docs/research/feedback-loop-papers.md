@@ -103,7 +103,9 @@
 
 - ✅ 扩散激活检索：`lib/domain/knowledge/knowledge-graph.mjs#spreadActivation`，聊天 prompt 带 `spreadLines`（Generative Agents + Collins & Loftus）；
 - ✅ 夜间离线巩固：`lib/domain/knowledge/nightly-consolidation.mjs`（Kumaran/Rasch + Mem0/A-MEM 的 merge/evolve）；
-- ☐ 情绪评价器、习惯/执行意图：待做。
+- ✅ 情绪评价器：`lib/domain/emotion/appraisal.mjs`——对学习/研究结果算 relevance/controllability/certainty/agency，映射成情绪线程（Scherer/Damasio/Barrett）；
+- ✅ 习惯记忆：`lib/domain/being/habit-memory.mjs`——情境→动作→结果记账、成功率/近期性建议进自处 prompt（Wood & Rünger）；
+- ☐ 执行意图（如果…就…）与离线巩固的冲突检测仍可继续。
 
 ## 直接对应的四项改造（按清单落地顺序）
 
