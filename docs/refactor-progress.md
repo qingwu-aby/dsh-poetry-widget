@@ -51,7 +51,8 @@
 - [x] 客户端数据层：`client-src/data.js`（fetch/超时/首屏缓存/getStorage，client.js 5598→5517）
 - [ ] 客户端 state/hook 层与 tab 注册表（剩余 ~5.5k 行）
 - [x] 覆盖率门槛：`npm run test:coverage` 强制 lines 65 / branches 65 / functions 70（当前 68/74/74），CI 已接入
-- [ ] JSDoc/@ts-check + tsc --noEmit；README 精简
+- [ ] JSDoc/@ts-check + tsc --noEmit
+- [x] README 精简：236 → 约 120 行（功能/安装/配置/开发/限制/许可）
 - [x] 4 个历史大模块已拆到 <800 行：mood-ai(322+747)、self-talk(451+569)、self-drive(583+423)、self-growth(763+109+317)；体量门禁收紧为单模块 ≤800
 
 ## 已知债务（W2 完成后）
