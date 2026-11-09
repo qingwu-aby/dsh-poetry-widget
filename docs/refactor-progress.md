@@ -40,7 +40,22 @@
 - [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 
-## W3/W4（进行中）
+## W3 ✅（测试与客户端数据层，2026-11-09）
+- [x] HTTP JSON 契约测试 `tests/domains/http-contract.test.mjs`（10 条）
+- [x] 测试拆分：host.test.mjs（12,146 行）→ tests/domains/ 9 个文件 + tests/helpers/harness.mjs
+- [x] 客户端数据层 `client-src/data.js`（fetch/超时/首屏缓存/getStorage）
+- [x] 覆盖率门槛进 CI（lines 65 / branches 65 / functions 70）
+- [ ] 客户端 state/hook 层与 tab 注册表（剩余 ~5.5k 行）— 可选后续
+
+## W4 ✅（类型/文档/门禁，2026-11-09）
+- [x] 4 个历史大模块拆到 <800 行
+- [x] 体量门禁：index ≤300、单模块 ≤800（全部通过）
+- [x] ADR×3、architecture/config/state-files/refactor-progress 文档
+- [x] README 精简至 86 行；PLAN.md 归档
+- [ ] JSDoc/`tsc --noEmit` — 可选后续
+- [ ] 旧路径 shim 清理（72 个兼容层）— 可选后续
+
+## 历史阶段（早期记录，保留）
 - [x] HTTP JSON 契约测试：`tests/domains/http-contract.test.mjs`（10 条：health/self/memory/graph/works/model-errors/settings/bootstrap/view=1/方法守卫；512/512）
 - [x] PLAN.md 归档 → `docs/archive/PLAN.md`；新增 `npm run test:coverage`（仅报告，暂无门槛）
 - [x] 测试拆分第一批：共享脚手架 → `tests/helpers/harness.mjs`（23 导出）；核心/设置/数据/路由/天气 42 条 → `tests/domains/core.test.mjs`；host.test.mjs 由 12,146 行降至约 10.6k 行，测试总数保持 512
