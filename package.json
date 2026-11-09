@@ -86,7 +86,7 @@
     "experiment:loop": "node scripts/experiment-loop-scope.mjs",
     "experiment:suite": "node scripts/experiment-loop-suite.mjs",
     "twin:chat": "node scripts/twin-chat.mjs",
-    "check:eng": "node scripts/check-deps.mjs && node scripts/check-size.mjs",
+    "check:eng": "node scripts/check-deps.mjs && node scripts/check-size.mjs && node scripts/check-catches.mjs",
     "lint": "biome check lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "format": "biome check --write lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "config:doc": "node scripts/gen-config-doc.mjs",
