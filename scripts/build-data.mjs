@@ -22,7 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as OpenCC from 'opencc-js'
-import { resolveSource, resolveCuratedFiles, CURATED_FILES, scanSource, PROJECT_ROOT, SOURCE } from './fetch-data.mjs'
+import { CURATED_FILES, PROJECT_ROOT, resolveCuratedFiles, resolveSource, SOURCE, scanSource } from './fetch-data.mjs'
 
 /* ================================================================== *
  * 0. 常量
@@ -333,8 +333,6 @@ const FOUR_FORMAT_KEYS = [
   ['B', 'D', 'A', 'B'],
 ]
 
-
-
 /** 固定平仄的位置（0-based）：五言第 2/4/5 字，七言第 2/4/6/7 字。 */
 const FIXED_POS = { 5: [1, 3, 4], 7: [1, 3, 5, 6] }
 
@@ -460,7 +458,9 @@ export function analyzeMeter(toneLines, options = {}) {
   const allPatterns = patternsFor(toneLines.length, width)
   // 首句信息可判定时，先硬性约束格式，避免「违例最少但起式反了」的误判
   const constrained = allPatterns.filter(
-    (p) => (actualStart === null || p.start === actualStart) && (actualFirstRhyme === null || p.firstRhyme === actualFirstRhyme),
+    (p) =>
+      (actualStart === null || p.start === actualStart) &&
+      (actualFirstRhyme === null || p.firstRhyme === actualFirstRhyme),
   )
   const feasible = []
   for (const pattern of constrained.length > 0 ? constrained : allPatterns) {
@@ -781,7 +781,11 @@ function lastCJKChar(text) {
 
 /** 查一个韵脚字的平声韵部集合（先原字，再 t2s 归一）。 */
 function rhymeCategories(table, ch) {
-  return table.ping.get(ch) ?? (table.normalize ? table.ping.get(table.normalize(ch)) : table.ping.get(table.t2s(ch))) ?? null
+  return (
+    table.ping.get(ch) ??
+    (table.normalize ? table.ping.get(table.normalize(ch)) : table.ping.get(table.t2s(ch))) ??
+    null
+  )
 }
 
 /** 是否仄声字（仅用于把「查不到」细分为 rhymeNoPing / rhymeUnknown）。 */
@@ -916,7 +920,11 @@ export function buildPoemCandidate(raw, strainEntry, rankEntry, dynasty, ordinal
     if (curText) return fail('shape')
   }
 
-  const toneLines = tones.map((tone) => chars(tone).filter((ch) => TONE_CHARS.has(ch)).join(''))
+  const toneLines = tones.map((tone) =>
+    chars(tone)
+      .filter((ch) => TONE_CHARS.has(ch))
+      .join(''),
+  )
   const firstLineFinal = resolveFirstLineFinal(tones[0], linesOriginal[0], options.rhymeTable)
   const meter = analyzeMeter(toneLines, {
     maxVariances: options.maxVariances ?? MAX_VARIANCES,
@@ -938,18 +946,23 @@ export function buildPoemCandidate(raw, strainEntry, rankEntry, dynasty, ordinal
     tones.length = 0
     for (const lineChars of toneArr) tones.push(lineChars.join(''))
     // 校正后重算违例数（○ 与平/仄均相容，违例可能变少），保证 analysis 与 tones 自洽
-    const correctedLines = tones.map((tone) => chars(tone).filter((ch) => TONE_CHARS.has(ch)).join(''))
+    const correctedLines = tones.map((tone) =>
+      chars(tone)
+        .filter((ch) => TONE_CHARS.has(ch))
+        .join(''),
+    )
     const corrected = evaluateStoredMeter(correctedLines, meter.form, meter.start, meter.firstRhyme)
     if (corrected.ok) violations = corrected.violations
   }
   // 非韵脚句必须是仄收（或○）；出现平收说明是拗体/古体混入，与「平声韵」标注冲突，整首剔除
   for (let i = 0; i < tones.length; i += 1) {
     if (meter.rhymeIdx.includes(i)) continue
-    const finalTone = chars(tones[i]).filter((ch) => TONE_CHARS.has(ch)).at(-1)
+    const finalTone = chars(tones[i])
+      .filter((ch) => TONE_CHARS.has(ch))
+      .at(-1)
     if (finalTone === '平') return fail('rhymeMisaligned')
   }
   const meterViolations = violations
-
 
   // 繁转简：逐行逐字等长（contract §2.2 / §5）
   for (const original of linesOriginal) {
@@ -1015,25 +1028,107 @@ export const CI_TARGET = { min: 150, max: 300 }
 /** 名家白名单（匹配不足时的补足池）：唐诗 + 宋诗。 */
 export const FAMOUS_POETS = new Set([
   // 唐
-  '李白', '杜甫', '王维', '白居易', '李商隐', '杜牧', '刘禹锡', '王昌龄', '孟浩然', '韦应物',
-  '韩愈', '柳宗元', '李贺', '岑参', '高适', '王勃', '张九龄', '元稹', '温庭筠', '王之涣',
-  '贺知章', '崔颢', '王翰', '王湾', '常建', '祖咏', '刘长卿', '张籍', '王建', '李益',
-  '司空曙', '钱起', '许浑', '杜荀鹤', '宋之问', '沈佺期', '陈子昂', '张若虚', '王绩', '骆宾王',
+  '李白',
+  '杜甫',
+  '王维',
+  '白居易',
+  '李商隐',
+  '杜牧',
+  '刘禹锡',
+  '王昌龄',
+  '孟浩然',
+  '韦应物',
+  '韩愈',
+  '柳宗元',
+  '李贺',
+  '岑参',
+  '高适',
+  '王勃',
+  '张九龄',
+  '元稹',
+  '温庭筠',
+  '王之涣',
+  '贺知章',
+  '崔颢',
+  '王翰',
+  '王湾',
+  '常建',
+  '祖咏',
+  '刘长卿',
+  '张籍',
+  '王建',
+  '李益',
+  '司空曙',
+  '钱起',
+  '许浑',
+  '杜荀鹤',
+  '宋之问',
+  '沈佺期',
+  '陈子昂',
+  '张若虚',
+  '王绩',
+  '骆宾王',
   // 宋
-  '苏轼', '王安石', '陆游', '杨万里', '范成大', '朱熹', '欧阳修', '梅尧臣', '黄庭坚', '秦观',
+  '苏轼',
+  '王安石',
+  '陆游',
+  '杨万里',
+  '范成大',
+  '朱熹',
+  '欧阳修',
+  '梅尧臣',
+  '黄庭坚',
+  '秦观',
 ])
 
 /** 名家白名单（词）。 */
 export const FAMOUS_CI_POETS = new Set([
-  '苏轼', '辛弃疾', '李清照', '柳永', '晏殊', '欧阳修', '秦观', '周邦彦', '姜夔', '贺铸',
-  '晏几道', '范仲淹', '岳飞', '陆游', '张孝祥', '陈与义', '朱淑真', '吴文英', '王沂孙', '蒋捷',
-  '张炎', '宋祁', '潘阆',
+  '苏轼',
+  '辛弃疾',
+  '李清照',
+  '柳永',
+  '晏殊',
+  '欧阳修',
+  '秦观',
+  '周邦彦',
+  '姜夔',
+  '贺铸',
+  '晏几道',
+  '范仲淹',
+  '岳飞',
+  '陆游',
+  '张孝祥',
+  '陈与义',
+  '朱淑真',
+  '吴文英',
+  '王沂孙',
+  '蒋捷',
+  '张炎',
+  '宋祁',
+  '潘阆',
 ])
 
 /** 泛题前缀（补足阶段只在「名家白名单 + rank 顺序」下使用，避免「即事十二首 其七」这类占榜）。 */
 export const GENERIC_TITLE_PREFIXES = [
-  '诗一首', '诗二首', '无题', '有感', '即事', '感事', '杂诗', '绝句', '春日', '秋日',
-  '九日', '夜坐', '自遣', '偶成', '闲居', '村居', '漫兴', '遣兴', '句',
+  '诗一首',
+  '诗二首',
+  '无题',
+  '有感',
+  '即事',
+  '感事',
+  '杂诗',
+  '绝句',
+  '春日',
+  '秋日',
+  '九日',
+  '夜坐',
+  '自遣',
+  '偶成',
+  '闲居',
+  '村居',
+  '漫兴',
+  '遣兴',
+  '句',
 ]
 
 /** 去标点后取前 n 个汉字（用于精选匹配 key；n 默认 5）。 */
@@ -1092,7 +1187,13 @@ export function loadCuratedPoemRefs(source, warn = () => {}) {
       for (const tag of tags) if (CURATED_FORM_BY_TAG[tag]) form = CURATED_FORM_BY_TAG[tag]
       if (!form) continue
       if (!Array.isArray(entry.paragraphs) || entry.paragraphs.length === 0) continue
-      refs.push({ book: 'tangshisanbaishou', author: entry.author, title: entry.title, paragraphs: entry.paragraphs, form })
+      refs.push({
+        book: 'tangshisanbaishou',
+        author: entry.author,
+        title: entry.title,
+        paragraphs: entry.paragraphs,
+        form,
+      })
     }
   } else {
     warn('未找到 全唐诗/唐诗三百首.json，跳过唐诗三百首精选匹配。')
@@ -1106,7 +1207,13 @@ export function loadCuratedPoemRefs(source, warn = () => {}) {
       if (!form) continue
       for (const entry of group.content ?? []) {
         if (!Array.isArray(entry?.paragraphs) || entry.paragraphs.length === 0) continue
-        refs.push({ book: 'qianjiashi', author: entry.author, title: entry.chapter, paragraphs: entry.paragraphs, form })
+        refs.push({
+          book: 'qianjiashi',
+          author: entry.author,
+          title: entry.chapter,
+          paragraphs: entry.paragraphs,
+          form,
+        })
       }
     }
   } else {
@@ -1286,10 +1393,7 @@ export function loadPoemChunk(source, dynasty, chunk, stats, options = {}) {
   const dirs = source.dirs
   const poetFile = path.join(dirs.tang, chunk.file)
   const strainFile = path.join(dirs.strains, chunk.file)
-  const rankFile = path.join(
-    dirs.rankPoet,
-    `poet.${dynasty}.rank.${chunk.start}.json`,
-  )
+  const rankFile = path.join(dirs.rankPoet, `poet.${dynasty}.rank.${chunk.start}.json`)
   const rawList = tryReadJSON(poetFile)
   const strainList = tryReadJSON(strainFile)
   const rankList = tryReadJSON(rankFile)
@@ -1379,8 +1483,21 @@ export const RHYTHMIC_NAME_FIX = new Map([['大', '大酺']])
 
 /** 15 张词牌卡的词牌名（用于确保每张卡都有对应词作）。 */
 export const CI_CARD_RHYTHMICS = [
-  '浣溪沙', '蝶恋花', '临江仙', '水调歌头', '念奴娇', '定风波', '雨霖铃', '声声慢',
-  '如梦令', '虞美人', '鹊桥仙', '青玉案', '破阵子', '鹧鸪天', '满江红',
+  '浣溪沙',
+  '蝶恋花',
+  '临江仙',
+  '水调歌头',
+  '念奴娇',
+  '定风波',
+  '雨霖铃',
+  '声声慢',
+  '如梦令',
+  '虞美人',
+  '鹊桥仙',
+  '青玉案',
+  '破阵子',
+  '鹧鸪天',
+  '满江红',
 ]
 
 /** 选集缺的 3 个词牌名篇（从宋词语料补，antology-qa.md §三）。 */
@@ -1468,7 +1585,10 @@ export function normalizeRhythmic(rhythmic, rhythmicFreq = new Map(), stats = nu
     return RHYTHMIC_SPLIT_MAP.get(raw)
   }
   if (!raw.includes('・')) return raw
-  const parts = raw.split('・').map((part) => part.trim()).filter(Boolean)
+  const parts = raw
+    .split('・')
+    .map((part) => part.trim())
+    .filter(Boolean)
   if (parts.length === 0) return raw
   let best = parts[0]
   let bestFreq = -1
@@ -1522,7 +1642,11 @@ export function loadCuratedCiEntries(source, warn = () => {}) {
       if (!item || typeof item !== 'object') continue
       const author = String(item.author ?? '').trim()
       const rhythmic = String(item.rhythmic ?? item.name ?? '').trim()
-      const rawParagraphs = Array.isArray(item.paragraphs) ? item.paragraphs : Array.isArray(item.lines) ? item.lines : []
+      const rawParagraphs = Array.isArray(item.paragraphs)
+        ? item.paragraphs
+        : Array.isArray(item.lines)
+          ? item.lines
+          : []
       const paragraphs = rawParagraphs.map((line) => normalizeCiLine(line)).filter(Boolean)
       if (!author || !rhythmic || paragraphs.length === 0) continue
       const key = `${author}\u0000${rhythmic}\u0000${firstCharsContent(firstClauseContent(paragraphs[0]))}`
@@ -1630,10 +1754,7 @@ export function buildCiItems(entries, corpusIndex, stats) {
     }
     const rhythmic = normalizeRhythmic(entry.rhythmic, corpusIndex.rhythmicFreq, stats)
     const refLines = entry.paragraphs.map(normalizeCiLine).filter(Boolean)
-    const corpus = matchCiCorpus(
-      { author, originalAuthor: entry.author, rhythmic, paragraphs: refLines },
-      corpusIndex,
-    )
+    const corpus = matchCiCorpus({ author, originalAuthor: entry.author, rhythmic, paragraphs: refLines }, corpusIndex)
     let lines = refLines
     let score = 0
     let finalRhythmic = rhythmic
@@ -1653,7 +1774,9 @@ export function buildCiItems(entries, corpusIndex, stats) {
         finalRhythmic = corpus.rhythmic
         stats.counters.ciRhythmicFixed = (stats.counters.ciRhythmicFixed ?? 0) + 1
       }
-      usedCorpus.add(`${corpus.author}\u0000${corpus.rhythmic}\u0000${firstCharsContent(firstClauseContent(corpus.lines[0]))}`)
+      usedCorpus.add(
+        `${corpus.author}\u0000${corpus.rhythmic}\u0000${firstCharsContent(firstClauseContent(corpus.lines[0]))}`,
+      )
     } else {
       stats.counters.ciCorpusFallback += 1
     }
@@ -1681,7 +1804,9 @@ export function buildCiItems(entries, corpusIndex, stats) {
     }
     const key = `${target.author}\u0000${target.rhythmic}\u0000${firstCharsContent(firstClauseContent(found.candidate.lines[0]))}`
     if (usedCorpus.has(key)) continue
-    if (pushItem(makeId('ci', extraIndex++), target.author, target.rhythmic, found.candidate.lines, found.candidate.score)) {
+    if (
+      pushItem(makeId('ci', extraIndex++), target.author, target.rhythmic, found.candidate.lines, found.candidate.score)
+    ) {
       stats.counters.ciAppended += 1
       usedCorpus.add(key)
     }
@@ -1697,7 +1822,9 @@ export function buildCiItems(entries, corpusIndex, stats) {
     for (const candidate of candidates) {
       const key = `${candidate.author}\u0000${candidate.rhythmic}\u0000${firstCharsContent(firstClauseContent(candidate.lines[0]))}`
       if (usedCorpus.has(key)) continue
-      if (pushItem(makeId('ci', extraIndex++), candidate.author, candidate.rhythmic, candidate.lines, candidate.score)) {
+      if (
+        pushItem(makeId('ci', extraIndex++), candidate.author, candidate.rhythmic, candidate.lines, candidate.score)
+      ) {
         stats.counters.ciCardFill += 1
         usedCorpus.add(key)
         break
@@ -1774,9 +1901,7 @@ export function buildYun(raw, overrides, stats) {
       let exampleChars = null
       const override = overrides?.[name]
       if (Array.isArray(override)) {
-        const cleaned = override
-          .map((ch) => String(ch).trim())
-          .filter((ch) => charLength(ch) === 1 && isCJK(ch))
+        const cleaned = override.map((ch) => String(ch).trim()).filter((ch) => charLength(ch) === 1 && isCJK(ch))
         const deduped = [...new Set(cleaned)]
         if (deduped.length >= 3) exampleChars = deduped.slice(0, 8)
         else stats.counters.yunOverridesRejected = (stats.counters.yunOverridesRejected ?? 0) + 1
@@ -1817,8 +1942,21 @@ const PLACEHOLDER_CARDS = [
 }))
 
 const PLACEHOLDER_CI_CARDS = [
-  '浣溪沙', '蝶恋花', '临江仙', '水调歌头', '念奴娇', '定风波', '雨霖铃', '声声慢',
-  '如梦令', '虞美人', '鹊桥仙', '青玉案', '破阵子', '鹧鸪天', '满江红',
+  '浣溪沙',
+  '蝶恋花',
+  '临江仙',
+  '水调歌头',
+  '念奴娇',
+  '定风波',
+  '雨霖铃',
+  '声声慢',
+  '如梦令',
+  '虞美人',
+  '鹊桥仙',
+  '青玉案',
+  '破阵子',
+  '鹧鸪天',
+  '满江红',
 ].map((name) => ({
   id: 'placeholder',
   name,
@@ -2064,7 +2202,12 @@ export async function buildData(opts = {}) {
   if (smoke) {
     const curatedTaken = curatedPoems.slice(0, targetPoems)
     if (curatedTaken.length < targetPoems) {
-      poemFilled = selectFillPoems(candidates, new Set(curatedTaken.map((p) => p.id)), targetPoems - curatedTaken.length, stats)
+      poemFilled = selectFillPoems(
+        candidates,
+        new Set(curatedTaken.map((p) => p.id)),
+        targetPoems - curatedTaken.length,
+        stats,
+      )
     }
     poems = [...curatedTaken, ...poemFilled].map(stripInternalFields)
   } else {
@@ -2098,7 +2241,9 @@ export async function buildData(opts = {}) {
   stats.counters.simplifiedResidualOccurrences = residualOccurrences
   stats.counters.simplifiedResidual = residualChars.size
   if (residualChars.size > 0) {
-    warn(`简体残留字 ${residualChars.size} 种（${[...residualChars].join('')}），出现 ${residualOccurrences} 次（目标 0）。`)
+    warn(
+      `简体残留字 ${residualChars.size} 种（${[...residualChars].join('')}），出现 ${residualOccurrences} 次（目标 0）。`,
+    )
   }
   if (!smoke && poems.length < POEM_TARGET.min) {
     warn(`精选+补足后仅 ${poems.length} 首，低于目标下限 ${POEM_TARGET.min}（宁缺毋滥，不放宽质量门）。`)
@@ -2148,7 +2293,9 @@ export async function buildData(opts = {}) {
   // ---- 知识卡 ----
   log(`[5/6] 合并知识卡 content/cards.json + content/ci-cards.json ...`)
   const knowledge = buildKnowledge(stats, warn)
-  log(`  知识卡 ${knowledge.cards.length} 张（${stats.counters.knowledgeSource}）/ 词牌卡 ${knowledge.ciCards.length} 张（${stats.counters.ciCardsSource}）`)
+  log(
+    `  知识卡 ${knowledge.cards.length} 张（${stats.counters.knowledgeSource}）/ 词牌卡 ${knowledge.ciCards.length} 张（${stats.counters.ciCardsSource}）`,
+  )
 
   // ---- 写文件 ----
   log(`[6/6] 写入 data/ ...`)
@@ -2175,9 +2322,18 @@ export async function buildData(opts = {}) {
       poemsKept: stats.counters.poemsKept,
       ciCandidates: stats.counters.ciCandidates,
       ciKept: stats.counters.ciKept,
-      poemDynasty: poems.reduce((acc, p) => { acc[p.dynasty] = (acc[p.dynasty] ?? 0) + 1; return acc }, {}),
-      poemSources: poems.reduce((acc, p) => { acc[p.source] = (acc[p.source] ?? 0) + 1; return acc }, {}),
-      poemForms: poems.reduce((acc, p) => { acc[p.form] = (acc[p.form] ?? 0) + 1; return acc }, {}),
+      poemDynasty: poems.reduce((acc, p) => {
+        acc[p.dynasty] = (acc[p.dynasty] ?? 0) + 1
+        return acc
+      }, {}),
+      poemSources: poems.reduce((acc, p) => {
+        acc[p.source] = (acc[p.source] ?? 0) + 1
+        return acc
+      }, {}),
+      poemForms: poems.reduce((acc, p) => {
+        acc[p.form] = (acc[p.form] ?? 0) + 1
+        return acc
+      }, {}),
       rhymeDroppedByReason: {
         rhymeMixed: stats.dropped.poem?.rhymeMixed ?? 0,
         rhymeNoPing: stats.dropped.poem?.rhymeNoPing ?? 0,
@@ -2243,7 +2399,9 @@ export async function buildData(opts = {}) {
   log(
     `  诗：候选 ${stats.counters.poemCandidates} → 精选命中 ${stats.counters.curatedPoemMatched} + 补足 ${stats.counters.poemFilled} = 入选 ${poems.length}`,
   )
-  log(`    朝代：${JSON.stringify(poemDist.dynasty)}；诗体：${JSON.stringify(poemDist.forms)}；来源：${JSON.stringify(poemDist.sources)}`)
+  log(
+    `    朝代：${JSON.stringify(poemDist.dynasty)}；诗体：${JSON.stringify(poemDist.forms)}；来源：${JSON.stringify(poemDist.sources)}`,
+  )
   log(`    top10 作者：${poemDist.topAuthors.map(([name, count]) => `${name}×${count}`).join('、')}`)
   printDrops('诗 ', stats.dropped.poem, stats.counters.poemCandidates)
   printDrops('精选诗 ', stats.dropped.curatedPoem, stats.counters.curatedPoemRefs)
@@ -2254,7 +2412,12 @@ export async function buildData(opts = {}) {
       `词牌拆分 ${stats.counters.ciRhythmicSplit} / 作者修正 ${stats.counters.ciAuthorFixed} / 补名篇 ${stats.counters.ciAppended} + ${stats.counters.ciCardFill}）`,
   )
   log(`    top10 作者：${ciDist.topAuthors.map(([name, count]) => `${name}×${count}`).join('、')}`)
-  log(`    词牌 top5：${ciDist.topRhythmic.slice(0, 5).map(([name, count]) => `${name}×${count}`).join('、')}；名句覆盖 ${ciDist.quotes}/${ci.length}`)
+  log(
+    `    词牌 top5：${ciDist.topRhythmic
+      .slice(0, 5)
+      .map(([name, count]) => `${name}×${count}`)
+      .join('、')}；名句覆盖 ${ciDist.quotes}/${ci.length}`,
+  )
   printDrops('词 ', stats.dropped.ci, stats.counters.ciCandidates)
   log(`  韵部：2 卷 / ${chapterCount} 章；知识：${knowledge.cards.length} 卡 / ${knowledge.ciCards.length} 词牌卡`)
   log(
@@ -2272,7 +2435,8 @@ export async function buildData(opts = {}) {
     console.log(`    ${name.padEnd(16)} ${String(bytes).padStart(8)} B  ${formatBytes(bytes).padStart(9)}${suffix}`)
     if (budget && bytes > budget) warn(`${name} 超出体积预算：${bytes} > ${budget} B`)
   }
-  if (stats.counters.simplifiedFallbacks > 0) warn(`有 ${stats.counters.simplifiedFallbacks} 行繁转简长度不匹配，已回退原文。`)
+  if (stats.counters.simplifiedFallbacks > 0)
+    warn(`有 ${stats.counters.simplifiedFallbacks} 行繁转简长度不匹配，已回退原文。`)
   return { dataVersion, manifest, poems, ci, yun, knowledge, stats }
 }
 
@@ -2310,8 +2474,7 @@ function parseArgs(argv) {
   return opts
 }
 
-const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isDirectRun) {
   const opts = parseArgs(process.argv.slice(2))

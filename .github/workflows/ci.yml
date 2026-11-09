@@ -1,0 +1,20 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:client
+      - run: node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/client/widget.test.mjs
+      - run: npm run check:eng
+      - run: npm run lint

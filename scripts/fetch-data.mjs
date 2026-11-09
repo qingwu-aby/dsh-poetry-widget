@@ -495,15 +495,10 @@ async function main() {
   console.log(`  文件计数：${JSON.stringify(resolved.counts)}`)
   console.log(`  体积：${formatBytes(stats.bytes)}（${stats.files} 个文件）`)
   console.log('')
-  console.log(
-    offline
-      ? '离线自检：通过（curated 源齐全 + 完整语料本地可用，可完全离线重跑 data/）'
-      : '源解析：完成',
-  )
+  console.log(offline ? '离线自检：通过（curated 源齐全 + 完整语料本地可用，可完全离线重跑 data/）' : '源解析：完成')
 }
 
-const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isDirectRun) {
   main().catch((err) => {
     console.error(`[fetch-data] ${err?.message ?? err}`)

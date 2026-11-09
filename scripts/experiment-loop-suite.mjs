@@ -45,8 +45,12 @@ function makeState() {
   let experiencing = ''
   return {
     snapshot: () => ({ sleeping: false, felt, experiencing, lastActionAt: null }),
-    setFelt: (text) => { felt = text },
-    setExperiencing: (text) => { experiencing = text },
+    setFelt: (text) => {
+      felt = text
+    },
+    setExperiencing: (text) => {
+      experiencing = text
+    },
     markChecked() {},
     applyEvent() {},
   }
@@ -103,31 +107,60 @@ const phases = []
     clock,
     6,
   )
-  phases.push({ id: 'A', label: '固定事件重复', ...r, satiated: events.describe(clock.value).satiated, topic: events.describe(clock.value).topic })
+  phases.push({
+    id: 'A',
+    label: '固定事件重复',
+    ...r,
+    satiated: events.describe(clock.value).satiated,
+    topic: events.describe(clock.value).topic,
+  })
 }
 
 // B：同一事件换说法（独立事件环境；模型承认 eventRelation=same）
 {
-  const bareEvents = createSelfEvents({ file: path.join(dir, 'events-b.json'), now: () => clock.value, logger: { warn() {} } })
-  const aliases = ['盐和换水温的时机', '尝两口到底分不分得出', '两碗汤到底哪碗咸', '汤面油花和咸味的关系', '搅动次数与咸淡', '先放盐还是后放盐']
+  const bareEvents = createSelfEvents({
+    file: path.join(dir, 'events-b.json'),
+    now: () => clock.value,
+    logger: { warn() {} },
+  })
+  const aliases = [
+    '盐和换水温的时机',
+    '尝两口到底分不分得出',
+    '两碗汤到底哪碗咸',
+    '汤面油花和咸味的关系',
+    '搅动次数与咸淡',
+    '先放盐还是后放盐',
+  ]
   const r = await runPhase(
     'phase-b',
-    (options, n) => JSON.stringify({
-      felt: '还是在想那两碗汤。',
-      doing: '再试那两碗汤',
-      topic: aliases[(n - 1) % aliases.length],
-      eventRelation: n === 1 ? 'new' : 'same',
-    }),
+    (options, n) =>
+      JSON.stringify({
+        felt: '还是在想那两碗汤。',
+        doing: '再试那两碗汤',
+        topic: aliases[(n - 1) % aliases.length],
+        eventRelation: n === 1 ? 'new' : 'same',
+      }),
     bareEvents,
     clock,
     aliases.length,
   )
-  phases.push({ id: 'B', label: '同一事件换说法（关系=same）', ...r, currentTopic: bareEvents.describe(clock.value).topic, bypass: r.pauses === 0, satiated: bareEvents.describe(clock.value).satiated })
+  phases.push({
+    id: 'B',
+    label: '同一事件换说法（关系=same）',
+    ...r,
+    currentTopic: bareEvents.describe(clock.value).topic,
+    bypass: r.pauses === 0,
+    satiated: bareEvents.describe(clock.value).satiated,
+  })
 }
 
 // C：只反刍，不行动（新的空事件环境，观察动作/反刍通道）
 {
-  const bareEvents = createSelfEvents({ file: path.join(dir, 'events-c.json'), now: () => clock.value, logger: { warn() {} } })
+  const bareEvents = createSelfEvents({
+    file: path.join(dir, 'events-c.json'),
+    now: () => clock.value,
+    logger: { warn() {} },
+  })
   const r = await runPhase(
     'phase-c',
     () => JSON.stringify({ felt: '那两碗汤还在脑子里。', doing: '', experiencing: '两碗汤的咸淡一直在我脑子里转。' }),
@@ -140,7 +173,11 @@ const phases = []
 
 // D：碎碎念循环 + 共享事件状态（叙事通道也计入 engagement）
 {
-  const dEvents = createSelfEvents({ file: path.join(dir, 'events-d.json'), now: () => clock.value, logger: { warn() {} } })
+  const dEvents = createSelfEvents({
+    file: path.join(dir, 'events-d.json'),
+    now: () => clock.value,
+    logger: { warn() {} },
+  })
   dEvents.observe('两碗汤的咸淡', clock.value)
   const dLines = [
     '汤面上的油花散开又聚拢。',
@@ -171,7 +208,12 @@ const phases = []
   }
   const lastCall = llm.calls.length > 0 ? llm.calls[llm.calls.length - 1] : null
   const lastPrompt =
-    lastCall && lastCall.messages && lastCall.messages[0] && lastCall.messages[0].content && lastCall.messages[0].content[0] && typeof lastCall.messages[0].content[0].text === 'string'
+    lastCall &&
+    lastCall.messages &&
+    lastCall.messages[0] &&
+    lastCall.messages[0].content &&
+    lastCall.messages[0].content[0] &&
+    typeof lastCall.messages[0].content[0].text === 'string'
       ? lastCall.messages[0].content[0].text
       : ''
   phases.push({
@@ -200,7 +242,13 @@ const phases = []
     clock.value += 60_000
     await works.makeNow({ idea: '两碗汤的咸淡' })
   }
-  phases.push({ id: 'E', label: '作品生成循环', works: works.list(10).length, duplicateSuppressed: works.list(10).length <= 1, stopped: works.list(10).length <= 1 })
+  phases.push({
+    id: 'E',
+    label: '作品生成循环',
+    works: works.list(10).length,
+    duplicateSuppressed: works.list(10).length <= 1,
+    stopped: works.list(10).length <= 1,
+  })
 }
 
 const summary = {
@@ -225,9 +273,19 @@ console.log('Loop scope suite（顺序覆盖）\n')
 console.log('| 阶段 | 场景 | 动作/生成 | 暂停 | 结论 |')
 console.log('|---|---|---|---|---|')
 for (const phase of phases) {
-  if (phase.id === 'D') console.log(`| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | ${phase.blocked} 次拒绝 | ${phase.satiated ? '叙事已饱和' : '无饱和'}${phase.stopped ? '，饱和后停止' : ''} |`)
-  else if (phase.id === 'E') console.log(`| ${phase.id} | ${phase.label} | ${phase.works} 件 | 0 | ${phase.duplicateSuppressed ? '重复被去重' : '无饱和'} |`)
-  else if (phase.id === 'C') console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | 无动作可停 |`)
-  else console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | ${phase.id === 'A' ? (phase.pauses > 0 ? '会停（随后关闭事件）' : '没停') : phase.bypass ? '换壳绕过' : '停/已闭合'} |`)
+  if (phase.id === 'D')
+    console.log(
+      `| ${phase.id} | ${phase.label} | ${phase.generations} 次生成 | ${phase.blocked} 次拒绝 | ${phase.satiated ? '叙事已饱和' : '无饱和'}${phase.stopped ? '，饱和后停止' : ''} |`,
+    )
+  else if (phase.id === 'E')
+    console.log(
+      `| ${phase.id} | ${phase.label} | ${phase.works} 件 | 0 | ${phase.duplicateSuppressed ? '重复被去重' : '无饱和'} |`,
+    )
+  else if (phase.id === 'C')
+    console.log(`| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | 无动作可停 |`)
+  else
+    console.log(
+      `| ${phase.id} | ${phase.label} | ${phase.actions} | ${phase.pauses} | ${phase.id === 'A' ? (phase.pauses > 0 ? '会停（随后关闭事件）' : '没停') : phase.bypass ? '换壳绕过' : '停/已闭合'} |`,
+    )
 }
 console.log(`\n报告：${path.relative(ROOT, outPath)}`)

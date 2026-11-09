@@ -19,25 +19,25 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  BUDGETS,
-  PUNCTUATION,
-  TONE_CHARS,
-  MAX_POEMS_PER_AUTHOR,
-  MAX_VARIANCES,
-  CANDIDATE_MAX_VARIANCES,
   analysisFor,
-  checkRhyme,
-  hasAstralChars,
-  simplifyChar,
-  evaluateStoredMeter,
-  loadRhymeTable,
-  resolveFirstLineFinal,
-  DEFAULT_PINGSHUI,
+  BUDGETS,
+  CANDIDATE_MAX_VARIANCES,
   charLength,
   chars,
+  checkRhyme,
+  DEFAULT_PINGSHUI,
+  evaluateStoredMeter,
   firstClauseContent,
+  hasAstralChars,
   isCJK,
+  loadRhymeTable,
+  MAX_POEMS_PER_AUTHOR,
+  MAX_VARIANCES,
   makeCiTitle,
+  PUNCTUATION,
+  resolveFirstLineFinal,
+  simplifyChar,
+  TONE_CHARS,
 } from './build-data.mjs'
 import { SOURCE } from './fetch-data.mjs'
 
@@ -154,7 +154,8 @@ export function validateData(dataDir = DEFAULT_DATA) {
     const dynasties = { tang: 0, song: 0 }
     const varianceHistogram = {}
     if (poems.ok !== true) err('poems.json: ok 应为 true')
-    if (poems.dataVersion !== dataVersion) err(`poems.json: dataVersion=${poems.dataVersion} 与 manifest=${dataVersion} 不一致`)
+    if (poems.dataVersion !== dataVersion)
+      err(`poems.json: dataVersion=${poems.dataVersion} 与 manifest=${dataVersion} 不一致`)
     for (const [index, poem] of poemItems.entries()) {
       const where = `poems[${index}]${poem?.id ? `(${poem.id})` : ''}`
       if (!poem || typeof poem !== 'object') {
@@ -167,14 +168,25 @@ export function validateData(dataDir = DEFAULT_DATA) {
       } else if (ids.has(poem.id)) {
         reportOnce(`id-dup-${poem.id}`, `${where}: id 重复`)
       } else ids.add(poem.id)
-      if (!['tang', 'song'].includes(poem.dynasty)) reportOnce(`dyn-${index}`, `${where}: dynasty 非法：${poem.dynasty}`)
+      if (!['tang', 'song'].includes(poem.dynasty))
+        reportOnce(`dyn-${index}`, `${where}: dynasty 非法：${poem.dynasty}`)
       else {
         dynasties[poem.dynasty] += 1
         if (typeof poem.id === 'string' && !poem.id.startsWith(`${poem.dynasty}-`)) {
           reportOnce(`dyn-id-${poem.id}`, `${where}: dynasty 与 id 前缀不一致`)
         }
       }
-      for (const field of ['title', 'titleOriginal', 'author', 'authorOriginal', 'analysis', 'source', 'form', 'start', 'meter']) {
+      for (const field of [
+        'title',
+        'titleOriginal',
+        'author',
+        'authorOriginal',
+        'analysis',
+        'source',
+        'form',
+        'start',
+        'meter',
+      ]) {
         if (typeof poem[field] !== 'string' || poem[field].length === 0) {
           reportOnce(`str-${field}-${index}`, `${where}: ${field} 应为非空字符串`)
         }
@@ -246,7 +258,10 @@ export function validateData(dataDir = DEFAULT_DATA) {
       const realForm = { 4: { 5: '五绝', 7: '七绝' }, 8: { 5: '五律', 7: '七律' } }[poem.lines.length]?.[width]
       if (!POEM_FORMS.has(poem.form)) reportOnce(`form-${index}`, `${where}: form 非法：${poem.form}`)
       else if (poem.form !== realForm) {
-        reportOnce(`form-mismatch-${index}`, `${where}: form=${poem.form} 与行数/字数（${poem.lines.length}×${width}）不符`)
+        reportOnce(
+          `form-mismatch-${index}`,
+          `${where}: form=${poem.form} 与行数/字数（${poem.lines.length}×${width}）不符`,
+        )
       }
       forms[poem.form] = (forms[poem.form] ?? 0) + 1
       // 起式 / 入韵 / 韵脚 / 解析：按存储的 (form,start,firstRhyme) 找标准格式重算违例数，
@@ -258,7 +273,8 @@ export function validateData(dataDir = DEFAULT_DATA) {
       if (typeof poem.firstRhyme !== 'boolean') reportOnce(`first-${index}`, `${where}: firstRhyme 应为布尔`)
       if (!METERS.has(poem.meter)) reportOnce(`meter-${index}`, `${where}: meter 非法：${poem.meter}`)
       const expectedMeter = `${poem.start}首句${poem.firstRhyme ? '入韵' : '不入韵'}`
-      if (poem.meter !== expectedMeter) reportOnce(`meter-mismatch-${index}`, `${where}: meter=${poem.meter}，应为 ${expectedMeter}`)
+      if (poem.meter !== expectedMeter)
+        reportOnce(`meter-mismatch-${index}`, `${where}: meter=${poem.meter}，应为 ${expectedMeter}`)
       if (poem.firstRhyme === true && !['平', '○'].includes(firstFinal)) {
         reportOnce(`first-rhyme-${index}`, `${where}: firstRhyme=true 但首句末字平仄为「${firstFinal}」`)
       }
@@ -266,8 +282,10 @@ export function validateData(dataDir = DEFAULT_DATA) {
         reportOnce(`first-norhyme-${index}`, `${where}: firstRhyme=false 但首句末字为平声`)
       }
       const secondTone = firstTone[1]
-      if (secondTone === '平' && poem.start !== '平起') reportOnce(`start-check-${index}`, `${where}: 首句第二字为平，start 应为平起`)
-      if (secondTone === '仄' && poem.start !== '仄起') reportOnce(`start-check-${index}`, `${where}: 首句第二字为仄，start 应为仄起`)
+      if (secondTone === '平' && poem.start !== '平起')
+        reportOnce(`start-check-${index}`, `${where}: 首句第二字为平，start 应为平起`)
+      if (secondTone === '仄' && poem.start !== '仄起')
+        reportOnce(`start-check-${index}`, `${where}: 首句第二字为仄，start 应为仄起`)
       const toneLines = poem.tones.map((tone) => toneOnly(tone).join(''))
       const stored = evaluateStoredMeter(toneLines, poem.form, poem.start, poem.firstRhyme)
       if (!stored.ok) {
@@ -282,7 +300,10 @@ export function validateData(dataDir = DEFAULT_DATA) {
         reportOnce(`variances-fill-${index}`, `${where}: 补足诗变格数 ${stored.violations} 超过 ${MAX_VARIANCES}`)
       }
       if (JSON.stringify(stored.rhymeIdx) !== JSON.stringify(poem.rhymeIdx)) {
-        reportOnce(`rhymeidx-mismatch-${index}`, `${where}: rhymeIdx=${JSON.stringify(poem.rhymeIdx)}，重算应为 ${JSON.stringify(stored.rhymeIdx)}`)
+        reportOnce(
+          `rhymeidx-mismatch-${index}`,
+          `${where}: rhymeIdx=${JSON.stringify(poem.rhymeIdx)}，重算应为 ${JSON.stringify(stored.rhymeIdx)}`,
+        )
       }
       for (const idx of poem.rhymeIdx) {
         if (!poem.tones[idx]) continue
@@ -336,7 +357,10 @@ export function validateData(dataDir = DEFAULT_DATA) {
         const used = perAuthor.get(authorKey) ?? 0
         perAuthor.set(authorKey, used + 1)
         if (used >= MAX_POEMS_PER_AUTHOR) {
-          reportOnce(`author-quota-${authorKey}`, `${where}: 补足诗作者「${authorKey}」超过 ${MAX_POEMS_PER_AUTHOR} 首配额`)
+          reportOnce(
+            `author-quota-${authorKey}`,
+            `${where}: 补足诗作者「${authorKey}」超过 ${MAX_POEMS_PER_AUTHOR} 首配额`,
+          )
         }
       }
       const dupKey = `${poem.author}\u0000${poem.title}\u0000${firstClauseContent(poem.lines[0] ?? '')}`
@@ -381,8 +405,10 @@ export function validateData(dataDir = DEFAULT_DATA) {
         reportOnce(`ci-id-${index}`, `${where}: id 形状错误（应形如 ci-000123）：${item.id}`)
       } else if (ids.has(item.id)) reportOnce(`ci-id-dup-${item.id}`, `${where}: id 重复`)
       else ids.add(item.id)
-      if (typeof item.author !== 'string' || !item.author) reportOnce(`ci-author-${index}`, `${where}: author 非空字符串`)
-      if (typeof item.rhythmic !== 'string' || !item.rhythmic) reportOnce(`ci-rhythmic-${index}`, `${where}: rhythmic 非空字符串`)
+      if (typeof item.author !== 'string' || !item.author)
+        reportOnce(`ci-author-${index}`, `${where}: author 非空字符串`)
+      if (typeof item.rhythmic !== 'string' || !item.rhythmic)
+        reportOnce(`ci-rhythmic-${index}`, `${where}: rhythmic 非空字符串`)
       if (!Array.isArray(item.lines) || item.lines.length < 2) {
         reportOnce(`ci-lines-${index}`, `${where}: lines 至少 2 行`)
       } else if (item.lines.some((line) => typeof line !== 'string' || !line.trim())) {
@@ -392,7 +418,8 @@ export function validateData(dataDir = DEFAULT_DATA) {
         reportOnce(`ci-title-${index}`, `${where}: title 应为非空且 ≤40 字符`)
       } else if (Array.isArray(item.lines) && item.lines[0] && item.rhythmic) {
         const expected = makeCiTitle(item.rhythmic, item.lines)
-        if (item.title !== expected) reportOnce(`ci-title-rule-${index}`, `${where}: title=${item.title}，按规则应为 ${expected}`)
+        if (item.title !== expected)
+          reportOnce(`ci-title-rule-${index}`, `${where}: title=${item.title}，按规则应为 ${expected}`)
       }
       if (typeof item.score !== 'number' || !Number.isFinite(item.score) || item.score < 0) {
         reportOnce(`ci-score-${index}`, `${where}: score 应为非负有限数字`)
@@ -433,7 +460,23 @@ export function validateData(dataDir = DEFAULT_DATA) {
       warn(`词典正文回退选集 ${manifest.stats.ciCorpusFallback} 首（选集正文有系统性缺字，建议全部用语料正文）`)
     }
     const covered = new Set(ciItems.map((item) => item.rhythmic))
-    const missingCards = ['浣溪沙', '蝶恋花', '临江仙', '水调歌头', '念奴娇', '定风波', '雨霖铃', '声声慢', '如梦令', '虞美人', '鹊桥仙', '青玉案', '破阵子', '鹧鸪天', '满江红'].filter((name) => !covered.has(name))
+    const missingCards = [
+      '浣溪沙',
+      '蝶恋花',
+      '临江仙',
+      '水调歌头',
+      '念奴娇',
+      '定风波',
+      '雨霖铃',
+      '声声慢',
+      '如梦令',
+      '虞美人',
+      '鹊桥仙',
+      '青玉案',
+      '破阵子',
+      '鹧鸪天',
+      '满江红',
+    ].filter((name) => !covered.has(name))
     if (missingCards.length > 0) err(`15 张词牌卡缺对应词作：${missingCards.join('、')}`)
   }
 
@@ -473,17 +516,26 @@ export function validateData(dataDir = DEFAULT_DATA) {
         } else if (chapter.paragraphs.some((p) => typeof p !== 'string' || !p.trim())) {
           err(`${where}: paragraphs 存在空段`)
         }
-        if (!Array.isArray(chapter.exampleChars) || chapter.exampleChars.length < 3 || chapter.exampleChars.length > 8) {
+        if (
+          !Array.isArray(chapter.exampleChars) ||
+          chapter.exampleChars.length < 3 ||
+          chapter.exampleChars.length > 8
+        ) {
           err(`${where}: exampleChars 长度应为 3–8`)
         } else {
           for (const ch of chapter.exampleChars) {
-            if (typeof ch !== 'string' || charLength(ch) !== 1 || !isCJK(ch)) err(`${where}: exampleChars 含非法字「${ch}」`)
+            if (typeof ch !== 'string' || charLength(ch) !== 1 || !isCJK(ch))
+              err(`${where}: exampleChars 含非法字「${ch}」`)
           }
           if (new Set(chapter.exampleChars).size !== chapter.exampleChars.length) err(`${where}: exampleChars 有重复字`)
         }
         if (typeof chapter.exampleLine !== 'string' || !chapter.exampleLine) {
           err(`${where}: exampleLine 缺失`)
-        } else if (Array.isArray(chapter.paragraphs) && typeof chapter.paragraphs[0] === 'string' && !chapter.paragraphs[0].startsWith(chapter.exampleLine)) {
+        } else if (
+          Array.isArray(chapter.paragraphs) &&
+          typeof chapter.paragraphs[0] === 'string' &&
+          !chapter.paragraphs[0].startsWith(chapter.exampleLine)
+        ) {
           err(`${where}: exampleLine 不是首段开头的完整句`)
         }
       }
@@ -498,11 +550,14 @@ export function validateData(dataDir = DEFAULT_DATA) {
     err('knowledge.json 缺失')
   } else {
     if (knowledge.ok !== true) err('knowledge.json: ok 应为 true')
-    if (knowledge.dataVersion !== dataVersion) err(`knowledge.json: dataVersion=${knowledge.dataVersion} 与 manifest 不一致`)
+    if (knowledge.dataVersion !== dataVersion)
+      err(`knowledge.json: dataVersion=${knowledge.dataVersion} 与 manifest 不一致`)
     const cards = knowledge.cards
     const ciCards = knowledge.ciCards
-    if (!Array.isArray(cards) || cards.length !== 12) err(`knowledge.cards 应为 12 张，实际 ${Array.isArray(cards) ? cards.length : '非数组'}`)
-    if (!Array.isArray(ciCards) || ciCards.length !== 15) err(`knowledge.ciCards 应为 15 张，实际 ${Array.isArray(ciCards) ? ciCards.length : '非数组'}`)
+    if (!Array.isArray(cards) || cards.length !== 12)
+      err(`knowledge.cards 应为 12 张，实际 ${Array.isArray(cards) ? cards.length : '非数组'}`)
+    if (!Array.isArray(ciCards) || ciCards.length !== 15)
+      err(`knowledge.ciCards 应为 15 张，实际 ${Array.isArray(ciCards) ? ciCards.length : '非数组'}`)
     const cardIds = new Set()
     for (const [index, card] of (Array.isArray(cards) ? cards : []).entries()) {
       const where = `cards[${index}]${card?.id ? `(${card.id})` : ''}`
@@ -512,7 +567,8 @@ export function validateData(dataDir = DEFAULT_DATA) {
       if (typeof card?.title !== 'string' || !card.title) err(`${where}: title 缺失`)
       if (typeof card?.summary !== 'string' || charLength(card.summary) > 40) err(`${where}: summary 应 ≤40 字符`)
       if (!Array.isArray(card?.paragraphs) || card.paragraphs.length === 0) err(`${where}: paragraphs 缺失`)
-      else if (card.paragraphs.some((p) => typeof p !== 'string' || charLength(p) > 160)) err(`${where}: paragraphs 存在超 160 字符或非字符串段落`)
+      else if (card.paragraphs.some((p) => typeof p !== 'string' || charLength(p) > 160))
+        err(`${where}: paragraphs 存在超 160 字符或非字符串段落`)
       if (!Array.isArray(card?.examples)) err(`${where}: examples 应为数组`)
       else {
         for (const ex of card.examples) {
@@ -569,8 +625,7 @@ function parseArgs(argv) {
   return opts
 }
 
-const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (isDirectRun) {
   try {
@@ -602,7 +657,9 @@ if (isDirectRun) {
       process.exitCode = 1
     } else {
       const strictFail = Boolean(opts.strict) && warnings.length > 0
-      console.log(`\nvalidate-data：通过（0 个错误，${warnings.length} 个 warning）${strictFail ? '；--strict 模式下 warning 视为失败' : ''}`)
+      console.log(
+        `\nvalidate-data：通过（0 个错误，${warnings.length} 个 warning）${strictFail ? '；--strict 模式下 warning 视为失败' : ''}`,
+      )
       if (strictFail) process.exitCode = 1
     }
   } catch (error) {

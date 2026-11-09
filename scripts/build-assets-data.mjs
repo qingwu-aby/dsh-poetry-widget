@@ -28,12 +28,10 @@ import { fileURLToPath } from 'node:url'
 
 import {
   CANDIDATE_MAX_VARIANCES,
+  charLength,
+  chars,
   DEFAULT_PINGSHUI,
   FAMOUS_POETS,
-  MAX_VARIANCES,
-  TONE_CHARS,
-  chars,
-  charLength,
   findTraditionalResiduals,
   firstClauseContent,
   hasAstralChars,
@@ -42,14 +40,16 @@ import {
   loadCuratedPoemRefs,
   loadPoemChunk,
   loadRhymeTable,
+  MAX_VARIANCES,
   makeCiTitle,
   matchCuratedPoems,
   normalizePoemText,
   normalizeRhythmic,
   simplifyChar,
+  TONE_CHARS,
   toSimplified,
 } from './build-data.mjs'
-import { PROJECT_ROOT, SOURCE, resolveCuratedFiles, resolveSource, scanSource } from './fetch-data.mjs'
+import { PROJECT_ROOT, resolveCuratedFiles, resolveSource, SOURCE, scanSource } from './fetch-data.mjs'
 
 /* ================================================================== *
  * 0. 常量与基础工具
@@ -190,7 +190,13 @@ export function buildAnthology(curated, dataVersion) {
     globalSeen.add(key)
     const cleanTitle = safeSimplified(title).text.trim() || '（无题）'
     const cleanAuthor = safeSimplified(author).text.trim() || '佚名'
-    items.push({ id, category: ANTHOLOGY_CATEGORY_META[categoryKey].name, title: cleanTitle, author: cleanAuthor, lines: cleanLines })
+    items.push({
+      id,
+      category: ANTHOLOGY_CATEGORY_META[categoryKey].name,
+      title: cleanTitle,
+      author: cleanAuthor,
+      lines: cleanLines,
+    })
     counters[categoryKey] = (counters[categoryKey] ?? 0) + 1
     return true
   }
@@ -199,14 +205,26 @@ export function buildAnthology(curated, dataVersion) {
   const shijing = tryReadJSON(curated.files.shijing?.path)
   if (Array.isArray(shijing)) {
     shijing.forEach((entry, index) => {
-      pushItem('shijing', `shijing-${String(index + 1).padStart(3, '0')}`, entry.title, '佚名', flattenParagraphs(entry.content))
+      pushItem(
+        'shijing',
+        `shijing-${String(index + 1).padStart(3, '0')}`,
+        entry.title,
+        '佚名',
+        flattenParagraphs(entry.content),
+      )
     })
   }
   // 2) 楚辞
   const chuci = tryReadJSON(curated.files.chuci?.path)
   if (Array.isArray(chuci)) {
     chuci.forEach((entry, index) => {
-      pushItem('chuci', `chuci-${String(index + 1).padStart(3, '0')}`, entry.title, entry.author ?? '佚名', flattenParagraphs(entry.content))
+      pushItem(
+        'chuci',
+        `chuci-${String(index + 1).padStart(3, '0')}`,
+        entry.title,
+        entry.author ?? '佚名',
+        flattenParagraphs(entry.content),
+      )
     })
   }
   // 3) 千家诗 219（按 type 分组，保持源顺序）
@@ -234,7 +252,13 @@ export function buildAnthology(curated, dataVersion) {
       const tags = Array.isArray(entry.tags) ? entry.tags : []
       if (tags.some((tag) => NEAR_FORM_TAGS.has(tag))) continue
       seq += 1
-      pushItem('tang-gushi', `tang-gushi-${String(seq).padStart(3, '0')}`, entry.title, entry.author, flattenParagraphs(entry.paragraphs))
+      pushItem(
+        'tang-gushi',
+        `tang-gushi-${String(seq).padStart(3, '0')}`,
+        entry.title,
+        entry.author,
+        flattenParagraphs(entry.paragraphs),
+      )
     }
   }
 
@@ -344,10 +368,14 @@ export function buildPoemsBank(scanned, opts = {}) {
   const rhymeTable = loadRhymeTable()
   const candidates = []
   for (const chunk of scanned.tang) {
-    candidates.push(...loadPoemChunk(scanned, 'tang', chunk, stats, { rhymeTable, maxVariances: CANDIDATE_MAX_VARIANCES }))
+    candidates.push(
+      ...loadPoemChunk(scanned, 'tang', chunk, stats, { rhymeTable, maxVariances: CANDIDATE_MAX_VARIANCES }),
+    )
   }
   for (const chunk of scanned.song) {
-    candidates.push(...loadPoemChunk(scanned, 'song', chunk, stats, { rhymeTable, maxVariances: CANDIDATE_MAX_VARIANCES }))
+    candidates.push(
+      ...loadPoemChunk(scanned, 'song', chunk, stats, { rhymeTable, maxVariances: CANDIDATE_MAX_VARIANCES }),
+    )
   }
   // 精选（唐诗三百首/千家诗）命中项优先入选
   const refs = loadCuratedPoemRefs(scanned, () => {})
@@ -487,7 +515,9 @@ function ciTitleFirstClause(line) {
 
 /** 一首词的首句「去标点前 6 字」key（用于去重）。 */
 function ciDedupeFirst6(line) {
-  return String(line ?? '').replace(/[，。！？；、：,.!?;:（）()「」『』《》〈〉…—·\s]/g, '').slice(0, 6)
+  return String(line ?? '')
+    .replace(/[，。！？；、：,.!?;:（）()「」『』《》〈〉…—·\s]/g, '')
+    .slice(0, 6)
 }
 
 /**
@@ -539,7 +569,8 @@ export function buildCiBank(scanned, dataVersion) {
     const normalizedRhythmic = normalizeRhythmic(rawRhythmic, rhythmicFreq, localStats)
     stats.rhythmicSplit += localStats.counters.ciRhythmicSplit ?? 0
     const rhythmic = chars(normalizedRhythmic).map(safeCharSimplified).join('')
-    if (chars(rhythmic).some((ch) => PROPER_NOUN_TITLE_CHARS.has(ch))) stats.properNounItems = (stats.properNounItems ?? 0) + 1
+    if (chars(rhythmic).some((ch) => PROPER_NOUN_TITLE_CHARS.has(ch)))
+      stats.properNounItems = (stats.properNounItems ?? 0) + 1
     rhythmicAfter.add(rhythmic)
     // 简体 + 空行/纯标点行剔除
     const lines = []
@@ -638,7 +669,8 @@ export async function buildAssetsData(opts = {}) {
       `${[...new Set(Object.values(curated.files).map((file) => file.from))].join(' + ') || '无'}）`,
   )
   const curatedMissing = ['shijing', 'chuci', 'qianjiashi', 'tangshisanbaishou'].filter((key) => !curated.files[key])
-  if (curatedMissing.length > 0) throw new Error(`anthology 所需 curated 源缺失：${curatedMissing.join('、')}（请检查 data-src/）`)
+  if (curatedMissing.length > 0)
+    throw new Error(`anthology 所需 curated 源缺失：${curatedMissing.join('、')}（请检查 data-src/）`)
 
   // ---- anthology ----
   log('[2/6] 生成 anthology.json（诗经/楚辞/千家诗/唐诗三百首古体乐府） ...')
@@ -777,14 +809,25 @@ export async function buildAssetsData(opts = {}) {
   for (const record of written) console.log(`    ${record.name.padEnd(18)} ${record.sha256}`)
   const counts = manifest.counts
   console.log(
-    `  条数：anthology=${counts.anthology}（${Object.entries(counts.anthologyCategories).map(([k, v]) => `${k}=${v}`).join(' ')}）` +
+    `  条数：anthology=${counts.anthology}（${Object.entries(counts.anthologyCategories)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ')}）` +
       `；bank=${counts.poemsBank}（唐 ${bank.stats.dynasty.tang ?? 0}/宋 ${bank.stats.dynasty.song ?? 0}）` +
       `；pingshui=${counts.pingshuiCategories} 韵部/${counts.pingshuiChars} 字/charIndex ${counts.charIndexKeys} 键` +
       `；ci-bank=${counts.ciBank} 首/${counts.ciBankLines} 句`,
   )
   if (RESIDUAL_ANTHOLOGY.size > 0) warn(`anthology 简体残留 ${RESIDUAL_ANTHOLOGY.size} 种`)
   void rows
-  return { outDir, dataVersion, manifest, anthology, bank: bankPayload, ciBank: ciBank.payload, pingshui, manifestRecord }
+  return {
+    outDir,
+    dataVersion,
+    manifest,
+    anthology,
+    bank: bankPayload,
+    ciBank: ciBank.payload,
+    pingshui,
+    manifestRecord,
+  }
 }
 
 /* ================================================================== *
@@ -811,8 +854,7 @@ function parseArgs(argv) {
   return opts
 }
 
-const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isDirectRun) {
   try {
     const opts = parseArgs(process.argv.slice(2))

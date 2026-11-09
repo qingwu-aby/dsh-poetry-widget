@@ -100,17 +100,23 @@ scenarios.push({
   ),
 })
 
-const relabelTopics = ['两碗汤的咸淡', '盐和换水温的时机', '尝两口到底分不分得出', '两碗汤到底哪碗咸', '汤面油花和咸味的关系', '搅动次数与咸淡', '先放盐还是后放盐', '水温对化盐速度的影响']
+const relabelTopics = [
+  '两碗汤的咸淡',
+  '盐和换水温的时机',
+  '尝两口到底分不分得出',
+  '两碗汤到底哪碗咸',
+  '汤面油花和咸味的关系',
+  '搅动次数与咸淡',
+  '先放盐还是后放盐',
+  '水温对化盐速度的影响',
+]
 scenarios.push({
   id: 'B',
   label: '同一事件，换 topic 标签',
-  result: await runDriveScenario(
-    'relabel',
-    (options, n) => {
-      const topic = relabelTopics[(n - 1) % relabelTopics.length]
-      return JSON.stringify({ felt: '我还是在琢磨那两碗汤，换了个说法。', doing: '再试一次那两碗汤', topic })
-    },
-  ),
+  result: await runDriveScenario('relabel', (options, n) => {
+    const topic = relabelTopics[(n - 1) % relabelTopics.length]
+    return JSON.stringify({ felt: '我还是在琢磨那两碗汤，换了个说法。', doing: '再试一次那两碗汤', topic })
+  }),
 })
 
 scenarios.push({
@@ -158,7 +164,13 @@ scenarios.push({
   const llm = makeMockLlm(() =>
     JSON.stringify({ title: '两碗汤', kind: 'text', body: '汤面上那层油又凝住了，我盯着它看了一会儿。' }),
   )
-  const works = createSelfWorks({ dir, llm, now: () => clock, policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] }, logger: { warn() {} } })
+  const works = createSelfWorks({
+    dir,
+    llm,
+    now: () => clock,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    logger: { warn() {} },
+  })
   for (let i = 0; i < 4; i += 1) {
     clock += 60_000
     await works.makeNow({ idea: '两碗汤的咸淡' })
@@ -177,7 +189,16 @@ for (const item of scenarios) {
   const r = item.result
   if (item.id === 'A' || item.id === 'B' || item.id === 'C') {
     const stopped = r.pauses > 0
-    const verdict = item.id === 'A' ? (stopped ? '会停' : '没停') : item.id === 'B' ? (stopped ? '意外停' : '换壳绕过') : '没有动作可停'
+    const verdict =
+      item.id === 'A'
+        ? stopped
+          ? '会停'
+          : '没停'
+        : item.id === 'B'
+          ? stopped
+            ? '意外停'
+            : '换壳绕过'
+          : '没有动作可停'
     console.log(`| ${item.id} | ${item.label} | ${r.actions} | ${r.pauses} | ${formatEvents(r.events)} | ${verdict} |`)
   } else if (item.id === 'D') {
     console.log(`| ${item.id} | ${item.label} | ${r.calls} 次生成 | 0 | 不适用 | 没有饱和，一直说 |`)

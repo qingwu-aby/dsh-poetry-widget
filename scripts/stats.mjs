@@ -110,7 +110,9 @@ export function formatStats(stats) {
   lines.push(
     `counts: poems=${stats.counts.poems} ci=${stats.counts.ci} yun=${stats.counts.yunChapters} cards=${stats.counts.cards} ciCards=${stats.counts.ciCards}`,
   )
-  lines.push(`  targets: poems ${stats.targets.poems.min}–${stats.targets.poems.max} / ci ${stats.targets.ci.min}–${stats.targets.ci.max}`)
+  lines.push(
+    `  targets: poems ${stats.targets.poems.min}–${stats.targets.poems.max} / ci ${stats.targets.ci.min}–${stats.targets.ci.max}`,
+  )
   lines.push('')
   lines.push('files:')
   for (const [name, bytes] of Object.entries(stats.bytes)) {
@@ -143,7 +145,9 @@ export function formatStats(stats) {
     `  词正文：语料命中 ${m.ciCorpusMatched} / 替换选集缺字 ${m.ciCorpusReplaced} / 回退选集 ${m.ciCorpusFallback}；` +
       `词牌拆分 ${m.ciRhythmicSplit} / 作者修正 ${m.ciAuthorFixed} / 补名篇 ${m.ciAppended} + 卡位补 ${m.ciCardFill}`,
   )
-  lines.push(`  简体残留：${m.simplifiedResidual} 种 / ${m.simplifiedResidualOccurrences} 次（目标 0）；生僻字过滤：${m.droppedPoem?.astralChars ?? 0} 首`)
+  lines.push(
+    `  简体残留：${m.simplifiedResidual} 种 / ${m.simplifiedResidualOccurrences} 次（目标 0）；生僻字过滤：${m.droppedPoem?.astralChars ?? 0} 首`,
+  )
   lines.push(
     `  押韵门：校验 ${m.rhymeChecked} / 通过 ${m.rhymePassed} / 丢弃 ${m.rhymeDropped} / 合法借邻韵 ${m.rhymeFirstBorrowOk}` +
       `；明细 ${JSON.stringify(m.rhymeDroppedByReason ?? {})}`,
@@ -168,8 +172,7 @@ function parseArgs(argv) {
   return opts
 }
 
-const isDirectRun =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 if (isDirectRun) {
   try {
     const opts = parseArgs(process.argv.slice(2))

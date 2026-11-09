@@ -27,8 +27,7 @@ import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const OLD_IMPORT =
-  'import { RemoteError, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";'
+const OLD_IMPORT = 'import { RemoteError, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";'
 const NEW_IMPORT = 'import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";'
 const LOCAL_CLASS_MARKER = 'class RemoteError extends Error'
 const LOCAL_CLASS = `class RemoteError extends Error {

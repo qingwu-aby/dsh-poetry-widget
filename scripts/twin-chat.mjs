@@ -5,7 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 
 const limit = Math.max(1, Math.min(500, Number(process.argv[2]) || 20))
-const file = path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), '.dsh-poetry', 'twin-bridge', 'letters.jsonl')
+const file = path.join(
+  process.env.DSH_HOME || path.join(os.homedir(), '.dsh'),
+  '.dsh-poetry',
+  'twin-bridge',
+  'letters.jsonl',
+)
 if (!existsSync(file)) {
   console.log('还没有信件：' + file)
   process.exit(0)

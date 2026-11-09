@@ -55,6 +55,7 @@
   ],
   "license": "MIT",
   "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
     "d3-force": "^3.0.1",
     "esbuild": "^0.28.2",
     "graphology": "^0.26.0",
@@ -72,8 +73,8 @@
     "url": "https://github.com/qingwu-aby/dsh-poetry-widget/issues"
   },
   "scripts": {
-    "test": "npm run build:client && node --test tests/data.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
-    "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/host.test.mjs",
+    "test": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
+    "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs",
     "test:client": "npm run build:client && node --test tests/client/widget.test.mjs",
     "check": "npm run build:client && node --check index.js && node --check client.js && for f in lib/*.mjs; do node --check \"$f\" || exit 1; done",
     "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning",
@@ -82,6 +83,9 @@
     "archive:memory:dry": "node scripts/archive-memory.mjs -- --dry-run",
     "experiment:loop": "node scripts/experiment-loop-scope.mjs",
     "experiment:suite": "node scripts/experiment-loop-suite.mjs",
-    "twin:chat": "node scripts/twin-chat.mjs"
+    "twin:chat": "node scripts/twin-chat.mjs",
+    "check:eng": "node scripts/check-deps.mjs && node scripts/check-size.mjs",
+    "lint": "biome check lib/kernel scripts/check-deps.mjs scripts/check-size.mjs tests/kernel.test.mjs",
+    "format": "biome check --write lib/kernel scripts/check-deps.mjs scripts/check-size.mjs tests/kernel.test.mjs"
   }
 }

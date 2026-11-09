@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from 'node:crypto'
 // scripts/archive-memory.mjs —— 小鲸鱼记忆/状态归档（不删除，只搬进 archive）。
 //
 // 用途：把历史心情、状态、成长记录整体归档，让她从空白重新开始成长。
@@ -9,8 +10,7 @@
 //   npm run archive:memory -- --dry-run    # 只看会搬哪些文件
 //   npm run archive:memory                # 执行归档（需要先停插件，避免边写边搬）
 //   npm run archive:memory -- --restore <archiveId>
-import { existsSync, mkdirSync, renameSync, statSync, readFileSync, writeFileSync } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'

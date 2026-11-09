@@ -16,9 +16,10 @@ const dshHome = process.env.DSH_HOME ? path.resolve(process.env.DSH_HOME) : path
 const memoryDir = path.join(dshHome, 'agent-memory')
 const stateDir = path.join(dshHome, '.dsh-poetry')
 // 面板端口每次启动可能不同：只有显式设置 DSH_POETRY_URL 时才检查路由；否则跳过（不算失败）。
-const baseUrl = typeof process.env.DSH_POETRY_URL === 'string' && process.env.DSH_POETRY_URL.trim().length > 0
-  ? process.env.DSH_POETRY_URL.trim().replace(/\/$/, '')
-  : null
+const baseUrl =
+  typeof process.env.DSH_POETRY_URL === 'string' && process.env.DSH_POETRY_URL.trim().length > 0
+    ? process.env.DSH_POETRY_URL.trim().replace(/\/$/, '')
+    : null
 const now = Date.now()
 
 const results = []
@@ -52,22 +53,38 @@ const state = path.join(stateDir, 'self-state.json')
 const journalAge = fileAge(journal)
 check('journal.jsonl 存在', existsSync(journal))
 check('journal 最近 6h 有更新', journalAge !== null && journalAge < 6 * 60 * 60 * 1000, ageText(journalAge))
-check('self-state 最近 6h 有更新', fileAge(state) !== null && fileAge(state) < 6 * 60 * 60 * 1000, ageText(fileAge(state)))
+check(
+  'self-state 最近 6h 有更新',
+  fileAge(state) !== null && fileAge(state) < 6 * 60 * 60 * 1000,
+  ageText(fileAge(state)),
+)
 check('memory-layers 已生成', existsSync(layers))
-check('self-state 已迁到 v2', existsSync(state) && (() => {
-  try {
-    return JSON.parse(readFileSync(state, 'utf8')).v === 2
-  } catch {
-    return false
-  }
-})())
+check(
+  'self-state 已迁到 v2',
+  existsSync(state) &&
+    (() => {
+      try {
+        return JSON.parse(readFileSync(state, 'utf8')).v === 2
+      } catch {
+        return false
+      }
+    })(),
+)
 
 // 2) 分层记忆内容
 if (existsSync(layers)) {
   try {
     const data = JSON.parse(readFileSync(layers, 'utf8'))
-    check('分层记忆有 episode', Array.isArray(data.episodes) && data.episodes.length > 0, `${data.episodes?.length ?? 0} 条`)
-    check('自我短句存在', Array.isArray(data.selfFacts) && data.selfFacts.length > 0, `${data.selfFacts?.length ?? 0} 条`)
+    check(
+      '分层记忆有 episode',
+      Array.isArray(data.episodes) && data.episodes.length > 0,
+      `${data.episodes?.length ?? 0} 条`,
+    )
+    check(
+      '自我短句存在',
+      Array.isArray(data.selfFacts) && data.selfFacts.length > 0,
+      `${data.selfFacts?.length ?? 0} 条`,
+    )
   } catch {
     check('分层记忆可解析', false)
   }
@@ -91,7 +108,8 @@ if (existsSync(errorsFile)) {
   check('最近 30m 模型错误可控（<10）', recent.length < 10, `${recent.length} 条`)
   const byRole = new Map()
   for (const row of recent) byRole.set(row.role, (byRole.get(row.role) ?? 0) + 1)
-  if (byRole.size > 0) console.log('      错误分布：' + [...byRole.entries()].map(([role, count]) => `${role}×${count}`).join('、'))
+  if (byRole.size > 0)
+    console.log('      错误分布：' + [...byRole.entries()].map(([role, count]) => `${role}×${count}`).join('、'))
 } else {
   check('model-errors.jsonl 存在', false)
 }
@@ -99,20 +117,29 @@ if (existsSync(errorsFile)) {
 // 4) 面板路由是否还活着（fenced；未登录返回 UNAUTHORIZED 也算活着）
 if (baseUrl === null) {
   console.log('SKIP  面板路由检查（未设置 DSH_POETRY_URL；面板端口每次启动可能不同）')
-} else try {
-  const response = await fetch(`${baseUrl}/api/dsh-poetry/health.json`, { signal: AbortSignal.timeout(5000) })
-  const body = await response.json().catch(() => null)
-  // 200 = 已登录/同源；401 = 服务活着但被登录栅栏挡住（也算可达）。
-  check('面板 health.json 可达', (response.status === 200 || response.status === 401) && body !== null, `HTTP ${response.status}`)
-  if (body && body.ok === true) console.log('      health:', JSON.stringify(body.runtime ? Object.keys(body.runtime) : []))
-  if (body && body.ok === false && body.error) console.log(`      未登录/被栅栏拦截：${body.error.code ?? 'UNKNOWN'}（服务仍活着）`)
-} catch (error) {
-  check('面板 health.json 可达', false, error instanceof Error ? error.message : String(error))
-}
+} else
+  try {
+    const response = await fetch(`${baseUrl}/api/dsh-poetry/health.json`, { signal: AbortSignal.timeout(5000) })
+    const body = await response.json().catch(() => null)
+    // 200 = 已登录/同源；401 = 服务活着但被登录栅栏挡住（也算可达）。
+    check(
+      '面板 health.json 可达',
+      (response.status === 200 || response.status === 401) && body !== null,
+      `HTTP ${response.status}`,
+    )
+    if (body && body.ok === true)
+      console.log('      health:', JSON.stringify(body.runtime ? Object.keys(body.runtime) : []))
+    if (body && body.ok === false && body.error)
+      console.log(`      未登录/被栅栏拦截：${body.error.code ?? 'UNKNOWN'}（服务仍活着）`)
+  } catch (error) {
+    check('面板 health.json 可达', false, error instanceof Error ? error.message : String(error))
+  }
 
 const failed = results.filter((item) => !item.ok).length
 console.log(`\n${failed === 0 ? 'SMOKE OK' : `SMOKE WARN（${failed} 项）`}  DSH_HOME=${dshHome}`)
 if (failed > 0) {
-  console.log('提示：模型调用冒烟请在 UI 里点一次「刷新心情 / 说一句」，再 `tail -1 agent-memory/journal.jsonl` 看新条目。')
+  console.log(
+    '提示：模型调用冒烟请在 UI 里点一次「刷新心情 / 说一句」，再 `tail -1 agent-memory/journal.jsonl` 看新条目。',
+  )
   process.exitCode = 1
 }

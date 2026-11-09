@@ -12,7 +12,7 @@
  *   node scripts/build-feihua-full.mjs --chars 花 --limit 20 # 抽样
  */
 import { createWriteStream } from 'node:fs'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import * as OpenCC from 'opencc-js'
 
@@ -37,7 +37,11 @@ async function collectFiles() {
   const files = []
   const push = async (dir, filter) => {
     let names = []
-    try { names = await readdir(dir) } catch { return }
+    try {
+      names = await readdir(dir)
+    } catch {
+      return
+    }
     for (const name of names.sort()) {
       if (!name.endsWith('.json')) continue
       if (name.startsWith('author') || name === 'error' || name.startsWith('README')) continue
@@ -87,16 +91,18 @@ async function main() {
   let sentences = 0
   for (const file of files) {
     let data
-    try { data = JSON.parse(await readFile(file, 'utf8')) } catch (error) {
+    try {
+      data = JSON.parse(await readFile(file, 'utf8'))
+    } catch (error) {
       console.warn('[feihua-full] 跳过解析失败 %s: %s', path.basename(file), error.message)
       continue
     }
     if (!Array.isArray(data)) continue
     for (const item of data) {
       poems += 1
-      const author = toCn(String(item && item.author || ''))
-      const title = toCn(String(item && (item.title || item.rhythmic || '') ))
-      const source = author && title ? author + '《' + title + '》' : (author || title)
+      const author = toCn(String((item && item.author) || ''))
+      const title = toCn(String(item && (item.title || item.rhythmic || '')))
+      const source = author && title ? author + '《' + title + '》' : author || title
       for (const sentence of sentencesOf(item)) {
         sentences += 1
         const core = plain(sentence)
@@ -135,12 +141,18 @@ async function main() {
   for (const char of chars) {
     const file = path.join(OUT, char + '.json')
     let bytes = 0
-    try { bytes = (await stat(file)).size } catch {}
+    try {
+      bytes = (await stat(file)).size
+    } catch {}
     manifest.chars[char] = { count: counts[char], bytes }
     manifest.total += counts[char]
   }
   await writeFile(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
   console.log('[feihua-full] 完成：poems=%d sentences=%d totalEntries=%d', poems, sentences, manifest.total)
-  for (const char of chars) console.log('  %s: %d 句, %.1f MB', char, counts[char], manifest.chars[char].bytes / 1048576)
+  for (const char of chars)
+    console.log('  %s: %d 句, %.1f MB', char, counts[char], manifest.chars[char].bytes / 1048576)
 }
-main().catch((error) => { console.error(error); process.exitCode = 1 })
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})
