@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **完整读书 + 独立思想（v3.13）**：①哲学阅读从“摘段”改为**整本书分块读完**（每 2h 读 ~12000 字，按段落切块、记录进度/前情，跨多次读完）；②每读一段新增“我的判断”（接受/反对/存疑 + 理由）进 `positions.json`；③读完做**整本总结合成**（问题/论证骨架/接受/反对/存疑/改变/遗留问题）写 `· 哲学·总`；④新增 `thought-chains.jsonl`：把书里的方法用到她真正在意的事上，产出“问题→前提→正反→判断→怎么检验”的链；⑤自处 prompt 注入最近判断/思维链；模块拆分 `self-philosophy-core.mjs`（服务 <400 行）。测试 529/529。
 - **哲学阅读 + 方法论账本（v3.12）**：接入用户指定仓库（JuneFreer/philosophy-book 164 txt、HarborLibrary/Philosophy 6 txt、RedRevolution1949/marxism-philosophy 的 HTML/TXT；PDF 暂不读），每 2h 按“问题→论证→反方→我的看法”读一段，写 learning-log `· 哲学` 并抽取方法进 `methods.json`；哲学/方法优先级高于历史（自学 prompt、话题采样、历史降为背景）；知识图谱/夜间巩固/情绪评价识别 `· 哲学`；新增 `DSH_POETRY_PHILOSOPHY=off`。测试 525/525。
 - **情绪评价 + 习惯记忆（v3.11）**：①`appraisal.mjs` 对 learning-log 的新学习/研究结果做四维评价（相关/可控/确定/归因）→ 情绪线程 + journal，每 45 分钟一次、按游标去重；②`habit-memory.mjs` 记“情境→动作→结果”，成功率+近期性生成提示注入自处 prompt，自学的成功/失败自动记账；③承诺升级为**执行意图**（“如果今天有空，就先做这个；做不了就直说”）；④夜间巩固新增**冲突检测**（同节点说法极性相反/年份互斥 → report.conflicts + journal 提示）。health 暴露相关服务。测试 521/521。
 - **知识反哺机制（v3.10）**：①聊天检索从“直接匹配”升级为**扩散激活**——种子节点沿图谱关系 1–2 跳扩散、按关系/置信度/衰减加权，带 via 来源提示（`spreadActivation`/`formatSpreadingDigest`，knowledge extractor 暴露 `spread`）；②**夜间离线巩固**——`nightly-consolidation.mjs` 每晚 3 点窗口汇总当天学习、合并近似节点、校准单来源 high/多来源 low 判断、写 report+journal，health 暴露；对应论文清单见 `docs/research/feedback-loop-papers.md`。测试 516/516。

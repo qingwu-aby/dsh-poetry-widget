@@ -31,6 +31,8 @@
 | habits.json | habit-memory | v | 情境→动作→结果的习惯记忆（v3.11） |
 | methods.json | method-memory | v | 方法论账本（读哲学抽出的分析方法，v3.12） |
 | philosophy-state.json | self-philosophy | v | 哲学阅读进度/书目缓存（v3.12） |
+| positions.json | thought-chain | v | 自己的判断账本（接受/反对/存疑 + 理由，v3.13） |
+| thought-chains.jsonl | thought-chain | — | 思维链（问题→前提→正反→判断→检验，v3.13） |
 | appraisal-state.json | appraisal | v | 情绪评价游标（v3.11） |
 | nightly-consolidation.json | nightly-consolidation | v | 夜间巩固报告（学习汇总/合并/冲突，v3.10） |
 | nightly-consolidation-state.json | nightly-consolidation | v | 夜间巩固当天已跑标记（v3.10） |

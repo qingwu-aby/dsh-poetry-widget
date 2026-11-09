@@ -21,7 +21,7 @@ function tmpDir(prefix = 'dshp-philosophy') {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`))
 }
 
-const LONG_TEXT = Array.from({ length: 12 }, (_, index) => `这是第${index + 1}段正文，足够长到会被当作文本段落保留下来，说明一个论证的层次和前提。`).join('\n')
+const LONG_TEXT = Array.from({ length: 12 }, (_, index) => `这是第${index + 1}段正文，这一段要足够长，才会被当作文本段落保留下来，用来说明一个论证的前提、层次和可以检验的结论。`).join('\n')
 
 function makeFetchMock({ books = [{ path: '康德/未来形而上学导论.txt', type: 'blob', size: 1000 }], text = LONG_TEXT } = {}) {
   return async (url) => {
@@ -102,8 +102,8 @@ test('哲学阅读 runOnce：读一段、写学习日志、记方法、推进状
   const logText = fs.readFileSync(log, 'utf8')
   assert.match(logText, /· 哲学/)
   assert.match(logText, /方法：先验论证/)
-  assert.equal(thoughts.length, 1)
-  assert.match(thoughts[0].text, /读哲学/)
+  assert.ok(thoughts.length >= 1)
+  assert.ok(thoughts.some((entry) => /读哲学|读完/.test(entry.text)))
   assert.ok(methodMemory.digest(2).some((line) => line.includes('先验论证')))
   service.dispose()
 })
@@ -117,4 +117,58 @@ test('方法论账本：同名去重、使用次数、失败不记 success', () 
   assert.equal(result.methods.entries[0].successCount, 1)
   const digest = digestMethods(result.methods)
   assert.match(digest[0], /辩证法/)
+})
+
+test('整本书分多次读完：进度推进到最后一段，合成总结合同并记判断/思维链', async () => {
+  const dir = tmpDir('full-book')
+  const log = path.join(dir, 'learning-log.md')
+  const statePath = path.join(dir, 'philosophy-state.json')
+  const longText = Array.from({ length: 320 }, (_, index) =>
+    `第${index + 1}段：这是用于测试整本书阅读的正文段落，包含一个前提、一个论证层次和一个可以检验的判断，长度足够被切进同一块。`,
+  ).join('\n')
+  const replies = [
+    JSON.stringify({ question: '第一段的问题是什么？', claim: '第一段主张', argument: '第一段的论证', objection: '第一段的反方', ownView: '第一段我的看法', method: { name: '辩证法', howTo: '从矛盾双方的关系入手' }, position: { stance: 'accept', claim: '矛盾比结论更值得看', reason: '结论会变，矛盾结构稳定' } }),
+    JSON.stringify({ question: '第二段的问题是什么？', claim: '第二段主张', argument: '第二段的论证', objection: '第二段的反方', ownView: '第二段我的看法', method: { name: '怀疑法', howTo: '先悬置判断再找依据' }, position: { stance: 'open', claim: '先悬置判断', reason: '证据不够' } }),
+    JSON.stringify({ question: '这本书在回答什么？', skeleton: '从矛盾出发重建判断。', accept: [{ claim: '先看矛盾结构', reason: '比抄结论有用' }], reject: [{ claim: '怀疑一切', reason: '会失去行动' }], open: [{ claim: '先验论证的边界', reason: '没读透' }], changed: '我以前只看结论，现在先看矛盾。', leftover: '矛盾分析能用到哪些日常事上？' }),
+    JSON.stringify({ trigger: '读到矛盾分析', steps: [{ kind: 'question', text: '我卡住的是目标没分清？' }, { kind: 'premise', text: '我把做完和做好混了。' }, { kind: 'judgment', text: '先分清再做。' }], conclusion: '先分清目标，再决定顺序。', method: '矛盾分析', test: '记录一周卡住的时刻，看是不是老在同一种混。' }),
+  ]
+  const llm = makeGrowthLlm(replies)
+  const { createSelfPhilosophy } = await import('../../lib/domain/learning/self-philosophy.mjs')
+  const { createMethodMemory } = await import('../../lib/domain/learning/method-memory.mjs')
+  const { createThoughtChain } = await import('../../lib/domain/learning/thought-chain.mjs')
+  let clock = new Date('2026-11-09T09:00:00+08:00').getTime()
+  const methodMemory = createMethodMemory({ file: path.join(dir, 'methods.json') })
+  const thoughtChain = createThoughtChain({ positionsFile: path.join(dir, 'positions.json'), chainsFile: path.join(dir, 'chains.jsonl'), journal: { append: async () => {} } })
+  const service = createSelfPhilosophy({
+    env: {},
+    getLlm: () => llm,
+    policy: { resolveCandidates: () => [{ provider: 'mock', model: 'mock' }] },
+    logger: { warn() {}, info() {} },
+    journal: { append: async () => {} },
+    methodMemory,
+    thoughtChain,
+    learningLogPath: log,
+    statePath,
+    fetchImpl: makeFetchMock({ text: longText }),
+    now: () => clock,
+    gapMs: 0,
+  })
+  const first = await service.runOnce({ force: true })
+  assert.equal(first.completed, false)
+  assert.equal(first.chunk, 1)
+  clock += 2 * 60 * 60 * 1000
+  const second = await service.runOnce({})
+  assert.equal(second.completed, true)
+  assert.equal(second.chunk, 2)
+  assert.ok(second.synthesis && second.synthesis.changed.includes('矛盾'))
+  const logText = fs.readFileSync(log, 'utf8')
+  assert.match(logText, /哲学·总/)
+  assert.match(logText, /思维链/)
+  const positions = JSON.parse(fs.readFileSync(path.join(dir, 'positions.json'), 'utf8'))
+  assert.ok(positions.entries.length >= 3)
+  const chains = fs.readFileSync(path.join(dir, 'chains.jsonl'), 'utf8').trim().split('\n')
+  assert.ok(chains.length >= 1)
+  const snap = service.snapshot()
+  assert.equal(snap.completed, 1)
+  service.dispose()
 })
