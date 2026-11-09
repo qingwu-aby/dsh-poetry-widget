@@ -32,7 +32,8 @@
 - [x] 宿主服务抽取：web 栈/weather/webBench/agentLoop/mediaBudget → `composition/host-services.mjs`
 - [x] 世界观服务抽取 → `composition/worldview-service.mjs`
 - [x] HTTP 装配抽取 → `composition/http-wiring.mjs`（routes/twin/readonly/chat/interactive/启动标记）
-- [x] 作品与生活服务抽取 → `composition/works-services.mjs`、`composition/life-services.mjs`（index 1149 → 770）
+- [x] 作品与生活服务抽取 → `composition/works-services.mjs`、`composition/life-services.mjs`
+- [x] 启动期基础设施抽取 → `composition/runtime-setup.mjs`（配置/迁移/模型策略/web 栈/webBench/巡检/作品/话题/情绪库；index 770 → 740）
 - [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 

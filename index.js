@@ -16,72 +16,125 @@
 //
 // 数据来自包内 data/*.json（只读），宿主进程内按 mtime + dataVersion 缓存；
 // data/ 缺失或损坏时优雅降级（200 + DATA_UNAVAILABLE），不会让插件加载失败。
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  renameSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { createDataStore } from './lib/data-store.mjs'
-import { createFeihuaFullService, resolveFeihuaFullDir } from './lib/feihua-full.mjs'
-import { readPackageMeta } from './lib/paths.mjs'
-import { resolveMemoryDir } from './lib/memory-journal.mjs'
-import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
+import {
+  fileURLToPath,
+} from 'node:url'
+import {
+  resolveFeihuaFullDir,
+} from './lib/feihua-full.mjs'
+import {
+  readPackageMeta,
+} from './lib/paths.mjs'
+import {
+  resolveMemoryDir,
+} from './lib/memory-journal.mjs'
 import {
   PET_MEDIA_ROUTE,
-  createPetMediaHandler,
-  loadPetMediaCatalog,
-  mergePetMediaIntoMoodCatalog,
-  petMediaDirExists,
-  resolvePetMediaDir,
 } from './lib/pet-media.mjs'
-import { createSelfBeing, resolveSelfBeingPath } from './lib/self-being.mjs'
-import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
-import { runMemoryMigrations } from './lib/memory-migrations.mjs'
-import { resolveVideoCoursesDir } from './lib/video-courses.mjs'
-import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
-import { resolveProjectsPath } from './lib/self-projects.mjs'
-import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
-import { PRESENCE_ROUTE } from './lib/presence.mjs'
-import { ensureChatToken, resolveChatTokenPath } from './lib/chat-bridge.mjs'
-import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
-import { createLocalVoice } from './lib/local-voice.mjs'
-import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
-import { callRole } from './lib/kernel/model-call.mjs'
-import { createStateSpecs } from './lib/composition/state-specs.mjs'
-import { createBaseServices } from './lib/composition/base-services.mjs'
-import { createFeihuaService, createLocalVoiceService, createVoice } from './lib/composition/model-services.mjs'
-import { createMemoryConsolidatorService, createMemoryHubService, createMemoryStack } from './lib/composition/memory-services.mjs'
-import { createNetlangService, createReadingService, createWanderService } from './lib/composition/learning-loop-services.mjs'
-import { createGrowthService } from './lib/composition/being-services.mjs'
-import { createSelfDriveService } from './lib/composition/self-drive-service.mjs'
-import { createChatRuntime } from './lib/composition/chat-runtime.mjs'
-import { createMoodService, createSelfTalk } from './lib/composition/mood-talk-services.mjs'
-import { createAgentLoop, createMediaBudgetService, createWeather, createWebBenchService, createWebStack } from './lib/composition/host-services.mjs'
-import { createWorldviewService } from './lib/composition/worldview-service.mjs'
-import { createWorksService } from './lib/composition/works-services.mjs'
-import { correctGrowthCounts, createDailyLifeService, createManualReadingService } from './lib/composition/life-services.mjs'
-import { wireHttp } from './lib/composition/http-wiring.mjs'
-import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
-import { createPluginLogger } from './lib/kernel/logger.mjs'
-import { readGraph } from './lib/knowledge-graph.mjs'
-import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
+import {
+  createSelfBeing,
+  resolveSelfBeingPath,
+} from './lib/self-being.mjs'
+import {
+  runMemoryMigrations,
+} from './lib/memory-migrations.mjs'
+import {
+  seedMemoryBaseline,
+} from './lib/memory-baseline.mjs'
+import {
+  createMetabolism,
+  resolveMetabolismPath,
+} from './lib/self-metabolism.mjs'
+import {
+  PRESENCE_ROUTE,
+} from './lib/presence.mjs'
+import {
+  ensureChatToken,
+  resolveChatTokenPath,
+} from './lib/chat-bridge.mjs'
+import {
+  createBaseServices,
+} from './lib/composition/base-services.mjs'
+import {
+  createFeihuaService,
+  createVoice,
+} from './lib/composition/model-services.mjs'
+import {
+  createMemoryConsolidatorService,
+  createMemoryHubService,
+  createMemoryStack,
+} from './lib/composition/memory-services.mjs'
+import {
+  createNetlangService,
+  createReadingService,
+  createWanderService,
+} from './lib/composition/learning-loop-services.mjs'
+import {
+  createGrowthService,
+} from './lib/composition/being-services.mjs'
+import {
+  createSelfDriveService,
+} from './lib/composition/self-drive-service.mjs'
+import {
+  createChatRuntime,
+} from './lib/composition/chat-runtime.mjs'
+import {
+  createMoodService,
+  createSelfTalk,
+} from './lib/composition/mood-talk-services.mjs'
+import {
+  createWorldviewService,
+} from './lib/composition/worldview-service.mjs'
+import {
+  correctGrowthCounts,
+  createDailyLifeService,
+  createManualReadingService,
+} from './lib/composition/life-services.mjs'
+import {
+  wireHttp,
+} from './lib/composition/http-wiring.mjs'
+import {
+  createRuntimeSetup,
+} from './lib/composition/runtime-setup.mjs'
+import {
+  createKnowledgeServices,
+} from './lib/composition/knowledge-services.mjs'
+import {
+  createPluginLogger,
+} from './lib/kernel/logger.mjs'
+import {
+  readGraph,
+} from './lib/knowledge-graph.mjs'
+import {
+  PROMPT_LAYERS_VERSION,
+} from './lib/prompt-layers.mjs'
 import {
   MODEL_ERRORS_ROUTE,
-  createModelErrorsHandler,
-  resolveModelErrorsPath,
   summarizeModelErrors,
 } from './lib/model-errors.mjs'
-import { createModelPolicy } from './lib/model-policy.mjs'
-import { callModelForRole, configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
-import { MEMORY_ROUTE } from './lib/memory-hub.mjs'
-import { createSelfTalkService } from './lib/self-talk.mjs'
-import { createServiceRuntime } from './lib/service-runtime.mjs'
-import { createDshHost } from './lib/dsh-host.mjs'
-import { resolveAutonomy } from './lib/autonomy.mjs'
-import { createHeartbeat } from './lib/heartbeat.mjs'
-import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
-import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
-import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
-import { createTrustFence } from './lib/trust.mjs'
+import {
+  configureModelRuntime,
+  resetModelRuntime,
+} from './lib/llm-call.mjs'
+import {
+  MEMORY_ROUTE,
+} from './lib/memory-hub.mjs'
+import {
+  createDshHost,
+} from './lib/dsh-host.mjs'
+import {
+  createModelBudget,
+  createModelGate,
+} from './lib/model-budget.mjs'
+import {
+  resolveSettingsPath,
+} from './lib/settings-store.mjs'
 
 /** Cordis 插件名（loader 诊断用；与 package.json 的 dsh.bundle 行 id 一致）。 */
 export const name = 'dsh-little-whale'
@@ -191,131 +244,51 @@ export async function apply(ctx) {
     try {
       // v1.81：插件停用/测试清理时释放全局模型运行时。
       host.effect(hostCtx, () => () => resetModelRuntime(), 'dsh-little-whale: 模型运行时')
-      // v1.73：后台服务的统一清理/健康快照（start 仍按原顺序就地调用，保持时序）。
-      const serviceRuntime = createServiceRuntime({ logger })
-      // v2.0：自主节奏的环境旋钮（默认比旧版开放很多；DSH_POETRY_*_MIN 可继续放宽）。
-      const autonomy = resolveAutonomy(env)
-      // v2.1：安全公开网页访问（搜索 + 抓取）+ 她想查网页时替她打开。
-      const { deepseekWeb, twinWebAccess, webAccess, browseForWhale } = createWebStack({ env, logger, worldFeedback, journal })
-
-      // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
-      const heartbeat = createHeartbeat({ logger })
-      const webServer = host.get(hostCtx, 'webServer')
-      const connection = host.get(hostCtx, 'connection')
-
-      const dataStore = createDataStore({ dataDir: DATA_DIR })
-      const settingsStore = createSettingsStore({
-        file: settingsPath.file,
-        knownPoemIds: () => dataStore.knownPoemIds(),
-        onWarn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
-      })
-      // W1：状态文件 schema 注册表（启动时规范化/迁移；dry-run 只报告）。
-      let migrationSummary = null
-      try {
-        const migrateMode = String(env.DSH_POETRY_MIGRATE ?? '').toLowerCase()
-        if (migrateMode !== 'off') {
-          const stateRegistry = createStateRegistry(createStateSpecs(settingsPath.dir))
-          const migration = migrateAll(stateRegistry, { dryRun: migrateMode === 'dry-run', logger })
-          migrationSummary = summarizeMigrations(migration)
-          if (migration.changed > 0) {
-            logger?.info?.(`[dsh-little-whale] 状态迁移：${migration.changed}/${migration.total} 个文件被规范化，${migration.errors} 个错误`)
-          }
-        }
-      } catch (error) {
-        logger?.warn?.(`[dsh-little-whale] 状态迁移初始化失败：${error instanceof Error ? error.message : String(error)}`)
-      }
-      const fence = createTrustFence({ getConnection: () => connection, logger })
-      // 天气服务：Open-Meteo 免密钥；fetch 用宿主 Node 的全局 fetch，请求 6s 超时、进程内缓存。
-      const weatherService = createWeather()
-      // 模型调用：llm / agentDefaultModel 是 optional 服务（用 get 取，不放进 inject 硬依赖）。
-      // 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
-      const getLlm = () => {
-        try {
-          return host.get(hostCtx, 'llm')
-        } catch {
-          return undefined
-        }
-      }
-      const getSelection = () => {
-        try {
-          const agentDefaultModel = host.get(hostCtx, 'agentDefaultModel')
-          return typeof agentDefaultModel?.currentSelection === 'function' ? agentDefaultModel.currentSelection() : null
-        } catch {
-          return null
-        }
-      }
-      // v1.38/v1.39：模型策略（按 role 选候选 provider/model/reasoningEffort；插件自身调用优先 opencode-go）。
-      const getProviders = () => {
-        try {
-          const llm = getLlm()
-          if (llm !== null && llm !== undefined && typeof llm.listProviders === 'function') return llm.listProviders()
-          return null
-        } catch {
-          return null
-        }
-      }
-      const modelPolicy = createModelPolicy({ env, getSelection, getProviders })
-      // v2.80：本地权重模型的「口吻层」（试用）。DSH_POETRY_LOCAL_VOICE=on|chat|mood 开启；
-      // 失败/超时/胡话一律保留原句，不影响正常链路。
-      const localVoiceMode = String(env.DSH_POETRY_LOCAL_VOICE ?? '').toLowerCase()
-      const localVoice = createLocalVoiceService({ env, localVoiceMode, logger })
-      // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
-      const modelErrorsPath = resolveModelErrorsPath(env, home)
-      // v2.73（改造 C）：每周一次“真实网页小测”——找原文/核年份/对冲突/只有目录/承认查不到。
-      // 宿主先抓真实网页递给她，她只作答；评分确定性，结果落 web-bench.json。
-      const webBench = createWebBenchService({
-        settingsDir: settingsPath.dir,
-        webAccess,
-        journal,
-        logger,
-        modelPolicy,
+      // v1.73：后台服务运行时 + 启动期基础设施 + 公网访问 + 网页小测/巡检/作品。
+      const {
+        serviceRuntime,
+        autonomy,
+        heartbeat,
+        webServer,
+        connection,
+        dataStore,
+        settingsStore,
+        migrationSummary,
+        fence,
+        weatherService,
         getLlm,
+        getSelection,
+        modelPolicy,
+        localVoiceMode,
+        localVoice,
         modelErrorsPath,
-      })
-      disposers.push(() => webBench.stop())
-      // v2.81：常驻自进化巡检（宿主内 spawn，TCC 友好）；默认关，DSH_AGENT_LOOP=on 开启。
-      const agentLoop = createAgentLoop({ home, env, logger })
-      disposers.push(() => agentLoop.stop())
-      // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
-      const { mediaBudget, selfWorks } = createWorksService({
+        topicsPath,
+        topicsArchivePath,
+        topicBank,
+        feelingsPath,
+        feelingBank,
+        deepseekWeb,
+        twinWebAccess,
+        webAccess,
+        browseForWhale,
+        webBench,
+        agentLoop,
+        mediaBudget,
+        selfWorks,
+      } = createRuntimeSetup({
         env,
         home,
-        assetsDir: ASSETS_DIR,
-        getLlm,
-        modelPolicy,
-        modelErrorsPath,
+        settingsPath,
+        dataDir: DATA_DIR,
         logger,
+        getHostService: (name) => host.get(hostCtx, name),
+        journal,
+        worldFeedback,
+        disposers,
+        assetsDir: ASSETS_DIR,
         getState: () => (selfStateRef !== null ? selfStateRef.snapshot() : null),
       })
-      // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
-      const topicsPath = resolveTopicsPath(env, home)
-      // v1.49：L1 冷存储归档（活跃话题库 learned 超限时最旧的移入这里；仍可关键词检索）。
-      const topicsArchivePath = resolveTopicsArchivePath(env, home)
-      try {
-        mkdirSync(path.dirname(topicsArchivePath), { recursive: true })
-        // 空归档文件也算健康（否则记忆中枢会把可选的“尚未归档”误报为缺失）。
-        if (!existsSync(topicsArchivePath)) writeFileSync(topicsArchivePath, '', 'utf8')
-      } catch {
-        /* 归档目录不可写时静默降级 */
-      }
-      const topicBank = loadTopicBank({ path: topicsPath, logger })
-      // v1.50：自生情绪库——她自己造的感受词（只追加、不删除），供自省/心情/碎碎念使用。
-      const feelingsPath = resolveFeelingsPath(env, home)
-      try {
-        mkdirSync(path.dirname(feelingsPath), { recursive: true })
-        if (!existsSync(feelingsPath)) {
-          writeFileSync(feelingsPath, `${JSON.stringify({ ok: true, v: 1, feelings: [] }, null, 2)}\n`, 'utf8')
-        }
-      } catch {
-        /* 情绪库不可写时静默降级（使用时不报错） */
-      }
-      const feelingBank = loadFeelingBank({ path: feelingsPath, logger })
-      const topicSnapshot = topicBank.read()
-      if (topicSnapshot.ok === true) {
-        logger?.info?.(`[dsh-little-whale] 碎碎念话题库：${topicsPath}（${topicSnapshot.entries.length} 个话题）`)
-      } else {
-        logger?.warn?.(`[dsh-little-whale] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
-      }
+
       // v1.71：人类式分层记忆 + 检索。
       const { layersPath, memoryLayers, memoryRecall } = createMemoryStack({
         env,
