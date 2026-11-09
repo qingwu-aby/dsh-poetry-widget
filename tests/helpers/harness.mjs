@@ -719,3 +719,13 @@ export function emptyStatsForTest() {
     lastActivityAt: 0,
   }
 }
+
+export function readJournalJsonl(dir) {
+  const file = path.join(dir, 'journal.jsonl')
+  if (!fs.existsSync(file)) return []
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line))
+}

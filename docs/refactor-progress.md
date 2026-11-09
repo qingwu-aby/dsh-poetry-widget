@@ -44,7 +44,8 @@
 - [x] HTTP JSON 契约测试：`tests/domains/http-contract.test.mjs`（10 条：health/self/memory/graph/works/model-errors/settings/bootstrap/view=1/方法守卫；512/512）
 - [x] PLAN.md 归档 → `docs/archive/PLAN.md`；新增 `npm run test:coverage`（仅报告，暂无门槛）
 - [x] 测试拆分第一批：共享脚手架 → `tests/helpers/harness.mjs`（23 导出）；核心/设置/数据/路由/天气 42 条 → `tests/domains/core.test.mjs`；host.test.mjs 由 12,146 行降至约 10.6k 行，测试总数保持 512
-- [ ] 测试拆分后续：按域继续迁（memory/emotion/chat/learning/knowledge/works/being/voice/twin/life/host）
+- [x] 测试拆分第二批：自言自语/心情/记忆日志/飞花/媒体 58 条 → `tests/domains/talk-mood-media.test.mjs`；host.test.mjs 12,146 → 9,244 行；共享 helper 24 个
+- [ ] 测试拆分后续：按域继续迁（memory-hub/learning/being/voice/model-policy/static/web 等约 227 条）
 - [x] 客户端数据层：`client-src/data.js`（fetch/超时/首屏缓存/getStorage，client.js 5598→5517）
 - [ ] 客户端 state/hook 层与 tab 注册表（剩余 ~5.5k 行）
 - [x] 覆盖率门槛：`npm run test:coverage` 强制 lines 65 / branches 65 / functions 70（当前 68/74/74），CI 已接入

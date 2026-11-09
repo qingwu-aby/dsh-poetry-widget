@@ -369,6 +369,7 @@ const {
   MOOD_T0,
   moodEvent,
   emptyStatsForTest,
+  readJournalJsonl,
 } = harness
 
 test('index.js 导出 name 与 apply（Cordis 插件形状）', () => {
