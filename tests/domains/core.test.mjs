@@ -370,6 +370,15 @@ const {
   moodEvent,
   emptyStatsForTest,
   readJournalJsonl,
+  makeMoodCatalogWithVideos,
+  writeExperienceFile,
+  makeGrowthHarness,
+  makeGrowthLlm,
+  promptCatalogRowFiles,
+  writeRecallJournal,
+  makeLongVoiceProfile,
+  VOICE_PROFILE_SAMPLE,
+  writeVoiceFile,
 } = harness
 
 test('index.js 导出 name 与 apply（Cordis 插件形状）', () => {

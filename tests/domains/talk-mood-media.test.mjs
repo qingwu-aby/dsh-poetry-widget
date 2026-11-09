@@ -371,6 +371,15 @@ const {
   moodEvent,
   emptyStatsForTest,
   readJournalJsonl,
+  makeMoodCatalogWithVideos,
+  writeExperienceFile,
+  makeGrowthHarness,
+  makeGrowthLlm,
+  promptCatalogRowFiles,
+  writeRecallJournal,
+  makeLongVoiceProfile,
+  VOICE_PROFILE_SAMPLE,
+  writeVoiceFile,
 } = harness
 
 

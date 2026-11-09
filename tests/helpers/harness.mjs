@@ -729,3 +729,109 @@ export function readJournalJsonl(dir) {
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line))
 }
+
+export function makeMoodCatalogWithVideos(staticCount = 25) {
+  const base = normalizeMoodCatalog({
+    ok: true,
+    version: 'multi.1',
+    images: Array.from({ length: staticCount }, (_, index) => ({
+      file: `img-${index}.webp`,
+      label: `静图${index}`,
+      tags: ['img'],
+    })),
+    panelImages: [],
+  })
+  return mergePetMediaIntoMoodCatalog(base, [
+    { file: 'webm/哈欠连天.webm', label: '哈欠连天', media: 'video', scope: 'mood', tags: ['tired'] },
+    { file: 'webm/吃午餐.webm', label: '吃午餐', media: 'video', scope: 'mood', tags: ['food'] },
+    { file: 'webm/写代码.webm', label: '写代码', media: 'video', scope: 'mood', tags: ['code'] },
+  ])
+}
+
+export function writeExperienceFile(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data), 'utf8')
+  return file
+}
+
+export function makeGrowthHarness(overrides = {}) {
+  const dir = makeTmpDir('dshp-growth')
+  const state = overrides.state ?? createSelfState({ file: path.join(dir, 'self-state.json'), logger: { warn() {} } })
+  const journal = overrides.journal ?? {
+    entries: [],
+    async append(entry) {
+      this.entries.push(entry)
+      return { ok: true }
+    },
+  }
+  const growth = createSelfGrowth({
+    state,
+    llm: overrides.llm ?? makeGrowthLlm([JSON.stringify({ thought: '今天安静地陪着你，心里很稳。' })]),
+    getSelection: overrides.getSelection ?? (() => ({ provider: 'deepseek-account', model: 'deepseek-flash' })),
+    journal,
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    candidatesPath: path.join(dir, 'topics-candidates.json'),
+    topicsBankPath: overrides.topicsBankPath,
+    topics: overrides.topics ?? [],
+    feelingsPath: overrides.feelingsPath,
+    feelings: overrides.feelings,
+    recall: overrides.recall,
+    logger: { warn() {}, info() {} },
+    reflectIntervalMs: overrides.reflectIntervalMs ?? SELF_GROWTH_REFLECT_INTERVAL_MS,
+    learnIntervalMs: overrides.learnIntervalMs ?? 90 * 60 * 1000,
+    timeoutMs: overrides.timeoutMs ?? 200,
+    tickIntervalMs: overrides.tickIntervalMs ?? SELF_GROWTH_TICK_MS,
+    now: overrides.now ?? (() => FIXED_NOW.getTime()),
+    policy: overrides.policy,
+    modelErrorsPath: overrides.modelErrorsPath,
+  })
+  return { dir, state, journal, growth }
+}
+
+export function makeGrowthLlm(texts) {
+  const calls = []
+  let index = 0
+  return {
+    calls,
+    stream(options) {
+      calls.push(options)
+      const text = texts[Math.min(index, texts.length - 1)]
+      index += 1
+      return (async function* () {
+        yield { type: 'text-delta', index: 0, text }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      })()
+    },
+  }
+}
+
+export function promptCatalogRowFiles(prompt) {
+  return prompt
+    .split('\n')
+    .filter((line) => line.includes('｜'))
+    .map((line) => line.split('｜')[0])
+    .filter((file) => /^(img-|dsh-whale-|webm\/)/.test(file))
+}
+
+export function writeRecallJournal(file, entries) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, entries.map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry))).join('\n') + '\n', 'utf8')
+  return file
+}
+
+export function makeLongVoiceProfile() {
+  let text = VOICE_PROFILE_SAMPLE
+  while (Array.from(text).length < 150) text += '我还会把情绪藏在具体的动作里。'
+  return Array.from(text).slice(0, 200).join('')
+}
+
+export const VOICE_PROFILE_SAMPLE =
+  '我说话时习惯先抛出一个很轻的观察，再把动作收小：写窗边的光、杯子的温度、键盘的声音；句子偏短，偶尔留一个不解释的尾音。' +
+  '开头很少直接抒情，喜欢从一件很小的东西进入；收尾通常落在安静下来的一瞬间。语气不急着讨人喜欢，也不做总结陈词。' +
+  '常用“好像”“有一点”“慢慢”这类词，让话留出一点空；不常用第二人称命令句。'
+
+export function writeVoiceFile(file, payload) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(payload), 'utf8')
+  return file
+}
