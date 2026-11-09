@@ -186,7 +186,7 @@ node --test tests/client.test.mjs  # 客户端 factory/纯函数单测
 node tests/integration/verify.mjs  # 集成验收（需要宿主已加载新代码）
 ```
 
-接口契约见 [docs/contract.md](./docs/contract.md)，验收清单见 [docs/acceptance.md](./docs/acceptance.md)，整体计划见 [PLAN.md](./PLAN.md)。
+接口契约见 [docs/contract.md](./docs/contract.md)，验收清单见 [docs/acceptance.md](./docs/acceptance.md)，整体计划见 [docs/archive/PLAN.md](./docs/archive/PLAN.md)。
 
 目录：
 
