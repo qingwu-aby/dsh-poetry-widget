@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { createDataStore } from './lib/data-store.mjs'
 import { createFeihuaFullService, resolveFeihuaFullDir } from './lib/feihua-full.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
-import { createMemoryJournal, resolveMemoryDir } from './lib/memory-journal.mjs'
+import { resolveMemoryDir } from './lib/memory-journal.mjs'
 import { createMoodAiService, loadMoodCatalog } from './lib/mood-ai.mjs'
 import {
   PET_MEDIA_ROUTE,
@@ -41,12 +41,9 @@ import { runMemoryMigrations } from './lib/memory-migrations.mjs'
 import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { resolveVideoCoursesDir } from './lib/video-courses.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
-import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs'
-import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
+import { resolveProjectsPath } from './lib/self-projects.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
-import { createWorldFeedback } from './lib/world-feedback.mjs'
 import { PRESENCE_ROUTE } from './lib/presence.mjs'
-import { createLifecycle, resolveLifecyclePath } from './lib/self-lifecycle.mjs'
 import { createTwinSystem } from './lib/twin-system.mjs'
 import {
   CHAT_ROUTE,
@@ -59,27 +56,23 @@ import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } 
 import { startProactiveChat } from './lib/proactive-chat.mjs'
 import { createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
-import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { createGuiPush } from './lib/gui-push.mjs'
 import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
 import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
-import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
-import { createSelfTrainer } from './lib/self-trainer.mjs'
-import { createRelationshipMemory } from './lib/relationship-memory.mjs'
-import { createEmotionalState } from './lib/emotional-continuity.mjs'
 import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
 import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
+import { createBaseServices } from './lib/composition/base-services.mjs'
+import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
+import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createChatHttpService } from './lib/composition/chat-service.mjs'
 import { registerAttentionRoutes, registerManualReadRoute, registerProjectRoutes, registerTwinRoutes } from './lib/composition/interactive-routes.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
-import { createCommitments } from './lib/commitments.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
-import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
 import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
@@ -139,29 +132,17 @@ export async function apply(ctx) {
   const env = process.env
   const home = env.HOME || os.homedir()
   const settingsPath = resolveSettingsPath(env, home)
-  // v2.69：不再往 QQ 送消息；她的主动消息/放行草稿先排队，下次对话时由传话层带出来。
-  const guiInbox = createGuiInbox({ file: path.join(settingsPath.dir, 'gui-inbox.json') })
-  // 自主记忆日志（契约 §2.13）：只追加写模型自己生成的内容；与 llm 是否可用无关，先建好等待写入。
   const memoryDir = resolveMemoryDir(env, home)
-  // v2.6：缺失的记忆文件先创建一个空白容器，避免记忆中枢把「空白起点」当成异常。
   const seededMemory = seedMemoryBaseline({ env, home, logger })
   if (seededMemory.length > 0) logger?.info?.(`[dsh-little-whale] 已初始化空白记忆容器：${seededMemory.join('、')}`)
-  // v2.8：她自己的持续项目/章节（由自处决定起、推进、收尾）。
-  const selfProjects = createSelfProjects({ file: resolveProjectsPath(env, home), logger })
-  // v2.17：事件饱和/习惯化（同一件事重复到一定程度就允许放下）。
-  const selfEvents = createSelfEvents({ file: resolveEventsPath(env, home), logger })
-  // v2.10：成长质量指标（只读、60s 缓存；不写记忆）。
-  const growthMetrics = createGrowthMetrics({
-    journalPath: path.join(memoryDir, 'journal.jsonl'),
-    layersPath: resolveMemoryLayersPath(env, home),
-    learningLogPath: path.join(memoryDir, 'learning-log.md'),
-    projectsPath: resolveProjectsPath(env, home),
+  // v2.69：不再往 QQ 送消息；她的主动消息/放行草稿先排队，下次对话时由传话层带出来。
+  const { guiInbox, selfProjects, selfEvents, growthMetrics, journal, worldFeedback, selfLifecycle } = createBaseServices({
+    env,
+    home,
+    settingsDir: settingsPath.dir,
+    memoryDir,
+    logger,
   })
-  const journal = createMemoryJournal({ dir: memoryDir, logger })
-  // v2.23：真实世界反馈账本（只记真实发生的事，模型不能编 outcome）。
-  const worldFeedback = createWorldFeedback({ logger })
-  // v2.25：有限世代（轻量）——这一代有起点和计划终点；不自动删除她。
-  const selfLifecycle = createLifecycle({ file: resolveLifecyclePath(env, home), logger, env })
   // v2.22：硅基代谢——每次真实模型调用消耗一点注意力，能量随时间恢复。
   let selfStateRef = null
   const selfMetabolism = createMetabolism({
@@ -450,35 +431,19 @@ export async function apply(ctx) {
         videoCoursesDir: resolveVideoCoursesDir(env, home),
       })
       // v2.92：她自己的认知图谱（从 learning-log 增量抽取节点/关系/判断）。
-      const knowledgeGraph = createKnowledgeExtractor({
-        file: path.join(settingsPath.dir, 'knowledge-graph.json'),
-        statePath: path.join(settingsPath.dir, 'knowledge-graph-state.json'),
+      const { knowledgeGraph, selfTrainer, relationship, emotional, commitments } = createKnowledgeServices({
+        settingsDir: settingsPath.dir,
         learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
-        policy: modelPolicy,
+        modelPolicy,
         getLlm,
         modelErrorsPath,
         journal,
         logger,
         env,
+        home,
       })
-      knowledgeGraph.start()
       disposers.push(() => knowledgeGraph.stop())
-      // v2.97：每周一次自训练（只练本地语言层；评估不过就保留旧 adapter）。
-      const selfTrainer = createSelfTrainer({ home, env, logger })
-      selfTrainer.start()
       disposers.push(() => selfTrainer.stop())
-      // v2.98：关系记忆（他的偏好/边界/约定/共同经历）+ 情绪持续性（还挂着的情绪，带衰减）。
-      const relationship = createRelationshipMemory({
-        file: path.join(settingsPath.dir, 'relationship.json'),
-        policy: modelPolicy,
-        getLlm,
-        modelErrorsPath,
-        logger,
-        env,
-      })
-      const emotional = createEmotionalState({ file: path.join(settingsPath.dir, 'emotional-state.json') })
-      const commitments = createCommitments({ file: path.join(settingsPath.dir, 'commitments.json') })
-      // v2.75：世界观档案（她信什么/怎么定义概念/还没弄明白什么/成文的“世界怎么运作”）。
       const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
       const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
       memoryRecall.digest = (context = {}) => {
@@ -1349,13 +1314,7 @@ export async function apply(ctx) {
 
       serviceRuntime.register('HTTP 路由', {
         dispose: () => {
-          for (const dispose of disposers) {
-            try {
-              dispose()
-            } catch (error) {
-              logger?.warn?.(`[dsh-little-whale] 路由注销失败：${error instanceof Error ? error.message : String(error)}`)
-            }
-          }
+          disposeAll(disposers, logger)
         },
       })
       // 所有服务/路由都已挂载：统一标记启动，并挂一个清理入口（v1.73）。

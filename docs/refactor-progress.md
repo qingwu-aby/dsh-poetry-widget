@@ -14,7 +14,8 @@
 - [x] `lib/kernel/config.mjs`：37 项配置注册表 + `scripts/gen-config-doc.mjs` → `docs/config.md`
 - [ ] `lib/kernel/logger.mjs`：结构化日志 + 静默失败计数
 - [x] 第一批路由抽取：assets/pet-media/memory/model-errors/presence/works/self/graph → `composition/readonly-routes.mjs`；
-- [x] 第二批：聊天服务 → `composition/chat-service.mjs`（OCR/关系/情绪/日常/承诺/图谱/本地声音），twin/manual-read/attention/project 路由 → `composition/interactive-routes.mjs`；index.js **1725 → 1390 行**（500/500）
+- [x] 第二批：聊天服务 → `composition/chat-service.mjs`（OCR/关系/情绪/日常/承诺/图谱/本地声音），twin/manual-read/attention/project 路由 → `composition/interactive-routes.mjs`；
+- [x] 第三批：基础服务 → `composition/base-services.mjs`，知识/关系/情绪服务 → `composition/knowledge-services.mjs`，清理函数 → `composition/lifecycle.mjs`；index.js **1725 → 1342 行**（500/500）
 - [ ] `kernel/service.mjs` + 注册表：统一 start/stop/tick/snapshot
 - [ ] 收紧 check-size 为 `--strict`
 
