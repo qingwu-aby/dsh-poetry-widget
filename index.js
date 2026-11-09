@@ -33,7 +33,6 @@ import {
   petMediaDirExists,
   resolvePetMediaDir,
 } from './lib/pet-media.mjs'
-import { createRouteTable } from './lib/routes.mjs'
 import { createSelfBeing, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
@@ -42,16 +41,13 @@ import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { resolveProjectsPath } from './lib/self-projects.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
 import { PRESENCE_ROUTE } from './lib/presence.mjs'
-import { createTwinSystem } from './lib/twin-system.mjs'
-import { CHAT_ROUTE, createChatHandler, ensureChatToken, resolveChatTokenPath } from './lib/chat-bridge.mjs'
+import { ensureChatToken, resolveChatTokenPath } from './lib/chat-bridge.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
 import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
 import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
-import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
 import { createBaseServices } from './lib/composition/base-services.mjs'
-import { buildRuntimeSnapshot } from './lib/composition/health.mjs'
 import { createFeihuaService, createLocalVoiceService, createVoice } from './lib/composition/model-services.mjs'
 import { createMemoryConsolidatorService, createMemoryHubService, createMemoryStack } from './lib/composition/memory-services.mjs'
 import { createNetlangService, createReadingService, createWanderService } from './lib/composition/learning-loop-services.mjs'
@@ -61,16 +57,13 @@ import { createChatRuntime } from './lib/composition/chat-runtime.mjs'
 import { createMoodService, createSelfTalk } from './lib/composition/mood-talk-services.mjs'
 import { createAgentLoop, createMediaBudgetService, createWeather, createWebBenchService, createWebStack } from './lib/composition/host-services.mjs'
 import { createWorldviewService } from './lib/composition/worldview-service.mjs'
+import { createWorksService } from './lib/composition/works-services.mjs'
+import { correctGrowthCounts, createDailyLifeService, createManualReadingService } from './lib/composition/life-services.mjs'
+import { wireHttp } from './lib/composition/http-wiring.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
-import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
-import { createChatHttpService } from './lib/composition/chat-service.mjs'
-import { registerAttentionRoutes, registerManualReadRoute, registerProjectRoutes, registerTwinRoutes } from './lib/composition/interactive-routes.mjs'
-import { createDailyLife } from './lib/daily-life.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
-import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
-import { createManualReading, ensureManualToken, resolveManualTokenPath } from './lib/manual-reading.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -284,23 +277,15 @@ export async function apply(ctx) {
       const agentLoop = createAgentLoop({ home, env, logger })
       disposers.push(() => agentLoop.stop())
       // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
-      const mediaBudget = createMediaBudgetService({ env, home })
-      const selfWorks = createSelfWorks({
-        dir: resolveWorksDir(env, home),
-        mediaBudget,
+      const { mediaBudget, selfWorks } = createWorksService({
+        env,
+        home,
+        assetsDir: ASSETS_DIR,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
-        assetsDir: ASSETS_DIR,
-        getContext: () => {
-          try {
-            const snap = selfStateRef !== null ? selfStateRef.snapshot() : null
-            return snap || null
-          } catch {
-            return null
-          }
-        },
+        getState: () => (selfStateRef !== null ? selfStateRef.snapshot() : null),
       })
       // v1.26：碎碎念话题库（外部维护，mtime 缓存自动重读，无需重载插件）。
       const topicsPath = resolveTopicsPath(env, home)
@@ -467,17 +452,15 @@ export async function apply(ctx) {
       const feihuaFullService = createFeihuaService({ dir: feihuaFullDir, logger })
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
-      // v2.99：日常素材（每 2 小时一件手边小事，反重复）+ 承诺账本（约定/答应的事，逾期提醒）。
-      const dailyLife = createDailyLife({
-        file: path.join(settingsPath.dir, 'daily-life.jsonl'),
-        state: selfState,
-        policy: modelPolicy,
+      const dailyLife = createDailyLifeService({
+        settingsDir: settingsPath.dir,
+        selfState,
+        modelPolicy,
         getLlm,
         modelErrorsPath,
         logger,
         env,
       })
-      dailyLife.start()
       disposers.push(() => dailyLife.stop())
 
       selfStateRef = selfState
@@ -510,42 +493,19 @@ export async function apply(ctx) {
       const { chatBridge, attention, guiPush, outbox, proactiveChat, workLoop, queueGuiMessage } = chatRuntime
 
       // v2.12：用户递文章给她读（本地 token 保护；结果写 journal thought）。
-      const manualTokenFile = resolveManualTokenPath(env, home)
-      const manualToken = ensureManualToken(manualTokenFile)
-      const manualReading = createManualReading({
+      const { manualTokenFile, manualReading } = createManualReadingService({
+        env,
+        home,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         journal,
         selfState,
-        recall: memoryRecall,
-        voice: () => voiceService.get(),
+        memoryRecall,
+        voiceService,
         modelErrorsPath,
         logger,
       })
-      // v1.60：用她自己的历史日志校正事实计数（旧版计数器在迁移后冻结，成长页看起来像停止）。
-      try {
-        let learnings = 0
-        let reflections = 0
-        const journalPath = path.join(memoryDir, 'journal.jsonl')
-        if (existsSync(journalPath)) {
-          for (const line of readFileSync(journalPath, 'utf8').split('\n')) {
-            if (line.trim().length === 0) continue
-            try {
-              const entry = JSON.parse(line)
-              if (entry && entry.kind === 'thought') reflections += 1
-            } catch {
-              /* 单行坏 JSON 跳过 */
-            }
-          }
-        }
-        const learningLogPath = path.join(memoryDir, 'learning-log.md')
-        if (existsSync(learningLogPath)) {
-          learnings = (readFileSync(learningLogPath, 'utf8').match(/· 自学/g) || []).length
-        }
-        selfState.setGrowthCounts({ learnings, reflections })
-      } catch (error) {
-        logger?.warn?.(`[dsh-little-whale] 成长计数校正失败：${error instanceof Error ? error.message : String(error)}`)
-      }
+      correctGrowthCounts({ memoryDir, selfState, logger })
       // v3.01：每周轮换一个“世界知识空白板块”，给自学一个补广度的方向。
       const weeklyBroadenTopic = () => {
         const topics = [
@@ -671,183 +631,132 @@ export async function apply(ctx) {
         dispose: () => heartbeat.dispose(),
       })
 
-      const routes = createRouteTable({
+      const runtimeDeps = {
+        growth,
+        selfDrive,
+        selfWander,
+        selfReading,
+        selfNetlang,
+        memoryConsolidator,
+        serviceRuntime,
+        modelBudget,
+        modelGate,
+        heartbeat,
+        webAccess,
+        summarizeModelErrors,
+        modelErrorsPath,
+        growthMetrics,
+        selfWorks,
+        mediaBudget,
+        outbox,
+        attention,
+        promptLayersVersion: PROMPT_LAYERS_VERSION,
+        selfEvents,
+        selfMetabolism,
+        worldFeedback,
+        selfLifecycle,
+        twinEnabled: String(env.DSH_POETRY_TWIN ?? '').toLowerCase() === 'on',
+        webBench,
+        agentLoop,
+        knowledgeGraph,
+        selfTrainer,
+        relationship,
+        emotional,
+        dailyLife,
+        migrationSummary,
+        commitments,
+        guiPush,
+        localVoice,
+        worldview,
+        logger: logger.snapshot(),
+      }
+      const twinDeps = {
+        env,
+        home,
+        getLlm,
+        policy: modelPolicy,
+        modelErrorsPath,
+        logger,
+        primary: {
+          state: selfState,
+          journalPath: path.join(memoryDir, 'journal.jsonl'),
+          journal,
+          learningLogPath: path.join(memoryDir, 'learning-log.md'),
+          researchThreadFile: path.join(settingsPath.dir, 'research-thread.json'),
+          methodologyFile: path.join(settingsPath.dir, 'methodology.json'),
+          curriculumFile: path.join(settingsPath.dir, 'curriculum.json'),
+          webAccess,
+          twinWebAccess,
+        },
+      }
+      wireHttp({
+        webServer,
+        disposers,
+        serviceRuntime,
+        logger,
+        env,
+        home,
+        host,
+        hostCtx,
         dataStore,
         settingsStore,
         fence,
-        version: VERSION,
-        settingsFile: settingsPath.file,
         weatherService,
         selfTalkService,
-        moodAiService: {
-          ...moodAiService,
-          async generate(context, options) {
-            const result = await moodAiService.generate(context, options)
-            if (result && result.ok === true && result.mood) {
-              try {
-                emotional.record({ topic: String(result.mood.reason || result.mood.label || ''), emotion: String(result.mood.label || ''), note: '', intensity: 0.5 })
-              } catch {
-                /* ignore */
-              }
-            }
-            if (
-              result &&
-              result.ok === true &&
-              result.mood &&
-              typeof result.mood.reason === 'string' &&
-              (localVoiceMode === 'on' || localVoiceMode === 'mood')
-            ) {
-              try {
-                const polished = await localVoice.polish(result.mood.reason, { maxChars: 40 })
-                if (polished !== null) result.mood.reason = polished
-              } catch {
-                /* 保留原句 */
-              }
-            }
-            return result
-          },
-        },
+        moodAiService,
+        emotional,
+        localVoice,
+        getLocalVoiceMode: () => localVoiceMode,
         journal,
         feihuaFullService,
         getSelfState: () => selfState.snapshot(),
         getReadings: readingHint,
         memoryHub,
-        // v1.73：health.json 暴露后台服务快照，方便看 8 个定时器是不是还活着。
-        getRuntime: () =>
-          buildRuntimeSnapshot({
-            growth,
-            selfDrive,
-            selfWander,
-            selfReading,
-            selfNetlang,
-            memoryConsolidator,
-            serviceRuntime,
-            modelBudget,
-            modelGate,
-            heartbeat,
-            webAccess,
-            summarizeModelErrors,
-            modelErrorsPath,
-            growthMetrics,
-            selfWorks,
-            mediaBudget,
-            outbox,
-            attention,
-            promptLayersVersion: PROMPT_LAYERS_VERSION,
-            selfEvents,
-            selfMetabolism,
-            worldFeedback,
-            selfLifecycle,
-            twinEnabled,
-            webBench,
-            agentLoop,
-            knowledgeGraph,
-            selfTrainer,
-            relationship,
-            emotional,
-            dailyLife,
-            migrationSummary,
-            commitments,
-            guiPush,
-            localVoice,
-            worldview,
-            logger: logger.snapshot(),
-          }),
-        env,
-        home,
-      })
-
-      // v2.79：镜像停用——她不再需要另一个自己，直接去接触真实世界；DSH_POETRY_TWIN=on 可恢复。
-      const twinEnabled = String(env.DSH_POETRY_TWIN ?? '').toLowerCase() === 'on'
-      let twinSystem = null
-      if (twinEnabled) {
-        twinSystem = createTwinSystem({
-          env,
-          home,
-          getLlm,
-          policy: modelPolicy,
+        runtimeDeps,
+        twin: twinDeps,
+        readonly: {
+          assetsRoute: ASSETS_ROUTE,
+          assetsDir: ASSETS_DIR,
+          petMediaRoute: PET_MEDIA_ROUTE,
+          petMediaDir,
+          memoryRoute: MEMORY_ROUTE,
+          memoryHub,
+          modelErrorsRoute: MODEL_ERRORS_ROUTE,
           modelErrorsPath,
+          presenceRoute: PRESENCE_ROUTE,
+          worldFeedback,
           logger,
-          primary: {
-            state: selfState,
-            journalPath: path.join(memoryDir, 'journal.jsonl'),
-            journal,
-            learningLogPath: path.join(memoryDir, 'learning-log.md'),
-            researchThreadFile: path.join(settingsPath.dir, 'research-thread.json'),
-            methodologyFile: path.join(settingsPath.dir, 'methodology.json'),
-            curriculumFile: path.join(settingsPath.dir, 'curriculum.json'),
-            webAccess,
-            twinWebAccess,
-          },
-        })
-        disposers.push(() => twinSystem.stop())
-        twinSystem.start()
-      }
-      // W1：只读/静态路由统一注册（assets/pet-media/memory/model-errors/presence/works/self/graph）。
-      registerReadonlyRoutes({
-        webServer,
-        disposers,
-        assetsRoute: ASSETS_ROUTE,
-        assetsDir: ASSETS_DIR,
-        petMediaRoute: PET_MEDIA_ROUTE,
-        petMediaDir,
-        memoryRoute: MEMORY_ROUTE,
-        memoryHub,
-        modelErrorsRoute: MODEL_ERRORS_ROUTE,
-        modelErrorsPath,
-        presenceRoute: PRESENCE_ROUTE,
-        worldFeedback,
-        logger,
-        selfWorks,
-        getSelfState: () => selfState.snapshot(),
-        getGrowth: () => growth.snapshot(),
-        getActions: () => selfDrive.snapshot(),
-        getProject: () => selfProjects.snapshot().current,
-        graph: {
-          getSnapshot: () => knowledgeGraph.snapshot(),
-          readGraph,
-          stateDir: settingsPath.dir,
+          selfWorks,
+          getSelfState: () => selfState.snapshot(),
+          getGrowth: () => growth.snapshot(),
+          getActions: () => selfDrive.snapshot(),
+          getProject: () => selfProjects.snapshot().current,
+          graph: { getSnapshot: () => knowledgeGraph.snapshot(), readGraph, stateDir: settingsPath.dir },
         },
-      })
-      // W1：聊天服务与交互/写操作路由。
-      const chatService = createChatHttpService({
-        chatBridge,
-        knowledgeGraph,
-        relationship,
-        emotional,
-        dailyLife,
-        commitments,
+        chat: {
+          chatBridge,
+          knowledgeGraph,
+          relationship,
+          emotional,
+          dailyLife,
+          commitments,
+          memoryDir,
+          localVoice,
+          getLocalVoiceMode: () => localVoiceMode,
+        },
+        interactive: {
+          manualReading,
+          worldFeedback,
+          tokenFile: manualTokenFile,
+          attention,
+          outbox,
+          selfProjects,
+        },
+        chatTokenFile,
         memoryDir,
-        localVoice,
-        getLocalVoiceMode: () => localVoiceMode,
+        settingsFile: settingsPath.file,
+        logVersion: VERSION,
       })
-      disposers.push(webServer.register({ kind: 'exact', path: CHAT_ROUTE, handler: createChatHandler({ service: chatService, tokenFile: chatTokenFile }) }))
-      registerTwinRoutes({ webServer, disposers, twinEnabled, twinSystem, logger })
-      registerManualReadRoute({ webServer, disposers, manualReading, worldFeedback, tokenFile: manualTokenFile })
-      registerAttentionRoutes({ webServer, disposers, attention, outbox, selfProjects })
-      registerProjectRoutes({ webServer, disposers, selfProjects })
-      for (const route of routes) disposers.push(webServer.register(route))
-
-      serviceRuntime.register('HTTP 路由', {
-        dispose: () => {
-          disposeAll(disposers, logger)
-        },
-      })
-      // 所有服务/路由都已挂载：统一标记启动，并挂一个清理入口（v1.73）。
-      host.effect(hostCtx, 
-        () => {
-          serviceRuntime.startAll()
-          return () => {
-            serviceRuntime.disposeAll()
-          }
-        },
-        'dsh-little-whale: 后台服务',
-      )
-      logger?.info?.(
-        `[dsh-little-whale] 已挂载 ${routes.length + 5} 条路由（assets + pet-media + self + memory + model-errors + ${routes.length} 条 JSON，version ${VERSION}，` +
-          `dataVersion ${dataStore.getDataVersion() ?? '(数据未就绪)'}）`,
-      )
-      logger?.info?.(`[dsh-little-whale] 自主记忆日志目录：${memoryDir}`)
     } catch (error) {
       // 路由注册失败只影响本插件，不能让宿主 apply 抛未捕获异常。
       logger?.error?.(
