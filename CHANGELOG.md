@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **知识反哺机制（v3.10）**：①聊天检索从“直接匹配”升级为**扩散激活**——种子节点沿图谱关系 1–2 跳扩散、按关系/置信度/衰减加权，带 via 来源提示（`spreadActivation`/`formatSpreadingDigest`，knowledge extractor 暴露 `spread`）；②**夜间离线巩固**——`nightly-consolidation.mjs` 每晚 3 点窗口汇总当天学习、合并近似节点、校准单来源 high/多来源 low 判断、写 report+journal，health 暴露；对应论文清单见 `docs/research/feedback-loop-papers.md`。测试 516/516。
 - **WebGL 图谱 + 上限 2 万（v3.03）**：图表面板改用 **sigma.js WebGL** 渲染（graphology 图模型，d3-force 预布局；>6000 节点自动简化环形布局），滚轮缩放/拖动平移/点节点详情，渲染器懒加载（无 WebGL 环境不会拖累插件）；存储上限提到 **20000 节点 / 40000 关系 / 8000 判断**，graph.json 全量返回；测试环境仍 491/491。
 - **图谱扩容 + 可缩放（v3.02）**：上限 1200/2400/800 → **3000 节点 / 6000 关系 / 2000 判断**；面板图谱改 canvas + d3-force（Barnes-Hut，3000 节点可跑），引入 d3-zoom 支持滚轮缩放、拖动平移、缩放按钮/复位，缩放 ≥0.55 显示标签，点节点看详情；graph.json 返回全量；独立页 ?view=1 超 300 节点时采样，避免卡死。491/491。
 - **修停摆 + 换源 + 图谱扩容/校准 + 补广度（v3.01）**：①自主研究停摆——镜像/孪生系统在环境变量里被关掉，重新启用 `DSH_POETRY_TWIN=on`；②世界观停更——合成用 `growth`+1800 token 被 thinking 吃空、essay 版本字段丢失，改成 `consolidate` 低 effort + 5000/8000 token 重试 + 版本号从 history 回退 + 失败原始输出落盘；③溜达拉黑 donate/foundation/developer/meta 等维基治理站与 wikimedia 家族域名，标题过滤加“捐赠/基金会/开发者门户/元维基”；④图谱上限 400/900/240 → 1200/2400/800；⑤单来源 high 判断降为 medium，第二个来源再升 high；⑥自学 prompt 每周轮换一个空白板块（自然科学/世界地理/当代世界/艺术）。491/491。

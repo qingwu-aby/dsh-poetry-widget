@@ -99,6 +99,12 @@
 6. Wood & Rünger 2016 + Gollwitzer 1999（习惯与执行意图）；
 7. McAdams 2013（叙事身份）。
 
+## 已落地（v3.10）
+
+- ✅ 扩散激活检索：`lib/domain/knowledge/knowledge-graph.mjs#spreadActivation`，聊天 prompt 带 `spreadLines`（Generative Agents + Collins & Loftus）；
+- ✅ 夜间离线巩固：`lib/domain/knowledge/nightly-consolidation.mjs`（Kumaran/Rasch + Mem0/A-MEM 的 merge/evolve）；
+- ☐ 情绪评价器、习惯/执行意图：待做。
+
 ## 直接对应的四项改造（按清单落地顺序）
 
 1. **扩散激活检索**：睡觉前/聊天前从图谱 1–2 跳扩展，按 recency×importance×relevance 打分（Generative Agents + Collins & Loftus）；
