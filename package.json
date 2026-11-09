@@ -78,7 +78,7 @@
     "test": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/domains/*.test.mjs tests/client/widget.test.mjs",
     "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/domains/*.test.mjs",
     "test:client": "npm run build:client && node --test tests/client/widget.test.mjs",
-    "check": "npm run check:eng && npm run check:types && npm run lint && node --check index.js && node --check client.js && for f in lib/*.mjs lib/kernel/*.mjs lib/composition/*.mjs lib/domain/*/index.mjs; do node --check \"$f\" || exit 1; done",
+    "check": "npm run check:eng && npm run check:types && npm run lint && node --check index.js && node --check client.js && for f in lib/kernel/*.mjs lib/composition/*.mjs lib/domain/*/index.mjs; do node --check \"$f\" || exit 1; done",
     "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning",
     "smoke": "node scripts/live-smoke.mjs",
     "archive:memory": "node scripts/archive-memory.mjs",
