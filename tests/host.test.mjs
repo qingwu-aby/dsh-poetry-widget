@@ -6123,11 +6123,11 @@ test('self-growth：tick 的模型失败会推进 lastReflectAt（不在每个 t
   growth.tick(clock)
   assert.equal(growth.snapshot().lastReflectAt, clock)
   const callsAfterFirst = llm.calls.length
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await new Promise((resolve) => setTimeout(resolve, 80))
   // 下一个 tick（未到下一周期）不应再次调用模型
   clock += 10 * 1000
   growth.tick(clock)
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  await new Promise((resolve) => setTimeout(resolve, 80))
   assert.equal(llm.calls.length, callsAfterFirst, '失败也推迟到下一周期')
   growth.dispose()
 })

@@ -20,7 +20,6 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createAssetHandler } from './lib/assets.mjs'
 import { createDataStore } from './lib/data-store.mjs'
 import { createFeihuaFullService, resolveFeihuaFullDir } from './lib/feihua-full.mjs'
 import { readPackageMeta } from './lib/paths.mjs'
@@ -35,8 +34,7 @@ import {
   resolvePetMediaDir,
 } from './lib/pet-media.mjs'
 import { createRouteTable } from './lib/routes.mjs'
-import { SELF_STATE_ROUTE } from './lib/self-state.mjs'
-import { createSelfBeing, createSelfBeingHandler, resolveSelfBeingPath } from './lib/self-being.mjs'
+import { createSelfBeing, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
 import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
@@ -47,7 +45,7 @@ import { createSelfProjects, resolveProjectsPath } from './lib/self-projects.mjs
 import { createSelfEvents, resolveEventsPath } from './lib/self-events.mjs'
 import { createMetabolism, resolveMetabolismPath } from './lib/self-metabolism.mjs'
 import { createWorldFeedback } from './lib/world-feedback.mjs'
-import { PRESENCE_ROUTE, createPresenceHandler } from './lib/presence.mjs'
+import { PRESENCE_ROUTE } from './lib/presence.mjs'
 import { createLifecycle, resolveLifecyclePath } from './lib/self-lifecycle.mjs'
 import { createTwinSystem } from './lib/twin-system.mjs'
 import {
@@ -74,15 +72,15 @@ import { createEmotionalState } from './lib/emotional-continuity.mjs'
 import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
 import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
+import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { createCommitments } from './lib/commitments.mjs'
 import { describeImages, extractImagePaths, sanitizeUserText } from './lib/image-ocr.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
-import { graphViewHtml } from './lib/graph-view.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createGrowthMetrics } from './lib/growth-metrics.mjs'
-import { createSelfWorks, createWorksHandler, createWorksMediaHandler, resolveWorksDir } from './lib/self-works.mjs'
+import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
 import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
 import {
@@ -485,48 +483,6 @@ export async function apply(ctx) {
       })
       const emotional = createEmotionalState({ file: path.join(settingsPath.dir, 'emotional-state.json') })
       const commitments = createCommitments({ file: path.join(settingsPath.dir, 'commitments.json') })
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/graph.json',
-          handler: async (req, res) => {
-            try {
-              // 浏览器打开 ?view=1 时直接给可视化页（同一 path 避免额外路由的鉴权问题）。
-              if (/[?&]view=1/.test(String(req && req.url ? req.url : ''))) {
-                const html = graphViewHtml({ title: '小鲸鱼的认知图谱' })
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(html)) })
-                res.end(html)
-                return
-              }
-              const graph = readGraph(path.join(settingsPath.dir, 'knowledge-graph.json'))
-              const body = JSON.stringify({
-                ok: true,
-                ...knowledgeGraph.snapshot(),
-                nodes: graph.nodes,
-                edges: graph.edges,
-                claims: graph.claims,
-              })
-              res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(body)) })
-              res.end(body)
-            } catch (error) {
-              res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
-              res.end(String(error instanceof Error ? error.message : error))
-            }
-          },
-        }),
-      )
-      // v2.93：图谱可视化页（单文件 SVG，只读 graph.json）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/graph-view',
-          handler: async (req, res) => {
-            const html = graphViewHtml({ title: '小鲸鱼的认知图谱' })
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(html)) })
-            res.end(html)
-          },
-        }),
-      )
       // v2.75：世界观档案（她信什么/怎么定义概念/还没弄明白什么/成文的“世界怎么运作”）。
       const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
       const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
@@ -1325,38 +1281,6 @@ export async function apply(ctx) {
         home,
       })
 
-      // M0 静态资源路由：行为原样保留（不套信任栅栏；只读、无敏感信息）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: ASSETS_ROUTE,
-          handler: createAssetHandler({ assetsDir: ASSETS_DIR }),
-        }),
-      )
-      // dsh-pet 动画素材静态路由（只读、无用户数据；供 <video> 直接加载，与 assets 同类不套栅栏）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: PET_MEDIA_ROUTE,
-          handler: createPetMediaHandler({ dir: petMediaDir, logger }),
-        }),
-      )
-      // 记忆中枢只读快照（unfenced、no-store；路径脱敏、无用户内容）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: MEMORY_ROUTE,
-          handler: createMemorySnapshotHandler({ hub: memoryHub }),
-        }),
-      )
-      // 模型错误诊断只读路由（unfenced、no-store；只含元数据，无提示词/正文/用户内容）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: MODEL_ERRORS_ROUTE,
-          handler: createModelErrorsHandler({ file: modelErrorsPath }),
-        }),
-      )
       // 读文章（POST，本地 token；读后写入她自己的 journal）。
       disposers.push(
         webServer.register({
@@ -1377,14 +1301,6 @@ export async function apply(ctx) {
             },
             tokenFile: manualTokenFile,
           }),
-        }),
-      )
-      // 用户在场（他只说“我在”，不记录点击内容）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: PRESENCE_ROUTE,
-          handler: createPresenceHandler({ worldFeedback, logger }),
         }),
       )
       // v2.79：镜像停用——她不再需要另一个自己，直接去接触真实世界；DSH_POETRY_TWIN=on 可恢复。
@@ -1445,6 +1361,32 @@ export async function apply(ctx) {
         )
         logger?.info?.('[dsh-little-whale] 镜像已停用（DSH_POETRY_TWIN=on 可恢复）')
       }
+      // W1：只读/静态路由统一注册（assets/pet-media/memory/model-errors/presence/works/self/graph）。
+      registerReadonlyRoutes({
+        webServer,
+        disposers,
+        assetsRoute: ASSETS_ROUTE,
+        assetsDir: ASSETS_DIR,
+        petMediaRoute: PET_MEDIA_ROUTE,
+        petMediaDir,
+        memoryRoute: MEMORY_ROUTE,
+        memoryHub,
+        modelErrorsRoute: MODEL_ERRORS_ROUTE,
+        modelErrorsPath,
+        presenceRoute: PRESENCE_ROUTE,
+        worldFeedback,
+        logger,
+        selfWorks,
+        getSelfState: () => selfState.snapshot(),
+        getGrowth: () => growth.snapshot(),
+        getActions: () => selfDrive.snapshot(),
+        getProject: () => selfProjects.snapshot().current,
+        graph: {
+          getSnapshot: () => knowledgeGraph.snapshot(),
+          readGraph,
+          stateDir: settingsPath.dir,
+        },
+      })
       // QQ/外部聊天：POST + 本地 token；她的独立记忆回复。
       disposers.push(
         webServer.register({
@@ -1589,34 +1531,6 @@ export async function apply(ctx) {
               if (!projectId || typeof selfProjects.answerAttention !== 'function') return null
               return selfProjects.answerAttention(projectId, text)
             },
-          }),
-        }),
-      )
-      // 作品只读路由（unfenced、no-store；只读她自己生成的作品）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/works.json',
-          handler: createWorksHandler({ works: selfWorks }),
-        }),
-      )
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/works/media',
-          handler: createWorksMediaHandler({ works: selfWorks }),
-        }),
-      )
-      // 内在状态只读路由（unfenced、no-store；只读内部指标，不含用户数据）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: SELF_STATE_ROUTE,
-          handler: createSelfBeingHandler({
-            getSnapshot: () => selfState.snapshot(),
-            getGrowth: () => growth.snapshot(),
-            getActions: () => selfDrive.snapshot(),
-            getProject: () => selfProjects.snapshot().current,
           }),
         }),
       )
