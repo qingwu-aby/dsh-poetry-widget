@@ -3,7 +3,7 @@
 ## 分层
 
 ```
-index.js（插件入口：host.inject + 主流程，1343 行）
+index.js（插件入口：38 行，只做 bootstrap + host.inject）
 ├─ lib/composition/     组装层（新）
 │   ├─ base-services.mjs       基础服务（journal/projects/events/feedback/lifecycle）
 │   ├─ knowledge-services.mjs  知识/关系/情绪服务

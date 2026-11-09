@@ -19,7 +19,10 @@
 - [ ] `kernel/service.mjs` + 注册表：统一 start/stop/tick/snapshot
 - [ ] 收紧 check-size 为 `--strict`
 
-## W2（进行中）
+## W2 ✅（2026-11-09，index.js 1725 → 38 行）
+- [x] 组合根拆分：`composition/bootstrap.mjs`、`runtime-setup.mjs`、`domain-services.mjs`、`plugin-runtime.mjs`、`http-wiring.mjs`、`chat-runtime.mjs`、`health.mjs`、`lifecycle.mjs` 等
+- [x] 全部 13 个域内迁 `lib/domain/`（旧路径 shim 兼容）
+- [x] 体量门禁收紧：index.js ≤ 300 行通过；单模块上限 1100（4 个历史大模块待拆到 800）
 - [x] 13 个域 facade（`lib/domain/*/index.mjs`）
 - [x] 域内迁第一批：**memory**（8 模块）、**emotion**（4）、**relationship**（3）、**knowledge**（3）——旧路径保留 re-export shim，502/502
 - [x] 域内迁第二批：learning（10）/ chat（7）/ works（5）/ being（9）/ voice（4）/ twin（3）/ life（4）/ host（7）/ integration（5）——**全部 13 个域完成内迁**，旧路径保留 shim，502/502
@@ -37,13 +40,17 @@
 - [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 
-## W3/W4（backlog）
-- [ ] 客户端 store/hook 层与 tab 注册表；HTTP JSON 契约测试
+## W3/W4（backlog，未开始）
+- [ ] 测试拆分：host.test.mjs（12k 行）→ tests/domains/
+- [ ] 客户端 store/hook 层与 tab 注册表（client.js ~5.6k 行）
+- [ ] HTTP JSON 契约测试
 - [ ] JSDoc/@ts-check + tsc --noEmit；coverage 门槛；PLAN.md 归档与 README 精简
-- [ ] 收紧 check-size --strict（依赖 index.js 服务组装完成）
+- [ ] 4 个历史大模块拆到 <800 行
 
-## 已知债务
-1. index.js 仍有 ~1343 行、约 30 个服务在入口创建，互相引用顺序敏感；
-2. 域 facade 目前只是 re-export，内部文件仍在 `lib/` 平铺；
-3. host.test.mjs 仍 12k 行未拆；
-4. 客户端 client.js 仍 ~5.6k 行；无 TS/覆盖率门槛。
+## 已知债务（W2 完成后）
+1. index.js 38 行 ✅（组合根在 composition/）
+2. 13 个域已内迁 ✅（旧路径保留 shim，后续可删）
+3. host.test.mjs 仍 12k 行未拆（W3）
+4. 客户端 client.js 仍 ~5.6k 行（W3）
+5. 4 个历史大模块 >800 行：self-talk(996)/mood-ai(1050)/self-drive(983)/self-growth(847)
+6. 无 TS/覆盖率门槛（W4）
