@@ -2507,8 +2507,8 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   assert.match(withRepeat, /你最近几轮学的是：雾不拖慢声音、极光声不在天上、水里的声音快四倍。/)
   assert.match(withRepeat, /换一个完全不同的方向/)
   // v1.54：历史建议（软性，不强制）与深挖提醒
-  assert.match(withRepeat, /最近可以多往历史看看/)
-  assert.match(withRepeat, /中国史、世界史都行/)
+  assert.match(withRepeat, /最近优先读哲学与方法，优先级高于历史/)
+  assert.match(withRepeat, /康德、黑格尔、马克思、罗素、海德格尔/)
   assert.match(withRepeat, /只是建议、不是任务/)
   assert.match(withRepeat, /不要换问法重复/)
   const withTheme = buildLearnPrompt({
@@ -2536,7 +2536,7 @@ test('self-growth v1.52：学什么由她自己决定（最近想法/已知小�
   assert.equal(buildReflectPrompt({ now: FIXED_NOW.getTime(), state }).includes('你最近的自省'), false)
 })
 
-test('self-growth v1.54：历史话题作为软参考进入自学 prompt（不强制）', async () => {
+test('self-growth v1.54：哲学优先，历史话题作为背景参考进入自学 prompt（不强制）', async () => {
   const llm = makeGrowthLlm([
     JSON.stringify({
       question: '郡县制为什么能取代分封？',
@@ -2554,8 +2554,9 @@ test('self-growth v1.54：历史话题作为软参考进入自学 prompt（不�
   const learned = await growth.learnNow()
   assert.equal(learned.ok, true)
   const prompt = llm.calls[0].messages[0].content[0].text
-  assert.match(prompt, /最近可以多往历史看看/)
-  assert.match(prompt, /郡县制与分封制/, '历史话题作为参考')
+  assert.match(prompt, /最近优先读哲学与方法，优先级高于历史/)
+  assert.match(prompt, /历史是背景/)
+  assert.match(prompt, /郡县制与分封制/, '历史话题作为背景参考')
   growth.dispose()
 })
 

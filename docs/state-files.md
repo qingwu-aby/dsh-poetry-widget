@@ -28,6 +28,12 @@
 | relationship.json | relationship-memory | v/entries | 关系记忆 |
 | emotional-state.json | emotional-continuity | v/threads | 情绪线程 |
 | commitments.json | commitments | v/entries | 承诺账本 |
+| habits.json | habit-memory | v | 情境→动作→结果的习惯记忆（v3.11） |
+| methods.json | method-memory | v | 方法论账本（读哲学抽出的分析方法，v3.12） |
+| philosophy-state.json | self-philosophy | v | 哲学阅读进度/书目缓存（v3.12） |
+| appraisal-state.json | appraisal | v | 情绪评价游标（v3.11） |
+| nightly-consolidation.json | nightly-consolidation | v | 夜间巩固报告（学习汇总/合并/冲突，v3.10） |
+| nightly-consolidation-state.json | nightly-consolidation | v | 夜间巩固当天已跑标记（v3.10） |
 | daily-life.jsonl | daily-life | — | 日常素材（追加写） |
 | chat-history.json | chat-bridge | — | 对话历史（按 peerId） |
 | chat-token.json | chat-media | — | 聊天令牌 |
