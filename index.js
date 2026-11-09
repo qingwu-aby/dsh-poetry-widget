@@ -4,7 +4,7 @@
 // 具体装配见 lib/composition/；分层与依赖规则见 docs/architecture.md。
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readPackageMeta } from './lib/paths.mjs'
+import { readPackageMeta } from './lib/kernel/paths.mjs'
 import { createBootstrap } from './lib/composition/bootstrap.mjs'
 import { startPluginRuntime } from './lib/composition/plugin-runtime.mjs'
 

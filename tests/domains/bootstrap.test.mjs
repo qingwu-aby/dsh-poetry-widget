@@ -14,24 +14,24 @@ import { Writable } from 'node:stream'
 import test from 'node:test'
 
 import { name as pluginName, apply as pluginApply } from '../../index.js'
-import { createAssetHandler, resolveAssetPath } from '../../lib/legacy/assets.mjs'
-import { createDataStore, pickPoemIndex } from '../../lib/legacy/data-store.mjs'
-import { formatLocalDate, maskPath, readPackageMeta } from '../../lib/paths.mjs'
-import { createRouteTable } from '../../lib/legacy/routes.mjs'
+import { createAssetHandler, resolveAssetPath } from '../../lib/domain/integration/assets.mjs'
+import { createDataStore, pickPoemIndex } from '../../lib/domain/memory/data-store.mjs'
+import { formatLocalDate, maskPath, readPackageMeta } from '../../lib/kernel/paths.mjs'
+import { createRouteTable } from '../../lib/domain/integration/routes.mjs'
 import {
   DEFAULT_SETTINGS,
   createSettingsStore,
   normalizeSettings,
   resolveSettingsPath,
   validateSettingsPatch,
-} from '../../lib/settings-store.mjs'
-import { createTrustFence, isLoopbackHostname } from '../../lib/legacy/trust.mjs'
+} from '../../lib/kernel/settings-store.mjs'
+import { createTrustFence, isLoopbackHostname } from '../../lib/domain/integration/trust.mjs'
 import {
   DEFAULT_CITY as WEATHER_DEFAULT_CITY,
   createWeatherService,
   mapWeather,
   normalizeCity,
-} from '../../lib/legacy/weather.mjs'
+} from '../../lib/domain/life/weather.mjs'
 import {
   MAX_ACTIVE_GAP_MS,
   MOOD_ACTIVITY_IDLE_MS,
@@ -47,14 +47,14 @@ import {
   localDateKey,
   toMoodResponse,
   zeroMoodResponse,
-} from '../../lib/legacy/mood.mjs'
+} from '../../lib/domain/emotion/mood.mjs'
 import {
   EXPERIENCE_EMOTION_LABELS,
   EXPERIENCE_KIND_LABELS,
   EXPERIENCE_MAX_AGE_MS,
   readExperience,
   resolveExperiencePath,
-} from '../../lib/legacy/experience.mjs'
+} from '../../lib/domain/learning/experience.mjs'
 import {
   PET_MEDIA_ROUTE,
   createPetMediaHandler,
@@ -62,19 +62,19 @@ import {
   loadPetMediaCatalog,
   mergePetMediaIntoMoodCatalog,
   resolvePetMediaDir,
-} from '../../lib/legacy/pet-media.mjs'
+} from '../../lib/domain/works/pet-media.mjs'
 import {
   createFeihuaFullService,
   isValidFeihuaChar,
   resolveFeihuaFullDir,
-} from '../../lib/feihua-full.mjs'
+} from '../../lib/domain/works/feihua-full.mjs'
 import {
   JOURNAL_MURMUR_MIN_INTERVAL_MS,
   MEMORY_JOURNAL_HEADER,
   createMemoryJournal,
   formatJournalTime,
   resolveMemoryDir,
-} from '../../lib/legacy/memory-journal.mjs'
+} from '../../lib/domain/memory/memory-journal.mjs'
 import {
   MOOD_AI_CACHE_TTL_MS,
   MOOD_AI_EMOTION_VOCAB,
@@ -93,11 +93,11 @@ import {
   resolveFestivalAvailability,
   resolveMoodCandidates,
   shuffleCopy,
-} from '../../lib/legacy/mood-ai.mjs'
+} from '../../lib/domain/emotion/mood-ai.mjs'
 import {
   MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_DSH_OPENCODE_PROVIDER,
-} from '../../lib/legacy/model-policy.mjs'
+} from '../../lib/kernel/model-policy.mjs'
 import {
   MODEL_ERRORS_MAX_LINES,
   MODEL_ERRORS_MESSAGE_MAX,
@@ -107,7 +107,7 @@ import {
   createModelErrorsHandler,
   readModelErrors,
   resolveModelErrorsPath,
-} from '../../lib/legacy/model-errors.mjs'
+} from '../../lib/kernel/model-errors.mjs'
 import {
   MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_OPENCODE_PROVIDER,
@@ -121,7 +121,7 @@ import {
   describeModelPolicy,
   normalizeEffort,
   resolveCandidateMaxTokens,
-} from '../../lib/legacy/model-policy.mjs'
+} from '../../lib/kernel/model-policy.mjs'
 import {
   VOICE_EXEMPLAR_MAX_CHARS,
   VOICE_REFRESH_INTERVAL_MS,
@@ -132,7 +132,7 @@ import {
   normalizeVoiceFile,
   parseVoiceResult,
   resolveVoicePath,
-} from '../../lib/legacy/voice-memory.mjs'
+} from '../../lib/domain/voice/voice-memory.mjs'
 import {
   MEMORY_RECALL_JOURNAL_LINES,
   bigramJaccard,
@@ -144,7 +144,7 @@ import {
   readLearningSections,
   readRecentJournalEntries,
   resolveMemoryRecallPaths,
-} from '../../lib/legacy/memory-recall.mjs'
+} from '../../lib/domain/memory/memory-recall.mjs'
 import {
   MEMORY_BACKUP_INTERVAL_MS,
   MEMORY_BACKUP_MAX,
@@ -154,13 +154,13 @@ import {
   createMemoryHub,
   createMemorySnapshotHandler,
   resolveMemoryHubPaths,
-} from '../../lib/legacy/memory-hub.mjs'
+} from '../../lib/domain/memory/memory-hub.mjs'
 import {
   SELF_DRIVE_ACTIONS,
   buildSelfDrivePrompt,
   createSelfDrive,
   parseSelfDriveResult,
-} from '../../lib/legacy/self-drive.mjs'
+} from '../../lib/domain/being/self-drive.mjs'
 import {
   SELF_BEING_VERSION,
   applyBeingEvent,
@@ -171,7 +171,7 @@ import {
   formatBeingLine,
   normalizeSelfBeing,
   resolveSelfBeingPath,
-} from '../../lib/legacy/self-being.mjs'
+} from '../../lib/domain/being/self-being.mjs'
 import {
   FEELING_DESC_MAX,
   FEELING_NAME_MAX,
@@ -181,7 +181,7 @@ import {
   parseNewFeeling,
   readFeelingFile,
   resolveFeelingsPath,
-} from '../../lib/legacy/feelings.mjs'
+} from '../../lib/domain/emotion/feelings.mjs'
 import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
@@ -197,7 +197,7 @@ import {
   parseProbeProposal,
   parseProbeVerdict,
   parseReflectResult,
-} from '../../lib/legacy/self-growth.mjs'
+} from '../../lib/domain/learning/self-growth.mjs'
 import {
   SELF_WANDER_ALLOWED_HOSTS,
   SELF_WANDER_ALLOWED_SUFFIXES,
@@ -208,7 +208,7 @@ import {
   isJunkWanderPage,
   parseWanderResult,
   wanderRandomUrl,
-} from '../../lib/legacy/self-wander.mjs'
+} from '../../lib/domain/learning/self-wander.mjs'
 import {
   SELF_READING_GAP_MS,
   SELF_READING_RANDOM_API,
@@ -223,33 +223,33 @@ import {
   parseReadingResult,
   pickReadingExcerpt,
   readingApiUrl,
-} from '../../lib/legacy/self-reading.mjs'
-import { runMemoryMigrations } from '../../lib/legacy/memory-migrations.mjs'
-import { createDshHost } from '../../lib/legacy/dsh-host.mjs'
-import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../../lib/legacy/self-projects.mjs'
-import { createGuiInbox, pushGuiInbox, readGuiInbox, GUI_INBOX_MAX } from '../../lib/legacy/gui-inbox.mjs'
-import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../../lib/video-courses.mjs'
-import { createSelfEvents } from '../../lib/legacy/self-events.mjs'
-import { createMetabolism } from '../../lib/self-metabolism.mjs'
-import { createWorldFeedback } from '../../lib/legacy/world-feedback.mjs'
-import { PRESENCE_ROUTE, createPresenceHandler } from '../../lib/legacy/presence.mjs'
-import { createChatBridge } from '../../lib/legacy/chat-bridge.mjs'
-import { createCurriculum } from '../../lib/legacy/self-curriculum.mjs'
-import { createMediaBudget } from '../../lib/legacy/media-budget.mjs'
-import { createAttentionStore } from '../../lib/legacy/attention.mjs'
-import { createOutbox } from '../../lib/legacy/outbox.mjs'
-import { constitutionLines, PROMPT_LAYERS_VERSION } from '../../lib/legacy/prompt-layers.mjs'
-import { fetchShugeEntry, searchShuge } from '../../lib/shuge.mjs'
-import { createLifecycle } from '../../lib/legacy/self-lifecycle.mjs'
-import { createTwinBridge } from '../../lib/legacy/twin-bridge.mjs'
-import { createTwinResearch } from '../../lib/legacy/twin-research.mjs'
-import { createGrowthMetrics } from '../../lib/growth-metrics.mjs'
-import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../../lib/legacy/self-works.mjs'
-import { createManualReadHandler, createManualReading, ensureManualToken } from '../../lib/manual-reading.mjs'
-import { seedMemoryBaseline } from '../../lib/legacy/memory-baseline.mjs'
-import { createHeartbeat } from '../../lib/legacy/heartbeat.mjs'
-import { createModelBudget, createModelGate } from '../../lib/legacy/model-budget.mjs'
-import { createDeepSeekWeb } from '../../lib/deepseek-web.mjs'
+} from '../../lib/domain/learning/self-reading.mjs'
+import { runMemoryMigrations } from '../../lib/domain/memory/memory-migrations.mjs'
+import { createDshHost } from '../../lib/domain/host/dsh-host.mjs'
+import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../../lib/domain/being/self-projects.mjs'
+import { createGuiInbox, pushGuiInbox, readGuiInbox, GUI_INBOX_MAX } from '../../lib/domain/chat/gui-inbox.mjs'
+import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../../lib/domain/learning/video-courses.mjs'
+import { createSelfEvents } from '../../lib/domain/being/self-events.mjs'
+import { createMetabolism } from '../../lib/domain/being/self-metabolism.mjs'
+import { createWorldFeedback } from '../../lib/domain/learning/world-feedback.mjs'
+import { PRESENCE_ROUTE, createPresenceHandler } from '../../lib/domain/being/presence.mjs'
+import { createChatBridge } from '../../lib/domain/chat/chat-bridge.mjs'
+import { createCurriculum } from '../../lib/domain/learning/self-curriculum.mjs'
+import { createMediaBudget } from '../../lib/domain/works/media-budget.mjs'
+import { createAttentionStore } from '../../lib/domain/relationship/attention.mjs'
+import { createOutbox } from '../../lib/domain/chat/outbox.mjs'
+import { constitutionLines, PROMPT_LAYERS_VERSION } from '../../lib/domain/voice/prompt-layers.mjs'
+import { fetchShugeEntry, searchShuge } from '../../lib/domain/learning/shuge.mjs'
+import { createLifecycle } from '../../lib/domain/being/self-lifecycle.mjs'
+import { createTwinBridge } from '../../lib/domain/twin/twin-bridge.mjs'
+import { createTwinResearch } from '../../lib/domain/twin/twin-research.mjs'
+import { createGrowthMetrics } from '../../lib/domain/being/growth-metrics.mjs'
+import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../../lib/domain/works/self-works.mjs'
+import { createManualReadHandler, createManualReading, ensureManualToken } from '../../lib/domain/learning/manual-reading.mjs'
+import { seedMemoryBaseline } from '../../lib/domain/memory/memory-baseline.mjs'
+import { createHeartbeat } from '../../lib/domain/host/heartbeat.mjs'
+import { createModelBudget, createModelGate } from '../../lib/domain/host/model-budget.mjs'
+import { createDeepSeekWeb } from '../../lib/domain/integration/deepseek-web.mjs'
 import {
   createWebAccess,
   extractHtmlTitle,
@@ -263,8 +263,8 @@ import {
   parseWikipediaSearchPayload,
   resolvePublicAddress,
   validatePublicUrl,
-} from '../../lib/legacy/safe-web.mjs'
-import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../../lib/legacy/llm-call.mjs'
+} from '../../lib/domain/integration/safe-web.mjs'
+import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../../lib/kernel/llm-call.mjs'
 import {
   buildConsolidationPrompt,
   countJournalEntries,
@@ -273,7 +273,7 @@ import {
   parseConsolidationResult,
   readMemoryLayers,
   resolveMemoryLayersPath,
-} from '../../lib/legacy/memory-layers.mjs'
+} from '../../lib/domain/memory/memory-layers.mjs'
 import {
   SELF_NETLANG_GAP_MS,
   SELF_NETLANG_SOURCES,
@@ -283,7 +283,7 @@ import {
   parseGithubTrendingHtml,
   parseNetlangPayload,
   parseNetlangResult,
-} from '../../lib/legacy/self-netlang.mjs'
+} from '../../lib/domain/learning/self-netlang.mjs'
 import {
   SELF_ACTION_LABELS,
   SELF_ACTION_TEXTS,
@@ -294,7 +294,7 @@ import {
   normalizeSelfAction,
   normalizeSelfActionsFile,
   resolveSelfActionsPath,
-} from '../../lib/legacy/self-actions.mjs'
+} from '../../lib/domain/being/self-actions.mjs'
 import {
   SELF_STATE_DEFAULTS,
   SELF_STATE_MAX_TICK_MINUTES,
@@ -309,7 +309,7 @@ import {
   formatSelfStateLine,
   normalizeSelfState,
   resolveSelfStatePath,
-} from '../../lib/legacy/self-state.mjs'
+} from '../../lib/domain/being/self-state.mjs'
 import {
   LEARNED_TOPIC_RECENCY_BONUS,
   SELF_TALK_TOPIC_RECENT_MAX,
@@ -325,7 +325,7 @@ import {
   scoreSelfTalkTopic,
   searchArchivedTopics,
   topicRecencyWeight,
-} from '../../lib/legacy/self-talk-topics.mjs'
+} from '../../lib/domain/learning/self-talk-topics.mjs'
 import {
   SELF_TALK_RECENT_MAX,
   SELF_TALK_TIMEOUT_MS,
@@ -339,7 +339,7 @@ import {
   parseRecentQuery,
   parseSelfTalkLines,
   pickSelfTalkTheme,
-} from '../../lib/self-talk.mjs'
+} from '../../lib/domain/chat/self-talk.mjs'
 
 // ---------------------------------------------------------------------------
 // 测试基础设施

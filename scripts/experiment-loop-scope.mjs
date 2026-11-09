@@ -11,10 +11,10 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createSelfDrive } from '../lib/legacy/self-drive.mjs'
-import { createSelfEvents } from '../lib/legacy/self-events.mjs'
-import { createSelfTalkService } from '../lib/self-talk.mjs'
-import { createSelfWorks } from '../lib/legacy/self-works.mjs'
+import { createSelfDrive } from '../lib/domain/being/self-drive.mjs'
+import { createSelfEvents } from '../lib/domain/being/self-events.mjs'
+import { createSelfTalkService } from '../lib/domain/chat/self-talk.mjs'
+import { createSelfWorks } from '../lib/domain/works/self-works.mjs'
 
 function makeMockLlm(responder) {
   const calls = []

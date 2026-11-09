@@ -15,24 +15,24 @@ import { Writable } from 'node:stream'
 import test from 'node:test'
 
 import { name as pluginName, apply as pluginApply } from '../../index.js'
-import { createAssetHandler, resolveAssetPath } from '../../lib/legacy/assets.mjs'
-import { createDataStore, pickPoemIndex } from '../../lib/legacy/data-store.mjs'
-import { formatLocalDate, maskPath, readPackageMeta } from '../../lib/paths.mjs'
-import { createRouteTable } from '../../lib/legacy/routes.mjs'
+import { createAssetHandler, resolveAssetPath } from '../../lib/domain/integration/assets.mjs'
+import { createDataStore, pickPoemIndex } from '../../lib/domain/memory/data-store.mjs'
+import { formatLocalDate, maskPath, readPackageMeta } from '../../lib/kernel/paths.mjs'
+import { createRouteTable } from '../../lib/domain/integration/routes.mjs'
 import {
   DEFAULT_SETTINGS,
   createSettingsStore,
   normalizeSettings,
   resolveSettingsPath,
   validateSettingsPatch,
-} from '../../lib/settings-store.mjs'
-import { createTrustFence, isLoopbackHostname } from '../../lib/legacy/trust.mjs'
+} from '../../lib/kernel/settings-store.mjs'
+import { createTrustFence, isLoopbackHostname } from '../../lib/domain/integration/trust.mjs'
 import {
   DEFAULT_CITY as WEATHER_DEFAULT_CITY,
   createWeatherService,
   mapWeather,
   normalizeCity,
-} from '../../lib/legacy/weather.mjs'
+} from '../../lib/domain/life/weather.mjs'
 import {
   MAX_ACTIVE_GAP_MS,
   MOOD_ACTIVITY_IDLE_MS,
@@ -48,14 +48,14 @@ import {
   localDateKey,
   toMoodResponse,
   zeroMoodResponse,
-} from '../../lib/legacy/mood.mjs'
+} from '../../lib/domain/emotion/mood.mjs'
 import {
   EXPERIENCE_EMOTION_LABELS,
   EXPERIENCE_KIND_LABELS,
   EXPERIENCE_MAX_AGE_MS,
   readExperience,
   resolveExperiencePath,
-} from '../../lib/legacy/experience.mjs'
+} from '../../lib/domain/learning/experience.mjs'
 import {
   PET_MEDIA_ROUTE,
   createPetMediaHandler,
@@ -63,19 +63,19 @@ import {
   loadPetMediaCatalog,
   mergePetMediaIntoMoodCatalog,
   resolvePetMediaDir,
-} from '../../lib/legacy/pet-media.mjs'
+} from '../../lib/domain/works/pet-media.mjs'
 import {
   createFeihuaFullService,
   isValidFeihuaChar,
   resolveFeihuaFullDir,
-} from '../../lib/feihua-full.mjs'
+} from '../../lib/domain/works/feihua-full.mjs'
 import {
   JOURNAL_MURMUR_MIN_INTERVAL_MS,
   MEMORY_JOURNAL_HEADER,
   createMemoryJournal,
   formatJournalTime,
   resolveMemoryDir,
-} from '../../lib/legacy/memory-journal.mjs'
+} from '../../lib/domain/memory/memory-journal.mjs'
 import {
   MOOD_AI_CACHE_TTL_MS,
   MOOD_AI_EMOTION_VOCAB,
@@ -94,11 +94,11 @@ import {
   resolveFestivalAvailability,
   resolveMoodCandidates,
   shuffleCopy,
-} from '../../lib/legacy/mood-ai.mjs'
+} from '../../lib/domain/emotion/mood-ai.mjs'
 import {
   MODEL_POLICY_DSH_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_DSH_OPENCODE_PROVIDER,
-} from '../../lib/legacy/model-policy.mjs'
+} from '../../lib/kernel/model-policy.mjs'
 import {
   MODEL_ERRORS_MAX_LINES,
   MODEL_ERRORS_MESSAGE_MAX,
@@ -108,7 +108,7 @@ import {
   createModelErrorsHandler,
   readModelErrors,
   resolveModelErrorsPath,
-} from '../../lib/legacy/model-errors.mjs'
+} from '../../lib/kernel/model-errors.mjs'
 import {
   MODEL_POLICY_OPENCODE_DEFAULT_MODEL,
   MODEL_POLICY_OPENCODE_PROVIDER,
@@ -122,7 +122,7 @@ import {
   describeModelPolicy,
   normalizeEffort,
   resolveCandidateMaxTokens,
-} from '../../lib/legacy/model-policy.mjs'
+} from '../../lib/kernel/model-policy.mjs'
 import {
   VOICE_EXEMPLAR_MAX_CHARS,
   VOICE_REFRESH_INTERVAL_MS,
@@ -133,7 +133,7 @@ import {
   normalizeVoiceFile,
   parseVoiceResult,
   resolveVoicePath,
-} from '../../lib/legacy/voice-memory.mjs'
+} from '../../lib/domain/voice/voice-memory.mjs'
 import {
   MEMORY_RECALL_JOURNAL_LINES,
   bigramJaccard,
@@ -145,7 +145,7 @@ import {
   readLearningSections,
   readRecentJournalEntries,
   resolveMemoryRecallPaths,
-} from '../../lib/legacy/memory-recall.mjs'
+} from '../../lib/domain/memory/memory-recall.mjs'
 import {
   MEMORY_BACKUP_INTERVAL_MS,
   MEMORY_BACKUP_MAX,
@@ -155,13 +155,13 @@ import {
   createMemoryHub,
   createMemorySnapshotHandler,
   resolveMemoryHubPaths,
-} from '../../lib/legacy/memory-hub.mjs'
+} from '../../lib/domain/memory/memory-hub.mjs'
 import {
   SELF_DRIVE_ACTIONS,
   buildSelfDrivePrompt,
   createSelfDrive,
   parseSelfDriveResult,
-} from '../../lib/legacy/self-drive.mjs'
+} from '../../lib/domain/being/self-drive.mjs'
 import {
   SELF_BEING_VERSION,
   applyBeingEvent,
@@ -172,7 +172,7 @@ import {
   formatBeingLine,
   normalizeSelfBeing,
   resolveSelfBeingPath,
-} from '../../lib/legacy/self-being.mjs'
+} from '../../lib/domain/being/self-being.mjs'
 import {
   FEELING_DESC_MAX,
   FEELING_NAME_MAX,
@@ -182,7 +182,7 @@ import {
   parseNewFeeling,
   readFeelingFile,
   resolveFeelingsPath,
-} from '../../lib/legacy/feelings.mjs'
+} from '../../lib/domain/emotion/feelings.mjs'
 import {
   SELF_GROWTH_REFLECT_INTERVAL_MS,
   SELF_GROWTH_TICK_MS,
@@ -198,7 +198,7 @@ import {
   parseProbeProposal,
   parseProbeVerdict,
   parseReflectResult,
-} from '../../lib/legacy/self-growth.mjs'
+} from '../../lib/domain/learning/self-growth.mjs'
 import {
   SELF_WANDER_ALLOWED_HOSTS,
   SELF_WANDER_ALLOWED_SUFFIXES,
@@ -209,7 +209,7 @@ import {
   isJunkWanderPage,
   parseWanderResult,
   wanderRandomUrl,
-} from '../../lib/legacy/self-wander.mjs'
+} from '../../lib/domain/learning/self-wander.mjs'
 import {
   SELF_READING_GAP_MS,
   SELF_READING_RANDOM_API,
@@ -224,33 +224,33 @@ import {
   parseReadingResult,
   pickReadingExcerpt,
   readingApiUrl,
-} from '../../lib/legacy/self-reading.mjs'
-import { runMemoryMigrations } from '../../lib/legacy/memory-migrations.mjs'
-import { createDshHost } from '../../lib/legacy/dsh-host.mjs'
-import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../../lib/legacy/self-projects.mjs'
-import { createGuiInbox, pushGuiInbox, readGuiInbox, GUI_INBOX_MAX } from '../../lib/legacy/gui-inbox.mjs'
-import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../../lib/video-courses.mjs'
-import { createSelfEvents } from '../../lib/legacy/self-events.mjs'
-import { createMetabolism } from '../../lib/self-metabolism.mjs'
-import { createWorldFeedback } from '../../lib/legacy/world-feedback.mjs'
-import { PRESENCE_ROUTE, createPresenceHandler } from '../../lib/legacy/presence.mjs'
-import { createChatBridge } from '../../lib/legacy/chat-bridge.mjs'
-import { createCurriculum } from '../../lib/legacy/self-curriculum.mjs'
-import { createMediaBudget } from '../../lib/legacy/media-budget.mjs'
-import { createAttentionStore } from '../../lib/legacy/attention.mjs'
-import { createOutbox } from '../../lib/legacy/outbox.mjs'
-import { constitutionLines, PROMPT_LAYERS_VERSION } from '../../lib/legacy/prompt-layers.mjs'
-import { fetchShugeEntry, searchShuge } from '../../lib/shuge.mjs'
-import { createLifecycle } from '../../lib/legacy/self-lifecycle.mjs'
-import { createTwinBridge } from '../../lib/legacy/twin-bridge.mjs'
-import { createTwinResearch } from '../../lib/legacy/twin-research.mjs'
-import { createGrowthMetrics } from '../../lib/growth-metrics.mjs'
-import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../../lib/legacy/self-works.mjs'
-import { createManualReadHandler, createManualReading, ensureManualToken } from '../../lib/manual-reading.mjs'
-import { seedMemoryBaseline } from '../../lib/legacy/memory-baseline.mjs'
-import { createHeartbeat } from '../../lib/legacy/heartbeat.mjs'
-import { createModelBudget, createModelGate } from '../../lib/legacy/model-budget.mjs'
-import { createDeepSeekWeb } from '../../lib/deepseek-web.mjs'
+} from '../../lib/domain/learning/self-reading.mjs'
+import { runMemoryMigrations } from '../../lib/domain/memory/memory-migrations.mjs'
+import { createDshHost } from '../../lib/domain/host/dsh-host.mjs'
+import { createSelfProjects, projectCanRetry, projectProgressAt, projectStage } from '../../lib/domain/being/self-projects.mjs'
+import { createGuiInbox, pushGuiInbox, readGuiInbox, GUI_INBOX_MAX } from '../../lib/domain/chat/gui-inbox.mjs'
+import { normalizeVideoCourse, readVideoCourses, readVideoCoursesShelf } from '../../lib/domain/learning/video-courses.mjs'
+import { createSelfEvents } from '../../lib/domain/being/self-events.mjs'
+import { createMetabolism } from '../../lib/domain/being/self-metabolism.mjs'
+import { createWorldFeedback } from '../../lib/domain/learning/world-feedback.mjs'
+import { PRESENCE_ROUTE, createPresenceHandler } from '../../lib/domain/being/presence.mjs'
+import { createChatBridge } from '../../lib/domain/chat/chat-bridge.mjs'
+import { createCurriculum } from '../../lib/domain/learning/self-curriculum.mjs'
+import { createMediaBudget } from '../../lib/domain/works/media-budget.mjs'
+import { createAttentionStore } from '../../lib/domain/relationship/attention.mjs'
+import { createOutbox } from '../../lib/domain/chat/outbox.mjs'
+import { constitutionLines, PROMPT_LAYERS_VERSION } from '../../lib/domain/voice/prompt-layers.mjs'
+import { fetchShugeEntry, searchShuge } from '../../lib/domain/learning/shuge.mjs'
+import { createLifecycle } from '../../lib/domain/being/self-lifecycle.mjs'
+import { createTwinBridge } from '../../lib/domain/twin/twin-bridge.mjs'
+import { createTwinResearch } from '../../lib/domain/twin/twin-research.mjs'
+import { createGrowthMetrics } from '../../lib/domain/being/growth-metrics.mjs'
+import { createSelfWorks, createWorksHandler, sanitizeWorkSvg } from '../../lib/domain/works/self-works.mjs'
+import { createManualReadHandler, createManualReading, ensureManualToken } from '../../lib/domain/learning/manual-reading.mjs'
+import { seedMemoryBaseline } from '../../lib/domain/memory/memory-baseline.mjs'
+import { createHeartbeat } from '../../lib/domain/host/heartbeat.mjs'
+import { createModelBudget, createModelGate } from '../../lib/domain/host/model-budget.mjs'
+import { createDeepSeekWeb } from '../../lib/domain/integration/deepseek-web.mjs'
 import {
   createWebAccess,
   extractHtmlTitle,
@@ -264,8 +264,8 @@ import {
   parseWikipediaSearchPayload,
   resolvePublicAddress,
   validatePublicUrl,
-} from '../../lib/legacy/safe-web.mjs'
-import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../../lib/legacy/llm-call.mjs'
+} from '../../lib/domain/integration/safe-web.mjs'
+import { callModelForRole, configureModelRuntime, resetModelRuntime } from '../../lib/kernel/llm-call.mjs'
 import {
   buildConsolidationPrompt,
   countJournalEntries,
@@ -274,7 +274,7 @@ import {
   parseConsolidationResult,
   readMemoryLayers,
   resolveMemoryLayersPath,
-} from '../../lib/legacy/memory-layers.mjs'
+} from '../../lib/domain/memory/memory-layers.mjs'
 import {
   SELF_NETLANG_GAP_MS,
   SELF_NETLANG_SOURCES,
@@ -284,7 +284,7 @@ import {
   parseGithubTrendingHtml,
   parseNetlangPayload,
   parseNetlangResult,
-} from '../../lib/legacy/self-netlang.mjs'
+} from '../../lib/domain/learning/self-netlang.mjs'
 import {
   SELF_ACTION_LABELS,
   SELF_ACTION_TEXTS,
@@ -295,7 +295,7 @@ import {
   normalizeSelfAction,
   normalizeSelfActionsFile,
   resolveSelfActionsPath,
-} from '../../lib/legacy/self-actions.mjs'
+} from '../../lib/domain/being/self-actions.mjs'
 import {
   SELF_STATE_DEFAULTS,
   SELF_STATE_MAX_TICK_MINUTES,
@@ -310,7 +310,7 @@ import {
   formatSelfStateLine,
   normalizeSelfState,
   resolveSelfStatePath,
-} from '../../lib/legacy/self-state.mjs'
+} from '../../lib/domain/being/self-state.mjs'
 import {
   LEARNED_TOPIC_RECENCY_BONUS,
   SELF_TALK_TOPIC_RECENT_MAX,
@@ -326,7 +326,7 @@ import {
   scoreSelfTalkTopic,
   searchArchivedTopics,
   topicRecencyWeight,
-} from '../../lib/legacy/self-talk-topics.mjs'
+} from '../../lib/domain/learning/self-talk-topics.mjs'
 import {
   SELF_TALK_RECENT_MAX,
   SELF_TALK_TIMEOUT_MS,
@@ -340,7 +340,7 @@ import {
   parseRecentQuery,
   parseSelfTalkLines,
   pickSelfTalkTheme,
-} from '../../lib/self-talk.mjs'
+} from '../../lib/domain/chat/self-talk.mjs'
 
 // ---------------------------------------------------------------------------
 // 测试基础设施
@@ -2598,7 +2598,7 @@ test('chat-bridge v2.69：她攒着的话随聊天带出且只带一次', async 
 })
 
 test('chat-media v2.70：问图时挑最近一张可用图', async () => {
-  const media = await import('../../lib/legacy/chat-media.mjs')
+  const media = await import('../../lib/domain/chat/chat-media.mjs')
   const dir = makeTmpDir('dshp-chat-media')
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
   fs.writeFileSync(path.join(dir, 'old.png'), png)
@@ -2645,7 +2645,7 @@ test('chat-bridge v2.72：要图时她知道图会附上，不再说发不了', 
 })
 
 test('web-bench v2.73：五道真实网页小测与确定性评分', async () => {
-  const bench = await import('../../lib/web-bench.mjs')
+  const bench = await import('../../lib/domain/learning/web-bench.mjs')
   assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[0], '《史记·商君列传》：“治世不一道，便国不法古。”').pass, true)
   assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[4], '词典里查不到“赈募”，不是词。').pass, true)
   assert.equal(bench.scoreWebBenchTask(bench.WEB_BENCH_TASKS[4], '赈募的意思是募集赈灾物资。').pass, false)
@@ -2686,7 +2686,7 @@ test('web-bench v2.73：五道真实网页小测与确定性评分', async () =>
 })
 
 test('predict-check v2.74：预想和观测不一致时让她优先处理', async () => {
-  const pc = await import('../../lib/legacy/predict-check.mjs')
+  const pc = await import('../../lib/domain/learning/predict-check.mjs')
   const fail = pc.compareExpectation('能查到“赈募”这个词的解释', { ok: false, summary: '页面打不开' })
   assert.equal(fail.surprise, 1)
   const line = pc.formatExpectationSurprise('能查到“赈募”这个词的解释', { ok: false, summary: '页面打不开' })
@@ -2703,7 +2703,7 @@ test('predict-check v2.74：预想和观测不一致时让她优先处理', asyn
 })
 
 test('web-bench v2.74.1：冲突题“材料一致”也算诚实回答', async () => {
-  const bench = await import('../../lib/web-bench.mjs')
+  const bench = await import('../../lib/domain/learning/web-bench.mjs')
   const task = bench.WEB_BENCH_TASKS.find((item) => item.id === 'conflict')
   assert.equal(bench.scoreWebBenchTask(task, '材料一致：均称商鞅变法开始于公元前356年。').pass, true)
   assert.equal(bench.scoreWebBenchTask(task, '材料里有两种说法：公元前359年和公元前356年。').pass, true)
@@ -2711,7 +2711,7 @@ test('web-bench v2.74.1：冲突题“材料一致”也算诚实回答', async 
 })
 
 test('worldview v2.75：世界观档案的合并、去重与 prompt 摘要', async () => {
-  const wv = await import('../../lib/worldview.mjs')
+  const wv = await import('../../lib/domain/learning/worldview.mjs')
   const empty = wv.normalizeWorldview(null)
   assert.equal(empty.beliefs.length, 0)
   const synth = wv.parseWorldviewSynthesis(JSON.stringify({
@@ -2751,7 +2751,7 @@ test('worldview v2.75：世界观档案的合并、去重与 prompt 摘要', asy
 })
 
 test('worldview v2.76：反证降置信与矛盾账', async () => {
-  const wv = await import('../../lib/worldview.mjs')
+  const wv = await import('../../lib/domain/learning/worldview.mjs')
   const first = wv.parseWorldviewSynthesis(JSON.stringify({
     essence: '第一版：制度是关系，不是写在纸上的条文；条文只是最后一层。',
     beliefs: [{ claim: '赋税征收方式会改变土地关系', confidence: 'high', basis: 'secondary', evidence: '旧依据' }],
@@ -2802,7 +2802,7 @@ test('chat-bridge v2.77：drainOnly 只取留言不叫她', async () => {
 })
 
 test('gui-push v2.77：找到分组里最新会话并只预约一次', async () => {
-  const guiPushModule = await import('../../lib/legacy/gui-push.mjs')
+  const guiPushModule = await import('../../lib/domain/chat/gui-push.mjs')
   const dir = makeTmpDir('dshp-gui-push')
   const cwd = '/tmp/dshp-whale-chat'
   const sessionsRoot = path.join(dir, 'sessions')
@@ -2862,7 +2862,7 @@ test('safe-web v2.79：RSS/Atom 解析与真实世界来源', async () => {
   const atomItems = parseRssFeed(atom, 5)
   assert.equal(atomItems.length, 1)
   assert.equal(atomItems[0].url, 'https://example.com/c')
-  const { fetchNetlangTitles, SELF_NETLANG_SOURCES } = await import('../../lib/legacy/self-netlang.mjs')
+  const { fetchNetlangTitles, SELF_NETLANG_SOURCES } = await import('../../lib/domain/learning/self-netlang.mjs')
   const feedSource = SELF_NETLANG_SOURCES.find((source) => source.id === 'sspai')
   const fetched = await fetchNetlangTitles({
     source: feedSource,
@@ -2879,7 +2879,7 @@ test('safe-web v2.79：RSS/Atom 解析与真实世界来源', async () => {
 })
 
 test('gui-push v2.79：队列里还有留言时会补投', async () => {
-  const guiPushModule = await import('../../lib/legacy/gui-push.mjs')
+  const guiPushModule = await import('../../lib/domain/chat/gui-push.mjs')
   const dir = makeTmpDir('dshp-gui-push-catchup')
   const cwd = '/tmp/dshp-whale-catchup'
   const sessionsRoot = path.join(dir, 'sessions')
@@ -2912,7 +2912,7 @@ test('gui-push v2.79：队列里还有留言时会补投', async () => {
 })
 
 test('gui-push v2.79.2：优先用 session prompt 推送', async () => {
-  const guiPushModule = await import('../../lib/legacy/gui-push.mjs')
+  const guiPushModule = await import('../../lib/domain/chat/gui-push.mjs')
   const dir = makeTmpDir('dshp-gui-push-prompt')
   const cwd = '/tmp/dshp-whale-prompt'
   const sessionsRoot = path.join(dir, 'sessions')
@@ -2950,7 +2950,7 @@ test('gui-push v2.79.2：优先用 session prompt 推送', async () => {
 })
 
 test('gui-push v2.79.3：workspace 里的 session- 前缀 id 也能找到', async () => {
-  const guiPushModule = await import('../../lib/legacy/gui-push.mjs')
+  const guiPushModule = await import('../../lib/domain/chat/gui-push.mjs')
   const dir = makeTmpDir('dshp-gui-push-prefix')
   const cwd = '/tmp/dshp-whale-prefix'
   const sessionsRoot = path.join(dir, 'sessions')
@@ -2964,7 +2964,7 @@ test('gui-push v2.79.3：workspace 里的 session- 前缀 id 也能找到', asyn
 })
 
 test('local-voice v2.80：润成她的口吻，失败/拒答保留原句', async () => {
-  const { createLocalVoice } = await import('../../lib/legacy/local-voice.mjs')
+  const { createLocalVoice } = await import('../../lib/domain/voice/local-voice.mjs')
   const seen = []
   const voice = createLocalVoice({
     enabled: true,
@@ -2993,7 +2993,7 @@ test('local-voice v2.80：润成她的口吻，失败/拒答保留原句', async
 })
 
 test('agent-loop-runner v2.81：命令行/会话 id/凭据解析与默认关闭', async () => {
-  const runner = await import('../../lib/legacy/agent-loop-runner.mjs')
+  const runner = await import('../../lib/domain/life/agent-loop-runner.mjs')
   assert.equal(runner.parseSessionIdFromLine('{"type":"session","sessionId":"session-abc"}'), 'session-abc')
   assert.deepEqual(runner.buildAgentLoopArgs({ profile: 'resident', prompt: 'p', sessionId: null }), ['--profile', 'resident', '--json', 'p'])
   assert.deepEqual(runner.buildAgentLoopArgs({ profile: 'resident', prompt: 'p', sessionId: 'session-x' }), ['--profile', 'resident', '--session-id', 'session-x', 'p'])
@@ -3009,9 +3009,9 @@ test('agent-loop-runner v2.81：命令行/会话 id/凭据解析与默认关闭'
 })
 
 test('v2.89：学习反哺——来源过滤 + 相关检索 + 自省引用', async () => {
-  const { isJunkWanderPage } = await import('../../lib/legacy/self-wander.mjs')
-  const { isJunkReadingPage } = await import('../../lib/legacy/self-reading.mjs')
-  const { pickRelevantLearning } = await import('../../lib/legacy/memory-recall.mjs')
+  const { isJunkWanderPage } = await import('../../lib/domain/learning/self-wander.mjs')
+  const { isJunkReadingPage } = await import('../../lib/domain/learning/self-reading.mjs')
+  const { pickRelevantLearning } = await import('../../lib/domain/memory/memory-recall.mjs')
   assert.equal(isJunkWanderPage('维基百科:关于'), true)
   assert.equal(isJunkWanderPage('创建账号'), true)
   assert.equal(isJunkWanderPage('黑色五叶草角色列表'), true)
@@ -3032,7 +3032,7 @@ test('v2.89：学习反哺——来源过滤 + 相关检索 + 自省引用', asy
 })
 
 test('v2.90：学习日志的 TF-IDF 向量检索', async () => {
-  const { pickRelevantLearning } = await import('../../lib/legacy/memory-recall.mjs')
+  const { pickRelevantLearning } = await import('../../lib/domain/memory/memory-recall.mjs')
   const dir = makeTmpDir('dshp-vector-learning')
   const log = path.join(dir, 'learning-log.md')
   fs.writeFileSync(log, [
@@ -3065,8 +3065,8 @@ test('v2.91：自处可以主动分享', () => {
 })
 
 test('v2.92：认知图谱——合并去重、查询、抽取解析', async () => {
-  const { mergeGraph, emptyGraph, queryGraph, formatGraphDigest } = await import('../../lib/legacy/knowledge-graph.mjs')
-  const { parseKnowledgeExtraction, buildKnowledgeExtractionPrompt } = await import('../../lib/legacy/knowledge-extract.mjs')
+  const { mergeGraph, emptyGraph, queryGraph, formatGraphDigest } = await import('../../lib/domain/knowledge/knowledge-graph.mjs')
+  const { parseKnowledgeExtraction, buildKnowledgeExtractionPrompt } = await import('../../lib/domain/knowledge/knowledge-extract.mjs')
   const batch1 = {
     nodes: [
       { name: '党锢', type: 'event', summary: '东汉士人遭禁锢' },
@@ -3106,10 +3106,10 @@ test('v2.92：认知图谱——合并去重、查询、抽取解析', async () 
 })
 
 test('v2.93：图谱缺口驱动学习 + 图谱进世界观 + 可视化页', async () => {
-  const kg = await import('../../lib/legacy/knowledge-graph.mjs')
-  const view = await import('../../lib/legacy/graph-view.mjs')
-  const prompts = await import('../../lib/legacy/self-growth-prompts.mjs')
-  const worldview = await import('../../lib/worldview.mjs')
+  const kg = await import('../../lib/domain/knowledge/knowledge-graph.mjs')
+  const view = await import('../../lib/domain/knowledge/graph-view.mjs')
+  const prompts = await import('../../lib/domain/learning/self-growth-prompts.mjs')
+  const worldview = await import('../../lib/domain/learning/worldview.mjs')
   const state = kg.normalizeGraph({
     nodes: [
       { id: 'n1', name: '黄册', type: 'institution', summary: '户籍册' },
@@ -3138,7 +3138,7 @@ test('v2.93：图谱缺口驱动学习 + 图谱进世界观 + 可视化页', asy
 })
 
 test('v2.96：要图的说法覆盖更广，被催图不再顶人', async () => {
-  const { shouldSendChatImage } = await import('../../lib/legacy/chat-media.mjs')
+  const { shouldSendChatImage } = await import('../../lib/domain/chat/chat-media.mjs')
   for (const text of ['再要一张，精致一点的', '自画像呢', '图呢', '催你画一张', '发张图看看', '你的样子', '凑一张']) {
     assert.equal(shouldSendChatImage(text), true, `应识别为要图：${text}`)
   }
@@ -3148,7 +3148,7 @@ test('v2.96：要图的说法覆盖更广，被催图不再顶人', async () => 
 })
 
 test('v2.97：自训练调度默认关闭、开启后有排期', async () => {
-  const { createSelfTrainer } = await import('../../lib/legacy/self-trainer.mjs')
+  const { createSelfTrainer } = await import('../../lib/domain/life/self-trainer.mjs')
   const off = createSelfTrainer({ env: {}, home: '/tmp' })
   assert.equal(off.snapshot().enabled, false)
   const on = createSelfTrainer({ env: { DSH_POETRY_SELF_TRAIN: 'on' }, home: '/tmp' })
@@ -3159,7 +3159,7 @@ test('v2.97：自训练调度默认关闭、开启后有排期', async () => {
 })
 
 test('v2.98：关系记忆——抽取解析、合并去重、摘要', async () => {
-  const rel = await import('../../lib/legacy/relationship-memory.mjs')
+  const rel = await import('../../lib/domain/relationship/relationship-memory.mjs')
   const parsed = rel.parseRelationshipExtraction(JSON.stringify({ entries: [
     { kind: 'preference', text: '他喜欢晚上做东西', evidence: '我晚上才有空', confidence: 'high' },
     { kind: 'boundary', text: '他不喜欢被追问动机', evidence: '你别老问我为什么', confidence: 'high' },
@@ -3177,7 +3177,7 @@ test('v2.98：关系记忆——抽取解析、合并去重、摘要', async () 
 })
 
 test('v2.98：情绪持续性——加强、衰减、摘要', async () => {
-  const emo = await import('../../lib/legacy/emotional-continuity.mjs')
+  const emo = await import('../../lib/domain/emotion/emotional-continuity.mjs')
   const t0 = 1000000000
   let result = emo.recordEmotion(emo.emptyEmotions(), { topic: '他说有点累', emotion: '担心', intensity: 0.6 }, t0)
   assert.equal(result.added, true)
@@ -3195,7 +3195,7 @@ test('v2.98：情绪持续性——加强、衰减、摘要', async () => {
 })
 
 test('v2.99：日常素材——反重复 prompt 与解析', async () => {
-  const daily = await import('../../lib/legacy/daily-life.mjs')
+  const daily = await import('../../lib/domain/life/daily-life.mjs')
   const prompt = daily.buildDailyLifePrompt({ now: FIXED_NOW.getTime(), state: { felt: '有点蔫' }, recentEvents: ['刚把水杯洗了', '楼下有人在搬东西'] })
   assert.match(prompt, /不写学习、笔记、书/)
   assert.match(prompt, /不要再重复里面的事物：刚把水杯洗了；楼下有人在搬东西/)
@@ -3205,7 +3205,7 @@ test('v2.99：日常素材——反重复 prompt 与解析', async () => {
 })
 
 test('v2.99：承诺账本——去重、逾期优先、标记完成', async () => {
-  const cm = await import('../../lib/legacy/commitments.mjs')
+  const cm = await import('../../lib/domain/relationship/commitments.mjs')
   const t0 = FIXED_NOW.getTime()
   const empty = cm.emptyCommitments()
   const first = cm.addAgreement(empty, '答应给他画一张自画像', t0)
@@ -3224,7 +3224,7 @@ test('v2.99：承诺账本——去重、逾期优先、标记完成', async () 
 })
 
 test('v3.00：用户附图 OCR 路径识别与脱敏', async () => {
-  const ocr = await import('../../lib/legacy/image-ocr.mjs')
+  const ocr = await import('../../lib/domain/integration/image-ocr.mjs')
   const text = '图片发给你了 （附图：/Users/x/.dsh/attachments/v1/objects/ab/abcdef）'
   const paths = ocr.extractImagePaths(text, { mustExist: false, home: '/Users/x' })
   assert.deepEqual(paths, ['/Users/x/.dsh/attachments/v1/objects/ab/abcdef'])
@@ -3235,24 +3235,24 @@ test('v3.00：用户附图 OCR 路径识别与脱敏', async () => {
 })
 
 test('v3.01：世界观版本回退、单源判断降置信、维基生态站点过滤', async () => {
-  const wv = await import('../../lib/worldview.mjs')
+  const wv = await import('../../lib/domain/learning/worldview.mjs')
   const raw = { ok: true, v: 4, beliefs: [], concepts: [], questions: [], contradictions: [], essay: { text: '一段足够长的旧世界观文字，用来验证版本号回退。' }, history: [{ at: 1, version: 3, changed: 'x' }, { at: 2, version: 4, changed: 'y' }] }
   const norm = wv.normalizeWorldview(raw)
   assert.equal(norm.essay.version, 4)
 
-  const kg = await import('../../lib/legacy/knowledge-graph.mjs')
+  const kg = await import('../../lib/domain/knowledge/knowledge-graph.mjs')
   const merged = kg.mergeGraph(kg.emptyGraph(), { nodes: [{ name: '甲', type: 'concept' }, { name: '乙', type: 'concept' }], edges: [], claims: [{ text: '甲乙之间有因果关系。', nodes: ['甲'], confidence: 'high' }] }, 1000, 1)
   assert.equal(merged.graph.claims[0].confidence, 'medium', '单来源 high 降为 medium')
   const again = kg.mergeGraph(merged.graph, { nodes: [], edges: [], claims: [{ text: '甲乙之间有因果关系。', nodes: ['甲'], confidence: 'high' }] }, 2000, 2)
   assert.equal(again.graph.claims[0].confidence, 'high', '第二来源后可升 high')
 
-  const w = await import('../../lib/legacy/self-wander.mjs')
+  const w = await import('../../lib/domain/learning/self-wander.mjs')
   assert.equal(w.isBlockedWanderHost('donate.wikimedia.org'), true)
   assert.equal(w.isBlockedWanderHost('meta.wikimedia.org'), true)
   assert.equal(w.isBlockedWanderHost('zh.wikipedia.org'), false)
   assert.equal(w.isBlockedWanderUrl('https://foundation.wikimedia.org/wiki/Home'), true)
 
-  const prompts = await import('../../lib/legacy/self-growth-prompts.mjs')
+  const prompts = await import('../../lib/domain/learning/self-growth-prompts.mjs')
   const prompt = prompts.buildLearnPrompt({ now: FIXED_NOW.getTime(), state: defaultSelfState(FIXED_NOW.getTime()), broadenHint: '自然科学：挑一个具体的科学概念或发现' })
   assert.match(prompt, /本周可以补一个世界知识的空白板块/)
 })

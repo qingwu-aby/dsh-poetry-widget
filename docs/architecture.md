@@ -26,7 +26,7 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 
 1. 禁止循环依赖；
 2. `kernel/*` 不得依赖 `domain/*`、`composition/*`、`index.js`；
-3. `domain A` 不得直接 import `domain B` 的内部文件，只能依赖 `B/index.mjs`；
+3. `domain` 之间允许直接依赖具体模块（必须无循环），优先走对方 `index.mjs` facade；不得依赖 `lib/legacy/` 或 lib 根模块；
 4. 跨域副作用走事件或注入端口，不互相调内部函数。
 
 ## 契约

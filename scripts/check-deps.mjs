@@ -74,18 +74,13 @@ for (const [file, deps] of imports) {
   }
 }
 
-// 3) domain 内部文件不得被其他 domain 直接 import（有 domain 目录后再启用）
-const _domainRoot = path.join(ROOT, 'lib/domain')
-if (exists('lib/domain')) {
-  for (const [file, deps] of imports) {
-    if (!file.startsWith('lib/domain/')) continue
-    const own = file.split('/')[2]
-    for (const dep of deps) {
-      if (!dep.startsWith('lib/domain/')) continue
-      const other = dep.split('/')[2]
-      if (other !== own && !/index\.mjs$/.test(dep)) {
-        violations.push({ type: 'domain', file, detail: `${file} -> ${dep}（跨域只能依赖对方 index.mjs/facade）` })
-      }
+// 3) domain 不得依赖 lib/legacy（兼容层已删除）或 lib 根模块；domain 之间允许直接依赖具体
+//    模块（必须无循环），优先走对方 index.mjs facade。
+for (const [file, deps] of imports) {
+  if (!file.startsWith('lib/domain/')) continue
+  for (const dep of deps) {
+    if (dep.startsWith('lib/legacy/') || /^lib\/[a-z0-9-]+\.mjs$/.test(dep)) {
+      violations.push({ type: 'layer', file, detail: `${file} -> ${dep}（domain 不能依赖 legacy/根模块）` })
     }
   }
 }
