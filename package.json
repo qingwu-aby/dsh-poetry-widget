@@ -56,10 +56,11 @@
   "license": "MIT",
   "devDependencies": {
     "d3-force": "^3.0.1",
-    "d3-selection": "^3.0.1",
-    "d3-zoom": "^3.0.1",
     "esbuild": "^0.28.2",
-    "opencc-js": "^1.4.2"
+    "graphology": "^0.26.0",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "opencc-js": "^1.4.2",
+    "sigma": "^4.0.4"
   },
   "author": "qingwu-aby",
   "repository": {
