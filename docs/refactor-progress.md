@@ -22,10 +22,9 @@
 ## W2（进行中）
 - [x] 13 个域 facade（`lib/domain/*/index.mjs`）
 - [x] 域内迁第一批：**memory**（8 模块）、**emotion**（4）、**relationship**（3）、**knowledge**（3）——旧路径保留 re-export shim，502/502
-- [ ] 域内迁第二批：learning / chat / works / being / voice / twin / life / host
-- [ ] index.js 剩余服务组装迁移（宿主依赖服务按波次）
+- [x] 域内迁第二批：learning（10）/ chat（7）/ works（5）/ being（9）/ voice（4）/ twin（3）/ life（4）/ host（7）/ integration（5）——**全部 13 个域完成内迁**，旧路径保留 shim，502/502
+- [ ] index.js 剩余服务组装迁移（宿主依赖服务按波次，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
-- [ ] 更新剩余域 facade（learning/chat/... 当前仍指向旧文件，内迁后改为新路径）
 
 ## W3/W4（backlog）
 - [ ] 客户端 store/hook 层与 tab 注册表；HTTP JSON 契约测试
