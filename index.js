@@ -67,6 +67,8 @@ import { buildRuntimeSnapshot } from './lib/composition/health.mjs'
 import { createFeihuaService, createLocalVoiceService, createVoice } from './lib/composition/model-services.mjs'
 import { createMemoryConsolidatorService, createMemoryHubService, createMemoryStack } from './lib/composition/memory-services.mjs'
 import { createNetlangService, createReadingService, createWanderService } from './lib/composition/learning-loop-services.mjs'
+import { createGrowthService } from './lib/composition/being-services.mjs'
+import { createSelfDriveService } from './lib/composition/self-drive-service.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
@@ -86,10 +88,8 @@ import {
   resolveModelErrorsPath,
   summarizeModelErrors,
 } from './lib/model-errors.mjs'
-import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
+import { createModelPolicy } from './lib/model-policy.mjs'
 import { callModelForRole, configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
-import { createSelfDrive } from './lib/self-drive.mjs'
-import { createSelfGrowth } from './lib/self-growth.mjs'
 import { MEMORY_ROUTE } from './lib/memory-hub.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
@@ -842,65 +842,27 @@ export async function apply(ctx) {
         const week = Math.floor((nowMs - Date.UTC(2026, 0, 5)) / (7 * 24 * 3600 * 1000))
         return topics[((week % topics.length) + topics.length) % topics.length]
       }
-      const growth = createSelfGrowth({
-        state: selfState,
+      const growth = createGrowthService({
+        selfState,
         getLlm,
         getSelection,
         journal,
-        learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
-        probeStatePath: path.join(settingsPath.dir, 'probe-state.json'),
-        candidatesPath: path.join(path.dirname(topicsPath), 'topics-candidates.json'),
-        topicsBankPath: topicsPath,
+        memoryDir,
+        settingsDir: settingsPath.dir,
+        topicsPath,
         topicsArchivePath,
-        topics: topicBank,
-        recall: memoryRecall,
+        topicBank,
+        memoryRecall,
         feelingsPath,
-        feelings: feelingBank,
-        reflectIntervalMs: autonomy.reflectIntervalMs,
-        learnIntervalMs: autonomy.learnIntervalMs,
-        probeGapMs: autonomy.probeGapMs,
+        feelingBank,
+        autonomy,
         logger,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         getGraphGaps: (limit) => knowledgeGraph.gaps(limit),
         getBroadenHint: weeklyBroadenTopic,
-      })
-      growth.start({ heartbeat: true })
-      heartbeat.add('自驱成长', () => growth.tick())
-      logger?.info?.(
-        `[dsh-little-whale] 自驱成长已启动（状态：${selfState.file}；自省 60min / 自学 90min）`,
-      )
-      const candidateText = ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate']
-        .map((role) => {
-          let candidates = []
-          try {
-            candidates = modelPolicy.resolveCandidates(role)
-          } catch {
-            candidates = []
-          }
-          const list = candidates
-            .map(
-              (candidate) =>
-                `${candidate.provider}/${candidate.model}${candidate.reasoningEffort ? `(${candidate.reasoningEffort})` : ''}`,
-            )
-            .join(' → ')
-          return `${MODEL_POLICY_ROLE_LABELS[role] ?? role}=[${list || 'none'}]`
-        })
-        .join('; ')
-      logger?.info?.(`[dsh-little-whale] 模型候选：${candidateText}`)
-      serviceRuntime.register('自驱成长', {
-        dispose: () => {
-          try {
-            growth.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 自驱成长清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-          try {
-            selfState.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 状态清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
+        heartbeat,
+        serviceRuntime,
       })
 
       // M41：记忆中枢（create → recover → start；所有写入路径不变，中枢只管理/备份/恢复）。
@@ -912,89 +874,37 @@ export async function apply(ctx) {
       )
       // v1.51：自处循环——每 15–30 分钟把事实交给她自己的模型：写「此刻状态」+ 自己决定想做什么。
       // 没有阈值、没有需求分数；模型不可用时保持上次状态，什么都不做。
-      const selfDrive = createSelfDrive({
-        state: selfState,
-        projects: selfProjects,
-        events: selfEvents,
-        metabolism: selfMetabolism,
+      const selfDrive = createSelfDriveService({
+        selfState,
+        selfProjects,
+        selfEvents,
+        selfMetabolism,
         worldFeedback,
-        lifecycle: selfLifecycle,
-        onProjectExpired: (project) => {
-          const title = project && typeof project.title === 'string' ? project.title : ''
-          if (title.length === 0) return undefined
-          return journal.append({ kind: 'thought', text: `这件事到期限了，我没做完：${title}` }).catch(() => undefined)
-        },
-        onEventClosed: (event) => {
-          const text = event && typeof event.topic === 'string' ? `这件事先放下了：${event.topic}` : ''
-          if (text.length === 0) return undefined
-          return journal.append({ kind: 'thought', text }).catch(() => undefined)
-        },
+        selfLifecycle,
+        journal,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
-        onLearn: () => growth.learnNow(),
-        // v1.62：注意力集中时，她自己会提出一个“可以去看看”的介入；喜不喜欢由她判断。
-        onProbe: (focus) => growth.probeNow({ focus }),
-        onMake: async (input) => {
-          const result = await selfWorks.makeNow(input)
-          worldFeedback.record({
-            source: 'works',
-            kind: 'make',
-            ok: result.ok === true,
-            summary: result.ok && result.work ? result.work.title : result.reason || '作品没有写成',
-          })
-          return result
+        growth,
+        selfWorks,
+        autonomy,
+        moodAiService,
+        readingDigest,
+        emotional,
+        dailyLife,
+        commitments,
+        browseForWhale,
+        chatBridge,
+        shareGate: {
+          get: () => lastWhaleShareAt,
+          set: (value) => {
+            lastWhaleShareAt = value
+          },
         },
-        checkMinMs: autonomy.driveCheckMinMs,
-        checkMaxMs: autonomy.driveCheckMaxMs,
-        retryMinMs: autonomy.driveRetryMinMs,
-        retryMaxMs: autonomy.driveRetryMaxMs,
-        firstMinMs: autonomy.driveFirstMinMs,
-        firstMaxMs: autonomy.driveFirstMaxMs,
-        getRecentMoodLabels: () => {
-          try {
-            return typeof moodAiService.peekRecentLabels === 'function' ? moodAiService.peekRecentLabels() : []
-          } catch {
-            return []
-          }
-        },
-        getRecallDigest: readingDigest,
-        getEmotionalDigest: () => emotional.digest(3),
-        getDailyLifeDigest: () => dailyLife.digest(3),
-        getCommitmentDigest: () => commitments.digest(3),
-        onBrowse: browseForWhale,
-        onShare: (text) => {
-          try {
-            const value = typeof text === 'string' ? text.trim() : ''
-            if (value.length < 4) return
-            // 只在用户聊过、且离上次分享够久时才发，避免刷屏。
-            if (typeof chatBridge.lastUserAt === 'function' && chatBridge.lastUserAt() <= 0) return
-            const nowMs = Date.now()
-            if (nowMs - lastWhaleShareAt < 45 * 60 * 1000) return
-            lastWhaleShareAt = nowMs
-            queueGuiMessage(value, { kind: 'share' })
-          } catch {
-            /* 分享失败不影响自处 */
-          }
-        },
-      })
-      selfDrive.start({ heartbeat: true })
-      heartbeat.add('自处', () => selfDrive.tick())
-      const actionSnapshot = selfDrive.snapshot()
-      logger?.info?.(
-        `[dsh-little-whale] 自处循环已启动（${selfDrive.actionsPath}${
-          actionSnapshot.latest !== null ? `；上次：${actionSnapshot.latest.text}` : ''
-        }）`,
-      )
-      serviceRuntime.register('自处', {
-        dispose: () => {
-          try {
-            selfDrive.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 自处循环清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
+        queueGuiMessage,
+        heartbeat,
+        serviceRuntime,
       })
 
       // v1.64：网络溜达——每隔几小时去允许的公开页面（中文维基随机摘要）看一眼，

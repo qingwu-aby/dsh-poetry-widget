@@ -25,7 +25,8 @@
 - [x] 域内迁第二批：learning（10）/ chat（7）/ works（5）/ being（9）/ voice（4）/ twin（3）/ life（4）/ host（7）/ integration（5）——**全部 13 个域完成内迁**，旧路径保留 shim，502/502
 - [x] 模型服务抽取：localVoice / feihua-full / voice → `composition/model-services.mjs`（index 1344 → 1322）
 - [x] 记忆栈抽取：memory layers/recall/consolidator/hub → `composition/memory-services.mjs`
-- [x] 学习循环抽取：wander/reading/netlang → `composition/learning-loop-services.mjs`（index 1322 → 1247）
+- [x] 学习循环抽取：wander/reading/netlang → `composition/learning-loop-services.mjs`
+- [x] being 栈抽取：growth → `composition/being-services.mjs`，selfDrive → `composition/self-drive-service.mjs`（index 1247 → 1149）
 - [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 
