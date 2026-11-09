@@ -1,4 +1,3 @@
-"use strict";
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
@@ -14990,6 +14989,25 @@
     return { useViewportSize, useResource };
   }
 
+  // client-src/panel-tabs.js
+  var PANEL_TAB_DEFS = Object.freeze([
+    { id: "growth", label: "\u6210\u957F" },
+    { id: "graph", label: "\u56FE\u8C31" },
+    { id: "settings", label: "\u8BBE\u7F6E" }
+  ]);
+  function createPanelTabRouter(components) {
+    const byId = /* @__PURE__ */ new Map([
+      ["growth", components.GrowthTab],
+      ["graph", components.GraphTab],
+      ["settings", components.SettingsTab]
+    ]);
+    return {
+      tabs: PANEL_TAB_DEFS,
+      isPanelTab: (id) => byId.has(id),
+      componentFor: (id) => byId.get(id) ?? components.GrowthTab
+    };
+  }
+
   // client-src/mood-engine.js
   var SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
   var MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
@@ -23641,11 +23659,6 @@
       const SAVE_DEBOUNCE_MS = 450;
       const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
       const POETRY_ENTRY_ENABLED = false;
-      const PANEL_TABS = [
-        { id: "growth", label: "\u6210\u957F" },
-        { id: "graph", label: "\u56FE\u8C31" },
-        { id: "settings", label: "\u8BBE\u7F6E" }
-      ];
       const POETRY_TABS = [
         { id: "today", label: "\u4ECA\u65E5" },
         { id: "class", label: "\u8BFE\u5802" },
@@ -25219,6 +25232,7 @@
         clearPetMediaCache
       });
       const { useViewportSize, useResource } = createHooks({ React, resourceStore });
+      const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
       const fetchJson = createFetchJson(ROUTE);
       function putSettings(patch) {
         const request = buildSettingsRequest(patch);
@@ -25234,7 +25248,7 @@
         ASSET_BASE,
         WIDGET_ID,
         STEPS,
-        PANEL_TABS,
+        PANEL_TABS: panelTabs.tabs,
         POETRY_TABS,
         DEFAULT_SETTINGS: DEFAULT_SETTINGS2,
         buildToneCells,
@@ -26604,12 +26618,8 @@
             setPanelTab("poetry");
             return;
           }
-          if (tabId === "settings") {
-            setPanelTab("settings");
-            return;
-          }
-          if (tabId === "graph") {
-            setPanelTab("graph");
+          if (panelTabs.isPanelTab(tabId)) {
+            setPanelTab(tabId);
             return;
           }
           setPanelTab("growth");
@@ -28123,9 +28133,7 @@
             reloadPingshui,
             libraryFocus
           };
-          if (panelTab === "growth") return h(GrowthTab, { api });
-          if (panelTab === "graph") return h(GraphTab, { api });
-          if (panelTab === "settings") return h(SettingsTab, { api });
+          if (panelTab !== "poetry") return h(panelTabs.componentFor(panelTab), { api });
           if (panelTab === "poetry") {
             if (poetryTab === "poetry-settings") return h(PoetrySettingsTab, { api });
             if (poetryTab === "class") return h(ClassTab, { api });
@@ -28176,7 +28184,7 @@
             h(
               "div",
               { className: "dshp-tabs", role: "tablist" },
-              (panelTab === "poetry" ? POETRY_TABS : PANEL_TABS).map((tab) => h("button", {
+              (panelTab === "poetry" ? POETRY_TABS : panelTabs.tabs).map((tab) => h("button", {
                 key: tab.id,
                 type: "button",
                 role: "tab",

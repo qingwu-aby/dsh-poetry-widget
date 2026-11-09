@@ -1,5 +1,6 @@
 import { clamp, isVideoMoodFile, num, readWindowHeight, readWindowWidth } from './base.js'
 import { createHooks } from './hooks.js'
+import { createPanelTabRouter } from './panel-tabs.js'
 import {
   SELF_TALK_PATH,
   SELF_TALK_RECENT_MAX,
@@ -201,11 +202,6 @@ window.__ModuleLoader__.load({
   // v1.76：诗词模块与它的配置降权到二级菜单（从成长页进入）。
   // v2.29：诗词/格律入口暂时关闭，但代码与数据都保留，后续可随时打开。
   const POETRY_ENTRY_ENABLED = false
-  const PANEL_TABS = [
-  { id: 'growth', label: '成长' },
-  { id: 'graph', label: '图谱' },
-  { id: 'settings', label: '设置' },
-  ]
   const POETRY_TABS = [
   { id: 'today', label: '今日' },
   { id: 'class', label: '课堂' },
@@ -2063,6 +2059,7 @@ window.__ModuleLoader__.load({
     clearPetMediaCache,
   })
   const { useViewportSize, useResource } = createHooks({ React, resourceStore })
+  const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab })
   const fetchJson = createFetchJson(ROUTE)
 
   /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
@@ -2080,7 +2077,7 @@ window.__ModuleLoader__.load({
   ASSET_BASE,
   WIDGET_ID,
   STEPS,
-  PANEL_TABS, POETRY_TABS,
+  PANEL_TABS: panelTabs.tabs, POETRY_TABS,
   DEFAULT_SETTINGS,
   buildToneCells,
   selectPoemText,
@@ -3378,12 +3375,8 @@ window.__ModuleLoader__.load({
     setPanelTab('poetry')
     return
    }
-   if (tabId === 'settings') {
-    setPanelTab('settings')
-    return
-   }
-   if (tabId === 'graph') {
-    setPanelTab('graph')
+   if (panelTabs.isPanelTab(tabId)) {
+    setPanelTab(tabId)
     return
    }
    setPanelTab('growth')
@@ -5016,9 +5009,7 @@ window.__ModuleLoader__.load({
     reloadPingshui,
     libraryFocus,
    }
-   if (panelTab === 'growth') return h(GrowthTab, { api })
-   if (panelTab === 'graph') return h(GraphTab, { api })
-   if (panelTab === 'settings') return h(SettingsTab, { api })
+   if (panelTab !== 'poetry') return h(panelTabs.componentFor(panelTab), { api })
    if (panelTab === 'poetry') {
     if (poetryTab === 'poetry-settings') return h(PoetrySettingsTab, { api })
     if (poetryTab === 'class') return h(ClassTab, { api })
@@ -5072,7 +5063,7 @@ window.__ModuleLoader__.load({
     h(
     'div',
     { className: 'dshp-tabs', role: 'tablist' },
-    (panelTab === 'poetry' ? POETRY_TABS : PANEL_TABS).map((tab) => h('button', {
+    (panelTab === 'poetry' ? POETRY_TABS : panelTabs.tabs).map((tab) => h('button', {
      key: tab.id,
      type: 'button',
      role: 'tab',

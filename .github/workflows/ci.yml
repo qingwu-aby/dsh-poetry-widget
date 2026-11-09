@@ -17,4 +17,5 @@ jobs:
       - run: npm run build:client
       - run: npm run test:coverage
       - run: npm run check:eng
+      - run: npm run check:types
       - run: npm run lint

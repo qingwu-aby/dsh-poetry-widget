@@ -47,14 +47,15 @@
 - [x] 客户端本地状态/资源层：`local-state.js`、`resources.js`
 - [x] 客户端 hooks 层：`hooks.js`（useViewportSize/useResource），窗口尺寸工具进 `base.js`；client.js 5598 → 5350
 - [x] 覆盖率门槛进 CI（lines 65 / branches 65 / functions 70）
-- [ ] 客户端组件 state/hook 层与 tab 注册表（剩余 ~5.4k 行；数据/资源/本地状态已抽）— 可选后续
+- [x] 客户端 hooks/注册表层：`hooks.js`（useViewportSize/useResource）、`panel-tabs.js`（顶层 tab 注册表）；client.js 5598 → 5341
+- [ ] 客户端剩余组件闭包（~5.3k 行）— 可选后续
 
 ## W4 ✅（类型/文档/门禁，2026-11-09）
 - [x] 4 个历史大模块拆到 <800 行
 - [x] 体量门禁：index ≤300、单模块 ≤800（全部通过）
 - [x] ADR×3、architecture/config/state-files/refactor-progress 文档
 - [x] README 精简至 86 行；PLAN.md 归档
-- [ ] JSDoc/`tsc --noEmit` — 可选后续
+- [x] JSDoc/`tsc --noEmit`（kernel/composition 范围；domain 历史模块暂不纳入）
 - [x] 旧路径 shim 隔离：72 个兼容层统一移到 `lib/legacy/`，57 个文件 import 重写；lib 根目录只剩真实共享模块；0 循环、512/512
 - [ ] shim 最终删除（需把跨域 import 改为域 facade，留作后续）
 
@@ -69,7 +70,7 @@
 - [x] 客户端数据层：`client-src/data.js`（fetch/超时/首屏缓存/getStorage，client.js 5598→5517）
 - [ ] 客户端 state/hook 层与 tab 注册表（剩余 ~5.5k 行）
 - [x] 覆盖率门槛：`npm run test:coverage` 强制 lines 65 / branches 65 / functions 70（当前 68/74/74），CI 已接入
-- [ ] JSDoc/@ts-check + tsc --noEmit
+- [x] JSDoc/@ts-check + tsc：`tsconfig.json` 覆盖 kernel/composition，`npm run check:types` 进 CI（0 error）
 - [x] README 精简：236 → 约 120 行（功能/安装/配置/开发/限制/许可）
 - [x] 4 个历史大模块已拆到 <800 行：mood-ai(322+747)、self-talk(451+569)、self-drive(583+423)、self-growth(763+109+317)；体量门禁收紧为单模块 ≤800
 
