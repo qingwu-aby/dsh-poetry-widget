@@ -66,6 +66,7 @@ import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
 import { createBaseServices } from './lib/composition/base-services.mjs'
 import { buildRuntimeSnapshot } from './lib/composition/health.mjs'
+import { createFeihuaService, createLocalVoiceService, createVoice } from './lib/composition/model-services.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
@@ -331,12 +332,7 @@ export async function apply(ctx) {
       // v2.80：本地权重模型的「口吻层」（试用）。DSH_POETRY_LOCAL_VOICE=on|chat|mood 开启；
       // 失败/超时/胡话一律保留原句，不影响正常链路。
       const localVoiceMode = String(env.DSH_POETRY_LOCAL_VOICE ?? '').toLowerCase()
-      const localVoice = createLocalVoice({
-        enabled: localVoiceMode === 'on' || localVoiceMode === 'chat' || localVoiceMode === 'mood',
-        baseURL: String(env.DSH_POETRY_LOCAL_VOICE_URL || 'http://127.0.0.1:8080/v1'),
-        model: String(env.DSH_POETRY_LOCAL_VOICE_MODEL || 'default_model'),
-        logger,
-      })
+      const localVoice = createLocalVoiceService({ env, localVoiceMode, logger })
       // v1.41：模型失败诊断文件（JSONL，只含错误元数据，不含提示词/正文）。
       const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v2.73（改造 C）：每周一次“真实网页小测”——找原文/核年份/对冲突/只有目录/承认查不到。
@@ -598,27 +594,16 @@ export async function apply(ctx) {
         },
       })
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
-      const voiceService = createVoiceService({
+      const voiceService = createVoice({
+        env,
+        home,
+        memoryDir,
         getLlm,
         getSelection,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
-        journalPath: path.join(memoryDir, 'journal.jsonl'),
-        voicePath: resolveVoicePath(env, home),
-        // v2.41：只学新风格之后的句子；旧声音档案会把她拉回“微散文”腔。
-        minSampleTs: Math.max(1, Math.floor(Date.now() / 1000) * 1000),
         logger,
-      })
-      voiceService.start()
-      logger?.info?.(`[dsh-little-whale] 声音档案：${voiceService.voicePath}`)
-      serviceRuntime.register('声音档案', {
-        dispose: () => {
-          try {
-            voiceService.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 声音档案清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
+        serviceRuntime,
       })
       const selfTalkService = createSelfTalkService({
         getLlm,
@@ -677,14 +662,7 @@ export async function apply(ctx) {
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
       // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
       const feihuaFullDir = resolveFeihuaFullDir(env, PACKAGE_ROOT)
-      const feihuaFullService = createFeihuaFullService({ dir: feihuaFullDir, logger })
-      if (existsSync(feihuaFullDir)) {
-        logger?.info?.(`[dsh-little-whale] 飞花令全量校验目录：${feihuaFullDir}`)
-      } else {
-        logger?.warn?.(
-          `[dsh-little-whale] 飞花令全量校验目录不存在（feihua-full 将返回 FEIHUA_FULL_UNAVAILABLE）：${feihuaFullDir}`,
-        )
-      }
+      const feihuaFullService = createFeihuaService({ dir: feihuaFullDir, logger })
       // v1.51：状态不再量化——只存事实时间线 + 她自己写下的一句「此刻状态」（v2）。
       const selfState = createSelfBeing({ file: resolveSelfBeingPath(env, home), logger })
       // v2.99：日常素材（每 2 小时一件手边小事，反重复）+ 承诺账本（约定/答应的事，逾期提醒）。

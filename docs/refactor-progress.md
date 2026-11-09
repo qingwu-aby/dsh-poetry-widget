@@ -23,7 +23,8 @@
 - [x] 13 个域 facade（`lib/domain/*/index.mjs`）
 - [x] 域内迁第一批：**memory**（8 模块）、**emotion**（4）、**relationship**（3）、**knowledge**（3）——旧路径保留 re-export shim，502/502
 - [x] 域内迁第二批：learning（10）/ chat（7）/ works（5）/ being（9）/ voice（4）/ twin（3）/ life（4）/ host（7）/ integration（5）——**全部 13 个域完成内迁**，旧路径保留 shim，502/502
-- [ ] index.js 剩余服务组装迁移（宿主依赖服务按波次，目标 <300 行）
+- [x] 模型服务抽取：localVoice / feihua-full / voice → `composition/model-services.mjs`（index 1344 → 1322）
+- [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 
 ## W3/W4（backlog）
