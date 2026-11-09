@@ -36,9 +36,7 @@ import {
 import { createRouteTable } from './lib/routes.mjs'
 import { createSelfBeing, resolveSelfBeingPath } from './lib/self-being.mjs'
 import { loadFeelingBank, resolveFeelingsPath } from './lib/feelings.mjs'
-import { createMemoryConsolidator, createMemoryLayers, resolveMemoryLayersPath } from './lib/memory-layers.mjs'
 import { runMemoryMigrations } from './lib/memory-migrations.mjs'
-import { createMemoryRecall } from './lib/memory-recall.mjs'
 import { resolveVideoCoursesDir } from './lib/video-courses.mjs'
 import { seedMemoryBaseline } from './lib/memory-baseline.mjs'
 import { resolveProjectsPath } from './lib/self-projects.mjs'
@@ -67,6 +65,8 @@ import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
 import { createBaseServices } from './lib/composition/base-services.mjs'
 import { buildRuntimeSnapshot } from './lib/composition/health.mjs'
 import { createFeihuaService, createLocalVoiceService, createVoice } from './lib/composition/model-services.mjs'
+import { createMemoryConsolidatorService, createMemoryHubService, createMemoryStack } from './lib/composition/memory-services.mjs'
+import { createNetlangService, createReadingService, createWanderService } from './lib/composition/learning-loop-services.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
@@ -89,17 +89,9 @@ import {
 import { MODEL_POLICY_ROLE_LABELS, createModelPolicy } from './lib/model-policy.mjs'
 import { callModelForRole, configureModelRuntime, resetModelRuntime } from './lib/llm-call.mjs'
 import { createSelfDrive } from './lib/self-drive.mjs'
-import { createVoiceService, resolveVoicePath } from './lib/voice-memory.mjs'
 import { createSelfGrowth } from './lib/self-growth.mjs'
-import {
-  MEMORY_ROUTE,
-  createMemoryHub,
-  createMemorySnapshotHandler,
-} from './lib/memory-hub.mjs'
-import { createSelfNetlang } from './lib/self-netlang.mjs'
-import { createSelfReading } from './lib/self-reading.mjs'
+import { MEMORY_ROUTE } from './lib/memory-hub.mjs'
 import { createSelfTalkService } from './lib/self-talk.mjs'
-import { createSelfWander } from './lib/self-wander.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
 import { resolveAutonomy } from './lib/autonomy.mjs'
@@ -414,19 +406,16 @@ export async function apply(ctx) {
       } else {
         logger?.warn?.(`[dsh-little-whale] 碎碎念话题库不可用（自言自语将不使用话题）：${topicsPath}`)
       }
-      // v1.71：人类式分层记忆——原文仍全在 journal；另外维护“更早的回忆概括 + 自我短句”。
-      const layersPath = resolveMemoryLayersPath(env, home)
-      const memoryLayers = createMemoryLayers({ file: layersPath, logger })
-      // v1.33：记忆检索（只读 journal/learning-log/topics + 分层记忆，供碎碎念与自驱成长使用）。
-      const memoryRecall = createMemoryRecall({
-        journalPath: path.join(memoryDir, 'journal.jsonl'),
-        learningLogPath: path.join(path.dirname(topicsPath), 'learning-log.md'),
-        topics: topicBank,
+      // v1.71：人类式分层记忆 + 检索。
+      const { layersPath, memoryLayers, memoryRecall } = createMemoryStack({
+        env,
+        home,
+        memoryDir,
+        topicsPath,
+        topicBank,
         topicsArchivePath,
         feelingsPath,
-        layersPath,
-        projectsPath: resolveProjectsPath(env, home),
-        videoCoursesDir: resolveVideoCoursesDir(env, home),
+        logger,
       })
       // v2.92：她自己的认知图谱（从 learning-log 增量抽取节点/关系/判断）。
       const { knowledgeGraph, selfTrainer, relationship, emotional, commitments } = createKnowledgeServices({
@@ -572,27 +561,18 @@ export async function apply(ctx) {
         }
       }
       // v1.71：每天把几天前的零碎记忆慢慢整合成一段回忆，并提炼“越来越清楚的自己”。
-      const memoryConsolidator = createMemoryConsolidator({
+      const memoryConsolidator = createMemoryConsolidatorService({
         layers: memoryLayers,
-        journalPath: path.join(memoryDir, 'journal.jsonl'),
+        memoryDir,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
         env,
+        heartbeat,
+        serviceRuntime,
       })
-      memoryConsolidator.start({ heartbeat: true })
-      heartbeat.add('记忆整合', () => memoryConsolidator.tick())
       logger?.info?.(`[dsh-little-whale] 分层记忆：${layersPath}（每日整合）`)
-      serviceRuntime.register('记忆整合', {
-        dispose: () => {
-          try {
-            memoryConsolidator.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 记忆整合清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
-      })
       // v1.34：声音档案（从自己的 journal 旧输出提炼语言风格，24h 刷新；失败静默）。
       const voiceService = createVoice({
         env,
@@ -924,26 +904,12 @@ export async function apply(ctx) {
       })
 
       // M41：记忆中枢（create → recover → start；所有写入路径不变，中枢只管理/备份/恢复）。
-      const memoryHub = createMemoryHub({ env, home, logger })
-      const memoryRecovery = memoryHub.recover()
-      memoryHub.start({ heartbeat: true })
-      heartbeat.add('记忆中枢', () => memoryHub.maybeBackup())
-      const memorySnapshot = memoryHub.snapshot()
+      const { memoryHub, memoryRecovery, memorySnapshot } = createMemoryHubService({ env, home, logger, heartbeat, serviceRuntime })
       logger?.info?.(
         `[dsh-little-whale] 记忆中枢：${memorySnapshot.files.length} 个文件 / 上次备份 ${
           memorySnapshot.backups.latestId ?? '无'
         }${memoryRecovery.recovered.length > 0 ? `（恢复 ${memoryRecovery.recovered.length} 个缺失文件）` : ''}`,
       )
-      serviceRuntime.register('记忆中枢', {
-        dispose: () => {
-          try {
-            memoryHub.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 记忆中枢清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
-      })
-
       // v1.51：自处循环——每 15–30 分钟把事实交给她自己的模型：写「此刻状态」+ 自己决定想做什么。
       // 没有阈值、没有需求分数；模型不可用时保持上次状态，什么都不做。
       const selfDrive = createSelfDrive({
@@ -1033,101 +999,50 @@ export async function apply(ctx) {
 
       // v1.64：网络溜达——每隔几小时去允许的公开页面（中文维基随机摘要）看一眼，
       // 用她自己的话记下看到什么；只读、无用户信息、不登录不评论。
-      const selfWander = createSelfWander({
-        state: selfState,
+      const selfWander = createWanderService({
+        selfState,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
         webAccess,
-        learningLogPath: path.join(memoryDir, 'learning-log.md'),
-        statePath: path.join(settingsPath.dir, 'wander-state.json'),
-        gapMs: autonomy.wanderGapMs,
-        firstMinMs: autonomy.wanderFirstMinMs,
-        firstMaxMs: autonomy.wanderFirstMaxMs,
+        memoryDir,
+        settingsDir: settingsPath.dir,
+        autonomy,
         env,
+        heartbeat,
+        serviceRuntime,
       })
-      selfWander.start({ heartbeat: true })
-      heartbeat.add('网络溜达', () => selfWander.tick())
-      logger?.info?.(
-        `[dsh-little-whale] 网络溜达已启动（间隔 ${Math.round(autonomy.wanderGapMs / 60000)}min；${
-          String(env.DSH_POETRY_WANDER ?? '').toLowerCase() === 'off' ? '已禁用' : '允许公开页面只读浏览'
-        }；网页抓取${String(env.DSH_POETRY_WEB ?? '').toLowerCase() === 'off' ? '关' : '开'}）`,
-      )
-      serviceRuntime.register('网络溜达', {
-        dispose: () => {
-          try {
-            selfWander.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 网络溜达清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
-      })
-
       // v1.67：读现代中文小说学语言——每 4h 读一小段公版作品（鲁迅/老舍/萧红/郁达夫/
       // 朱自清/许地山），留意写法并自己写一句；只读公版、只取片段、不抄句子。
-      const selfReading = createSelfReading({
-        state: selfState,
+      const selfReading = createReadingService({
+        selfState,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
-        learningLogPath: path.join(memoryDir, 'learning-log.md'),
-        statePath: path.join(settingsPath.dir, 'read-state.json'),
-        gapMs: autonomy.readingGapMs,
-        firstMinMs: autonomy.readingFirstMinMs,
-        firstMaxMs: autonomy.readingFirstMaxMs,
+        memoryDir,
+        settingsDir: settingsPath.dir,
+        autonomy,
         env,
+        heartbeat,
+        serviceRuntime,
       })
-      selfReading.start({ heartbeat: true })
-      heartbeat.add('读小说', () => selfReading.tick())
-      logger?.info?.(
-        `[dsh-little-whale] 读小说已启动（间隔 ${Math.round(autonomy.readingGapMs / 60000)}min；${
-          String(env.DSH_POETRY_READING ?? '').toLowerCase() === 'off' ? '已禁用' : '公版现代文学作品，只读'
-        }）`,
-      )
-      serviceRuntime.register('读小说', {
-        dispose: () => {
-          try {
-            selfReading.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 读小说清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
-      })
-
       // v1.68：看看互联网上的大家怎么表达——每 8h 读一次公开热搜词（微博/B站），
       // 只留意用词和句子节奏，不参与、不评论、不保存别人的原话。
-      const selfNetlang = createSelfNetlang({
-        state: selfState,
+      const selfNetlang = createNetlangService({
+        selfState,
         getLlm,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
         logger,
-        learningLogPath: path.join(memoryDir, 'learning-log.md'),
-        statePath: path.join(settingsPath.dir, 'netlang-state.json'),
-        gapMs: autonomy.netlangGapMs,
-        firstMinMs: autonomy.netlangFirstMinMs,
-        firstMaxMs: autonomy.netlangFirstMaxMs,
+        memoryDir,
+        settingsDir: settingsPath.dir,
+        autonomy,
         env,
+        heartbeat,
+        serviceRuntime,
       })
-      selfNetlang.start({ heartbeat: true })
-      heartbeat.add('看大家说话', () => selfNetlang.tick())
-      logger?.info?.(
-        `[dsh-little-whale] 看大家说话已启动（间隔 ${Math.round(autonomy.netlangGapMs / 60000)}min；${
-          String(env.DSH_POETRY_NETLANG ?? '').toLowerCase() === 'off' ? '已禁用' : '只读公开热搜'
-        }）`,
-      )
-      serviceRuntime.register('看大家说话', {
-        dispose: () => {
-          try {
-            selfNetlang.dispose()
-          } catch (error) {
-            logger?.warn?.(`[dsh-little-whale] 看大家说话清理失败：${error instanceof Error ? error.message : String(error)}`)
-          }
-        },
-      })
-
       // v1.82：心跳最后启动（等所有活动注册完）。
       serviceRuntime.register('心跳', {
         start: () => heartbeat.start(),
