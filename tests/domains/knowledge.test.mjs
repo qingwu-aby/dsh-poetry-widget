@@ -97,3 +97,19 @@ test('collectRecentLearning：按时间过滤 learning-log 段', () => {
   const all = collectRecentLearning(file, 0)
   assert.equal(all.length, 2, '自学+读小说，溜达不算学习')
 })
+
+test('夜间巩固：检测同一节点上的极性/年份冲突', async () => {
+  const { detectClaimConflicts } = await import('../../lib/domain/knowledge/nightly-consolidation.mjs')
+  const graph = normalizeGraph({
+    nodes: [{ id: 'n', name: '党锢', type: 'event', summary: '东汉党锢' }],
+    claims: [
+      { id: 'a', text: '党锢是黄巾起后才解开的。', nodes: ['党锢'], confidence: 'medium' },
+      { id: 'b', text: '党锢不是黄巾起后才解开的。', nodes: ['党锢'], confidence: 'low' },
+      { id: 'c', text: '党锢在184年解禁。', nodes: ['党锢'], confidence: 'low' },
+      { id: 'd', text: '党锢在168年解禁。', nodes: ['党锢'], confidence: 'low' },
+    ],
+  })
+  const conflicts = detectClaimConflicts(graph)
+  assert.ok(conflicts.some((item) => item.reason === 'negation'))
+  assert.ok(conflicts.some((item) => item.reason === 'year'))
+})

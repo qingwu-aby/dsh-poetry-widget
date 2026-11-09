@@ -105,7 +105,8 @@
 - ✅ 夜间离线巩固：`lib/domain/knowledge/nightly-consolidation.mjs`（Kumaran/Rasch + Mem0/A-MEM 的 merge/evolve）；
 - ✅ 情绪评价器：`lib/domain/emotion/appraisal.mjs`——对学习/研究结果算 relevance/controllability/certainty/agency，映射成情绪线程（Scherer/Damasio/Barrett）；
 - ✅ 习惯记忆：`lib/domain/being/habit-memory.mjs`——情境→动作→结果记账、成功率/近期性建议进自处 prompt（Wood & Rünger）；
-- ☐ 执行意图（如果…就…）与离线巩固的冲突检测仍可继续。
+- ✅ 执行意图：承诺 digest 自动带“如果今天有空，就先做这个；做不了就直说”（Gollwitzer）；
+- ✅ 夜间巩固冲突检测：同一节点上极性相反/年份互斥的判断 → `report.conflicts` + journal 提示（初版，仅候选提示不自动改）。
 
 ## 直接对应的四项改造（按清单落地顺序）
 

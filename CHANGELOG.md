@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **情绪评价 + 习惯记忆（v3.11）**：①`appraisal.mjs` 对 learning-log 的新学习/研究结果做四维评价（相关/可控/确定/归因）→ 情绪线程 + journal，每 45 分钟一次、按游标去重；②`habit-memory.mjs` 记“情境→动作→结果”，成功率+近期性生成提示注入自处 prompt，自学的成功/失败自动记账；health 暴露两个服务。测试 520/520。
+- **情绪评价 + 习惯记忆（v3.11）**：①`appraisal.mjs` 对 learning-log 的新学习/研究结果做四维评价（相关/可控/确定/归因）→ 情绪线程 + journal，每 45 分钟一次、按游标去重；②`habit-memory.mjs` 记“情境→动作→结果”，成功率+近期性生成提示注入自处 prompt，自学的成功/失败自动记账；③承诺升级为**执行意图**（“如果今天有空，就先做这个；做不了就直说”）；④夜间巩固新增**冲突检测**（同节点说法极性相反/年份互斥 → report.conflicts + journal 提示）。health 暴露相关服务。测试 521/521。
 - **知识反哺机制（v3.10）**：①聊天检索从“直接匹配”升级为**扩散激活**——种子节点沿图谱关系 1–2 跳扩散、按关系/置信度/衰减加权，带 via 来源提示（`spreadActivation`/`formatSpreadingDigest`，knowledge extractor 暴露 `spread`）；②**夜间离线巩固**——`nightly-consolidation.mjs` 每晚 3 点窗口汇总当天学习、合并近似节点、校准单来源 high/多来源 low 判断、写 report+journal，health 暴露；对应论文清单见 `docs/research/feedback-loop-papers.md`。测试 516/516。
 - **WebGL 图谱 + 上限 2 万（v3.03）**：图表面板改用 **sigma.js WebGL** 渲染（graphology 图模型，d3-force 预布局；>6000 节点自动简化环形布局），滚轮缩放/拖动平移/点节点详情，渲染器懒加载（无 WebGL 环境不会拖累插件）；存储上限提到 **20000 节点 / 40000 关系 / 8000 判断**，graph.json 全量返回；测试环境仍 491/491。
 - **图谱扩容 + 可缩放（v3.02）**：上限 1200/2400/800 → **3000 节点 / 6000 关系 / 2000 判断**；面板图谱改 canvas + d3-force（Barnes-Hut，3000 节点可跑），引入 d3-zoom 支持滚轮缩放、拖动平移、缩放按钮/复位，缩放 ≥0.55 显示标签，点节点看详情；graph.json 返回全量；独立页 ?view=1 超 300 节点时采样，避免卡死。491/491。
