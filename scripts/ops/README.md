@@ -15,6 +15,14 @@
 | `launchd/*.plist.template` | launchd 模板（`__HOME__` / `__WORKSPACE__` / `__MLX_HOME__` 由 install 渲染） |
 | `install.mjs` | 渲染模板并把脚本/plist 安装到本机 |
 
+## 后台独立运行（可选）
+
+`agent-loop` 可以脱离 GUI 由 launchd 定时运行，但 macOS 的 TCC 会拒绝 launchd 进程访问 `~/Documents`：
+
+- 若要让 launchd 独立跑，需要给执行它的 shell（如 `/bin/bash`）或包装程序授予「完全磁盘访问权限」；
+- 否则会出现 `Operation not permitted`（exit 126），此时保持 DSH 应用运行即可，她的后台循环本来就在宿主进程内自动跑；
+- 安装/重载：`node scripts/ops/install.mjs` → `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yangyuan.whale.agent-loop.plist`。
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |

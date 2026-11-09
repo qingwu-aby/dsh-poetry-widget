@@ -20,7 +20,7 @@ const force = args.has('--force')
 const dryRun = args.has('--dry-run')
 
 const copies = [
-  ...['run.sh', 'prompt.md', 'health-check.mjs', 'self-train.mjs', 'self-train.sh'].map((name) => ({
+  ...['run.sh', 'read-key.mjs', 'prompt.md', 'health-check.mjs', 'self-train.mjs', 'self-train.sh'].map((name) => ({
     from: path.join(OPS, 'agent-loop', name),
     to: path.join(WORKSPACE, 'agent-loop', name),
     mode: name.endsWith('.sh') ? 0o755 : 0o644,
