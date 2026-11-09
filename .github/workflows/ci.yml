@@ -15,6 +15,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build:client
-      - run: node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/client/widget.test.mjs
+      - run: npm run test:coverage
       - run: npm run check:eng
       - run: npm run lint

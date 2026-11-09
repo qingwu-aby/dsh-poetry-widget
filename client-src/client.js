@@ -125,6 +125,7 @@ import {
   nextWanderTarget,
   pickWanderMedia,
 } from './wander.js'
+import { clearFirstScreenCache, createFetchJson, fetchJsonUrl, getStorage, readFirstScreenCache, writeFirstScreenCache } from './data.js'
 
 /**
  * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
@@ -184,7 +185,6 @@ window.__ModuleLoader__.load({
   const MIN_SCALE = 0.6
   const MAX_SCALE = 1.6
   const Z_INDEX = 60
-  const FETCH_TIMEOUT_MS = 15000
   const SAVE_DEBOUNCE_MS = 450
   const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
   // v1.76：诗词模块与它的配置降权到二级菜单（从成长页进入）。
@@ -2102,55 +2102,7 @@ window.__ModuleLoader__.load({
   }
   }
 
-  function getStorage() {
-  try {
-   if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
-  } catch (error) {
-  }
-  return null
-  }
-
-  function fetchJson(path, init) {
-  return fetchJsonUrl(ROUTE + path, init)
-  }
-
-  function fetchJsonUrl(url, init) {
-  if (typeof fetch !== 'function') return Promise.reject(new Error('当前环境不支持网络请求'))
-  const controller = typeof AbortController === 'function' ? new AbortController() : null
-  const timer = controller
-   ? setTimeout(() => {
-    try {
-    controller.abort()
-    } catch (error) {
-    }
-   }, FETCH_TIMEOUT_MS)
-   : null
-  const options = Object.assign({}, init || {})
-  if (controller) options.signal = controller.signal
-  return Promise.resolve()
-   .then(() => fetch(url, options))
-   .then((response) => {
-    if (!response || typeof response.ok !== 'boolean') throw new Error('响应异常')
-    if (!response.ok) {
-    const error = new Error('HTTP ' + response.status)
-    error.status = response.status
-    throw error
-    }
-    return response.json()
-   })
-   .then((data) => {
-    if (!data || data.ok === false) {
-    const detail = data && data.error ? data.error : null
-    const error = new Error((detail && detail.message) || '数据不可用')
-    if (detail && detail.code) error.code = detail.code
-    throw error
-    }
-    return data
-   })
-   .finally(() => {
-    if (timer) clearTimeout(timer)
-   })
-  }
+  const fetchJson = createFetchJson(ROUTE)
 
   function clearResourceCache(kind) {
   clearFeihuaIndexCache()
@@ -2189,39 +2141,6 @@ window.__ModuleLoader__.load({
   }
 
   /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
-  function readFirstScreenCache() {
-  const storage = getStorage()
-  if (!storage) return null
-  try {
-   const raw = storage.getItem(CACHE_KEY)
-   if (!raw) return null
-   const parsed = JSON.parse(raw)
-   if (!parsed || typeof parsed !== 'object' || !parsed.bootstrap) return null
-   if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== 'object') return null
-   return parsed
-  } catch (error) {
-   return null
-  }
-  }
-
-  function writeFirstScreenCache(payload) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(CACHE_KEY, JSON.stringify(payload))
-  } catch (error) {
-  }
-  }
-
-  function clearFirstScreenCache() {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.removeItem(CACHE_KEY)
-  } catch (error) {
-  }
-  }
-
   function readStoredPosition() {
   const storage = getStorage()
   if (!storage) return null

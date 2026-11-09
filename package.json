@@ -88,6 +88,6 @@
     "lint": "biome check lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "format": "biome check --write lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "config:doc": "node scripts/gen-config-doc.mjs",
-    "test:coverage": "npm run build:client && node --test --experimental-test-coverage tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/domains/http-contract.test.mjs"
+    "test:coverage": "npm run build:client && node --test --experimental-test-coverage --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=70 tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/domains/http-contract.test.mjs tests/client/widget.test.mjs"
   }
 }

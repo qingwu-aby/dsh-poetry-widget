@@ -44,8 +44,10 @@
 - [x] HTTP JSON 契约测试：`tests/domains/http-contract.test.mjs`（10 条：health/self/memory/graph/works/model-errors/settings/bootstrap/view=1/方法守卫；512/512）
 - [x] PLAN.md 归档 → `docs/archive/PLAN.md`；新增 `npm run test:coverage`（仅报告，暂无门槛）
 - [ ] 测试拆分：host.test.mjs（12k 行）→ tests/domains/（已建目录 + 契约测试）
-- [ ] 客户端 store/hook 层与 tab 注册表（client.js ~5.6k 行）
-- [ ] JSDoc/@ts-check + tsc --noEmit；coverage 门槛；PLAN.md 归档与 README 精简
+- [x] 客户端数据层：`client-src/data.js`（fetch/超时/首屏缓存/getStorage，client.js 5598→5517）
+- [ ] 客户端 state/hook 层与 tab 注册表（剩余 ~5.5k 行）
+- [x] 覆盖率门槛：`npm run test:coverage` 强制 lines 65 / branches 65 / functions 70（当前 68/74/74），CI 已接入
+- [ ] JSDoc/@ts-check + tsc --noEmit；README 精简
 - [x] 4 个历史大模块已拆到 <800 行：mood-ai(322+747)、self-talk(451+569)、self-drive(583+423)、self-growth(763+109+317)；体量门禁收紧为单模块 ≤800
 
 ## 已知债务（W2 完成后）

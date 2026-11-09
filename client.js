@@ -23329,6 +23329,81 @@
     return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge };
   }
 
+  // client-src/data.js
+  var FETCH_TIMEOUT_MS = 15e3;
+  var FIRST_SCREEN_CACHE_KEY = "dshp.firstscreen.v1";
+  function getStorage() {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+    } catch {
+    }
+    return null;
+  }
+  function fetchJsonUrl(url, init) {
+    if (typeof fetch !== "function") return Promise.reject(new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u7F51\u7EDC\u8BF7\u6C42"));
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer2 = controller ? setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+      }
+    }, FETCH_TIMEOUT_MS) : null;
+    const options = Object.assign({}, init || {});
+    if (controller) options.signal = controller.signal;
+    return Promise.resolve().then(() => fetch(url, options)).then((response) => {
+      if (!response || typeof response.ok !== "boolean") throw new Error("\u54CD\u5E94\u5F02\u5E38");
+      if (!response.ok) {
+        const error = new Error("HTTP " + response.status);
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    }).then((data) => {
+      if (!data || data.ok === false) {
+        const detail = data && data.error ? data.error : null;
+        const error = new Error(detail && detail.message || "\u6570\u636E\u4E0D\u53EF\u7528");
+        if (detail && detail.code) error.code = detail.code;
+        throw error;
+      }
+      return data;
+    }).finally(() => {
+      if (timer2) clearTimeout(timer2);
+    });
+  }
+  function createFetchJson(route) {
+    return (path, init) => fetchJsonUrl(route + path, init);
+  }
+  function readFirstScreenCache() {
+    const storage = getStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(FIRST_SCREEN_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || !parsed.bootstrap) return null;
+      if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== "object") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  function writeFirstScreenCache(payload) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(FIRST_SCREEN_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+    }
+  }
+  function clearFirstScreenCache() {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.removeItem(FIRST_SCREEN_CACHE_KEY);
+    } catch {
+    }
+  }
+
   // client-src/client.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
@@ -23367,7 +23442,6 @@
       const MIN_SCALE = 0.6;
       const MAX_SCALE = 1.6;
       const Z_INDEX = 60;
-      const FETCH_TIMEOUT_MS = 15e3;
       const SAVE_DEBOUNCE_MS = 450;
       const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
       const POETRY_ENTRY_ENABLED = false;
@@ -24993,47 +25067,7 @@
           resourceInflight[kind] = null;
         }
       }
-      function getStorage() {
-        try {
-          if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
-        } catch (error) {
-        }
-        return null;
-      }
-      function fetchJson(path, init) {
-        return fetchJsonUrl(ROUTE + path, init);
-      }
-      function fetchJsonUrl(url, init) {
-        if (typeof fetch !== "function") return Promise.reject(new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u7F51\u7EDC\u8BF7\u6C42"));
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        const timer2 = controller ? setTimeout(() => {
-          try {
-            controller.abort();
-          } catch (error) {
-          }
-        }, FETCH_TIMEOUT_MS) : null;
-        const options = Object.assign({}, init || {});
-        if (controller) options.signal = controller.signal;
-        return Promise.resolve().then(() => fetch(url, options)).then((response) => {
-          if (!response || typeof response.ok !== "boolean") throw new Error("\u54CD\u5E94\u5F02\u5E38");
-          if (!response.ok) {
-            const error = new Error("HTTP " + response.status);
-            error.status = response.status;
-            throw error;
-          }
-          return response.json();
-        }).then((data) => {
-          if (!data || data.ok === false) {
-            const detail = data && data.error ? data.error : null;
-            const error = new Error(detail && detail.message || "\u6570\u636E\u4E0D\u53EF\u7528");
-            if (detail && detail.code) error.code = detail.code;
-            throw error;
-          }
-          return data;
-        }).finally(() => {
-          if (timer2) clearTimeout(timer2);
-        });
-      }
+      const fetchJson = createFetchJson(ROUTE);
       function clearResourceCache(kind) {
         clearFeihuaIndexCache();
         clearFeihuaFullCache();
@@ -25067,36 +25101,6 @@
           );
         }
         return resourceInflight[kind];
-      }
-      function readFirstScreenCache() {
-        const storage = getStorage();
-        if (!storage) return null;
-        try {
-          const raw = storage.getItem(CACHE_KEY);
-          if (!raw) return null;
-          const parsed = JSON.parse(raw);
-          if (!parsed || typeof parsed !== "object" || !parsed.bootstrap) return null;
-          if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== "object") return null;
-          return parsed;
-        } catch (error) {
-          return null;
-        }
-      }
-      function writeFirstScreenCache(payload) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(CACHE_KEY, JSON.stringify(payload));
-        } catch (error) {
-        }
-      }
-      function clearFirstScreenCache() {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.removeItem(CACHE_KEY);
-        } catch (error) {
-        }
       }
       function readStoredPosition() {
         const storage = getStorage();
