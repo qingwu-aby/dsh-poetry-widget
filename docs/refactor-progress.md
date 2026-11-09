@@ -13,7 +13,8 @@
 - [x] `lib/kernel/model-call.mjs`：统一调用层（attempts/parse/debugFile；已接 knowledge-extract 与 worldview，500/500）
 - [x] `lib/kernel/config.mjs`：37 项配置注册表 + `scripts/gen-config-doc.mjs` → `docs/config.md`
 - [ ] `lib/kernel/logger.mjs`：结构化日志 + 静默失败计数
-- [x] 第一批路由抽取：assets/pet-media/memory/model-errors/presence/works/self/graph 移入 `lib/composition/readonly-routes.mjs`（index.js 1725 → 1617 行，500/500）
+- [x] 第一批路由抽取：assets/pet-media/memory/model-errors/presence/works/self/graph → `composition/readonly-routes.mjs`；
+- [x] 第二批：聊天服务 → `composition/chat-service.mjs`（OCR/关系/情绪/日常/承诺/图谱/本地声音），twin/manual-read/attention/project 路由 → `composition/interactive-routes.mjs`；index.js **1725 → 1390 行**（500/500）
 - [ ] `kernel/service.mjs` + 注册表：统一 start/stop/tick/snapshot
 - [ ] 收紧 check-size 为 `--strict`
 

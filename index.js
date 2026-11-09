@@ -55,10 +55,9 @@ import {
   ensureChatToken,
   resolveChatTokenPath,
 } from './lib/chat-bridge.mjs'
-import { chatImagePayload, pickLatestWorkImage, shouldSendChatImage } from './lib/chat-media.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
 import { startProactiveChat } from './lib/proactive-chat.mjs'
-import { ATTENTION_ROUTE, createAttentionHandler, createAttentionStore } from './lib/attention.mjs'
+import { createAttentionStore } from './lib/attention.mjs'
 import { createOutbox } from './lib/outbox.mjs'
 import { createGuiInbox } from './lib/gui-inbox.mjs'
 import { createGuiPush } from './lib/gui-push.mjs'
@@ -73,9 +72,10 @@ import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kern
 import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
+import { createChatHttpService } from './lib/composition/chat-service.mjs'
+import { registerAttentionRoutes, registerManualReadRoute, registerProjectRoutes, registerTwinRoutes } from './lib/composition/interactive-routes.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { createCommitments } from './lib/commitments.mjs'
-import { describeImages, extractImagePaths, sanitizeUserText } from './lib/image-ocr.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
 import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
@@ -83,12 +83,7 @@ import { createGrowthMetrics } from './lib/growth-metrics.mjs'
 import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
 import { startWorkLoop } from './lib/work-loop.mjs'
 import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
-import {
-  createManualReadHandler,
-  createManualReading,
-  ensureManualToken,
-  resolveManualTokenPath,
-} from './lib/manual-reading.mjs'
+import { createManualReading, ensureManualToken, resolveManualTokenPath } from './lib/manual-reading.mjs'
 import {
   MODEL_ERRORS_ROUTE,
   createModelErrorsHandler,
@@ -1281,28 +1276,6 @@ export async function apply(ctx) {
         home,
       })
 
-      // 读文章（POST，本地 token；读后写入她自己的 journal）。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/manual-read.json',
-          handler: createManualReadHandler({
-            service: {
-              read: async (input) => {
-                const result = await manualReading.read(input)
-                worldFeedback.record({
-                  source: 'manual-reading',
-                  kind: 'read',
-                  ok: result.ok === true,
-                  summary: result.ok ? `${result.title}：${String(result.thought || '').slice(0, 80)}` : result.error || '没读成',
-                })
-                return result
-              },
-            },
-            tokenFile: manualTokenFile,
-          }),
-        }),
-      )
       // v2.79：镜像停用——她不再需要另一个自己，直接去接触真实世界；DSH_POETRY_TWIN=on 可恢复。
       const twinEnabled = String(env.DSH_POETRY_TWIN ?? '').toLowerCase() === 'on'
       let twinSystem = null
@@ -1327,39 +1300,7 @@ export async function apply(ctx) {
           },
         })
         disposers.push(() => twinSystem.stop())
-        disposers.push(
-          webServer.register({
-            kind: 'exact',
-            path: '/api/dsh-poetry/twin.json',
-            handler: async (req, res) => {
-              const body = JSON.stringify({ ok: true, ...twinSystem.status() })
-              res.writeHead(200, {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Cache-Control': 'no-store',
-                'Content-Length': String(Buffer.byteLength(body)),
-              })
-              res.end(body)
-            },
-          }),
-        )
         twinSystem.start()
-      } else {
-        disposers.push(
-          webServer.register({
-            kind: 'exact',
-            path: '/api/dsh-poetry/twin.json',
-            handler: async (req, res) => {
-              const body = JSON.stringify({ ok: true, enabled: false, note: '镜像已停用' })
-              res.writeHead(200, {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Cache-Control': 'no-store',
-                'Content-Length': String(Buffer.byteLength(body)),
-              })
-              res.end(body)
-            },
-          }),
-        )
-        logger?.info?.('[dsh-little-whale] 镜像已停用（DSH_POETRY_TWIN=on 可恢复）')
       }
       // W1：只读/静态路由统一注册（assets/pet-media/memory/model-errors/presence/works/self/graph）。
       registerReadonlyRoutes({
@@ -1387,229 +1328,23 @@ export async function apply(ctx) {
           stateDir: settingsPath.dir,
         },
       })
-      // QQ/外部聊天：POST + 本地 token；她的独立记忆回复。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: CHAT_ROUTE,
-          handler: createChatHandler({
-            service: {
-              drainPending: (peerId) => chatBridge.drainPending(peerId),
-              graphDigest: (text) => knowledgeGraph.digest(text, 3),
-              chat: async (input) => {
-                // v3.00：他发来的图，先 OCR 成文字再给她（模型本身看不到图）。
-                const rawText = String(input && input.text ? input.text : '')
-                const imagePaths = extractImagePaths(rawText)
-                let imageContext = ''
-                let userText = rawText
-                if (imagePaths.length > 0) {
-                  try {
-                    imageContext = describeImages(imagePaths).text
-                  } catch {
-                    imageContext = '他发来一张图，但这边读不出图上的字。'
-                  }
-                  userText = sanitizeUserText(rawText)
-                }
-                const asksImage = imagePaths.length > 0
-                  ? /(给我看|你的画|你画的|自画像|发张|再来一张|再画|凑一张)/.test(userText)
-                  : shouldSendChatImage(userText)
-                let imagePayload = null
-                if (asksImage) {
-                  try {
-                    imagePayload = chatImagePayload(pickLatestWorkImage(path.join(memoryDir, 'works')))
-                  } catch {
-                    imagePayload = null
-                  }
-                }
-                let graphLines = []
-                try {
-                  graphLines = knowledgeGraph.digest(userText, 3)
-                } catch {
-                  graphLines = []
-                }
-                let relationshipLines = []
-                try {
-                  relationshipLines = relationship.digest(userText)
-                } catch {
-                  relationshipLines = []
-                }
-                let emotionLines = []
-                try {
-                  emotionLines = emotional.digest(3)
-                } catch {
-                  emotionLines = []
-                }
-                let dailyLifeLines = []
-                try {
-                  dailyLifeLines = dailyLife.digest(3)
-                } catch {
-                  dailyLifeLines = []
-                }
-                let commitmentLines = []
-                try {
-                  commitmentLines = commitments.digest(3)
-                } catch {
-                  commitmentLines = []
-                }
-                const result = typeof chatBridge.chat === 'function'
-                  ? await chatBridge.chat({
-                      ...input,
-                      text: userText,
-                      imageContext,
-                      imageRequested: asksImage,
-                      imageHint: imagePayload ? { name: imagePayload.name } : null,
-                      graphLines,
-                      relationshipLines,
-                      emotionLines,
-                      dailyLifeLines,
-                      commitmentLines,
-                    })
-                  : { ok: false, error: 'unavailable' }
-                if (result && result.ok === true && imagePayload) result.images = [imagePayload]
-                if (result && result.ok === true) {
-                  // 异步更新关系记忆与情绪线程，不阻塞回复。
-                  try {
-                    relationship
-                      .ingest([
-                        { role: 'user', text: String(input && input.text ? input.text : '') },
-                        { role: 'assistant', text: String(result.reply || '') },
-                      ])
-                      .then((ingested) => {
-                        try {
-                          for (const entry of (ingested && ingested.entries) || []) {
-                            if (entry.kind === 'agreement') commitments.addAgreement(entry.text)
-                          }
-                        } catch {
-                          /* ignore */
-                        }
-                      })
-                      .catch(() => {})
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    emotional.recordFromChat({
-                      felt: result.felt || '',
-                      murmur: result.murmur || '',
-                      reply: String(result.reply || ''),
-                    })
-                  } catch {
-                    /* ignore */
-                  }
-                }
-                if (
-                  result &&
-                  result.ok === true &&
-                  (localVoiceMode === 'on' || localVoiceMode === 'chat') &&
-                  typeof result.reply === 'string' &&
-                  Array.from(result.reply).length >= 4
-                ) {
-                  try {
-                    const polished = await localVoice.polish(result.reply, { maxChars: 240 })
-                    if (polished !== null) result.reply = polished
-                  } catch {
-                    /* 保留原句 */
-                  }
-                }
-                return result
-              },
-            },
-            tokenFile: chatTokenFile,
-          }),
-        }),
-      )
-      // 注意力闸门：主动消息可以先进 observe 草稿，人工放行后才发送。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: ATTENTION_ROUTE,
-          handler: createAttentionHandler({
-            attention,
-            sendText: (item) => outbox.deliverNow({ source: 'gui', text: item.text, id: `att-${item.id}`, kind: 'attention', meta: { attentionId: item.id } }),
-            onAnswer: async (item, text) => {
-              const projectId = item && item.meta && typeof item.meta.projectId === 'string' ? item.meta.projectId : ''
-              if (!projectId || typeof selfProjects.answerAttention !== 'function') return null
-              return selfProjects.answerAttention(projectId, text)
-            },
-          }),
-        }),
-      )
-      // 项目详情：当前项目全部步骤 + 最近结束的项目。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/project.json',
-          handler: async (req, res) => {
-            const body = String(req?.method ?? 'GET').toUpperCase() === 'GET'
-              ? JSON.stringify({
-                  ok: true,
-                  current: selfProjects.current(),
-                  stage: selfProjects.snapshot().stage,
-                  latestReport: selfProjects.snapshot().latestReport,
-                  attention: selfProjects.snapshot().attention,
-                  steps: (selfProjects.current() && Array.isArray(selfProjects.current().steps) ? selfProjects.current().steps : []).slice(-24),
-                  completed: selfProjects.completed().slice(-10).map((item) => ({
-                    id: item.id,
-                    title: item.title,
-                    outcome: item.outcome,
-                    endedAt: item.endedAt,
-                    steps: (Array.isArray(item.steps) ? item.steps : []).slice(-3),
-                  })),
-                })
-              : JSON.stringify({ ok: false, error: 'method_not_allowed' })
-            res.writeHead(String(req?.method ?? 'GET').toUpperCase() === 'GET' ? 200 : 405, {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Cache-Control': 'no-store',
-              'Content-Length': String(Buffer.byteLength(body)),
-            })
-            res.end(body)
-          },
-        }),
-      )
-      // 项目动作：用户从成长页继续/暂停/放弃；项目状态本身由 self.json 只读。
-      disposers.push(
-        webServer.register({
-          kind: 'exact',
-          path: '/api/dsh-poetry/project-action.json',
-          handler: async (req, res) => {
-            const send = (status, payload) => {
-              const body = JSON.stringify(payload)
-              res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(body)) })
-              res.end(body)
-            }
-            if ((req.method || 'GET').toUpperCase() !== 'POST') {
-              res.writeHead(405, { Allow: 'POST', 'Content-Type': 'text/plain; charset=utf-8' })
-              res.end('method not allowed')
-              return
-            }
-            let payload = null
-            try {
-              const chunks = []
-              for await (const chunk of req) chunks.push(chunk)
-              payload = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-            } catch {
-              send(400, { ok: false, error: 'invalid_json' })
-              return
-            }
-            const action = String(payload?.action ?? '')
-            const current = selfProjects.current()
-            const id = String(payload?.id ?? (current ? current.id : ''))
-            if (!current || current.id !== id) {
-              send(404, { ok: false, error: 'not_found' })
-              return
-            }
-            let result = null
-            if (action === 'retry') result = selfProjects.retryProject(id)
-            else if (action === 'pause') result = selfProjects.pauseProject(id)
-            else if (action === 'drop') result = selfProjects.dropProject(id)
-            if (result === null) {
-              send(400, { ok: false, error: 'action_refused' })
-              return
-            }
-            send(200, { ok: true, action, project: selfProjects.snapshot() })
-          },
-        }),
-      )
+      // W1：聊天服务与交互/写操作路由。
+      const chatService = createChatHttpService({
+        chatBridge,
+        knowledgeGraph,
+        relationship,
+        emotional,
+        dailyLife,
+        commitments,
+        memoryDir,
+        localVoice,
+        getLocalVoiceMode: () => localVoiceMode,
+      })
+      disposers.push(webServer.register({ kind: 'exact', path: CHAT_ROUTE, handler: createChatHandler({ service: chatService, tokenFile: chatTokenFile }) }))
+      registerTwinRoutes({ webServer, disposers, twinEnabled, twinSystem, logger })
+      registerManualReadRoute({ webServer, disposers, manualReading, worldFeedback, tokenFile: manualTokenFile })
+      registerAttentionRoutes({ webServer, disposers, attention, outbox, selfProjects })
+      registerProjectRoutes({ webServer, disposers, selfProjects })
       for (const route of routes) disposers.push(webServer.register(route))
 
       serviceRuntime.register('HTTP 路由', {
