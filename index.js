@@ -45,9 +45,7 @@ import { PRESENCE_ROUTE } from './lib/presence.mjs'
 import { createTwinSystem } from './lib/twin-system.mjs'
 import { CHAT_ROUTE, createChatHandler, ensureChatToken, resolveChatTokenPath } from './lib/chat-bridge.mjs'
 import { ensureQQProactiveToken, resolveQQProactiveTokenPath, sendQQProactive } from './lib/qq-proactive.mjs'
-import { createWebBench } from './lib/web-bench.mjs'
 import { createLocalVoice } from './lib/local-voice.mjs'
-import { createAgentLoopRunner } from './lib/agent-loop-runner.mjs'
 import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
 import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
@@ -60,6 +58,9 @@ import { createNetlangService, createReadingService, createWanderService } from 
 import { createGrowthService } from './lib/composition/being-services.mjs'
 import { createSelfDriveService } from './lib/composition/self-drive-service.mjs'
 import { createChatRuntime } from './lib/composition/chat-runtime.mjs'
+import { createMoodService, createSelfTalk } from './lib/composition/mood-talk-services.mjs'
+import { createAgentLoop, createMediaBudgetService, createWeather, createWebBenchService, createWebStack } from './lib/composition/host-services.mjs'
+import { createWorldviewService } from './lib/composition/worldview-service.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
 import { createPluginLogger } from './lib/kernel/logger.mjs'
@@ -67,10 +68,8 @@ import { createChatHttpService } from './lib/composition/chat-service.mjs'
 import { registerAttentionRoutes, registerManualReadRoute, registerProjectRoutes, registerTwinRoutes } from './lib/composition/interactive-routes.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { readGraph } from './lib/knowledge-graph.mjs'
-import { buildWorldviewSynthesisPrompt, createWorldview, parseWorldviewSynthesis } from './lib/worldview.mjs'
 import { PROMPT_LAYERS_VERSION } from './lib/prompt-layers.mjs'
 import { createSelfWorks, resolveWorksDir } from './lib/self-works.mjs'
-import { createMediaBudget, resolveMediaBudgetPath } from './lib/media-budget.mjs'
 import { createManualReading, ensureManualToken, resolveManualTokenPath } from './lib/manual-reading.mjs'
 import {
   MODEL_ERRORS_ROUTE,
@@ -85,14 +84,11 @@ import { createSelfTalkService } from './lib/self-talk.mjs'
 import { createServiceRuntime } from './lib/service-runtime.mjs'
 import { createDshHost } from './lib/dsh-host.mjs'
 import { resolveAutonomy } from './lib/autonomy.mjs'
-import { createDeepSeekWeb, resolveDeepSeekApiKey } from './lib/deepseek-web.mjs'
-import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
 import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
-import { createWeatherService } from './lib/weather.mjs'
 
 /** Cordis 插件名（loader 诊断用；与 package.json 的 dsh.bundle 行 id 一致）。 */
 export const name = 'dsh-little-whale'
@@ -206,52 +202,9 @@ export async function apply(ctx) {
       const serviceRuntime = createServiceRuntime({ logger })
       // v2.0：自主节奏的环境旋钮（默认比旧版开放很多；DSH_POETRY_*_MIN 可继续放宽）。
       const autonomy = resolveAutonomy(env)
-      // v2.1：安全公开网页访问（搜索 + 抓取），给“溜达”用；默认开启，DSH_POETRY_WEB=off 可关。
-      // v2.3：有 DeepSeek API Key 时，搜索优先走官方 Search/Fetch（按次计费，可回落）。
-      const deepseekWebKey = resolveDeepSeekApiKey(env)
-      const deepseekWeb = createDeepSeekWeb({ apiKey: deepseekWebKey, logger })
-      const twinWebAccess = createWebAccess({ env, logger, deepseek: deepseekWeb })
-      const webAccess = createWebAccess({
-        env,
-        logger,
-        deepseek: deepseekWeb,
-        onFetch: (observation) =>
-          worldFeedback.record({
-            source: 'web',
-            kind: 'fetch',
-            ok: observation.ok === true,
-            summary: observation.ok
-              ? `${observation.title || observation.url}（${observation.status}，${observation.bytes} bytes）`
-              : `${observation.url}：${observation.error || '失败'}`,
-          }),
-      })
+      // v2.1：安全公开网页访问（搜索 + 抓取）+ 她想查网页时替她打开。
+      const { deepseekWeb, twinWebAccess, webAccess, browseForWhale } = createWebStack({ env, logger, worldFeedback, journal })
 
-      // v2.71：她想查网页/搜东西时，替她打开，并把看到的东西写进 journal（世界反馈另由 onFetch 记录）。
-      const browseForWhale = async (input = {}) => {
-        const url = typeof input.browse === 'string' ? input.browse.trim() : ''
-        const query = typeof input.search === 'string' ? input.search.trim() : ''
-        if (url.length === 0 && query.length === 0) return ''
-        let observation = ''
-        if (url.length > 0) {
-          const page = await webAccess.fetchPage(url)
-          const text = String(page.text || '').replace(/\s+/g, ' ').slice(0, 500)
-          observation = `我打开了 ${page.title || url}：${text}`
-        } else {
-          const results = await webAccess.search(query, { limit: 4 })
-          const lines = results.map((item) => `- ${item.title || ''} ${item.url || ''}${item.snippet ? `：${String(item.snippet).slice(0, 120)}` : ''}`)
-          observation = `我搜了「${query}」，看到：\n${lines.join('\n')}`.slice(0, 760)
-        }
-        if (observation.length === 0) return ''
-        try {
-          await journal.append({ kind: 'thought', text: observation.slice(0, 500) })
-        } catch {
-          /* 记忆写入失败不影响她这次出去看 */
-        }
-        return observation
-      }
-      logger?.info?.(
-        `[dsh-little-whale] 公网搜索：${deepseekWeb !== null ? 'DeepSeek Search/Fetch（有 key）' : 'Wikipedia（无 key，可用 DSH_POETRY_DEEPSEEK_API_KEY 升级）'}`,
-      )
       // v1.82：统一心跳——只有 1 个 60s 定时器触发所有自主活动的 tick。
       const heartbeat = createHeartbeat({ logger })
       const webServer = host.get(hostCtx, 'webServer')
@@ -280,9 +233,7 @@ export async function apply(ctx) {
       }
       const fence = createTrustFence({ getConnection: () => connection, logger })
       // 天气服务：Open-Meteo 免密钥；fetch 用宿主 Node 的全局 fetch，请求 6s 超时、进程内缓存。
-      const weatherService = createWeatherService({
-        fetchImpl: typeof globalThis.fetch === 'function' ? (url, init) => globalThis.fetch(url, init) : null,
-      })
+      const weatherService = createWeather()
       // 模型调用：llm / agentDefaultModel 是 optional 服务（用 get 取，不放进 inject 硬依赖）。
       // 用 getter 延迟解析：宿主模型服务晚于本插件就绪、或 HMR 后换实例时仍能拿到最新引用。
       const getLlm = () => {
@@ -319,37 +270,21 @@ export async function apply(ctx) {
       const modelErrorsPath = resolveModelErrorsPath(env, home)
       // v2.73（改造 C）：每周一次“真实网页小测”——找原文/核年份/对冲突/只有目录/承认查不到。
       // 宿主先抓真实网页递给她，她只作答；评分确定性，结果落 web-bench.json。
-      const webBench = createWebBench({
-        file: path.join(settingsPath.dir, 'web-bench.json'),
+      const webBench = createWebBenchService({
+        settingsDir: settingsPath.dir,
         webAccess,
         journal,
         logger,
-        callModel: async ({ prompt }) => {
-          const result = await callModelForRole({
-            role: 'growth',
-            policy: modelPolicy,
-            resolveLlm: getLlm,
-            system: '你是住在 DSH 角落的小鲸鱼；这是你每周一次的真实网页小测，如实作答，不知道就说不知道。',
-            prompt,
-            maxTokens: 1600,
-            timeoutMs: 60000,
-            timeoutCode: 'WEB_BENCH_TIMEOUT',
-            timeoutMessage: '真实网页小测超时',
-            prefix: '真实网页小测候选失败',
-            modelErrorsPath,
-            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
-          })
-          return result === null ? null : { ok: true, text: result.text }
-        },
+        modelPolicy,
+        getLlm,
+        modelErrorsPath,
       })
-      webBench.start()
       disposers.push(() => webBench.stop())
       // v2.81：常驻自进化巡检（宿主内 spawn，TCC 友好）；默认关，DSH_AGENT_LOOP=on 开启。
-      const agentLoop = createAgentLoopRunner({ home, env, logger })
-      agentLoop.start()
+      const agentLoop = createAgentLoop({ home, env, logger })
       disposers.push(() => agentLoop.stop())
       // v2.11：她自己的作品（文字/SVG 小画），存在 agent-memory/works/。
-      const mediaBudget = createMediaBudget({ file: resolveMediaBudgetPath(env, home) })
+      const mediaBudget = createMediaBudgetService({ env, home })
       const selfWorks = createSelfWorks({
         dir: resolveWorksDir(env, home),
         mediaBudget,
@@ -421,92 +356,18 @@ export async function apply(ctx) {
       })
       disposers.push(() => knowledgeGraph.stop())
       disposers.push(() => selfTrainer.stop())
-      const worldview = createWorldview({ file: path.join(settingsPath.dir, 'worldview.json') })
-      const memoryRecallDigestRaw = memoryRecall.digest.bind(memoryRecall)
-      memoryRecall.digest = (context = {}) => {
-        try {
-          return { ...memoryRecallDigestRaw(context), worldview: worldview.digest() }
-        } catch {
-          return memoryRecallDigestRaw(context)
-        }
-      }
-      // 每周整理一版世界观：从最近自学、方法规则、书架、自我短句里重写；启动 5 分钟后先跑一次。
-      const synthesizeWorldview = async ({ reason = 'weekly' } = {}) => {
-        try {
-          const state = worldview.snapshot()
-          let digest = {}
-          try {
-            digest = memoryRecall.digest({})
-          } catch {
-            digest = {}
-          }
-          let rules = []
-          try {
-            const raw = JSON.parse(readFileSync(path.join(settingsPath.dir, 'methodology.json'), 'utf8'))
-            rules = (Array.isArray(raw.rules) ? raw.rules : [])
-              .map((item) => String(item && item.statement ? item.statement : ''))
-              .filter((item) => item.length > 0)
-              .slice(-5)
-          } catch {
-            rules = []
-          }
-          const prompt = buildWorldviewSynthesisPrompt({
-            state,
-            learning: Array.isArray(digest.learned) ? digest.learned : [],
-            methodology: rules,
-            bookshelf: Array.isArray(digest.shelf) ? digest.shelf : [],
-            selfFacts: Array.isArray(digest.selfFacts) ? digest.selfFacts : [],
-            graphLines: typeof knowledgeGraph.worldviewLines === 'function' ? knowledgeGraph.worldviewLines(8) : [],
-          })
-          const worldviewResult = await callRole('worldview', {
-            attempts: [
-              { maxTokens: 5000, prompt },
-              { maxTokens: 8000, prompt },
-            ],
-            parse: parseWorldviewSynthesis,
-            debugFile: path.join(settingsPath.dir, 'worldview-debug.json'),
-            policy: modelPolicy,
-            resolveLlm: getLlm,
-            modelErrorsPath,
-            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
-          })
-          const parsed = worldviewResult.ok === true ? worldviewResult.parsed : null
-          if (parsed === null) {
-            logger?.warn?.('[dsh-little-whale] 世界观整理没有产出可用 JSON')
-            return { ok: false, reason: 'no-output', reasonTag: reason }
-          }
-          const applied = worldview.apply(parsed)
-          const version = worldview.snapshot().essay.version
-          try {
-            await journal.append({
-              kind: 'thought',
-              text: `世界观第 ${version} 版整理好了${parsed.changed ? `：${parsed.changed}` : ''}`,
-            })
-          } catch {
-            /* ignore */
-          }
-          logger?.info?.(`[dsh-little-whale] 世界观整理：第 ${version} 版，改动 ${applied.changed} 处`)
-          return { ok: true, version, changed: applied.changed }
-        } catch (error) {
-          return { ok: false, reason: error instanceof Error ? error.message : String(error) }
-        }
-      }
-      if (String(env.DSH_POETRY_WORLDVIEW || '').toLowerCase() !== 'off') {
-        let worldviewTimer = setTimeout(async () => {
-          await synthesizeWorldview({ reason: 'first' })
-          worldviewTimer = setInterval(() => synthesizeWorldview({ reason: 'weekly' }), 7 * 24 * 60 * 60 * 1000)
-          worldviewTimer.unref?.()
-        }, 5 * 60 * 1000)
-        worldviewTimer.unref?.()
-        disposers.push(() => {
-          try {
-            clearTimeout(worldviewTimer)
-            clearInterval(worldviewTimer)
-          } catch {
-            /* ignore */
-          }
-        })
-      }
+      const { worldview, synthesizeWorldview } = createWorldviewService({
+        settingsDir: settingsPath.dir,
+        memoryRecall,
+        knowledgeGraph,
+        modelPolicy,
+        getLlm,
+        modelErrorsPath,
+        journal,
+        logger,
+        env,
+        disposers,
+      })
       // v2.67：她最近读到/学到的（自学、书架、读记）——自处/心情/聊天共用同一份提示，
       // 让“看过的资料”真的反哺行为、语言和心情，而不是只躺在 journal 里。
       const latestReadText = () => {
@@ -575,59 +436,30 @@ export async function apply(ctx) {
         logger,
         serviceRuntime,
       })
-      const selfTalkService = createSelfTalkService({
+      const selfTalkService = createSelfTalk({
         getLlm,
         getSelection,
         logger,
-        themeProbability: autonomy.selfTalkThemeProbability,
-        topicsEnabled: String(env.DSH_POETRY_TALK_TOPICS ?? '').toLowerCase() === 'on',
-        topics: topicBank,
-        recall: memoryRecall,
-        events: selfEvents,
-        onEventSatiated: (event) => {
-          const topic = event && typeof event.topic === 'string' ? event.topic : ''
-          if (topic.length === 0) return undefined
-          try {
-            if (typeof selfProjects.markStale === 'function') selfProjects.markStale(`叙事饱和：${topic}`)
-          } catch {
-            /* ignore */
-          }
-          return journal.append({ kind: 'thought', text: `这件事我先放下了：${topic}` }).catch(() => undefined)
-        },
-        voice: () => voiceService.get(),
-        refreshVoice: () => voiceService.refreshNow(),
-        policy: modelPolicy,
+        autonomy,
+        env,
+        topicBank,
+        memoryRecall,
+        selfEvents,
+        selfProjects,
+        journal,
+        voiceService,
+        modelPolicy,
         modelErrorsPath,
       })
-      // 心情动画素材（dsh-pet MIT webm，不随包）：读图鉴并并入 mood-ai 图鉴（106 个动画也可被模型选中）。
-      const petMediaDir = resolvePetMediaDir(env, PACKAGE_ROOT)
-      const petCatalog = loadPetMediaCatalog({ dir: petMediaDir, logger })
-      if (petCatalog.ok === true) {
-        logger?.info?.(`[dsh-little-whale] 心情动画素材：${petMediaDir}（${petCatalog.entries.length} 个视频）`)
-      } else if (petMediaDirExists(petMediaDir)) {
-        logger?.warn?.(`[dsh-little-whale] 心情动画素材不可用：${petCatalog.message}（mood-ai 仅用静态图）`)
-      } else {
-        logger?.warn?.(`[dsh-little-whale] 心情动画素材目录不存在（mood-ai 仅用静态图）：${petMediaDir}`)
-      }
-      // 模型心情：启动时读包内 92 张心情图鉴（缺失 → 服务降级为 MOOD_AI_UNAVAILABLE，不抛）。
-      const moodCatalog = loadMoodCatalog()
-      if (moodCatalog.ok !== true) {
-        logger?.warn?.(`[dsh-little-whale] 心情图鉴不可用：${moodCatalog.message}`)
-      }
-      const moodCatalogForAi =
-        petCatalog.ok === true && petCatalog.entries.length > 0
-          ? mergePetMediaIntoMoodCatalog(moodCatalog.ok === true ? moodCatalog.catalog : null, petCatalog.entries)
-          : moodCatalog.ok === true
-            ? moodCatalog.catalog
-            : null
-      const moodAiService = createMoodAiService({
+      const { petMediaDir, petCatalog, moodCatalogForAi, moodAiService } = createMoodService({
+        env,
+        packageRoot: PACKAGE_ROOT,
+        logger,
         getLlm,
         getSelection,
-        catalog: moodCatalogForAi,
-        logger,
-        policy: modelPolicy,
+        modelPolicy,
         modelErrorsPath,
-        feelings: feelingBank,
+        feelingBank,
       })
       // 飞花令全量校验句库：项目同级 _ref/feihua-full（不随包）；DSH_POETRY_FULL_INDEX 可覆盖。
       // 目录不存在时路由仍注册，只返回 FEIHUA_FULL_UNAVAILABLE（客户端回退本地句库）。
