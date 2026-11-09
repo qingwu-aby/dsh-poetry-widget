@@ -72,7 +72,7 @@ npm run test:coverage    # 覆盖率门槛（lines 65 / branches 65 / functions 
 npm run config:doc       # 重新生成 docs/config.md
 ```
 
-目录结构与依赖规则见 [docs/architecture.md](./docs/architecture.md)；状态文件见 [docs/state-files.md](./docs/state-files.md)；重构进度与 ADR 见 [docs/refactor-progress.md](./docs/refactor-progress.md)、[docs/adr/](./docs/adr/)；接口契约见 [docs/contract.md](./docs/contract.md)；验收清单见 [docs/acceptance.md](./docs/acceptance.md)。
+本机运维脚本（常驻巡检/自训练/本地语言层）见 [scripts/ops/README.md](./scripts/ops/README.md)；目录结构与依赖规则见 [docs/architecture.md](./docs/architecture.md)；状态文件见 [docs/state-files.md](./docs/state-files.md)；重构进度与 ADR 见 [docs/refactor-progress.md](./docs/refactor-progress.md)、[docs/adr/](./docs/adr/)；接口契约见 [docs/contract.md](./docs/contract.md)；验收清单见 [docs/acceptance.md](./docs/acceptance.md)。
 
 ## 已知限制
 

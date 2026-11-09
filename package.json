@@ -91,6 +91,8 @@
     "format": "biome check --write lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "config:doc": "node scripts/gen-config-doc.mjs",
     "test:coverage": "npm run build:client && node --test --experimental-test-coverage --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=70 tests/data.test.mjs tests/kernel.test.mjs tests/domains/*.test.mjs tests/client/widget.test.mjs",
-    "check:types": "tsc -p tsconfig.json"
+    "check:types": "tsc -p tsconfig.json",
+    "ops:install": "node scripts/ops/install.mjs",
+    "ops:install:force": "node scripts/ops/install.mjs --force"
   }
 }
