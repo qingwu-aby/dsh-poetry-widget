@@ -59,8 +59,8 @@
     cozy: ["dsh-whale-state-daily-coffee.webp", "dsh-whale-state-weather-rain-happy.webp", "dsh-whale-state-weather-snow.webp"],
     calm: ["dsh-whale-state-idle-cute.webp"]
   });
-  function shanghaiParts(now) {
-    const date = new Date(num(now, Date.now()) + SHANGHAI_OFFSET_MS);
+  function shanghaiParts(now2) {
+    const date = new Date(num(now2, Date.now()) + SHANGHAI_OFFSET_MS);
     const hour = date.getUTCHours();
     return {
       hour,
@@ -95,13 +95,13 @@
     const opts = input && typeof input === "object" ? input : {};
     const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
     const signals = opts.signals && typeof opts.signals === "object" ? opts.signals : {};
-    const now = num(signals.now, Date.now());
-    const local = shanghaiParts(now);
+    const now2 = num(signals.now, Date.now());
+    const local2 = shanghaiParts(now2);
     const clicks = Math.max(0, Math.floor(num(signals.clicks, 0)));
     const wins = Math.max(0, Math.floor(num(signals.feihuaWins, 0)));
-    const minutes = local.minutes;
+    const minutes = local2.minutes;
     const meal = minutes >= 7 * 60 && minutes < 9 * 60 || minutes >= 11 * 60 + 30 && minutes < 13 * 60 || minutes >= 17 * 60 + 30 && minutes < 19 * 60 + 30;
-    const night = local.hour >= 23 || local.hour < 6;
+    const night = local2.hour >= 23 || local2.hour < 6;
     const category = weather && typeof weather.category === "string" ? weather.category : "";
     const rainy = category === "rain" || category === "snow" || category === "thunder";
     const tempC = weather ? Number(weather.tempC) : NaN;
@@ -135,8 +135,8 @@
       strong: MOOD_STRONG.indexOf(key) >= 0
     };
   }
-  function throttleMoodSwitch(previous, next, now, force) {
-    const time = num(now, Date.now());
+  function throttleMoodSwitch(previous, next, now2, force) {
+    const time = num(now2, Date.now());
     if (!next) return previous || null;
     if (!previous) return Object.assign({}, next, { changed: true, switchedAt: time });
     if (next.key === previous.key) {
@@ -199,16 +199,16 @@
   function moodAiQuery(options) {
     const opts = options && typeof options === "object" ? options : {};
     const params = [];
-    const add = (key, value) => {
+    const add2 = (key, value) => {
       if (value == null || value === "") return;
       params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
     };
-    if (opts.force === true) add("force", "1");
-    if (opts.manual === true) add("manual", "1");
-    add("mood", opts.moodKey);
-    add("weather", opts.weather);
+    if (opts.force === true) add2("force", "1");
+    if (opts.manual === true) add2("manual", "1");
+    add2("mood", opts.moodKey);
+    add2("weather", opts.weather);
     const recent = (Array.isArray(opts.recent) ? opts.recent : []).map((text) => String(text == null ? "" : text).trim()).filter(Boolean).slice(-MOOD_AI_RECENT_MAX);
-    if (recent.length) add("recent", recent.join("|"));
+    if (recent.length) add2("recent", recent.join("|"));
     const imageSeen = {};
     const recentImages = [];
     for (const file of Array.isArray(opts.recentImages) ? opts.recentImages : []) {
@@ -217,7 +217,7 @@
       imageSeen[clean] = true;
       recentImages.push(clean);
     }
-    if (recentImages.length) add("recentImages", recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join("|"));
+    if (recentImages.length) add2("recentImages", recentImages.slice(-MOOD_AI_RECENT_IMAGES_MAX).join("|"));
     return MOOD_AI_PATH + (params.length ? "?" + params.join("&") : "");
   }
   function parseMoodAiResponse(data, catalog) {
@@ -288,23 +288,23 @@
   function moodAiEventDelay(options) {
     const opts = options && typeof options === "object" ? options : {};
     const last = num(opts.lastRequestAt, 0);
-    const now = num(opts.now, Date.now());
+    const now2 = num(opts.now, Date.now());
     if (last > 0) {
-      const remaining = MOOD_AI_MIN_GAP_MS - (now - last);
+      const remaining = MOOD_AI_MIN_GAP_MS - (now2 - last);
       if (remaining > 0) return remaining;
     }
     return nextMoodAiDebounceDelay(opts);
   }
-  function moodTimeBucket(now) {
-    const parts = shanghaiParts(num(now, Date.now()));
+  function moodTimeBucket(now2) {
+    const parts = shanghaiParts(num(now2, Date.now()));
     const hour = parts.hour;
-    let period = "night";
-    if (hour >= 6 && hour < 11) period = "morning";
-    else if (hour >= 11 && hour < 14) period = "noon";
-    else if (hour >= 14 && hour < 18) period = "afternoon";
-    else if (hour >= 18 && hour < 22) period = "evening";
+    let period2 = "night";
+    if (hour >= 6 && hour < 11) period2 = "morning";
+    else if (hour >= 11 && hour < 14) period2 = "noon";
+    else if (hour >= 14 && hour < 18) period2 = "afternoon";
+    else if (hour >= 18 && hour < 22) period2 = "evening";
     const meal = hour === 7 || hour === 8 || hour === 11 || hour === 12 || hour === 17 || hour === 18;
-    return period + "|" + (meal ? "meal" : "offmeal");
+    return period2 + "|" + (meal ? "meal" : "offmeal");
   }
   function moodAiSnapshot(weather, feihuaWins, feihuaLosses) {
     return {
@@ -336,22 +336,22 @@
   var SELF_TALK_PATH = "self-talk.json";
   var SELF_TALK_TIMEOUT_MS = 35 * 1e3;
   var SELF_TALK_RECENT_MAX = 12;
-  function normalizeSpontState(raw, now) {
+  function normalizeSpontState(raw, now2) {
     const src = raw && typeof raw === "object" ? raw : {};
-    const dateKey = shanghaiParts(now).dateKey;
+    const dateKey = shanghaiParts(now2).dateKey;
     const seen = [];
     if (Array.isArray(src.seenIds)) {
       for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
-        let id = "";
+        let id2 = "";
         let at = 0;
-        if (typeof entry === "string") id = entry;
+        if (typeof entry === "string") id2 = entry;
         else if (entry && typeof entry === "object" && typeof entry.id === "string") {
-          id = entry.id;
+          id2 = entry.id;
           at = num(entry.at, 0);
         }
-        if (!id) continue;
-        if (at > 0 && now - at > SPONT_SEEN_DAYS) continue;
-        seen.push({ id, at });
+        if (!id2) continue;
+        if (at > 0 && now2 - at > SPONT_SEEN_DAYS) continue;
+        seen.push({ id: id2, at });
       }
     }
     const sameDay = src.date === dateKey;
@@ -364,12 +364,12 @@
       lastTag: typeof src.lastTag === "string" ? src.lastTag : ""
     };
   }
-  function recordSpontShown(state, id, now, type, tag) {
-    const base = normalizeSpontState(state, now);
-    const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now }]).slice(-SPONT_MAX_SEEN);
+  function recordSpontShown(state, id2, now2, type, tag) {
+    const base = normalizeSpontState(state, now2);
+    const seen = base.seenIds.filter((entry) => entry.id !== id2).concat([{ id: String(id2), at: now2 }]).slice(-SPONT_MAX_SEEN);
     return {
       date: base.date,
-      lastShownAt: num(now, Date.now()),
+      lastShownAt: num(now2, Date.now()),
       todayCount: base.todayCount + 1,
       seenIds: seen,
       lastType: typeof type === "string" ? type : base.lastType,
@@ -387,13 +387,13 @@
   function splitCompleteSentences(text) {
     const value = String(text == null ? "" : text);
     const out = [];
-    let start = 0;
+    let start2 = 0;
     for (let i = 0; i < value.length; i += 1) {
       const ch = value.charAt(i);
       if (ch === "\u3002" || ch === "\uFF01" || ch === "\uFF1F") {
-        const sentence = value.slice(start, i + 1).trim();
+        const sentence = value.slice(start2, i + 1).trim();
         if (sentence) out.push(sentence);
-        start = i + 1;
+        start2 = i + 1;
       }
     }
     return out;
@@ -415,8 +415,8 @@
     const withTag = scored.filter((item) => item.hits > 0);
     const pool = preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored;
     if (!pool.length) return "";
-    const index = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
-    return pool[index].sentence;
+    const index2 = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
+    return pool[index2].sentence;
   }
   function selfTalkNoveltySignature(options = {}) {
     const opts = options && typeof options === "object" ? options : {};
@@ -425,8 +425,8 @@
     const latest = status && status.actions && status.actions.latest ? status.actions.latest : null;
     const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
     const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
-    const now = typeof opts.now === "number" ? opts.now : Date.now();
-    const bucket = Math.floor(now / (20 * 60 * 1e3));
+    const now2 = typeof opts.now === "number" ? opts.now : Date.now();
+    const bucket = Math.floor(now2 / (20 * 60 * 1e3));
     return [
       "felt:" + (status && typeof status.felt === "string" ? status.felt : ""),
       "exp:" + (status && typeof status.experiencing === "string" ? status.experiencing : ""),
@@ -441,10 +441,10 @@
     const opts = options && typeof options === "object" ? options : {};
     if (opts.enabled !== true) return false;
     if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false;
-    const now = num(opts.now, Date.now());
+    const now2 = num(opts.now, Date.now());
     const lastInteraction = num(opts.lastInteractionAt, 0);
     const quietMs = num(opts.quietMs, SPONT_QUIET_MS);
-    const idleMs = lastInteraction > 0 ? Math.max(0, now - lastInteraction) : Number.POSITIVE_INFINITY;
+    const idleMs = lastInteraction > 0 ? Math.max(0, now2 - lastInteraction) : Number.POSITIVE_INFINITY;
     if (idleMs < quietMs) return false;
     return true;
   }
@@ -468,18 +468,18 @@
   function selfTalkQuery(options) {
     const opts = options && typeof options === "object" ? options : {};
     const params = [];
-    const add = (key, value) => {
+    const add2 = (key, value) => {
       if (value == null || value === "") return;
       params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
     };
-    add("kind", "murmur");
-    add("mood", opts.moodKey);
-    add("moodLabel", opts.moodLabel);
-    add("moodReason", opts.moodReason);
-    add("image", opts.image);
-    add("imageLabel", opts.imageLabel);
-    add("weather", opts.weather);
-    add("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
+    add2("kind", "murmur");
+    add2("mood", opts.moodKey);
+    add2("moodLabel", opts.moodLabel);
+    add2("moodReason", opts.moodReason);
+    add2("image", opts.image);
+    add2("imageLabel", opts.imageLabel);
+    add2("weather", opts.weather);
+    add2("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
     const seen = {};
     const recent = [];
     for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
@@ -489,7 +489,7 @@
       recent.push(clean);
     }
     const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX);
-    if (recentSlice.length) add("recent", recentSlice.join("|"));
+    if (recentSlice.length) add2("recent", recentSlice.join("|"));
     return SELF_TALK_PATH + (params.length ? "?" + params.join("&") : "");
   }
   function parseSelfTalkResponse(data) {
@@ -540,7 +540,7 @@
         return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u4ECA\u65E5\u4E00\u8BD7\u2026" });
       }
       const items = Array.isArray(api.poemItems) ? api.poemItems : [];
-      const index = items.findIndex((item) => item && item.id === poem.id);
+      const index2 = items.findIndex((item) => item && item.id === poem.id);
       const total = items.length;
       return h(
         "div",
@@ -559,7 +559,7 @@
         h(
           "div",
           { className: "dshp-pager", style: { marginTop: 0 } },
-          h("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index + 1) + (total ? " / " + total : "") + " \u9996"),
+          h("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index2 + 1) + (total ? " / " + total : "") + " \u9996"),
           h(
             "span",
             { className: "dshp-field-control" },
@@ -574,7 +574,7 @@
     }
     function ClassTab(props) {
       const api = props.api || {};
-      const [index, setIndex] = React.useState(0);
+      const [index2, setIndex] = React.useState(0);
       const resource = api.knowledgeRes || {};
       if (resource.status === "error") {
         return h(EmptyState, {
@@ -591,7 +591,7 @@
         }
         return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u8BFE\u5802\u2026" });
       }
-      const safeIndex = Math.min(Math.max(0, index), cards.length - 1);
+      const safeIndex = Math.min(Math.max(0, index2), cards.length - 1);
       const card = cards[safeIndex];
       return h(
         "div",
@@ -687,7 +687,7 @@
                 open ? h(
                   "div",
                   { className: "dshp-row-body" },
-                  (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index) => h("p", { key: index, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
+                  (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index2) => h("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
                   chapter.exampleLine ? h("div", { className: "dshp-example", style: { marginTop: "6px" } }, h("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : null
                 ) : null
               );
@@ -727,7 +727,7 @@
         items.forEach((item) => {
           if (item && item.rhythmic) seen[item.rhythmic] = true;
         });
-        return Object.keys(seen).sort((a, b) => a.localeCompare(b, "zh"));
+        return Object.keys(seen).sort((a2, b) => a2.localeCompare(b, "zh"));
       }, [items]);
       const filtered = React.useMemo(() => {
         const keyword = query.trim();
@@ -758,9 +758,9 @@
         return h(
           "div",
           { className: "dshp-list" },
-          ciCards.map((card, index) => h(
+          ciCards.map((card, index2) => h(
             "div",
-            { key: card && card.id || index, className: "dshp-card", style: { padding: "8px 2px", borderBottom: "1px solid var(--dshp-border)" } },
+            { key: card && card.id || index2, className: "dshp-card", style: { padding: "8px 2px", borderBottom: "1px solid var(--dshp-border)" } },
             h(
               "div",
               { className: "dshp-card-title", style: { fontSize: "14px" } },
@@ -835,8 +835,8 @@
           h(
             "div",
             { className: "dshp-list" },
-            shown.map((ci, index) => {
-              const ciId = ci.id || "ci-" + index;
+            shown.map((ci, index2) => {
+              const ciId = ci.id || "ci-" + index2;
               const open = openId === ciId;
               return h(
                 "div",
@@ -1366,7 +1366,7 @@
           status.project.latestReport ? h("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
           status.project.latestRepeat > 1 ? h("div", { className: "dshp-growth-empty", style: { color: "#b58a4a" } }, "\u6700\u8FD1\u8FD9\u6B65\u91CD\u590D\u4E86 " + status.project.latestRepeat + " \u6B21" + (status.project.progressAt ? "\uFF0C\u4E0A\u6B21\u771F\u6B63\u63A8\u8FDB\u5728 " + (weatherUpdatedLabel(status.project.progressAt) || "--:--") : "") + "\uFF0C\u8FD8\u6CA1\u6709\u65B0\u8FDB\u5C55") : null,
           status.project.attention && status.project.attention.question ? h("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
-          ...status.project.steps.map((step, index) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
+          ...status.project.steps.map((step, index2) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index2 }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
           h(
             "div",
             { style: { display: "flex", gap: 6, marginTop: 6 } },
@@ -1387,9 +1387,9 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u9879\u76EE\u8BE6\u60C5"),
-          (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index) => h(
+          (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index2) => h(
             "div",
-            { className: "dshp-growth-empty", key: "detail-step-" + index },
+            { className: "dshp-growth-empty", key: "detail-step-" + index2 },
             (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
           )),
           api.projectDetail.completed && api.projectDetail.completed.length ? h("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
@@ -1405,9 +1405,9 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u81EA\u4E3B\u884C\u4E3A"),
-          recentActions.length ? recentActions.map((item, index) => h(
+          recentActions.length ? recentActions.map((item, index2) => h(
             "div",
-            { className: "dshp-growth-action", key: "action-" + (item.id || index) },
+            { className: "dshp-growth-action", key: "action-" + (item.id || index2) },
             h("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel(item.at) || "--:--"),
             h("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
           )) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
@@ -1440,9 +1440,9 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u6211\u7684\u4F5C\u54C1"),
-          works.map((work, index) => h(
+          works.map((work, index2) => h(
             "div",
-            { className: "dshp-work", key: "work-" + (work.id || index) },
+            { className: "dshp-work", key: "work-" + (work.id || index2) },
             h("div", { className: "dshp-work-title" }, work.title),
             (work.kind === "svg" || work.kind === "image") && work.src ? h("img", { className: "dshp-work-art", src: work.src, alt: work.title, loading: "lazy" }) : work.kind === "video" && work.src ? h("video", { className: "dshp-work-art", src: work.src, controls: true, playsInline: true, preload: "metadata" }) : h("div", { className: "dshp-growth-quote" }, work.body),
             h("div", { className: "dshp-work-time" }, weatherUpdatedLabel(work.createdAt) || "--:--")
@@ -1452,7 +1452,7 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u6700\u8FD1\u8BF4\u8FC7\u7684\u8BDD"),
-          recent.length ? recent.map((text, index) => h("div", { className: "dshp-growth-quote", key: "recent-" + index }, "\u300C" + String(text) + "\u300D")) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
+          recent.length ? recent.map((text, index2) => h("div", { className: "dshp-growth-quote", key: "recent-" + index2 }, "\u300C" + String(text) + "\u300D")) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
         ),
         h(
           "div",
@@ -1476,54 +1476,3572 @@
     return GrowthTab;
   }
 
+  // node_modules/d3-quadtree/dist/d3-quadtree.mjs
+  function tree_add(d) {
+    const x = +this._x.call(null, d), y = +this._y.call(null, d);
+    return add(this.cover(x, y), x, y, d);
+  }
+  function add(tree, x, y, d) {
+    if (isNaN(x) || isNaN(y)) return tree;
+    var parent, node = tree._root, leaf = { data: d }, x0 = tree._x0, y0 = tree._y0, x1 = tree._x1, y1 = tree._y1, xm, ym, xp, yp, right, bottom, i, j;
+    if (!node) return tree._root = leaf, tree;
+    while (node.length) {
+      if (right = x >= (xm = (x0 + x1) / 2)) x0 = xm;
+      else x1 = xm;
+      if (bottom = y >= (ym = (y0 + y1) / 2)) y0 = ym;
+      else y1 = ym;
+      if (parent = node, !(node = node[i = bottom << 1 | right])) return parent[i] = leaf, tree;
+    }
+    xp = +tree._x.call(null, node.data);
+    yp = +tree._y.call(null, node.data);
+    if (x === xp && y === yp) return leaf.next = node, parent ? parent[i] = leaf : tree._root = leaf, tree;
+    do {
+      parent = parent ? parent[i] = new Array(4) : tree._root = new Array(4);
+      if (right = x >= (xm = (x0 + x1) / 2)) x0 = xm;
+      else x1 = xm;
+      if (bottom = y >= (ym = (y0 + y1) / 2)) y0 = ym;
+      else y1 = ym;
+    } while ((i = bottom << 1 | right) === (j = (yp >= ym) << 1 | xp >= xm));
+    return parent[j] = node, parent[i] = leaf, tree;
+  }
+  function addAll(data) {
+    if (!Array.isArray(data)) data = Array.from(data);
+    const n = data.length;
+    const xz = new Float64Array(n);
+    const yz = new Float64Array(n);
+    let x0 = Infinity, y0 = x0, x1 = -x0, y1 = x1;
+    for (let i = 0, d, x, y; i < n; ++i) {
+      if (isNaN(x = +this._x.call(null, d = data[i])) || isNaN(y = +this._y.call(null, d))) {
+        xz[i] = NaN;
+        continue;
+      }
+      xz[i] = x;
+      yz[i] = y;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    if (x0 > x1 || y0 > y1) return this;
+    this.cover(x0, y0).cover(x1, y1);
+    for (let i = 0; i < n; ++i) {
+      add(this, xz[i], yz[i], data[i]);
+    }
+    return this;
+  }
+  function tree_cover(x, y) {
+    if (isNaN(x = +x) || isNaN(y = +y)) return this;
+    var x0 = this._x0, y0 = this._y0, x1 = this._x1, y1 = this._y1;
+    if (isNaN(x0)) {
+      x1 = (x0 = Math.floor(x)) + 1;
+      y1 = (y0 = Math.floor(y)) + 1;
+    } else {
+      var z = x1 - x0 || 1, node = this._root, parent, i;
+      while (x0 > x || x >= x1 || y0 > y || y >= y1) {
+        i = (y < y0) << 1 | x < x0;
+        parent = new Array(4), parent[i] = node, node = parent, z *= 2;
+        switch (i) {
+          case 0:
+            x1 = x0 + z, y1 = y0 + z;
+            break;
+          case 1:
+            x0 = x1 - z, y1 = y0 + z;
+            break;
+          case 2:
+            x1 = x0 + z, y0 = y1 - z;
+            break;
+          case 3:
+            x0 = x1 - z, y0 = y1 - z;
+            break;
+        }
+      }
+      if (this._root && this._root.length) this._root = node;
+    }
+    this._x0 = x0;
+    this._y0 = y0;
+    this._x1 = x1;
+    this._y1 = y1;
+    return this;
+  }
+  function tree_data() {
+    var data = [];
+    this.visit(function(node) {
+      if (!node.length) do
+        data.push(node.data);
+      while (node = node.next);
+    });
+    return data;
+  }
+  function tree_extent(_) {
+    return arguments.length ? this.cover(+_[0][0], +_[0][1]).cover(+_[1][0], +_[1][1]) : isNaN(this._x0) ? void 0 : [[this._x0, this._y0], [this._x1, this._y1]];
+  }
+  function Quad(node, x0, y0, x1, y1) {
+    this.node = node;
+    this.x0 = x0;
+    this.y0 = y0;
+    this.x1 = x1;
+    this.y1 = y1;
+  }
+  function tree_find(x, y, radius) {
+    var data, x0 = this._x0, y0 = this._y0, x1, y1, x2, y2, x3 = this._x1, y3 = this._y1, quads = [], node = this._root, q, i;
+    if (node) quads.push(new Quad(node, x0, y0, x3, y3));
+    if (radius == null) radius = Infinity;
+    else {
+      x0 = x - radius, y0 = y - radius;
+      x3 = x + radius, y3 = y + radius;
+      radius *= radius;
+    }
+    while (q = quads.pop()) {
+      if (!(node = q.node) || (x1 = q.x0) > x3 || (y1 = q.y0) > y3 || (x2 = q.x1) < x0 || (y2 = q.y1) < y0) continue;
+      if (node.length) {
+        var xm = (x1 + x2) / 2, ym = (y1 + y2) / 2;
+        quads.push(
+          new Quad(node[3], xm, ym, x2, y2),
+          new Quad(node[2], x1, ym, xm, y2),
+          new Quad(node[1], xm, y1, x2, ym),
+          new Quad(node[0], x1, y1, xm, ym)
+        );
+        if (i = (y >= ym) << 1 | x >= xm) {
+          q = quads[quads.length - 1];
+          quads[quads.length - 1] = quads[quads.length - 1 - i];
+          quads[quads.length - 1 - i] = q;
+        }
+      } else {
+        var dx = x - +this._x.call(null, node.data), dy = y - +this._y.call(null, node.data), d2 = dx * dx + dy * dy;
+        if (d2 < radius) {
+          var d = Math.sqrt(radius = d2);
+          x0 = x - d, y0 = y - d;
+          x3 = x + d, y3 = y + d;
+          data = node.data;
+        }
+      }
+    }
+    return data;
+  }
+  function tree_remove(d) {
+    if (isNaN(x = +this._x.call(null, d)) || isNaN(y = +this._y.call(null, d))) return this;
+    var parent, node = this._root, retainer, previous, next, x0 = this._x0, y0 = this._y0, x1 = this._x1, y1 = this._y1, x, y, xm, ym, right, bottom, i, j;
+    if (!node) return this;
+    if (node.length) while (true) {
+      if (right = x >= (xm = (x0 + x1) / 2)) x0 = xm;
+      else x1 = xm;
+      if (bottom = y >= (ym = (y0 + y1) / 2)) y0 = ym;
+      else y1 = ym;
+      if (!(parent = node, node = node[i = bottom << 1 | right])) return this;
+      if (!node.length) break;
+      if (parent[i + 1 & 3] || parent[i + 2 & 3] || parent[i + 3 & 3]) retainer = parent, j = i;
+    }
+    while (node.data !== d) if (!(previous = node, node = node.next)) return this;
+    if (next = node.next) delete node.next;
+    if (previous) return next ? previous.next = next : delete previous.next, this;
+    if (!parent) return this._root = next, this;
+    next ? parent[i] = next : delete parent[i];
+    if ((node = parent[0] || parent[1] || parent[2] || parent[3]) && node === (parent[3] || parent[2] || parent[1] || parent[0]) && !node.length) {
+      if (retainer) retainer[j] = node;
+      else this._root = node;
+    }
+    return this;
+  }
+  function removeAll(data) {
+    for (var i = 0, n = data.length; i < n; ++i) this.remove(data[i]);
+    return this;
+  }
+  function tree_root() {
+    return this._root;
+  }
+  function tree_size() {
+    var size = 0;
+    this.visit(function(node) {
+      if (!node.length) do
+        ++size;
+      while (node = node.next);
+    });
+    return size;
+  }
+  function tree_visit(callback) {
+    var quads = [], q, node = this._root, child, x0, y0, x1, y1;
+    if (node) quads.push(new Quad(node, this._x0, this._y0, this._x1, this._y1));
+    while (q = quads.pop()) {
+      if (!callback(node = q.node, x0 = q.x0, y0 = q.y0, x1 = q.x1, y1 = q.y1) && node.length) {
+        var xm = (x0 + x1) / 2, ym = (y0 + y1) / 2;
+        if (child = node[3]) quads.push(new Quad(child, xm, ym, x1, y1));
+        if (child = node[2]) quads.push(new Quad(child, x0, ym, xm, y1));
+        if (child = node[1]) quads.push(new Quad(child, xm, y0, x1, ym));
+        if (child = node[0]) quads.push(new Quad(child, x0, y0, xm, ym));
+      }
+    }
+    return this;
+  }
+  function tree_visitAfter(callback) {
+    var quads = [], next = [], q;
+    if (this._root) quads.push(new Quad(this._root, this._x0, this._y0, this._x1, this._y1));
+    while (q = quads.pop()) {
+      var node = q.node;
+      if (node.length) {
+        var child, x0 = q.x0, y0 = q.y0, x1 = q.x1, y1 = q.y1, xm = (x0 + x1) / 2, ym = (y0 + y1) / 2;
+        if (child = node[0]) quads.push(new Quad(child, x0, y0, xm, ym));
+        if (child = node[1]) quads.push(new Quad(child, xm, y0, x1, ym));
+        if (child = node[2]) quads.push(new Quad(child, x0, ym, xm, y1));
+        if (child = node[3]) quads.push(new Quad(child, xm, ym, x1, y1));
+      }
+      next.push(q);
+    }
+    while (q = next.pop()) {
+      callback(q.node, q.x0, q.y0, q.x1, q.y1);
+    }
+    return this;
+  }
+  function defaultX(d) {
+    return d[0];
+  }
+  function tree_x(_) {
+    return arguments.length ? (this._x = _, this) : this._x;
+  }
+  function defaultY(d) {
+    return d[1];
+  }
+  function tree_y(_) {
+    return arguments.length ? (this._y = _, this) : this._y;
+  }
+  function quadtree(nodes, x, y) {
+    var tree = new Quadtree(x == null ? defaultX : x, y == null ? defaultY : y, NaN, NaN, NaN, NaN);
+    return nodes == null ? tree : tree.addAll(nodes);
+  }
+  function Quadtree(x, y, x0, y0, x1, y1) {
+    this._x = x;
+    this._y = y;
+    this._x0 = x0;
+    this._y0 = y0;
+    this._x1 = x1;
+    this._y1 = y1;
+    this._root = void 0;
+  }
+  function leaf_copy(leaf) {
+    var copy = { data: leaf.data }, next = copy;
+    while (leaf = leaf.next) next = next.next = { data: leaf.data };
+    return copy;
+  }
+  var treeProto = quadtree.prototype = Quadtree.prototype;
+  treeProto.copy = function() {
+    var copy = new Quadtree(this._x, this._y, this._x0, this._y0, this._x1, this._y1), node = this._root, nodes, child;
+    if (!node) return copy;
+    if (!node.length) return copy._root = leaf_copy(node), copy;
+    nodes = [{ source: node, target: copy._root = new Array(4) }];
+    while (node = nodes.pop()) {
+      for (var i = 0; i < 4; ++i) {
+        if (child = node.source[i]) {
+          if (child.length) nodes.push({ source: child, target: node.target[i] = new Array(4) });
+          else node.target[i] = leaf_copy(child);
+        }
+      }
+    }
+    return copy;
+  };
+  treeProto.add = tree_add;
+  treeProto.addAll = addAll;
+  treeProto.cover = tree_cover;
+  treeProto.data = tree_data;
+  treeProto.extent = tree_extent;
+  treeProto.find = tree_find;
+  treeProto.remove = tree_remove;
+  treeProto.removeAll = removeAll;
+  treeProto.root = tree_root;
+  treeProto.size = tree_size;
+  treeProto.visit = tree_visit;
+  treeProto.visitAfter = tree_visitAfter;
+  treeProto.x = tree_x;
+  treeProto.y = tree_y;
+
+  // node_modules/d3-dispatch/dist/d3-dispatch.mjs
+  var noop = { value: () => {
+  } };
+  function dispatch() {
+    for (var i = 0, n = arguments.length, _ = {}, t; i < n; ++i) {
+      if (!(t = arguments[i] + "") || t in _ || /[\s.]/.test(t)) throw new Error("illegal type: " + t);
+      _[t] = [];
+    }
+    return new Dispatch(_);
+  }
+  function Dispatch(_) {
+    this._ = _;
+  }
+  function parseTypenames(typenames, types) {
+    return typenames.trim().split(/^|\s+/).map(function(t) {
+      var name = "", i = t.indexOf(".");
+      if (i >= 0) name = t.slice(i + 1), t = t.slice(0, i);
+      if (t && !types.hasOwnProperty(t)) throw new Error("unknown type: " + t);
+      return { type: t, name };
+    });
+  }
+  Dispatch.prototype = dispatch.prototype = {
+    constructor: Dispatch,
+    on: function(typename, callback) {
+      var _ = this._, T = parseTypenames(typename + "", _), t, i = -1, n = T.length;
+      if (arguments.length < 2) {
+        while (++i < n) if ((t = (typename = T[i]).type) && (t = get(_[t], typename.name))) return t;
+        return;
+      }
+      if (callback != null && typeof callback !== "function") throw new Error("invalid callback: " + callback);
+      while (++i < n) {
+        if (t = (typename = T[i]).type) _[t] = set(_[t], typename.name, callback);
+        else if (callback == null) for (t in _) _[t] = set(_[t], typename.name, null);
+      }
+      return this;
+    },
+    copy: function() {
+      var copy = {}, _ = this._;
+      for (var t in _) copy[t] = _[t].slice();
+      return new Dispatch(copy);
+    },
+    call: function(type, that) {
+      if ((n = arguments.length - 2) > 0) for (var args = new Array(n), i = 0, n, t; i < n; ++i) args[i] = arguments[i + 2];
+      if (!this._.hasOwnProperty(type)) throw new Error("unknown type: " + type);
+      for (t = this._[type], i = 0, n = t.length; i < n; ++i) t[i].value.apply(that, args);
+    },
+    apply: function(type, that, args) {
+      if (!this._.hasOwnProperty(type)) throw new Error("unknown type: " + type);
+      for (var t = this._[type], i = 0, n = t.length; i < n; ++i) t[i].value.apply(that, args);
+    }
+  };
+  function get(type, name) {
+    for (var i = 0, n = type.length, c2; i < n; ++i) {
+      if ((c2 = type[i]).name === name) {
+        return c2.value;
+      }
+    }
+  }
+  function set(type, name, callback) {
+    for (var i = 0, n = type.length; i < n; ++i) {
+      if (type[i].name === name) {
+        type[i] = noop, type = type.slice(0, i).concat(type.slice(i + 1));
+        break;
+      }
+    }
+    if (callback != null) type.push({ name, value: callback });
+    return type;
+  }
+
+  // node_modules/d3-timer/dist/d3-timer.mjs
+  var frame = 0;
+  var timeout$1 = 0;
+  var interval$1 = 0;
+  var pokeDelay = 1e3;
+  var taskHead;
+  var taskTail;
+  var clockLast = 0;
+  var clockNow = 0;
+  var clockSkew = 0;
+  var clock = typeof performance === "object" && performance.now ? performance : Date;
+  var setFrame = typeof window === "object" && window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : function(f) {
+    setTimeout(f, 17);
+  };
+  function now() {
+    return clockNow || (setFrame(clearNow), clockNow = clock.now() + clockSkew);
+  }
+  function clearNow() {
+    clockNow = 0;
+  }
+  function Timer() {
+    this._call = this._time = this._next = null;
+  }
+  Timer.prototype = timer.prototype = {
+    constructor: Timer,
+    restart: function(callback, delay, time) {
+      if (typeof callback !== "function") throw new TypeError("callback is not a function");
+      time = (time == null ? now() : +time) + (delay == null ? 0 : +delay);
+      if (!this._next && taskTail !== this) {
+        if (taskTail) taskTail._next = this;
+        else taskHead = this;
+        taskTail = this;
+      }
+      this._call = callback;
+      this._time = time;
+      sleep();
+    },
+    stop: function() {
+      if (this._call) {
+        this._call = null;
+        this._time = Infinity;
+        sleep();
+      }
+    }
+  };
+  function timer(callback, delay, time) {
+    var t = new Timer();
+    t.restart(callback, delay, time);
+    return t;
+  }
+  function timerFlush() {
+    now();
+    ++frame;
+    var t = taskHead, e;
+    while (t) {
+      if ((e = clockNow - t._time) >= 0) t._call.call(void 0, e);
+      t = t._next;
+    }
+    --frame;
+  }
+  function wake() {
+    clockNow = (clockLast = clock.now()) + clockSkew;
+    frame = timeout$1 = 0;
+    try {
+      timerFlush();
+    } finally {
+      frame = 0;
+      nap();
+      clockNow = 0;
+    }
+  }
+  function poke() {
+    var now2 = clock.now(), delay = now2 - clockLast;
+    if (delay > pokeDelay) clockSkew -= delay, clockLast = now2;
+  }
+  function nap() {
+    var t02, t12 = taskHead, t22, time = Infinity;
+    while (t12) {
+      if (t12._call) {
+        if (time > t12._time) time = t12._time;
+        t02 = t12, t12 = t12._next;
+      } else {
+        t22 = t12._next, t12._next = null;
+        t12 = t02 ? t02._next = t22 : taskHead = t22;
+      }
+    }
+    taskTail = t02;
+    sleep(time);
+  }
+  function sleep(time) {
+    if (frame) return;
+    if (timeout$1) timeout$1 = clearTimeout(timeout$1);
+    var delay = time - clockNow;
+    if (delay > 24) {
+      if (time < Infinity) timeout$1 = setTimeout(wake, Math.ceil(time - clock.now() - clockSkew) + 1);
+      if (interval$1) interval$1 = clearInterval(interval$1);
+    } else {
+      if (!interval$1) clockLast = clock.now(), interval$1 = setInterval(poke, pokeDelay);
+      frame = 1, setFrame(wake);
+    }
+  }
+  function timeout(callback, delay, time) {
+    var t = new Timer();
+    delay = delay == null ? 0 : +delay;
+    t.restart((elapsed) => {
+      t.stop();
+      callback(elapsed + delay);
+    }, delay, time);
+    return t;
+  }
+
+  // node_modules/d3-force/dist/d3-force.mjs
+  function center(x, y) {
+    var nodes, strength = 1;
+    if (x == null) x = 0;
+    if (y == null) y = 0;
+    function force() {
+      var i, n = nodes.length, node, sx = 0, sy = 0;
+      for (i = 0; i < n; ++i) {
+        node = nodes[i], sx += node.x, sy += node.y;
+      }
+      for (sx = (sx / n - x) * strength, sy = (sy / n - y) * strength, i = 0; i < n; ++i) {
+        node = nodes[i], node.x -= sx, node.y -= sy;
+      }
+    }
+    force.initialize = function(_) {
+      nodes = _;
+    };
+    force.x = function(_) {
+      return arguments.length ? (x = +_, force) : x;
+    };
+    force.y = function(_) {
+      return arguments.length ? (y = +_, force) : y;
+    };
+    force.strength = function(_) {
+      return arguments.length ? (strength = +_, force) : strength;
+    };
+    return force;
+  }
+  function constant(x) {
+    return function() {
+      return x;
+    };
+  }
+  function jiggle(random) {
+    return (random() - 0.5) * 1e-6;
+  }
+  function x$2(d) {
+    return d.x + d.vx;
+  }
+  function y$2(d) {
+    return d.y + d.vy;
+  }
+  function collide(radius) {
+    var nodes, radii, random, strength = 1, iterations = 1;
+    if (typeof radius !== "function") radius = constant(radius == null ? 1 : +radius);
+    function force() {
+      var i, n = nodes.length, tree, node, xi, yi, ri, ri2;
+      for (var k = 0; k < iterations; ++k) {
+        tree = quadtree(nodes, x$2, y$2).visitAfter(prepare);
+        for (i = 0; i < n; ++i) {
+          node = nodes[i];
+          ri = radii[node.index], ri2 = ri * ri;
+          xi = node.x + node.vx;
+          yi = node.y + node.vy;
+          tree.visit(apply);
+        }
+      }
+      function apply(quad, x0, y0, x1, y1) {
+        var data = quad.data, rj = quad.r, r = ri + rj;
+        if (data) {
+          if (data.index > node.index) {
+            var x = xi - data.x - data.vx, y = yi - data.y - data.vy, l = x * x + y * y;
+            if (l < r * r) {
+              if (x === 0) x = jiggle(random), l += x * x;
+              if (y === 0) y = jiggle(random), l += y * y;
+              l = (r - (l = Math.sqrt(l))) / l * strength;
+              node.vx += (x *= l) * (r = (rj *= rj) / (ri2 + rj));
+              node.vy += (y *= l) * r;
+              data.vx -= x * (r = 1 - r);
+              data.vy -= y * r;
+            }
+          }
+          return;
+        }
+        return x0 > xi + r || x1 < xi - r || y0 > yi + r || y1 < yi - r;
+      }
+    }
+    function prepare(quad) {
+      if (quad.data) return quad.r = radii[quad.data.index];
+      for (var i = quad.r = 0; i < 4; ++i) {
+        if (quad[i] && quad[i].r > quad.r) {
+          quad.r = quad[i].r;
+        }
+      }
+    }
+    function initialize() {
+      if (!nodes) return;
+      var i, n = nodes.length, node;
+      radii = new Array(n);
+      for (i = 0; i < n; ++i) node = nodes[i], radii[node.index] = +radius(node, i, nodes);
+    }
+    force.initialize = function(_nodes, _random) {
+      nodes = _nodes;
+      random = _random;
+      initialize();
+    };
+    force.iterations = function(_) {
+      return arguments.length ? (iterations = +_, force) : iterations;
+    };
+    force.strength = function(_) {
+      return arguments.length ? (strength = +_, force) : strength;
+    };
+    force.radius = function(_) {
+      return arguments.length ? (radius = typeof _ === "function" ? _ : constant(+_), initialize(), force) : radius;
+    };
+    return force;
+  }
+  function index(d) {
+    return d.index;
+  }
+  function find(nodeById, nodeId) {
+    var node = nodeById.get(nodeId);
+    if (!node) throw new Error("node not found: " + nodeId);
+    return node;
+  }
+  function link(links) {
+    var id2 = index, strength = defaultStrength, strengths, distance = constant(30), distances, nodes, count, bias, random, iterations = 1;
+    if (links == null) links = [];
+    function defaultStrength(link2) {
+      return 1 / Math.min(count[link2.source.index], count[link2.target.index]);
+    }
+    function force(alpha) {
+      for (var k = 0, n = links.length; k < iterations; ++k) {
+        for (var i = 0, link2, source, target, x, y, l, b; i < n; ++i) {
+          link2 = links[i], source = link2.source, target = link2.target;
+          x = target.x + target.vx - source.x - source.vx || jiggle(random);
+          y = target.y + target.vy - source.y - source.vy || jiggle(random);
+          l = Math.sqrt(x * x + y * y);
+          l = (l - distances[i]) / l * alpha * strengths[i];
+          x *= l, y *= l;
+          target.vx -= x * (b = bias[i]);
+          target.vy -= y * b;
+          source.vx += x * (b = 1 - b);
+          source.vy += y * b;
+        }
+      }
+    }
+    function initialize() {
+      if (!nodes) return;
+      var i, n = nodes.length, m2 = links.length, nodeById = new Map(nodes.map((d, i2) => [id2(d, i2, nodes), d])), link2;
+      for (i = 0, count = new Array(n); i < m2; ++i) {
+        link2 = links[i], link2.index = i;
+        if (typeof link2.source !== "object") link2.source = find(nodeById, link2.source);
+        if (typeof link2.target !== "object") link2.target = find(nodeById, link2.target);
+        count[link2.source.index] = (count[link2.source.index] || 0) + 1;
+        count[link2.target.index] = (count[link2.target.index] || 0) + 1;
+      }
+      for (i = 0, bias = new Array(m2); i < m2; ++i) {
+        link2 = links[i], bias[i] = count[link2.source.index] / (count[link2.source.index] + count[link2.target.index]);
+      }
+      strengths = new Array(m2), initializeStrength();
+      distances = new Array(m2), initializeDistance();
+    }
+    function initializeStrength() {
+      if (!nodes) return;
+      for (var i = 0, n = links.length; i < n; ++i) {
+        strengths[i] = +strength(links[i], i, links);
+      }
+    }
+    function initializeDistance() {
+      if (!nodes) return;
+      for (var i = 0, n = links.length; i < n; ++i) {
+        distances[i] = +distance(links[i], i, links);
+      }
+    }
+    force.initialize = function(_nodes, _random) {
+      nodes = _nodes;
+      random = _random;
+      initialize();
+    };
+    force.links = function(_) {
+      return arguments.length ? (links = _, initialize(), force) : links;
+    };
+    force.id = function(_) {
+      return arguments.length ? (id2 = _, force) : id2;
+    };
+    force.iterations = function(_) {
+      return arguments.length ? (iterations = +_, force) : iterations;
+    };
+    force.strength = function(_) {
+      return arguments.length ? (strength = typeof _ === "function" ? _ : constant(+_), initializeStrength(), force) : strength;
+    };
+    force.distance = function(_) {
+      return arguments.length ? (distance = typeof _ === "function" ? _ : constant(+_), initializeDistance(), force) : distance;
+    };
+    return force;
+  }
+  var a = 1664525;
+  var c = 1013904223;
+  var m = 4294967296;
+  function lcg() {
+    let s = 1;
+    return () => (s = (a * s + c) % m) / m;
+  }
+  function x$1(d) {
+    return d.x;
+  }
+  function y$1(d) {
+    return d.y;
+  }
+  var initialRadius = 10;
+  var initialAngle = Math.PI * (3 - Math.sqrt(5));
+  function simulation(nodes) {
+    var simulation2, alpha = 1, alphaMin = 1e-3, alphaDecay = 1 - Math.pow(alphaMin, 1 / 300), alphaTarget = 0, velocityDecay = 0.6, forces = /* @__PURE__ */ new Map(), stepper = timer(step), event = dispatch("tick", "end"), random = lcg();
+    if (nodes == null) nodes = [];
+    function step() {
+      tick();
+      event.call("tick", simulation2);
+      if (alpha < alphaMin) {
+        stepper.stop();
+        event.call("end", simulation2);
+      }
+    }
+    function tick(iterations) {
+      var i, n = nodes.length, node;
+      if (iterations === void 0) iterations = 1;
+      for (var k = 0; k < iterations; ++k) {
+        alpha += (alphaTarget - alpha) * alphaDecay;
+        forces.forEach(function(force) {
+          force(alpha);
+        });
+        for (i = 0; i < n; ++i) {
+          node = nodes[i];
+          if (node.fx == null) node.x += node.vx *= velocityDecay;
+          else node.x = node.fx, node.vx = 0;
+          if (node.fy == null) node.y += node.vy *= velocityDecay;
+          else node.y = node.fy, node.vy = 0;
+        }
+      }
+      return simulation2;
+    }
+    function initializeNodes() {
+      for (var i = 0, n = nodes.length, node; i < n; ++i) {
+        node = nodes[i], node.index = i;
+        if (node.fx != null) node.x = node.fx;
+        if (node.fy != null) node.y = node.fy;
+        if (isNaN(node.x) || isNaN(node.y)) {
+          var radius = initialRadius * Math.sqrt(0.5 + i), angle = i * initialAngle;
+          node.x = radius * Math.cos(angle);
+          node.y = radius * Math.sin(angle);
+        }
+        if (isNaN(node.vx) || isNaN(node.vy)) {
+          node.vx = node.vy = 0;
+        }
+      }
+    }
+    function initializeForce(force) {
+      if (force.initialize) force.initialize(nodes, random);
+      return force;
+    }
+    initializeNodes();
+    return simulation2 = {
+      tick,
+      restart: function() {
+        return stepper.restart(step), simulation2;
+      },
+      stop: function() {
+        return stepper.stop(), simulation2;
+      },
+      nodes: function(_) {
+        return arguments.length ? (nodes = _, initializeNodes(), forces.forEach(initializeForce), simulation2) : nodes;
+      },
+      alpha: function(_) {
+        return arguments.length ? (alpha = +_, simulation2) : alpha;
+      },
+      alphaMin: function(_) {
+        return arguments.length ? (alphaMin = +_, simulation2) : alphaMin;
+      },
+      alphaDecay: function(_) {
+        return arguments.length ? (alphaDecay = +_, simulation2) : +alphaDecay;
+      },
+      alphaTarget: function(_) {
+        return arguments.length ? (alphaTarget = +_, simulation2) : alphaTarget;
+      },
+      velocityDecay: function(_) {
+        return arguments.length ? (velocityDecay = 1 - _, simulation2) : 1 - velocityDecay;
+      },
+      randomSource: function(_) {
+        return arguments.length ? (random = _, forces.forEach(initializeForce), simulation2) : random;
+      },
+      force: function(name, _) {
+        return arguments.length > 1 ? (_ == null ? forces.delete(name) : forces.set(name, initializeForce(_)), simulation2) : forces.get(name);
+      },
+      find: function(x, y, radius) {
+        var i = 0, n = nodes.length, dx, dy, d2, node, closest;
+        if (radius == null) radius = Infinity;
+        else radius *= radius;
+        for (i = 0; i < n; ++i) {
+          node = nodes[i];
+          dx = x - node.x;
+          dy = y - node.y;
+          d2 = dx * dx + dy * dy;
+          if (d2 < radius) closest = node, radius = d2;
+        }
+        return closest;
+      },
+      on: function(name, _) {
+        return arguments.length > 1 ? (event.on(name, _), simulation2) : event.on(name);
+      }
+    };
+  }
+  function manyBody() {
+    var nodes, node, random, alpha, strength = constant(-30), strengths, distanceMin2 = 1, distanceMax2 = Infinity, theta2 = 0.81;
+    function force(_) {
+      var i, n = nodes.length, tree = quadtree(nodes, x$1, y$1).visitAfter(accumulate);
+      for (alpha = _, i = 0; i < n; ++i) node = nodes[i], tree.visit(apply);
+    }
+    function initialize() {
+      if (!nodes) return;
+      var i, n = nodes.length, node2;
+      strengths = new Array(n);
+      for (i = 0; i < n; ++i) node2 = nodes[i], strengths[node2.index] = +strength(node2, i, nodes);
+    }
+    function accumulate(quad) {
+      var strength2 = 0, q, c2, weight = 0, x, y, i;
+      if (quad.length) {
+        for (x = y = i = 0; i < 4; ++i) {
+          if ((q = quad[i]) && (c2 = Math.abs(q.value))) {
+            strength2 += q.value, weight += c2, x += c2 * q.x, y += c2 * q.y;
+          }
+        }
+        quad.x = x / weight;
+        quad.y = y / weight;
+      } else {
+        q = quad;
+        q.x = q.data.x;
+        q.y = q.data.y;
+        do
+          strength2 += strengths[q.data.index];
+        while (q = q.next);
+      }
+      quad.value = strength2;
+    }
+    function apply(quad, x1, _, x2) {
+      if (!quad.value) return true;
+      var x = quad.x - node.x, y = quad.y - node.y, w = x2 - x1, l = x * x + y * y;
+      if (w * w / theta2 < l) {
+        if (l < distanceMax2) {
+          if (x === 0) x = jiggle(random), l += x * x;
+          if (y === 0) y = jiggle(random), l += y * y;
+          if (l < distanceMin2) l = Math.sqrt(distanceMin2 * l);
+          node.vx += x * quad.value * alpha / l;
+          node.vy += y * quad.value * alpha / l;
+        }
+        return true;
+      } else if (quad.length || l >= distanceMax2) return;
+      if (quad.data !== node || quad.next) {
+        if (x === 0) x = jiggle(random), l += x * x;
+        if (y === 0) y = jiggle(random), l += y * y;
+        if (l < distanceMin2) l = Math.sqrt(distanceMin2 * l);
+      }
+      do
+        if (quad.data !== node) {
+          w = strengths[quad.data.index] * alpha / l;
+          node.vx += x * w;
+          node.vy += y * w;
+        }
+      while (quad = quad.next);
+    }
+    force.initialize = function(_nodes, _random) {
+      nodes = _nodes;
+      random = _random;
+      initialize();
+    };
+    force.strength = function(_) {
+      return arguments.length ? (strength = typeof _ === "function" ? _ : constant(+_), initialize(), force) : strength;
+    };
+    force.distanceMin = function(_) {
+      return arguments.length ? (distanceMin2 = _ * _, force) : Math.sqrt(distanceMin2);
+    };
+    force.distanceMax = function(_) {
+      return arguments.length ? (distanceMax2 = _ * _, force) : Math.sqrt(distanceMax2);
+    };
+    force.theta = function(_) {
+      return arguments.length ? (theta2 = _ * _, force) : Math.sqrt(theta2);
+    };
+    return force;
+  }
+
+  // node_modules/d3-selection/dist/d3-selection.mjs
+  var xhtml = "http://www.w3.org/1999/xhtml";
+  var namespaces = {
+    svg: "http://www.w3.org/2000/svg",
+    xhtml,
+    xlink: "http://www.w3.org/1999/xlink",
+    xml: "http://www.w3.org/XML/1998/namespace",
+    xmlns: "http://www.w3.org/2000/xmlns/"
+  };
+  function namespace(name) {
+    var prefix = name += "", i = prefix.indexOf(":");
+    if (i >= 0 && (prefix = name.slice(0, i)) !== "xmlns") name = name.slice(i + 1);
+    return namespaces.hasOwnProperty(prefix) ? { space: namespaces[prefix], local: name } : name;
+  }
+  function creatorInherit(name) {
+    return function() {
+      var document2 = this.ownerDocument, uri = this.namespaceURI;
+      return uri === xhtml && document2.documentElement.namespaceURI === xhtml ? document2.createElement(name) : document2.createElementNS(uri, name);
+    };
+  }
+  function creatorFixed(fullname) {
+    return function() {
+      return this.ownerDocument.createElementNS(fullname.space, fullname.local);
+    };
+  }
+  function creator(name) {
+    var fullname = namespace(name);
+    return (fullname.local ? creatorFixed : creatorInherit)(fullname);
+  }
+  function none() {
+  }
+  function selector(selector2) {
+    return selector2 == null ? none : function() {
+      return this.querySelector(selector2);
+    };
+  }
+  function selection_select(select2) {
+    if (typeof select2 !== "function") select2 = selector(select2);
+    for (var groups = this._groups, m2 = groups.length, subgroups = new Array(m2), j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, subgroup = subgroups[j] = new Array(n), node, subnode, i = 0; i < n; ++i) {
+        if ((node = group[i]) && (subnode = select2.call(node, node.__data__, i, group))) {
+          if ("__data__" in node) subnode.__data__ = node.__data__;
+          subgroup[i] = subnode;
+        }
+      }
+    }
+    return new Selection(subgroups, this._parents);
+  }
+  function array(x) {
+    return x == null ? [] : Array.isArray(x) ? x : Array.from(x);
+  }
+  function empty() {
+    return [];
+  }
+  function selectorAll(selector2) {
+    return selector2 == null ? empty : function() {
+      return this.querySelectorAll(selector2);
+    };
+  }
+  function arrayAll(select2) {
+    return function() {
+      return array(select2.apply(this, arguments));
+    };
+  }
+  function selection_selectAll(select2) {
+    if (typeof select2 === "function") select2 = arrayAll(select2);
+    else select2 = selectorAll(select2);
+    for (var groups = this._groups, m2 = groups.length, subgroups = [], parents = [], j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) {
+        if (node = group[i]) {
+          subgroups.push(select2.call(node, node.__data__, i, group));
+          parents.push(node);
+        }
+      }
+    }
+    return new Selection(subgroups, parents);
+  }
+  function matcher(selector2) {
+    return function() {
+      return this.matches(selector2);
+    };
+  }
+  function childMatcher(selector2) {
+    return function(node) {
+      return node.matches(selector2);
+    };
+  }
+  var find2 = Array.prototype.find;
+  function childFind(match) {
+    return function() {
+      return find2.call(this.children, match);
+    };
+  }
+  function childFirst() {
+    return this.firstElementChild;
+  }
+  function selection_selectChild(match) {
+    return this.select(match == null ? childFirst : childFind(typeof match === "function" ? match : childMatcher(match)));
+  }
+  var filter = Array.prototype.filter;
+  function children() {
+    return Array.from(this.children);
+  }
+  function childrenFilter(match) {
+    return function() {
+      return filter.call(this.children, match);
+    };
+  }
+  function selection_selectChildren(match) {
+    return this.selectAll(match == null ? children : childrenFilter(typeof match === "function" ? match : childMatcher(match)));
+  }
+  function selection_filter(match) {
+    if (typeof match !== "function") match = matcher(match);
+    for (var groups = this._groups, m2 = groups.length, subgroups = new Array(m2), j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, subgroup = subgroups[j] = [], node, i = 0; i < n; ++i) {
+        if ((node = group[i]) && match.call(node, node.__data__, i, group)) {
+          subgroup.push(node);
+        }
+      }
+    }
+    return new Selection(subgroups, this._parents);
+  }
+  function sparse(update) {
+    return new Array(update.length);
+  }
+  function selection_enter() {
+    return new Selection(this._enter || this._groups.map(sparse), this._parents);
+  }
+  function EnterNode(parent, datum2) {
+    this.ownerDocument = parent.ownerDocument;
+    this.namespaceURI = parent.namespaceURI;
+    this._next = null;
+    this._parent = parent;
+    this.__data__ = datum2;
+  }
+  EnterNode.prototype = {
+    constructor: EnterNode,
+    appendChild: function(child) {
+      return this._parent.insertBefore(child, this._next);
+    },
+    insertBefore: function(child, next) {
+      return this._parent.insertBefore(child, next);
+    },
+    querySelector: function(selector2) {
+      return this._parent.querySelector(selector2);
+    },
+    querySelectorAll: function(selector2) {
+      return this._parent.querySelectorAll(selector2);
+    }
+  };
+  function constant2(x) {
+    return function() {
+      return x;
+    };
+  }
+  function bindIndex(parent, group, enter, update, exit, data) {
+    var i = 0, node, groupLength = group.length, dataLength = data.length;
+    for (; i < dataLength; ++i) {
+      if (node = group[i]) {
+        node.__data__ = data[i];
+        update[i] = node;
+      } else {
+        enter[i] = new EnterNode(parent, data[i]);
+      }
+    }
+    for (; i < groupLength; ++i) {
+      if (node = group[i]) {
+        exit[i] = node;
+      }
+    }
+  }
+  function bindKey(parent, group, enter, update, exit, data, key) {
+    var i, node, nodeByKeyValue = /* @__PURE__ */ new Map(), groupLength = group.length, dataLength = data.length, keyValues = new Array(groupLength), keyValue;
+    for (i = 0; i < groupLength; ++i) {
+      if (node = group[i]) {
+        keyValues[i] = keyValue = key.call(node, node.__data__, i, group) + "";
+        if (nodeByKeyValue.has(keyValue)) {
+          exit[i] = node;
+        } else {
+          nodeByKeyValue.set(keyValue, node);
+        }
+      }
+    }
+    for (i = 0; i < dataLength; ++i) {
+      keyValue = key.call(parent, data[i], i, data) + "";
+      if (node = nodeByKeyValue.get(keyValue)) {
+        update[i] = node;
+        node.__data__ = data[i];
+        nodeByKeyValue.delete(keyValue);
+      } else {
+        enter[i] = new EnterNode(parent, data[i]);
+      }
+    }
+    for (i = 0; i < groupLength; ++i) {
+      if ((node = group[i]) && nodeByKeyValue.get(keyValues[i]) === node) {
+        exit[i] = node;
+      }
+    }
+  }
+  function datum(node) {
+    return node.__data__;
+  }
+  function selection_data(value, key) {
+    if (!arguments.length) return Array.from(this, datum);
+    var bind = key ? bindKey : bindIndex, parents = this._parents, groups = this._groups;
+    if (typeof value !== "function") value = constant2(value);
+    for (var m2 = groups.length, update = new Array(m2), enter = new Array(m2), exit = new Array(m2), j = 0; j < m2; ++j) {
+      var parent = parents[j], group = groups[j], groupLength = group.length, data = arraylike(value.call(parent, parent && parent.__data__, j, parents)), dataLength = data.length, enterGroup = enter[j] = new Array(dataLength), updateGroup = update[j] = new Array(dataLength), exitGroup = exit[j] = new Array(groupLength);
+      bind(parent, group, enterGroup, updateGroup, exitGroup, data, key);
+      for (var i0 = 0, i1 = 0, previous, next; i0 < dataLength; ++i0) {
+        if (previous = enterGroup[i0]) {
+          if (i0 >= i1) i1 = i0 + 1;
+          while (!(next = updateGroup[i1]) && ++i1 < dataLength) ;
+          previous._next = next || null;
+        }
+      }
+    }
+    update = new Selection(update, parents);
+    update._enter = enter;
+    update._exit = exit;
+    return update;
+  }
+  function arraylike(data) {
+    return typeof data === "object" && "length" in data ? data : Array.from(data);
+  }
+  function selection_exit() {
+    return new Selection(this._exit || this._groups.map(sparse), this._parents);
+  }
+  function selection_join(onenter, onupdate, onexit) {
+    var enter = this.enter(), update = this, exit = this.exit();
+    if (typeof onenter === "function") {
+      enter = onenter(enter);
+      if (enter) enter = enter.selection();
+    } else {
+      enter = enter.append(onenter + "");
+    }
+    if (onupdate != null) {
+      update = onupdate(update);
+      if (update) update = update.selection();
+    }
+    if (onexit == null) exit.remove();
+    else onexit(exit);
+    return enter && update ? enter.merge(update).order() : update;
+  }
+  function selection_merge(context) {
+    var selection2 = context.selection ? context.selection() : context;
+    for (var groups0 = this._groups, groups1 = selection2._groups, m0 = groups0.length, m1 = groups1.length, m2 = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m2; ++j) {
+      for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
+        if (node = group0[i] || group1[i]) {
+          merge[i] = node;
+        }
+      }
+    }
+    for (; j < m0; ++j) {
+      merges[j] = groups0[j];
+    }
+    return new Selection(merges, this._parents);
+  }
+  function selection_order() {
+    for (var groups = this._groups, j = -1, m2 = groups.length; ++j < m2; ) {
+      for (var group = groups[j], i = group.length - 1, next = group[i], node; --i >= 0; ) {
+        if (node = group[i]) {
+          if (next && node.compareDocumentPosition(next) ^ 4) next.parentNode.insertBefore(node, next);
+          next = node;
+        }
+      }
+    }
+    return this;
+  }
+  function selection_sort(compare) {
+    if (!compare) compare = ascending;
+    function compareNode(a2, b) {
+      return a2 && b ? compare(a2.__data__, b.__data__) : !a2 - !b;
+    }
+    for (var groups = this._groups, m2 = groups.length, sortgroups = new Array(m2), j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, sortgroup = sortgroups[j] = new Array(n), node, i = 0; i < n; ++i) {
+        if (node = group[i]) {
+          sortgroup[i] = node;
+        }
+      }
+      sortgroup.sort(compareNode);
+    }
+    return new Selection(sortgroups, this._parents).order();
+  }
+  function ascending(a2, b) {
+    return a2 < b ? -1 : a2 > b ? 1 : a2 >= b ? 0 : NaN;
+  }
+  function selection_call() {
+    var callback = arguments[0];
+    arguments[0] = this;
+    callback.apply(null, arguments);
+    return this;
+  }
+  function selection_nodes() {
+    return Array.from(this);
+  }
+  function selection_node() {
+    for (var groups = this._groups, j = 0, m2 = groups.length; j < m2; ++j) {
+      for (var group = groups[j], i = 0, n = group.length; i < n; ++i) {
+        var node = group[i];
+        if (node) return node;
+      }
+    }
+    return null;
+  }
+  function selection_size() {
+    let size = 0;
+    for (const node of this) ++size;
+    return size;
+  }
+  function selection_empty() {
+    return !this.node();
+  }
+  function selection_each(callback) {
+    for (var groups = this._groups, j = 0, m2 = groups.length; j < m2; ++j) {
+      for (var group = groups[j], i = 0, n = group.length, node; i < n; ++i) {
+        if (node = group[i]) callback.call(node, node.__data__, i, group);
+      }
+    }
+    return this;
+  }
+  function attrRemove(name) {
+    return function() {
+      this.removeAttribute(name);
+    };
+  }
+  function attrRemoveNS(fullname) {
+    return function() {
+      this.removeAttributeNS(fullname.space, fullname.local);
+    };
+  }
+  function attrConstant(name, value) {
+    return function() {
+      this.setAttribute(name, value);
+    };
+  }
+  function attrConstantNS(fullname, value) {
+    return function() {
+      this.setAttributeNS(fullname.space, fullname.local, value);
+    };
+  }
+  function attrFunction(name, value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      if (v == null) this.removeAttribute(name);
+      else this.setAttribute(name, v);
+    };
+  }
+  function attrFunctionNS(fullname, value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      if (v == null) this.removeAttributeNS(fullname.space, fullname.local);
+      else this.setAttributeNS(fullname.space, fullname.local, v);
+    };
+  }
+  function selection_attr(name, value) {
+    var fullname = namespace(name);
+    if (arguments.length < 2) {
+      var node = this.node();
+      return fullname.local ? node.getAttributeNS(fullname.space, fullname.local) : node.getAttribute(fullname);
+    }
+    return this.each((value == null ? fullname.local ? attrRemoveNS : attrRemove : typeof value === "function" ? fullname.local ? attrFunctionNS : attrFunction : fullname.local ? attrConstantNS : attrConstant)(fullname, value));
+  }
+  function defaultView(node) {
+    return node.ownerDocument && node.ownerDocument.defaultView || node.document && node || node.defaultView;
+  }
+  function styleRemove(name) {
+    return function() {
+      this.style.removeProperty(name);
+    };
+  }
+  function styleConstant(name, value, priority) {
+    return function() {
+      this.style.setProperty(name, value, priority);
+    };
+  }
+  function styleFunction(name, value, priority) {
+    return function() {
+      var v = value.apply(this, arguments);
+      if (v == null) this.style.removeProperty(name);
+      else this.style.setProperty(name, v, priority);
+    };
+  }
+  function selection_style(name, value, priority) {
+    return arguments.length > 1 ? this.each((value == null ? styleRemove : typeof value === "function" ? styleFunction : styleConstant)(name, value, priority == null ? "" : priority)) : styleValue(this.node(), name);
+  }
+  function styleValue(node, name) {
+    return node.style.getPropertyValue(name) || defaultView(node).getComputedStyle(node, null).getPropertyValue(name);
+  }
+  function propertyRemove(name) {
+    return function() {
+      delete this[name];
+    };
+  }
+  function propertyConstant(name, value) {
+    return function() {
+      this[name] = value;
+    };
+  }
+  function propertyFunction(name, value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      if (v == null) delete this[name];
+      else this[name] = v;
+    };
+  }
+  function selection_property(name, value) {
+    return arguments.length > 1 ? this.each((value == null ? propertyRemove : typeof value === "function" ? propertyFunction : propertyConstant)(name, value)) : this.node()[name];
+  }
+  function classArray(string2) {
+    return string2.trim().split(/^|\s+/);
+  }
+  function classList(node) {
+    return node.classList || new ClassList(node);
+  }
+  function ClassList(node) {
+    this._node = node;
+    this._names = classArray(node.getAttribute("class") || "");
+  }
+  ClassList.prototype = {
+    add: function(name) {
+      var i = this._names.indexOf(name);
+      if (i < 0) {
+        this._names.push(name);
+        this._node.setAttribute("class", this._names.join(" "));
+      }
+    },
+    remove: function(name) {
+      var i = this._names.indexOf(name);
+      if (i >= 0) {
+        this._names.splice(i, 1);
+        this._node.setAttribute("class", this._names.join(" "));
+      }
+    },
+    contains: function(name) {
+      return this._names.indexOf(name) >= 0;
+    }
+  };
+  function classedAdd(node, names) {
+    var list = classList(node), i = -1, n = names.length;
+    while (++i < n) list.add(names[i]);
+  }
+  function classedRemove(node, names) {
+    var list = classList(node), i = -1, n = names.length;
+    while (++i < n) list.remove(names[i]);
+  }
+  function classedTrue(names) {
+    return function() {
+      classedAdd(this, names);
+    };
+  }
+  function classedFalse(names) {
+    return function() {
+      classedRemove(this, names);
+    };
+  }
+  function classedFunction(names, value) {
+    return function() {
+      (value.apply(this, arguments) ? classedAdd : classedRemove)(this, names);
+    };
+  }
+  function selection_classed(name, value) {
+    var names = classArray(name + "");
+    if (arguments.length < 2) {
+      var list = classList(this.node()), i = -1, n = names.length;
+      while (++i < n) if (!list.contains(names[i])) return false;
+      return true;
+    }
+    return this.each((typeof value === "function" ? classedFunction : value ? classedTrue : classedFalse)(names, value));
+  }
+  function textRemove() {
+    this.textContent = "";
+  }
+  function textConstant(value) {
+    return function() {
+      this.textContent = value;
+    };
+  }
+  function textFunction(value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      this.textContent = v == null ? "" : v;
+    };
+  }
+  function selection_text(value) {
+    return arguments.length ? this.each(value == null ? textRemove : (typeof value === "function" ? textFunction : textConstant)(value)) : this.node().textContent;
+  }
+  function htmlRemove() {
+    this.innerHTML = "";
+  }
+  function htmlConstant(value) {
+    return function() {
+      this.innerHTML = value;
+    };
+  }
+  function htmlFunction(value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      this.innerHTML = v == null ? "" : v;
+    };
+  }
+  function selection_html(value) {
+    return arguments.length ? this.each(value == null ? htmlRemove : (typeof value === "function" ? htmlFunction : htmlConstant)(value)) : this.node().innerHTML;
+  }
+  function raise() {
+    if (this.nextSibling) this.parentNode.appendChild(this);
+  }
+  function selection_raise() {
+    return this.each(raise);
+  }
+  function lower() {
+    if (this.previousSibling) this.parentNode.insertBefore(this, this.parentNode.firstChild);
+  }
+  function selection_lower() {
+    return this.each(lower);
+  }
+  function selection_append(name) {
+    var create2 = typeof name === "function" ? name : creator(name);
+    return this.select(function() {
+      return this.appendChild(create2.apply(this, arguments));
+    });
+  }
+  function constantNull() {
+    return null;
+  }
+  function selection_insert(name, before) {
+    var create2 = typeof name === "function" ? name : creator(name), select2 = before == null ? constantNull : typeof before === "function" ? before : selector(before);
+    return this.select(function() {
+      return this.insertBefore(create2.apply(this, arguments), select2.apply(this, arguments) || null);
+    });
+  }
+  function remove() {
+    var parent = this.parentNode;
+    if (parent) parent.removeChild(this);
+  }
+  function selection_remove() {
+    return this.each(remove);
+  }
+  function selection_cloneShallow() {
+    var clone = this.cloneNode(false), parent = this.parentNode;
+    return parent ? parent.insertBefore(clone, this.nextSibling) : clone;
+  }
+  function selection_cloneDeep() {
+    var clone = this.cloneNode(true), parent = this.parentNode;
+    return parent ? parent.insertBefore(clone, this.nextSibling) : clone;
+  }
+  function selection_clone(deep) {
+    return this.select(deep ? selection_cloneDeep : selection_cloneShallow);
+  }
+  function selection_datum(value) {
+    return arguments.length ? this.property("__data__", value) : this.node().__data__;
+  }
+  function contextListener(listener) {
+    return function(event) {
+      listener.call(this, event, this.__data__);
+    };
+  }
+  function parseTypenames2(typenames) {
+    return typenames.trim().split(/^|\s+/).map(function(t) {
+      var name = "", i = t.indexOf(".");
+      if (i >= 0) name = t.slice(i + 1), t = t.slice(0, i);
+      return { type: t, name };
+    });
+  }
+  function onRemove(typename) {
+    return function() {
+      var on = this.__on;
+      if (!on) return;
+      for (var j = 0, i = -1, m2 = on.length, o; j < m2; ++j) {
+        if (o = on[j], (!typename.type || o.type === typename.type) && o.name === typename.name) {
+          this.removeEventListener(o.type, o.listener, o.options);
+        } else {
+          on[++i] = o;
+        }
+      }
+      if (++i) on.length = i;
+      else delete this.__on;
+    };
+  }
+  function onAdd(typename, value, options) {
+    return function() {
+      var on = this.__on, o, listener = contextListener(value);
+      if (on) for (var j = 0, m2 = on.length; j < m2; ++j) {
+        if ((o = on[j]).type === typename.type && o.name === typename.name) {
+          this.removeEventListener(o.type, o.listener, o.options);
+          this.addEventListener(o.type, o.listener = listener, o.options = options);
+          o.value = value;
+          return;
+        }
+      }
+      this.addEventListener(typename.type, listener, options);
+      o = { type: typename.type, name: typename.name, value, listener, options };
+      if (!on) this.__on = [o];
+      else on.push(o);
+    };
+  }
+  function selection_on(typename, value, options) {
+    var typenames = parseTypenames2(typename + ""), i, n = typenames.length, t;
+    if (arguments.length < 2) {
+      var on = this.node().__on;
+      if (on) for (var j = 0, m2 = on.length, o; j < m2; ++j) {
+        for (i = 0, o = on[j]; i < n; ++i) {
+          if ((t = typenames[i]).type === o.type && t.name === o.name) {
+            return o.value;
+          }
+        }
+      }
+      return;
+    }
+    on = value ? onAdd : onRemove;
+    for (i = 0; i < n; ++i) this.each(on(typenames[i], value, options));
+    return this;
+  }
+  function dispatchEvent(node, type, params) {
+    var window2 = defaultView(node), event = window2.CustomEvent;
+    if (typeof event === "function") {
+      event = new event(type, params);
+    } else {
+      event = window2.document.createEvent("Event");
+      if (params) event.initEvent(type, params.bubbles, params.cancelable), event.detail = params.detail;
+      else event.initEvent(type, false, false);
+    }
+    node.dispatchEvent(event);
+  }
+  function dispatchConstant(type, params) {
+    return function() {
+      return dispatchEvent(this, type, params);
+    };
+  }
+  function dispatchFunction(type, params) {
+    return function() {
+      return dispatchEvent(this, type, params.apply(this, arguments));
+    };
+  }
+  function selection_dispatch(type, params) {
+    return this.each((typeof params === "function" ? dispatchFunction : dispatchConstant)(type, params));
+  }
+  function* selection_iterator() {
+    for (var groups = this._groups, j = 0, m2 = groups.length; j < m2; ++j) {
+      for (var group = groups[j], i = 0, n = group.length, node; i < n; ++i) {
+        if (node = group[i]) yield node;
+      }
+    }
+  }
+  var root = [null];
+  function Selection(groups, parents) {
+    this._groups = groups;
+    this._parents = parents;
+  }
+  function selection() {
+    return new Selection([[document.documentElement]], root);
+  }
+  function selection_selection() {
+    return this;
+  }
+  Selection.prototype = selection.prototype = {
+    constructor: Selection,
+    select: selection_select,
+    selectAll: selection_selectAll,
+    selectChild: selection_selectChild,
+    selectChildren: selection_selectChildren,
+    filter: selection_filter,
+    data: selection_data,
+    enter: selection_enter,
+    exit: selection_exit,
+    join: selection_join,
+    merge: selection_merge,
+    selection: selection_selection,
+    order: selection_order,
+    sort: selection_sort,
+    call: selection_call,
+    nodes: selection_nodes,
+    node: selection_node,
+    size: selection_size,
+    empty: selection_empty,
+    each: selection_each,
+    attr: selection_attr,
+    style: selection_style,
+    property: selection_property,
+    classed: selection_classed,
+    text: selection_text,
+    html: selection_html,
+    raise: selection_raise,
+    lower: selection_lower,
+    append: selection_append,
+    insert: selection_insert,
+    remove: selection_remove,
+    clone: selection_clone,
+    datum: selection_datum,
+    on: selection_on,
+    dispatch: selection_dispatch,
+    [Symbol.iterator]: selection_iterator
+  };
+  function select(selector2) {
+    return typeof selector2 === "string" ? new Selection([[document.querySelector(selector2)]], [document.documentElement]) : new Selection([[selector2]], root);
+  }
+  var nextId = 0;
+  function local() {
+    return new Local();
+  }
+  function Local() {
+    this._ = "@" + (++nextId).toString(36);
+  }
+  Local.prototype = local.prototype = {
+    constructor: Local,
+    get: function(node) {
+      var id2 = this._;
+      while (!(id2 in node)) if (!(node = node.parentNode)) return;
+      return node[id2];
+    },
+    set: function(node, value) {
+      return node[this._] = value;
+    },
+    remove: function(node) {
+      return this._ in node && delete node[this._];
+    },
+    toString: function() {
+      return this._;
+    }
+  };
+  function sourceEvent(event) {
+    let sourceEvent2;
+    while (sourceEvent2 = event.sourceEvent) event = sourceEvent2;
+    return event;
+  }
+  function pointer(event, node) {
+    event = sourceEvent(event);
+    if (node === void 0) node = event.currentTarget;
+    if (node) {
+      var svg = node.ownerSVGElement || node;
+      if (svg.createSVGPoint) {
+        var point = svg.createSVGPoint();
+        point.x = event.clientX, point.y = event.clientY;
+        point = point.matrixTransform(node.getScreenCTM().inverse());
+        return [point.x, point.y];
+      }
+      if (node.getBoundingClientRect) {
+        var rect = node.getBoundingClientRect();
+        return [event.clientX - rect.left - node.clientLeft, event.clientY - rect.top - node.clientTop];
+      }
+    }
+    return [event.pageX, event.pageY];
+  }
+
+  // node_modules/d3-drag/dist/d3-drag.mjs
+  var nonpassivecapture = { capture: true, passive: false };
+  function noevent(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  function nodrag(view) {
+    var root2 = view.document.documentElement, selection2 = select(view).on("dragstart.drag", noevent, nonpassivecapture);
+    if ("onselectstart" in root2) {
+      selection2.on("selectstart.drag", noevent, nonpassivecapture);
+    } else {
+      root2.__noselect = root2.style.MozUserSelect;
+      root2.style.MozUserSelect = "none";
+    }
+  }
+  function yesdrag(view, noclick) {
+    var root2 = view.document.documentElement, selection2 = select(view).on("dragstart.drag", null);
+    if (noclick) {
+      selection2.on("click.drag", noevent, nonpassivecapture);
+      setTimeout(function() {
+        selection2.on("click.drag", null);
+      }, 0);
+    }
+    if ("onselectstart" in root2) {
+      selection2.on("selectstart.drag", null);
+    } else {
+      root2.style.MozUserSelect = root2.__noselect;
+      delete root2.__noselect;
+    }
+  }
+  function DragEvent(type, {
+    sourceEvent: sourceEvent2,
+    subject,
+    target,
+    identifier,
+    active,
+    x,
+    y,
+    dx,
+    dy,
+    dispatch: dispatch2
+  }) {
+    Object.defineProperties(this, {
+      type: { value: type, enumerable: true, configurable: true },
+      sourceEvent: { value: sourceEvent2, enumerable: true, configurable: true },
+      subject: { value: subject, enumerable: true, configurable: true },
+      target: { value: target, enumerable: true, configurable: true },
+      identifier: { value: identifier, enumerable: true, configurable: true },
+      active: { value: active, enumerable: true, configurable: true },
+      x: { value: x, enumerable: true, configurable: true },
+      y: { value: y, enumerable: true, configurable: true },
+      dx: { value: dx, enumerable: true, configurable: true },
+      dy: { value: dy, enumerable: true, configurable: true },
+      _: { value: dispatch2 }
+    });
+  }
+  DragEvent.prototype.on = function() {
+    var value = this._.on.apply(this._, arguments);
+    return value === this._ ? this : value;
+  };
+
+  // node_modules/d3-color/dist/d3-color.mjs
+  function define(constructor, factory, prototype) {
+    constructor.prototype = factory.prototype = prototype;
+    prototype.constructor = constructor;
+  }
+  function extend(parent, definition) {
+    var prototype = Object.create(parent.prototype);
+    for (var key in definition) prototype[key] = definition[key];
+    return prototype;
+  }
+  function Color() {
+  }
+  var darker = 0.7;
+  var brighter = 1 / darker;
+  var reI = "\\s*([+-]?\\d+)\\s*";
+  var reN = "\\s*([+-]?(?:\\d*\\.)?\\d+(?:[eE][+-]?\\d+)?)\\s*";
+  var reP = "\\s*([+-]?(?:\\d*\\.)?\\d+(?:[eE][+-]?\\d+)?)%\\s*";
+  var reHex = /^#([0-9a-f]{3,8})$/;
+  var reRgbInteger = new RegExp(`^rgb\\(${reI},${reI},${reI}\\)$`);
+  var reRgbPercent = new RegExp(`^rgb\\(${reP},${reP},${reP}\\)$`);
+  var reRgbaInteger = new RegExp(`^rgba\\(${reI},${reI},${reI},${reN}\\)$`);
+  var reRgbaPercent = new RegExp(`^rgba\\(${reP},${reP},${reP},${reN}\\)$`);
+  var reHslPercent = new RegExp(`^hsl\\(${reN},${reP},${reP}\\)$`);
+  var reHslaPercent = new RegExp(`^hsla\\(${reN},${reP},${reP},${reN}\\)$`);
+  var named = {
+    aliceblue: 15792383,
+    antiquewhite: 16444375,
+    aqua: 65535,
+    aquamarine: 8388564,
+    azure: 15794175,
+    beige: 16119260,
+    bisque: 16770244,
+    black: 0,
+    blanchedalmond: 16772045,
+    blue: 255,
+    blueviolet: 9055202,
+    brown: 10824234,
+    burlywood: 14596231,
+    cadetblue: 6266528,
+    chartreuse: 8388352,
+    chocolate: 13789470,
+    coral: 16744272,
+    cornflowerblue: 6591981,
+    cornsilk: 16775388,
+    crimson: 14423100,
+    cyan: 65535,
+    darkblue: 139,
+    darkcyan: 35723,
+    darkgoldenrod: 12092939,
+    darkgray: 11119017,
+    darkgreen: 25600,
+    darkgrey: 11119017,
+    darkkhaki: 12433259,
+    darkmagenta: 9109643,
+    darkolivegreen: 5597999,
+    darkorange: 16747520,
+    darkorchid: 10040012,
+    darkred: 9109504,
+    darksalmon: 15308410,
+    darkseagreen: 9419919,
+    darkslateblue: 4734347,
+    darkslategray: 3100495,
+    darkslategrey: 3100495,
+    darkturquoise: 52945,
+    darkviolet: 9699539,
+    deeppink: 16716947,
+    deepskyblue: 49151,
+    dimgray: 6908265,
+    dimgrey: 6908265,
+    dodgerblue: 2003199,
+    firebrick: 11674146,
+    floralwhite: 16775920,
+    forestgreen: 2263842,
+    fuchsia: 16711935,
+    gainsboro: 14474460,
+    ghostwhite: 16316671,
+    gold: 16766720,
+    goldenrod: 14329120,
+    gray: 8421504,
+    green: 32768,
+    greenyellow: 11403055,
+    grey: 8421504,
+    honeydew: 15794160,
+    hotpink: 16738740,
+    indianred: 13458524,
+    indigo: 4915330,
+    ivory: 16777200,
+    khaki: 15787660,
+    lavender: 15132410,
+    lavenderblush: 16773365,
+    lawngreen: 8190976,
+    lemonchiffon: 16775885,
+    lightblue: 11393254,
+    lightcoral: 15761536,
+    lightcyan: 14745599,
+    lightgoldenrodyellow: 16448210,
+    lightgray: 13882323,
+    lightgreen: 9498256,
+    lightgrey: 13882323,
+    lightpink: 16758465,
+    lightsalmon: 16752762,
+    lightseagreen: 2142890,
+    lightskyblue: 8900346,
+    lightslategray: 7833753,
+    lightslategrey: 7833753,
+    lightsteelblue: 11584734,
+    lightyellow: 16777184,
+    lime: 65280,
+    limegreen: 3329330,
+    linen: 16445670,
+    magenta: 16711935,
+    maroon: 8388608,
+    mediumaquamarine: 6737322,
+    mediumblue: 205,
+    mediumorchid: 12211667,
+    mediumpurple: 9662683,
+    mediumseagreen: 3978097,
+    mediumslateblue: 8087790,
+    mediumspringgreen: 64154,
+    mediumturquoise: 4772300,
+    mediumvioletred: 13047173,
+    midnightblue: 1644912,
+    mintcream: 16121850,
+    mistyrose: 16770273,
+    moccasin: 16770229,
+    navajowhite: 16768685,
+    navy: 128,
+    oldlace: 16643558,
+    olive: 8421376,
+    olivedrab: 7048739,
+    orange: 16753920,
+    orangered: 16729344,
+    orchid: 14315734,
+    palegoldenrod: 15657130,
+    palegreen: 10025880,
+    paleturquoise: 11529966,
+    palevioletred: 14381203,
+    papayawhip: 16773077,
+    peachpuff: 16767673,
+    peru: 13468991,
+    pink: 16761035,
+    plum: 14524637,
+    powderblue: 11591910,
+    purple: 8388736,
+    rebeccapurple: 6697881,
+    red: 16711680,
+    rosybrown: 12357519,
+    royalblue: 4286945,
+    saddlebrown: 9127187,
+    salmon: 16416882,
+    sandybrown: 16032864,
+    seagreen: 3050327,
+    seashell: 16774638,
+    sienna: 10506797,
+    silver: 12632256,
+    skyblue: 8900331,
+    slateblue: 6970061,
+    slategray: 7372944,
+    slategrey: 7372944,
+    snow: 16775930,
+    springgreen: 65407,
+    steelblue: 4620980,
+    tan: 13808780,
+    teal: 32896,
+    thistle: 14204888,
+    tomato: 16737095,
+    turquoise: 4251856,
+    violet: 15631086,
+    wheat: 16113331,
+    white: 16777215,
+    whitesmoke: 16119285,
+    yellow: 16776960,
+    yellowgreen: 10145074
+  };
+  define(Color, color, {
+    copy(channels) {
+      return Object.assign(new this.constructor(), this, channels);
+    },
+    displayable() {
+      return this.rgb().displayable();
+    },
+    hex: color_formatHex,
+    // Deprecated! Use color.formatHex.
+    formatHex: color_formatHex,
+    formatHex8: color_formatHex8,
+    formatHsl: color_formatHsl,
+    formatRgb: color_formatRgb,
+    toString: color_formatRgb
+  });
+  function color_formatHex() {
+    return this.rgb().formatHex();
+  }
+  function color_formatHex8() {
+    return this.rgb().formatHex8();
+  }
+  function color_formatHsl() {
+    return hslConvert(this).formatHsl();
+  }
+  function color_formatRgb() {
+    return this.rgb().formatRgb();
+  }
+  function color(format) {
+    var m2, l;
+    format = (format + "").trim().toLowerCase();
+    return (m2 = reHex.exec(format)) ? (l = m2[1].length, m2 = parseInt(m2[1], 16), l === 6 ? rgbn(m2) : l === 3 ? new Rgb(m2 >> 8 & 15 | m2 >> 4 & 240, m2 >> 4 & 15 | m2 & 240, (m2 & 15) << 4 | m2 & 15, 1) : l === 8 ? rgba(m2 >> 24 & 255, m2 >> 16 & 255, m2 >> 8 & 255, (m2 & 255) / 255) : l === 4 ? rgba(m2 >> 12 & 15 | m2 >> 8 & 240, m2 >> 8 & 15 | m2 >> 4 & 240, m2 >> 4 & 15 | m2 & 240, ((m2 & 15) << 4 | m2 & 15) / 255) : null) : (m2 = reRgbInteger.exec(format)) ? new Rgb(m2[1], m2[2], m2[3], 1) : (m2 = reRgbPercent.exec(format)) ? new Rgb(m2[1] * 255 / 100, m2[2] * 255 / 100, m2[3] * 255 / 100, 1) : (m2 = reRgbaInteger.exec(format)) ? rgba(m2[1], m2[2], m2[3], m2[4]) : (m2 = reRgbaPercent.exec(format)) ? rgba(m2[1] * 255 / 100, m2[2] * 255 / 100, m2[3] * 255 / 100, m2[4]) : (m2 = reHslPercent.exec(format)) ? hsla(m2[1], m2[2] / 100, m2[3] / 100, 1) : (m2 = reHslaPercent.exec(format)) ? hsla(m2[1], m2[2] / 100, m2[3] / 100, m2[4]) : named.hasOwnProperty(format) ? rgbn(named[format]) : format === "transparent" ? new Rgb(NaN, NaN, NaN, 0) : null;
+  }
+  function rgbn(n) {
+    return new Rgb(n >> 16 & 255, n >> 8 & 255, n & 255, 1);
+  }
+  function rgba(r, g, b, a2) {
+    if (a2 <= 0) r = g = b = NaN;
+    return new Rgb(r, g, b, a2);
+  }
+  function rgbConvert(o) {
+    if (!(o instanceof Color)) o = color(o);
+    if (!o) return new Rgb();
+    o = o.rgb();
+    return new Rgb(o.r, o.g, o.b, o.opacity);
+  }
+  function rgb(r, g, b, opacity) {
+    return arguments.length === 1 ? rgbConvert(r) : new Rgb(r, g, b, opacity == null ? 1 : opacity);
+  }
+  function Rgb(r, g, b, opacity) {
+    this.r = +r;
+    this.g = +g;
+    this.b = +b;
+    this.opacity = +opacity;
+  }
+  define(Rgb, rgb, extend(Color, {
+    brighter(k) {
+      k = k == null ? brighter : Math.pow(brighter, k);
+      return new Rgb(this.r * k, this.g * k, this.b * k, this.opacity);
+    },
+    darker(k) {
+      k = k == null ? darker : Math.pow(darker, k);
+      return new Rgb(this.r * k, this.g * k, this.b * k, this.opacity);
+    },
+    rgb() {
+      return this;
+    },
+    clamp() {
+      return new Rgb(clampi(this.r), clampi(this.g), clampi(this.b), clampa(this.opacity));
+    },
+    displayable() {
+      return -0.5 <= this.r && this.r < 255.5 && (-0.5 <= this.g && this.g < 255.5) && (-0.5 <= this.b && this.b < 255.5) && (0 <= this.opacity && this.opacity <= 1);
+    },
+    hex: rgb_formatHex,
+    // Deprecated! Use color.formatHex.
+    formatHex: rgb_formatHex,
+    formatHex8: rgb_formatHex8,
+    formatRgb: rgb_formatRgb,
+    toString: rgb_formatRgb
+  }));
+  function rgb_formatHex() {
+    return `#${hex(this.r)}${hex(this.g)}${hex(this.b)}`;
+  }
+  function rgb_formatHex8() {
+    return `#${hex(this.r)}${hex(this.g)}${hex(this.b)}${hex((isNaN(this.opacity) ? 1 : this.opacity) * 255)}`;
+  }
+  function rgb_formatRgb() {
+    const a2 = clampa(this.opacity);
+    return `${a2 === 1 ? "rgb(" : "rgba("}${clampi(this.r)}, ${clampi(this.g)}, ${clampi(this.b)}${a2 === 1 ? ")" : `, ${a2})`}`;
+  }
+  function clampa(opacity) {
+    return isNaN(opacity) ? 1 : Math.max(0, Math.min(1, opacity));
+  }
+  function clampi(value) {
+    return Math.max(0, Math.min(255, Math.round(value) || 0));
+  }
+  function hex(value) {
+    value = clampi(value);
+    return (value < 16 ? "0" : "") + value.toString(16);
+  }
+  function hsla(h, s, l, a2) {
+    if (a2 <= 0) h = s = l = NaN;
+    else if (l <= 0 || l >= 1) h = s = NaN;
+    else if (s <= 0) h = NaN;
+    return new Hsl(h, s, l, a2);
+  }
+  function hslConvert(o) {
+    if (o instanceof Hsl) return new Hsl(o.h, o.s, o.l, o.opacity);
+    if (!(o instanceof Color)) o = color(o);
+    if (!o) return new Hsl();
+    if (o instanceof Hsl) return o;
+    o = o.rgb();
+    var r = o.r / 255, g = o.g / 255, b = o.b / 255, min = Math.min(r, g, b), max = Math.max(r, g, b), h = NaN, s = max - min, l = (max + min) / 2;
+    if (s) {
+      if (r === max) h = (g - b) / s + (g < b) * 6;
+      else if (g === max) h = (b - r) / s + 2;
+      else h = (r - g) / s + 4;
+      s /= l < 0.5 ? max + min : 2 - max - min;
+      h *= 60;
+    } else {
+      s = l > 0 && l < 1 ? 0 : h;
+    }
+    return new Hsl(h, s, l, o.opacity);
+  }
+  function hsl(h, s, l, opacity) {
+    return arguments.length === 1 ? hslConvert(h) : new Hsl(h, s, l, opacity == null ? 1 : opacity);
+  }
+  function Hsl(h, s, l, opacity) {
+    this.h = +h;
+    this.s = +s;
+    this.l = +l;
+    this.opacity = +opacity;
+  }
+  define(Hsl, hsl, extend(Color, {
+    brighter(k) {
+      k = k == null ? brighter : Math.pow(brighter, k);
+      return new Hsl(this.h, this.s, this.l * k, this.opacity);
+    },
+    darker(k) {
+      k = k == null ? darker : Math.pow(darker, k);
+      return new Hsl(this.h, this.s, this.l * k, this.opacity);
+    },
+    rgb() {
+      var h = this.h % 360 + (this.h < 0) * 360, s = isNaN(h) || isNaN(this.s) ? 0 : this.s, l = this.l, m2 = l + (l < 0.5 ? l : 1 - l) * s, m1 = 2 * l - m2;
+      return new Rgb(
+        hsl2rgb(h >= 240 ? h - 240 : h + 120, m1, m2),
+        hsl2rgb(h, m1, m2),
+        hsl2rgb(h < 120 ? h + 240 : h - 120, m1, m2),
+        this.opacity
+      );
+    },
+    clamp() {
+      return new Hsl(clamph(this.h), clampt(this.s), clampt(this.l), clampa(this.opacity));
+    },
+    displayable() {
+      return (0 <= this.s && this.s <= 1 || isNaN(this.s)) && (0 <= this.l && this.l <= 1) && (0 <= this.opacity && this.opacity <= 1);
+    },
+    formatHsl() {
+      const a2 = clampa(this.opacity);
+      return `${a2 === 1 ? "hsl(" : "hsla("}${clamph(this.h)}, ${clampt(this.s) * 100}%, ${clampt(this.l) * 100}%${a2 === 1 ? ")" : `, ${a2})`}`;
+    }
+  }));
+  function clamph(value) {
+    value = (value || 0) % 360;
+    return value < 0 ? value + 360 : value;
+  }
+  function clampt(value) {
+    return Math.max(0, Math.min(1, value || 0));
+  }
+  function hsl2rgb(h, m1, m2) {
+    return (h < 60 ? m1 + (m2 - m1) * h / 60 : h < 180 ? m2 : h < 240 ? m1 + (m2 - m1) * (240 - h) / 60 : m1) * 255;
+  }
+  var radians = Math.PI / 180;
+  var degrees = 180 / Math.PI;
+  var K = 18;
+  var Xn = 0.96422;
+  var Yn = 1;
+  var Zn = 0.82521;
+  var t0 = 4 / 29;
+  var t1 = 6 / 29;
+  var t2 = 3 * t1 * t1;
+  var t3 = t1 * t1 * t1;
+  function labConvert(o) {
+    if (o instanceof Lab) return new Lab(o.l, o.a, o.b, o.opacity);
+    if (o instanceof Hcl) return hcl2lab(o);
+    if (!(o instanceof Rgb)) o = rgbConvert(o);
+    var r = rgb2lrgb(o.r), g = rgb2lrgb(o.g), b = rgb2lrgb(o.b), y = xyz2lab((0.2225045 * r + 0.7168786 * g + 0.0606169 * b) / Yn), x, z;
+    if (r === g && g === b) x = z = y;
+    else {
+      x = xyz2lab((0.4360747 * r + 0.3850649 * g + 0.1430804 * b) / Xn);
+      z = xyz2lab((0.0139322 * r + 0.0971045 * g + 0.7141733 * b) / Zn);
+    }
+    return new Lab(116 * y - 16, 500 * (x - y), 200 * (y - z), o.opacity);
+  }
+  function lab(l, a2, b, opacity) {
+    return arguments.length === 1 ? labConvert(l) : new Lab(l, a2, b, opacity == null ? 1 : opacity);
+  }
+  function Lab(l, a2, b, opacity) {
+    this.l = +l;
+    this.a = +a2;
+    this.b = +b;
+    this.opacity = +opacity;
+  }
+  define(Lab, lab, extend(Color, {
+    brighter(k) {
+      return new Lab(this.l + K * (k == null ? 1 : k), this.a, this.b, this.opacity);
+    },
+    darker(k) {
+      return new Lab(this.l - K * (k == null ? 1 : k), this.a, this.b, this.opacity);
+    },
+    rgb() {
+      var y = (this.l + 16) / 116, x = isNaN(this.a) ? y : y + this.a / 500, z = isNaN(this.b) ? y : y - this.b / 200;
+      x = Xn * lab2xyz(x);
+      y = Yn * lab2xyz(y);
+      z = Zn * lab2xyz(z);
+      return new Rgb(
+        lrgb2rgb(3.1338561 * x - 1.6168667 * y - 0.4906146 * z),
+        lrgb2rgb(-0.9787684 * x + 1.9161415 * y + 0.033454 * z),
+        lrgb2rgb(0.0719453 * x - 0.2289914 * y + 1.4052427 * z),
+        this.opacity
+      );
+    }
+  }));
+  function xyz2lab(t) {
+    return t > t3 ? Math.pow(t, 1 / 3) : t / t2 + t0;
+  }
+  function lab2xyz(t) {
+    return t > t1 ? t * t * t : t2 * (t - t0);
+  }
+  function lrgb2rgb(x) {
+    return 255 * (x <= 31308e-7 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
+  }
+  function rgb2lrgb(x) {
+    return (x /= 255) <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  }
+  function hclConvert(o) {
+    if (o instanceof Hcl) return new Hcl(o.h, o.c, o.l, o.opacity);
+    if (!(o instanceof Lab)) o = labConvert(o);
+    if (o.a === 0 && o.b === 0) return new Hcl(NaN, 0 < o.l && o.l < 100 ? 0 : NaN, o.l, o.opacity);
+    var h = Math.atan2(o.b, o.a) * degrees;
+    return new Hcl(h < 0 ? h + 360 : h, Math.sqrt(o.a * o.a + o.b * o.b), o.l, o.opacity);
+  }
+  function hcl(h, c2, l, opacity) {
+    return arguments.length === 1 ? hclConvert(h) : new Hcl(h, c2, l, opacity == null ? 1 : opacity);
+  }
+  function Hcl(h, c2, l, opacity) {
+    this.h = +h;
+    this.c = +c2;
+    this.l = +l;
+    this.opacity = +opacity;
+  }
+  function hcl2lab(o) {
+    if (isNaN(o.h)) return new Lab(o.l, 0, 0, o.opacity);
+    var h = o.h * radians;
+    return new Lab(o.l, Math.cos(h) * o.c, Math.sin(h) * o.c, o.opacity);
+  }
+  define(Hcl, hcl, extend(Color, {
+    brighter(k) {
+      return new Hcl(this.h, this.c, this.l + K * (k == null ? 1 : k), this.opacity);
+    },
+    darker(k) {
+      return new Hcl(this.h, this.c, this.l - K * (k == null ? 1 : k), this.opacity);
+    },
+    rgb() {
+      return hcl2lab(this).rgb();
+    }
+  }));
+  var A = -0.14861;
+  var B = 1.78277;
+  var C = -0.29227;
+  var D = -0.90649;
+  var E = 1.97294;
+  var ED = E * D;
+  var EB = E * B;
+  var BC_DA = B * C - D * A;
+  function cubehelixConvert(o) {
+    if (o instanceof Cubehelix) return new Cubehelix(o.h, o.s, o.l, o.opacity);
+    if (!(o instanceof Rgb)) o = rgbConvert(o);
+    var r = o.r / 255, g = o.g / 255, b = o.b / 255, l = (BC_DA * b + ED * r - EB * g) / (BC_DA + ED - EB), bl = b - l, k = (E * (g - l) - C * bl) / D, s = Math.sqrt(k * k + bl * bl) / (E * l * (1 - l)), h = s ? Math.atan2(k, bl) * degrees - 120 : NaN;
+    return new Cubehelix(h < 0 ? h + 360 : h, s, l, o.opacity);
+  }
+  function cubehelix(h, s, l, opacity) {
+    return arguments.length === 1 ? cubehelixConvert(h) : new Cubehelix(h, s, l, opacity == null ? 1 : opacity);
+  }
+  function Cubehelix(h, s, l, opacity) {
+    this.h = +h;
+    this.s = +s;
+    this.l = +l;
+    this.opacity = +opacity;
+  }
+  define(Cubehelix, cubehelix, extend(Color, {
+    brighter(k) {
+      k = k == null ? brighter : Math.pow(brighter, k);
+      return new Cubehelix(this.h, this.s, this.l * k, this.opacity);
+    },
+    darker(k) {
+      k = k == null ? darker : Math.pow(darker, k);
+      return new Cubehelix(this.h, this.s, this.l * k, this.opacity);
+    },
+    rgb() {
+      var h = isNaN(this.h) ? 0 : (this.h + 120) * radians, l = +this.l, a2 = isNaN(this.s) ? 0 : this.s * l * (1 - l), cosh2 = Math.cos(h), sinh2 = Math.sin(h);
+      return new Rgb(
+        255 * (l + a2 * (A * cosh2 + B * sinh2)),
+        255 * (l + a2 * (C * cosh2 + D * sinh2)),
+        255 * (l + a2 * (E * cosh2)),
+        this.opacity
+      );
+    }
+  }));
+
+  // node_modules/d3-interpolate/dist/d3-interpolate.mjs
+  function basis(t12, v0, v1, v2, v3) {
+    var t22 = t12 * t12, t32 = t22 * t12;
+    return ((1 - 3 * t12 + 3 * t22 - t32) * v0 + (4 - 6 * t22 + 3 * t32) * v1 + (1 + 3 * t12 + 3 * t22 - 3 * t32) * v2 + t32 * v3) / 6;
+  }
+  function basis$1(values) {
+    var n = values.length - 1;
+    return function(t) {
+      var i = t <= 0 ? t = 0 : t >= 1 ? (t = 1, n - 1) : Math.floor(t * n), v1 = values[i], v2 = values[i + 1], v0 = i > 0 ? values[i - 1] : 2 * v1 - v2, v3 = i < n - 1 ? values[i + 2] : 2 * v2 - v1;
+      return basis((t - i / n) * n, v0, v1, v2, v3);
+    };
+  }
+  function basisClosed(values) {
+    var n = values.length;
+    return function(t) {
+      var i = Math.floor(((t %= 1) < 0 ? ++t : t) * n), v0 = values[(i + n - 1) % n], v1 = values[i % n], v2 = values[(i + 1) % n], v3 = values[(i + 2) % n];
+      return basis((t - i / n) * n, v0, v1, v2, v3);
+    };
+  }
+  var constant3 = (x) => () => x;
+  function linear(a2, d) {
+    return function(t) {
+      return a2 + t * d;
+    };
+  }
+  function exponential(a2, b, y) {
+    return a2 = Math.pow(a2, y), b = Math.pow(b, y) - a2, y = 1 / y, function(t) {
+      return Math.pow(a2 + t * b, y);
+    };
+  }
+  function hue$1(a2, b) {
+    var d = b - a2;
+    return d ? linear(a2, d > 180 || d < -180 ? d - 360 * Math.round(d / 360) : d) : constant3(isNaN(a2) ? b : a2);
+  }
+  function gamma(y) {
+    return (y = +y) === 1 ? nogamma : function(a2, b) {
+      return b - a2 ? exponential(a2, b, y) : constant3(isNaN(a2) ? b : a2);
+    };
+  }
+  function nogamma(a2, b) {
+    var d = b - a2;
+    return d ? linear(a2, d) : constant3(isNaN(a2) ? b : a2);
+  }
+  var rgb2 = (function rgbGamma(y) {
+    var color2 = gamma(y);
+    function rgb3(start2, end) {
+      var r = color2((start2 = rgb(start2)).r, (end = rgb(end)).r), g = color2(start2.g, end.g), b = color2(start2.b, end.b), opacity = nogamma(start2.opacity, end.opacity);
+      return function(t) {
+        start2.r = r(t);
+        start2.g = g(t);
+        start2.b = b(t);
+        start2.opacity = opacity(t);
+        return start2 + "";
+      };
+    }
+    rgb3.gamma = rgbGamma;
+    return rgb3;
+  })(1);
+  function rgbSpline(spline) {
+    return function(colors) {
+      var n = colors.length, r = new Array(n), g = new Array(n), b = new Array(n), i, color2;
+      for (i = 0; i < n; ++i) {
+        color2 = rgb(colors[i]);
+        r[i] = color2.r || 0;
+        g[i] = color2.g || 0;
+        b[i] = color2.b || 0;
+      }
+      r = spline(r);
+      g = spline(g);
+      b = spline(b);
+      color2.opacity = 1;
+      return function(t) {
+        color2.r = r(t);
+        color2.g = g(t);
+        color2.b = b(t);
+        return color2 + "";
+      };
+    };
+  }
+  var rgbBasis = rgbSpline(basis$1);
+  var rgbBasisClosed = rgbSpline(basisClosed);
+  function number(a2, b) {
+    return a2 = +a2, b = +b, function(t) {
+      return a2 * (1 - t) + b * t;
+    };
+  }
+  var reA = /[-+]?(?:\d+\.?\d*|\.?\d+)(?:[eE][-+]?\d+)?/g;
+  var reB = new RegExp(reA.source, "g");
+  function zero(b) {
+    return function() {
+      return b;
+    };
+  }
+  function one(b) {
+    return function(t) {
+      return b(t) + "";
+    };
+  }
+  function string(a2, b) {
+    var bi = reA.lastIndex = reB.lastIndex = 0, am, bm, bs, i = -1, s = [], q = [];
+    a2 = a2 + "", b = b + "";
+    while ((am = reA.exec(a2)) && (bm = reB.exec(b))) {
+      if ((bs = bm.index) > bi) {
+        bs = b.slice(bi, bs);
+        if (s[i]) s[i] += bs;
+        else s[++i] = bs;
+      }
+      if ((am = am[0]) === (bm = bm[0])) {
+        if (s[i]) s[i] += bm;
+        else s[++i] = bm;
+      } else {
+        s[++i] = null;
+        q.push({ i, x: number(am, bm) });
+      }
+      bi = reB.lastIndex;
+    }
+    if (bi < b.length) {
+      bs = b.slice(bi);
+      if (s[i]) s[i] += bs;
+      else s[++i] = bs;
+    }
+    return s.length < 2 ? q[0] ? one(q[0].x) : zero(b) : (b = q.length, function(t) {
+      for (var i2 = 0, o; i2 < b; ++i2) s[(o = q[i2]).i] = o.x(t);
+      return s.join("");
+    });
+  }
+  var degrees2 = 180 / Math.PI;
+  var identity = {
+    translateX: 0,
+    translateY: 0,
+    rotate: 0,
+    skewX: 0,
+    scaleX: 1,
+    scaleY: 1
+  };
+  function decompose(a2, b, c2, d, e, f) {
+    var scaleX, scaleY, skewX;
+    if (scaleX = Math.sqrt(a2 * a2 + b * b)) a2 /= scaleX, b /= scaleX;
+    if (skewX = a2 * c2 + b * d) c2 -= a2 * skewX, d -= b * skewX;
+    if (scaleY = Math.sqrt(c2 * c2 + d * d)) c2 /= scaleY, d /= scaleY, skewX /= scaleY;
+    if (a2 * d < b * c2) a2 = -a2, b = -b, skewX = -skewX, scaleX = -scaleX;
+    return {
+      translateX: e,
+      translateY: f,
+      rotate: Math.atan2(b, a2) * degrees2,
+      skewX: Math.atan(skewX) * degrees2,
+      scaleX,
+      scaleY
+    };
+  }
+  var svgNode;
+  function parseCss(value) {
+    const m2 = new (typeof DOMMatrix === "function" ? DOMMatrix : WebKitCSSMatrix)(value + "");
+    return m2.isIdentity ? identity : decompose(m2.a, m2.b, m2.c, m2.d, m2.e, m2.f);
+  }
+  function parseSvg(value) {
+    if (value == null) return identity;
+    if (!svgNode) svgNode = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    svgNode.setAttribute("transform", value);
+    if (!(value = svgNode.transform.baseVal.consolidate())) return identity;
+    value = value.matrix;
+    return decompose(value.a, value.b, value.c, value.d, value.e, value.f);
+  }
+  function interpolateTransform(parse, pxComma, pxParen, degParen) {
+    function pop(s) {
+      return s.length ? s.pop() + " " : "";
+    }
+    function translate(xa, ya, xb, yb, s, q) {
+      if (xa !== xb || ya !== yb) {
+        var i = s.push("translate(", null, pxComma, null, pxParen);
+        q.push({ i: i - 4, x: number(xa, xb) }, { i: i - 2, x: number(ya, yb) });
+      } else if (xb || yb) {
+        s.push("translate(" + xb + pxComma + yb + pxParen);
+      }
+    }
+    function rotate(a2, b, s, q) {
+      if (a2 !== b) {
+        if (a2 - b > 180) b += 360;
+        else if (b - a2 > 180) a2 += 360;
+        q.push({ i: s.push(pop(s) + "rotate(", null, degParen) - 2, x: number(a2, b) });
+      } else if (b) {
+        s.push(pop(s) + "rotate(" + b + degParen);
+      }
+    }
+    function skewX(a2, b, s, q) {
+      if (a2 !== b) {
+        q.push({ i: s.push(pop(s) + "skewX(", null, degParen) - 2, x: number(a2, b) });
+      } else if (b) {
+        s.push(pop(s) + "skewX(" + b + degParen);
+      }
+    }
+    function scale(xa, ya, xb, yb, s, q) {
+      if (xa !== xb || ya !== yb) {
+        var i = s.push(pop(s) + "scale(", null, ",", null, ")");
+        q.push({ i: i - 4, x: number(xa, xb) }, { i: i - 2, x: number(ya, yb) });
+      } else if (xb !== 1 || yb !== 1) {
+        s.push(pop(s) + "scale(" + xb + "," + yb + ")");
+      }
+    }
+    return function(a2, b) {
+      var s = [], q = [];
+      a2 = parse(a2), b = parse(b);
+      translate(a2.translateX, a2.translateY, b.translateX, b.translateY, s, q);
+      rotate(a2.rotate, b.rotate, s, q);
+      skewX(a2.skewX, b.skewX, s, q);
+      scale(a2.scaleX, a2.scaleY, b.scaleX, b.scaleY, s, q);
+      a2 = b = null;
+      return function(t) {
+        var i = -1, n = q.length, o;
+        while (++i < n) s[(o = q[i]).i] = o.x(t);
+        return s.join("");
+      };
+    };
+  }
+  var interpolateTransformCss = interpolateTransform(parseCss, "px, ", "px)", "deg)");
+  var interpolateTransformSvg = interpolateTransform(parseSvg, ", ", ")", ")");
+  var epsilon2 = 1e-12;
+  function cosh(x) {
+    return ((x = Math.exp(x)) + 1 / x) / 2;
+  }
+  function sinh(x) {
+    return ((x = Math.exp(x)) - 1 / x) / 2;
+  }
+  function tanh(x) {
+    return ((x = Math.exp(2 * x)) - 1) / (x + 1);
+  }
+  var zoom = (function zoomRho(rho, rho2, rho4) {
+    function zoom3(p0, p1) {
+      var ux0 = p0[0], uy0 = p0[1], w0 = p0[2], ux1 = p1[0], uy1 = p1[1], w1 = p1[2], dx = ux1 - ux0, dy = uy1 - uy0, d2 = dx * dx + dy * dy, i, S;
+      if (d2 < epsilon2) {
+        S = Math.log(w1 / w0) / rho;
+        i = function(t) {
+          return [
+            ux0 + t * dx,
+            uy0 + t * dy,
+            w0 * Math.exp(rho * t * S)
+          ];
+        };
+      } else {
+        var d1 = Math.sqrt(d2), b02 = (w1 * w1 - w0 * w0 + rho4 * d2) / (2 * w0 * rho2 * d1), b12 = (w1 * w1 - w0 * w0 - rho4 * d2) / (2 * w1 * rho2 * d1), r0 = Math.log(Math.sqrt(b02 * b02 + 1) - b02), r1 = Math.log(Math.sqrt(b12 * b12 + 1) - b12);
+        S = (r1 - r0) / rho;
+        i = function(t) {
+          var s = t * S, coshr0 = cosh(r0), u = w0 / (rho2 * d1) * (coshr0 * tanh(rho * s + r0) - sinh(r0));
+          return [
+            ux0 + u * dx,
+            uy0 + u * dy,
+            w0 * coshr0 / cosh(rho * s + r0)
+          ];
+        };
+      }
+      i.duration = Math.abs(S) * 1e3 * rho / Math.SQRT2;
+      return i;
+    }
+    zoom3.rho = function(_) {
+      var _1 = Math.max(1e-3, +_), _2 = _1 * _1, _4 = _2 * _2;
+      return zoomRho(_1, _2, _4);
+    };
+    return zoom3;
+  })(Math.SQRT2, 2, 4);
+  function hsl2(hue) {
+    return function(start2, end) {
+      var h = hue((start2 = hsl(start2)).h, (end = hsl(end)).h), s = nogamma(start2.s, end.s), l = nogamma(start2.l, end.l), opacity = nogamma(start2.opacity, end.opacity);
+      return function(t) {
+        start2.h = h(t);
+        start2.s = s(t);
+        start2.l = l(t);
+        start2.opacity = opacity(t);
+        return start2 + "";
+      };
+    };
+  }
+  var hsl_default = hsl2(hue$1);
+  var hslLong = hsl2(nogamma);
+  function hcl2(hue) {
+    return function(start2, end) {
+      var h = hue((start2 = hcl(start2)).h, (end = hcl(end)).h), c2 = nogamma(start2.c, end.c), l = nogamma(start2.l, end.l), opacity = nogamma(start2.opacity, end.opacity);
+      return function(t) {
+        start2.h = h(t);
+        start2.c = c2(t);
+        start2.l = l(t);
+        start2.opacity = opacity(t);
+        return start2 + "";
+      };
+    };
+  }
+  var hcl_default = hcl2(hue$1);
+  var hclLong = hcl2(nogamma);
+  function cubehelix2(hue) {
+    return (function cubehelixGamma(y) {
+      y = +y;
+      function cubehelix3(start2, end) {
+        var h = hue((start2 = cubehelix(start2)).h, (end = cubehelix(end)).h), s = nogamma(start2.s, end.s), l = nogamma(start2.l, end.l), opacity = nogamma(start2.opacity, end.opacity);
+        return function(t) {
+          start2.h = h(t);
+          start2.s = s(t);
+          start2.l = l(Math.pow(t, y));
+          start2.opacity = opacity(t);
+          return start2 + "";
+        };
+      }
+      cubehelix3.gamma = cubehelixGamma;
+      return cubehelix3;
+    })(1);
+  }
+  var cubehelix_default = cubehelix2(hue$1);
+  var cubehelixLong = cubehelix2(nogamma);
+
+  // node_modules/d3-ease/dist/d3-ease.mjs
+  function cubicInOut(t) {
+    return ((t *= 2) <= 1 ? t * t * t : (t -= 2) * t * t + 2) / 2;
+  }
+  var exponent = 3;
+  var polyIn = (function custom(e) {
+    e = +e;
+    function polyIn2(t) {
+      return Math.pow(t, e);
+    }
+    polyIn2.exponent = custom;
+    return polyIn2;
+  })(exponent);
+  var polyOut = (function custom2(e) {
+    e = +e;
+    function polyOut2(t) {
+      return 1 - Math.pow(1 - t, e);
+    }
+    polyOut2.exponent = custom2;
+    return polyOut2;
+  })(exponent);
+  var polyInOut = (function custom3(e) {
+    e = +e;
+    function polyInOut2(t) {
+      return ((t *= 2) <= 1 ? Math.pow(t, e) : 2 - Math.pow(2 - t, e)) / 2;
+    }
+    polyInOut2.exponent = custom3;
+    return polyInOut2;
+  })(exponent);
+  var pi = Math.PI;
+  var halfPi = pi / 2;
+  function tpmt(x) {
+    return (Math.pow(2, -10 * x) - 9765625e-10) * 1.0009775171065494;
+  }
+  var b1 = 4 / 11;
+  var b2 = 6 / 11;
+  var b3 = 8 / 11;
+  var b4 = 3 / 4;
+  var b5 = 9 / 11;
+  var b6 = 10 / 11;
+  var b7 = 15 / 16;
+  var b8 = 21 / 22;
+  var b9 = 63 / 64;
+  var b0 = 1 / b1 / b1;
+  var overshoot = 1.70158;
+  var backIn = (function custom4(s) {
+    s = +s;
+    function backIn2(t) {
+      return (t = +t) * t * (s * (t - 1) + t);
+    }
+    backIn2.overshoot = custom4;
+    return backIn2;
+  })(overshoot);
+  var backOut = (function custom5(s) {
+    s = +s;
+    function backOut2(t) {
+      return --t * t * ((t + 1) * s + t) + 1;
+    }
+    backOut2.overshoot = custom5;
+    return backOut2;
+  })(overshoot);
+  var backInOut = (function custom6(s) {
+    s = +s;
+    function backInOut2(t) {
+      return ((t *= 2) < 1 ? t * t * ((s + 1) * t - s) : (t -= 2) * t * ((s + 1) * t + s) + 2) / 2;
+    }
+    backInOut2.overshoot = custom6;
+    return backInOut2;
+  })(overshoot);
+  var tau = 2 * Math.PI;
+  var amplitude = 1;
+  var period = 0.3;
+  var elasticIn = (function custom7(a2, p) {
+    var s = Math.asin(1 / (a2 = Math.max(1, a2))) * (p /= tau);
+    function elasticIn2(t) {
+      return a2 * tpmt(- --t) * Math.sin((s - t) / p);
+    }
+    elasticIn2.amplitude = function(a3) {
+      return custom7(a3, p * tau);
+    };
+    elasticIn2.period = function(p2) {
+      return custom7(a2, p2);
+    };
+    return elasticIn2;
+  })(amplitude, period);
+  var elasticOut = (function custom8(a2, p) {
+    var s = Math.asin(1 / (a2 = Math.max(1, a2))) * (p /= tau);
+    function elasticOut2(t) {
+      return 1 - a2 * tpmt(t = +t) * Math.sin((t + s) / p);
+    }
+    elasticOut2.amplitude = function(a3) {
+      return custom8(a3, p * tau);
+    };
+    elasticOut2.period = function(p2) {
+      return custom8(a2, p2);
+    };
+    return elasticOut2;
+  })(amplitude, period);
+  var elasticInOut = (function custom9(a2, p) {
+    var s = Math.asin(1 / (a2 = Math.max(1, a2))) * (p /= tau);
+    function elasticInOut2(t) {
+      return ((t = t * 2 - 1) < 0 ? a2 * tpmt(-t) * Math.sin((s - t) / p) : 2 - a2 * tpmt(t) * Math.sin((s + t) / p)) / 2;
+    }
+    elasticInOut2.amplitude = function(a3) {
+      return custom9(a3, p * tau);
+    };
+    elasticInOut2.period = function(p2) {
+      return custom9(a2, p2);
+    };
+    return elasticInOut2;
+  })(amplitude, period);
+
+  // node_modules/d3-transition/dist/d3-transition.mjs
+  var emptyOn = dispatch("start", "end", "cancel", "interrupt");
+  var emptyTween = [];
+  var CREATED = 0;
+  var SCHEDULED = 1;
+  var STARTING = 2;
+  var STARTED = 3;
+  var RUNNING = 4;
+  var ENDING = 5;
+  var ENDED = 6;
+  function schedule(node, name, id2, index2, group, timing) {
+    var schedules = node.__transition;
+    if (!schedules) node.__transition = {};
+    else if (id2 in schedules) return;
+    create(node, id2, {
+      name,
+      index: index2,
+      // For context during callback.
+      group,
+      // For context during callback.
+      on: emptyOn,
+      tween: emptyTween,
+      time: timing.time,
+      delay: timing.delay,
+      duration: timing.duration,
+      ease: timing.ease,
+      timer: null,
+      state: CREATED
+    });
+  }
+  function init(node, id2) {
+    var schedule2 = get2(node, id2);
+    if (schedule2.state > CREATED) throw new Error("too late; already scheduled");
+    return schedule2;
+  }
+  function set2(node, id2) {
+    var schedule2 = get2(node, id2);
+    if (schedule2.state > STARTED) throw new Error("too late; already running");
+    return schedule2;
+  }
+  function get2(node, id2) {
+    var schedule2 = node.__transition;
+    if (!schedule2 || !(schedule2 = schedule2[id2])) throw new Error("transition not found");
+    return schedule2;
+  }
+  function create(node, id2, self) {
+    var schedules = node.__transition, tween;
+    schedules[id2] = self;
+    self.timer = timer(schedule2, 0, self.time);
+    function schedule2(elapsed) {
+      self.state = SCHEDULED;
+      self.timer.restart(start2, self.delay, self.time);
+      if (self.delay <= elapsed) start2(elapsed - self.delay);
+    }
+    function start2(elapsed) {
+      var i, j, n, o;
+      if (self.state !== SCHEDULED) return stop();
+      for (i in schedules) {
+        o = schedules[i];
+        if (o.name !== self.name) continue;
+        if (o.state === STARTED) return timeout(start2);
+        if (o.state === RUNNING) {
+          o.state = ENDED;
+          o.timer.stop();
+          o.on.call("interrupt", node, node.__data__, o.index, o.group);
+          delete schedules[i];
+        } else if (+i < id2) {
+          o.state = ENDED;
+          o.timer.stop();
+          o.on.call("cancel", node, node.__data__, o.index, o.group);
+          delete schedules[i];
+        }
+      }
+      timeout(function() {
+        if (self.state === STARTED) {
+          self.state = RUNNING;
+          self.timer.restart(tick, self.delay, self.time);
+          tick(elapsed);
+        }
+      });
+      self.state = STARTING;
+      self.on.call("start", node, node.__data__, self.index, self.group);
+      if (self.state !== STARTING) return;
+      self.state = STARTED;
+      tween = new Array(n = self.tween.length);
+      for (i = 0, j = -1; i < n; ++i) {
+        if (o = self.tween[i].value.call(node, node.__data__, self.index, self.group)) {
+          tween[++j] = o;
+        }
+      }
+      tween.length = j + 1;
+    }
+    function tick(elapsed) {
+      var t = elapsed < self.duration ? self.ease.call(null, elapsed / self.duration) : (self.timer.restart(stop), self.state = ENDING, 1), i = -1, n = tween.length;
+      while (++i < n) {
+        tween[i].call(node, t);
+      }
+      if (self.state === ENDING) {
+        self.on.call("end", node, node.__data__, self.index, self.group);
+        stop();
+      }
+    }
+    function stop() {
+      self.state = ENDED;
+      self.timer.stop();
+      delete schedules[id2];
+      for (var i in schedules) return;
+      delete node.__transition;
+    }
+  }
+  function interrupt(node, name) {
+    var schedules = node.__transition, schedule2, active, empty2 = true, i;
+    if (!schedules) return;
+    name = name == null ? null : name + "";
+    for (i in schedules) {
+      if ((schedule2 = schedules[i]).name !== name) {
+        empty2 = false;
+        continue;
+      }
+      active = schedule2.state > STARTING && schedule2.state < ENDING;
+      schedule2.state = ENDED;
+      schedule2.timer.stop();
+      schedule2.on.call(active ? "interrupt" : "cancel", node, node.__data__, schedule2.index, schedule2.group);
+      delete schedules[i];
+    }
+    if (empty2) delete node.__transition;
+  }
+  function selection_interrupt(name) {
+    return this.each(function() {
+      interrupt(this, name);
+    });
+  }
+  function tweenRemove(id2, name) {
+    var tween0, tween1;
+    return function() {
+      var schedule2 = set2(this, id2), tween = schedule2.tween;
+      if (tween !== tween0) {
+        tween1 = tween0 = tween;
+        for (var i = 0, n = tween1.length; i < n; ++i) {
+          if (tween1[i].name === name) {
+            tween1 = tween1.slice();
+            tween1.splice(i, 1);
+            break;
+          }
+        }
+      }
+      schedule2.tween = tween1;
+    };
+  }
+  function tweenFunction(id2, name, value) {
+    var tween0, tween1;
+    if (typeof value !== "function") throw new Error();
+    return function() {
+      var schedule2 = set2(this, id2), tween = schedule2.tween;
+      if (tween !== tween0) {
+        tween1 = (tween0 = tween).slice();
+        for (var t = { name, value }, i = 0, n = tween1.length; i < n; ++i) {
+          if (tween1[i].name === name) {
+            tween1[i] = t;
+            break;
+          }
+        }
+        if (i === n) tween1.push(t);
+      }
+      schedule2.tween = tween1;
+    };
+  }
+  function transition_tween(name, value) {
+    var id2 = this._id;
+    name += "";
+    if (arguments.length < 2) {
+      var tween = get2(this.node(), id2).tween;
+      for (var i = 0, n = tween.length, t; i < n; ++i) {
+        if ((t = tween[i]).name === name) {
+          return t.value;
+        }
+      }
+      return null;
+    }
+    return this.each((value == null ? tweenRemove : tweenFunction)(id2, name, value));
+  }
+  function tweenValue(transition2, name, value) {
+    var id2 = transition2._id;
+    transition2.each(function() {
+      var schedule2 = set2(this, id2);
+      (schedule2.value || (schedule2.value = {}))[name] = value.apply(this, arguments);
+    });
+    return function(node) {
+      return get2(node, id2).value[name];
+    };
+  }
+  function interpolate(a2, b) {
+    var c2;
+    return (typeof b === "number" ? number : b instanceof color ? rgb2 : (c2 = color(b)) ? (b = c2, rgb2) : string)(a2, b);
+  }
+  function attrRemove2(name) {
+    return function() {
+      this.removeAttribute(name);
+    };
+  }
+  function attrRemoveNS2(fullname) {
+    return function() {
+      this.removeAttributeNS(fullname.space, fullname.local);
+    };
+  }
+  function attrConstant2(name, interpolate2, value1) {
+    var string00, string1 = value1 + "", interpolate0;
+    return function() {
+      var string0 = this.getAttribute(name);
+      return string0 === string1 ? null : string0 === string00 ? interpolate0 : interpolate0 = interpolate2(string00 = string0, value1);
+    };
+  }
+  function attrConstantNS2(fullname, interpolate2, value1) {
+    var string00, string1 = value1 + "", interpolate0;
+    return function() {
+      var string0 = this.getAttributeNS(fullname.space, fullname.local);
+      return string0 === string1 ? null : string0 === string00 ? interpolate0 : interpolate0 = interpolate2(string00 = string0, value1);
+    };
+  }
+  function attrFunction2(name, interpolate2, value) {
+    var string00, string10, interpolate0;
+    return function() {
+      var string0, value1 = value(this), string1;
+      if (value1 == null) return void this.removeAttribute(name);
+      string0 = this.getAttribute(name);
+      string1 = value1 + "";
+      return string0 === string1 ? null : string0 === string00 && string1 === string10 ? interpolate0 : (string10 = string1, interpolate0 = interpolate2(string00 = string0, value1));
+    };
+  }
+  function attrFunctionNS2(fullname, interpolate2, value) {
+    var string00, string10, interpolate0;
+    return function() {
+      var string0, value1 = value(this), string1;
+      if (value1 == null) return void this.removeAttributeNS(fullname.space, fullname.local);
+      string0 = this.getAttributeNS(fullname.space, fullname.local);
+      string1 = value1 + "";
+      return string0 === string1 ? null : string0 === string00 && string1 === string10 ? interpolate0 : (string10 = string1, interpolate0 = interpolate2(string00 = string0, value1));
+    };
+  }
+  function transition_attr(name, value) {
+    var fullname = namespace(name), i = fullname === "transform" ? interpolateTransformSvg : interpolate;
+    return this.attrTween(name, typeof value === "function" ? (fullname.local ? attrFunctionNS2 : attrFunction2)(fullname, i, tweenValue(this, "attr." + name, value)) : value == null ? (fullname.local ? attrRemoveNS2 : attrRemove2)(fullname) : (fullname.local ? attrConstantNS2 : attrConstant2)(fullname, i, value));
+  }
+  function attrInterpolate(name, i) {
+    return function(t) {
+      this.setAttribute(name, i.call(this, t));
+    };
+  }
+  function attrInterpolateNS(fullname, i) {
+    return function(t) {
+      this.setAttributeNS(fullname.space, fullname.local, i.call(this, t));
+    };
+  }
+  function attrTweenNS(fullname, value) {
+    var t02, i0;
+    function tween() {
+      var i = value.apply(this, arguments);
+      if (i !== i0) t02 = (i0 = i) && attrInterpolateNS(fullname, i);
+      return t02;
+    }
+    tween._value = value;
+    return tween;
+  }
+  function attrTween(name, value) {
+    var t02, i0;
+    function tween() {
+      var i = value.apply(this, arguments);
+      if (i !== i0) t02 = (i0 = i) && attrInterpolate(name, i);
+      return t02;
+    }
+    tween._value = value;
+    return tween;
+  }
+  function transition_attrTween(name, value) {
+    var key = "attr." + name;
+    if (arguments.length < 2) return (key = this.tween(key)) && key._value;
+    if (value == null) return this.tween(key, null);
+    if (typeof value !== "function") throw new Error();
+    var fullname = namespace(name);
+    return this.tween(key, (fullname.local ? attrTweenNS : attrTween)(fullname, value));
+  }
+  function delayFunction(id2, value) {
+    return function() {
+      init(this, id2).delay = +value.apply(this, arguments);
+    };
+  }
+  function delayConstant(id2, value) {
+    return value = +value, function() {
+      init(this, id2).delay = value;
+    };
+  }
+  function transition_delay(value) {
+    var id2 = this._id;
+    return arguments.length ? this.each((typeof value === "function" ? delayFunction : delayConstant)(id2, value)) : get2(this.node(), id2).delay;
+  }
+  function durationFunction(id2, value) {
+    return function() {
+      set2(this, id2).duration = +value.apply(this, arguments);
+    };
+  }
+  function durationConstant(id2, value) {
+    return value = +value, function() {
+      set2(this, id2).duration = value;
+    };
+  }
+  function transition_duration(value) {
+    var id2 = this._id;
+    return arguments.length ? this.each((typeof value === "function" ? durationFunction : durationConstant)(id2, value)) : get2(this.node(), id2).duration;
+  }
+  function easeConstant(id2, value) {
+    if (typeof value !== "function") throw new Error();
+    return function() {
+      set2(this, id2).ease = value;
+    };
+  }
+  function transition_ease(value) {
+    var id2 = this._id;
+    return arguments.length ? this.each(easeConstant(id2, value)) : get2(this.node(), id2).ease;
+  }
+  function easeVarying(id2, value) {
+    return function() {
+      var v = value.apply(this, arguments);
+      if (typeof v !== "function") throw new Error();
+      set2(this, id2).ease = v;
+    };
+  }
+  function transition_easeVarying(value) {
+    if (typeof value !== "function") throw new Error();
+    return this.each(easeVarying(this._id, value));
+  }
+  function transition_filter(match) {
+    if (typeof match !== "function") match = matcher(match);
+    for (var groups = this._groups, m2 = groups.length, subgroups = new Array(m2), j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, subgroup = subgroups[j] = [], node, i = 0; i < n; ++i) {
+        if ((node = group[i]) && match.call(node, node.__data__, i, group)) {
+          subgroup.push(node);
+        }
+      }
+    }
+    return new Transition(subgroups, this._parents, this._name, this._id);
+  }
+  function transition_merge(transition2) {
+    if (transition2._id !== this._id) throw new Error();
+    for (var groups0 = this._groups, groups1 = transition2._groups, m0 = groups0.length, m1 = groups1.length, m2 = Math.min(m0, m1), merges = new Array(m0), j = 0; j < m2; ++j) {
+      for (var group0 = groups0[j], group1 = groups1[j], n = group0.length, merge = merges[j] = new Array(n), node, i = 0; i < n; ++i) {
+        if (node = group0[i] || group1[i]) {
+          merge[i] = node;
+        }
+      }
+    }
+    for (; j < m0; ++j) {
+      merges[j] = groups0[j];
+    }
+    return new Transition(merges, this._parents, this._name, this._id);
+  }
+  function start(name) {
+    return (name + "").trim().split(/^|\s+/).every(function(t) {
+      var i = t.indexOf(".");
+      if (i >= 0) t = t.slice(0, i);
+      return !t || t === "start";
+    });
+  }
+  function onFunction(id2, name, listener) {
+    var on0, on1, sit = start(name) ? init : set2;
+    return function() {
+      var schedule2 = sit(this, id2), on = schedule2.on;
+      if (on !== on0) (on1 = (on0 = on).copy()).on(name, listener);
+      schedule2.on = on1;
+    };
+  }
+  function transition_on(name, listener) {
+    var id2 = this._id;
+    return arguments.length < 2 ? get2(this.node(), id2).on.on(name) : this.each(onFunction(id2, name, listener));
+  }
+  function removeFunction(id2) {
+    return function() {
+      var parent = this.parentNode;
+      for (var i in this.__transition) if (+i !== id2) return;
+      if (parent) parent.removeChild(this);
+    };
+  }
+  function transition_remove() {
+    return this.on("end.remove", removeFunction(this._id));
+  }
+  function transition_select(select2) {
+    var name = this._name, id2 = this._id;
+    if (typeof select2 !== "function") select2 = selector(select2);
+    for (var groups = this._groups, m2 = groups.length, subgroups = new Array(m2), j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, subgroup = subgroups[j] = new Array(n), node, subnode, i = 0; i < n; ++i) {
+        if ((node = group[i]) && (subnode = select2.call(node, node.__data__, i, group))) {
+          if ("__data__" in node) subnode.__data__ = node.__data__;
+          subgroup[i] = subnode;
+          schedule(subgroup[i], name, id2, i, subgroup, get2(node, id2));
+        }
+      }
+    }
+    return new Transition(subgroups, this._parents, name, id2);
+  }
+  function transition_selectAll(select2) {
+    var name = this._name, id2 = this._id;
+    if (typeof select2 !== "function") select2 = selectorAll(select2);
+    for (var groups = this._groups, m2 = groups.length, subgroups = [], parents = [], j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) {
+        if (node = group[i]) {
+          for (var children2 = select2.call(node, node.__data__, i, group), child, inherit2 = get2(node, id2), k = 0, l = children2.length; k < l; ++k) {
+            if (child = children2[k]) {
+              schedule(child, name, id2, k, children2, inherit2);
+            }
+          }
+          subgroups.push(children2);
+          parents.push(node);
+        }
+      }
+    }
+    return new Transition(subgroups, parents, name, id2);
+  }
+  var Selection2 = selection.prototype.constructor;
+  function transition_selection() {
+    return new Selection2(this._groups, this._parents);
+  }
+  function styleNull(name, interpolate2) {
+    var string00, string10, interpolate0;
+    return function() {
+      var string0 = styleValue(this, name), string1 = (this.style.removeProperty(name), styleValue(this, name));
+      return string0 === string1 ? null : string0 === string00 && string1 === string10 ? interpolate0 : interpolate0 = interpolate2(string00 = string0, string10 = string1);
+    };
+  }
+  function styleRemove2(name) {
+    return function() {
+      this.style.removeProperty(name);
+    };
+  }
+  function styleConstant2(name, interpolate2, value1) {
+    var string00, string1 = value1 + "", interpolate0;
+    return function() {
+      var string0 = styleValue(this, name);
+      return string0 === string1 ? null : string0 === string00 ? interpolate0 : interpolate0 = interpolate2(string00 = string0, value1);
+    };
+  }
+  function styleFunction2(name, interpolate2, value) {
+    var string00, string10, interpolate0;
+    return function() {
+      var string0 = styleValue(this, name), value1 = value(this), string1 = value1 + "";
+      if (value1 == null) string1 = value1 = (this.style.removeProperty(name), styleValue(this, name));
+      return string0 === string1 ? null : string0 === string00 && string1 === string10 ? interpolate0 : (string10 = string1, interpolate0 = interpolate2(string00 = string0, value1));
+    };
+  }
+  function styleMaybeRemove(id2, name) {
+    var on0, on1, listener0, key = "style." + name, event = "end." + key, remove2;
+    return function() {
+      var schedule2 = set2(this, id2), on = schedule2.on, listener = schedule2.value[key] == null ? remove2 || (remove2 = styleRemove2(name)) : void 0;
+      if (on !== on0 || listener0 !== listener) (on1 = (on0 = on).copy()).on(event, listener0 = listener);
+      schedule2.on = on1;
+    };
+  }
+  function transition_style(name, value, priority) {
+    var i = (name += "") === "transform" ? interpolateTransformCss : interpolate;
+    return value == null ? this.styleTween(name, styleNull(name, i)).on("end.style." + name, styleRemove2(name)) : typeof value === "function" ? this.styleTween(name, styleFunction2(name, i, tweenValue(this, "style." + name, value))).each(styleMaybeRemove(this._id, name)) : this.styleTween(name, styleConstant2(name, i, value), priority).on("end.style." + name, null);
+  }
+  function styleInterpolate(name, i, priority) {
+    return function(t) {
+      this.style.setProperty(name, i.call(this, t), priority);
+    };
+  }
+  function styleTween(name, value, priority) {
+    var t, i0;
+    function tween() {
+      var i = value.apply(this, arguments);
+      if (i !== i0) t = (i0 = i) && styleInterpolate(name, i, priority);
+      return t;
+    }
+    tween._value = value;
+    return tween;
+  }
+  function transition_styleTween(name, value, priority) {
+    var key = "style." + (name += "");
+    if (arguments.length < 2) return (key = this.tween(key)) && key._value;
+    if (value == null) return this.tween(key, null);
+    if (typeof value !== "function") throw new Error();
+    return this.tween(key, styleTween(name, value, priority == null ? "" : priority));
+  }
+  function textConstant2(value) {
+    return function() {
+      this.textContent = value;
+    };
+  }
+  function textFunction2(value) {
+    return function() {
+      var value1 = value(this);
+      this.textContent = value1 == null ? "" : value1;
+    };
+  }
+  function transition_text(value) {
+    return this.tween("text", typeof value === "function" ? textFunction2(tweenValue(this, "text", value)) : textConstant2(value == null ? "" : value + ""));
+  }
+  function textInterpolate(i) {
+    return function(t) {
+      this.textContent = i.call(this, t);
+    };
+  }
+  function textTween(value) {
+    var t02, i0;
+    function tween() {
+      var i = value.apply(this, arguments);
+      if (i !== i0) t02 = (i0 = i) && textInterpolate(i);
+      return t02;
+    }
+    tween._value = value;
+    return tween;
+  }
+  function transition_textTween(value) {
+    var key = "text";
+    if (arguments.length < 1) return (key = this.tween(key)) && key._value;
+    if (value == null) return this.tween(key, null);
+    if (typeof value !== "function") throw new Error();
+    return this.tween(key, textTween(value));
+  }
+  function transition_transition() {
+    var name = this._name, id0 = this._id, id1 = newId();
+    for (var groups = this._groups, m2 = groups.length, j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) {
+        if (node = group[i]) {
+          var inherit2 = get2(node, id0);
+          schedule(node, name, id1, i, group, {
+            time: inherit2.time + inherit2.delay + inherit2.duration,
+            delay: 0,
+            duration: inherit2.duration,
+            ease: inherit2.ease
+          });
+        }
+      }
+    }
+    return new Transition(groups, this._parents, name, id1);
+  }
+  function transition_end() {
+    var on0, on1, that = this, id2 = that._id, size = that.size();
+    return new Promise(function(resolve, reject) {
+      var cancel = { value: reject }, end = { value: function() {
+        if (--size === 0) resolve();
+      } };
+      that.each(function() {
+        var schedule2 = set2(this, id2), on = schedule2.on;
+        if (on !== on0) {
+          on1 = (on0 = on).copy();
+          on1._.cancel.push(cancel);
+          on1._.interrupt.push(cancel);
+          on1._.end.push(end);
+        }
+        schedule2.on = on1;
+      });
+      if (size === 0) resolve();
+    });
+  }
+  var id = 0;
+  function Transition(groups, parents, name, id2) {
+    this._groups = groups;
+    this._parents = parents;
+    this._name = name;
+    this._id = id2;
+  }
+  function transition(name) {
+    return selection().transition(name);
+  }
+  function newId() {
+    return ++id;
+  }
+  var selection_prototype = selection.prototype;
+  Transition.prototype = transition.prototype = {
+    constructor: Transition,
+    select: transition_select,
+    selectAll: transition_selectAll,
+    selectChild: selection_prototype.selectChild,
+    selectChildren: selection_prototype.selectChildren,
+    filter: transition_filter,
+    merge: transition_merge,
+    selection: transition_selection,
+    transition: transition_transition,
+    call: selection_prototype.call,
+    nodes: selection_prototype.nodes,
+    node: selection_prototype.node,
+    size: selection_prototype.size,
+    empty: selection_prototype.empty,
+    each: selection_prototype.each,
+    on: transition_on,
+    attr: transition_attr,
+    attrTween: transition_attrTween,
+    style: transition_style,
+    styleTween: transition_styleTween,
+    text: transition_text,
+    textTween: transition_textTween,
+    remove: transition_remove,
+    tween: transition_tween,
+    delay: transition_delay,
+    duration: transition_duration,
+    ease: transition_ease,
+    easeVarying: transition_easeVarying,
+    end: transition_end,
+    [Symbol.iterator]: selection_prototype[Symbol.iterator]
+  };
+  var defaultTiming = {
+    time: null,
+    // Set on use.
+    delay: 0,
+    duration: 250,
+    ease: cubicInOut
+  };
+  function inherit(node, id2) {
+    var timing;
+    while (!(timing = node.__transition) || !(timing = timing[id2])) {
+      if (!(node = node.parentNode)) {
+        throw new Error(`transition ${id2} not found`);
+      }
+    }
+    return timing;
+  }
+  function selection_transition(name) {
+    var id2, timing;
+    if (name instanceof Transition) {
+      id2 = name._id, name = name._name;
+    } else {
+      id2 = newId(), (timing = defaultTiming).time = now(), name = name == null ? null : name + "";
+    }
+    for (var groups = this._groups, m2 = groups.length, j = 0; j < m2; ++j) {
+      for (var group = groups[j], n = group.length, node, i = 0; i < n; ++i) {
+        if (node = group[i]) {
+          schedule(node, name, id2, i, group, timing || inherit(node, id2));
+        }
+      }
+    }
+    return new Transition(groups, this._parents, name, id2);
+  }
+  selection.prototype.interrupt = selection_interrupt;
+  selection.prototype.transition = selection_transition;
+
+  // node_modules/d3-zoom/dist/d3-zoom.mjs
+  var constant4 = (x) => () => x;
+  function ZoomEvent(type, {
+    sourceEvent: sourceEvent2,
+    target,
+    transform: transform2,
+    dispatch: dispatch2
+  }) {
+    Object.defineProperties(this, {
+      type: { value: type, enumerable: true, configurable: true },
+      sourceEvent: { value: sourceEvent2, enumerable: true, configurable: true },
+      target: { value: target, enumerable: true, configurable: true },
+      transform: { value: transform2, enumerable: true, configurable: true },
+      _: { value: dispatch2 }
+    });
+  }
+  function Transform(k, x, y) {
+    this.k = k;
+    this.x = x;
+    this.y = y;
+  }
+  Transform.prototype = {
+    constructor: Transform,
+    scale: function(k) {
+      return k === 1 ? this : new Transform(this.k * k, this.x, this.y);
+    },
+    translate: function(x, y) {
+      return x === 0 & y === 0 ? this : new Transform(this.k, this.x + this.k * x, this.y + this.k * y);
+    },
+    apply: function(point) {
+      return [point[0] * this.k + this.x, point[1] * this.k + this.y];
+    },
+    applyX: function(x) {
+      return x * this.k + this.x;
+    },
+    applyY: function(y) {
+      return y * this.k + this.y;
+    },
+    invert: function(location) {
+      return [(location[0] - this.x) / this.k, (location[1] - this.y) / this.k];
+    },
+    invertX: function(x) {
+      return (x - this.x) / this.k;
+    },
+    invertY: function(y) {
+      return (y - this.y) / this.k;
+    },
+    rescaleX: function(x) {
+      return x.copy().domain(x.range().map(this.invertX, this).map(x.invert, x));
+    },
+    rescaleY: function(y) {
+      return y.copy().domain(y.range().map(this.invertY, this).map(y.invert, y));
+    },
+    toString: function() {
+      return "translate(" + this.x + "," + this.y + ") scale(" + this.k + ")";
+    }
+  };
+  var identity2 = new Transform(1, 0, 0);
+  transform.prototype = Transform.prototype;
+  function transform(node) {
+    while (!node.__zoom) if (!(node = node.parentNode)) return identity2;
+    return node.__zoom;
+  }
+  function nopropagation(event) {
+    event.stopImmediatePropagation();
+  }
+  function noevent2(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+  function defaultFilter(event) {
+    return (!event.ctrlKey || event.type === "wheel") && !event.button;
+  }
+  function defaultExtent() {
+    var e = this;
+    if (e instanceof SVGElement) {
+      e = e.ownerSVGElement || e;
+      if (e.hasAttribute("viewBox")) {
+        e = e.viewBox.baseVal;
+        return [[e.x, e.y], [e.x + e.width, e.y + e.height]];
+      }
+      return [[0, 0], [e.width.baseVal.value, e.height.baseVal.value]];
+    }
+    return [[0, 0], [e.clientWidth, e.clientHeight]];
+  }
+  function defaultTransform() {
+    return this.__zoom || identity2;
+  }
+  function defaultWheelDelta(event) {
+    return -event.deltaY * (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 2e-3) * (event.ctrlKey ? 10 : 1);
+  }
+  function defaultTouchable() {
+    return navigator.maxTouchPoints || "ontouchstart" in this;
+  }
+  function defaultConstrain(transform2, extent, translateExtent) {
+    var dx0 = transform2.invertX(extent[0][0]) - translateExtent[0][0], dx1 = transform2.invertX(extent[1][0]) - translateExtent[1][0], dy0 = transform2.invertY(extent[0][1]) - translateExtent[0][1], dy1 = transform2.invertY(extent[1][1]) - translateExtent[1][1];
+    return transform2.translate(
+      dx1 > dx0 ? (dx0 + dx1) / 2 : Math.min(0, dx0) || Math.max(0, dx1),
+      dy1 > dy0 ? (dy0 + dy1) / 2 : Math.min(0, dy0) || Math.max(0, dy1)
+    );
+  }
+  function zoom2() {
+    var filter2 = defaultFilter, extent = defaultExtent, constrain = defaultConstrain, wheelDelta = defaultWheelDelta, touchable = defaultTouchable, scaleExtent = [0, Infinity], translateExtent = [[-Infinity, -Infinity], [Infinity, Infinity]], duration = 250, interpolate2 = zoom, listeners = dispatch("start", "zoom", "end"), touchstarting, touchfirst, touchending, touchDelay = 500, wheelDelay = 150, clickDistance2 = 0, tapDistance = 10;
+    function zoom3(selection2) {
+      selection2.property("__zoom", defaultTransform).on("wheel.zoom", wheeled, { passive: false }).on("mousedown.zoom", mousedowned).on("dblclick.zoom", dblclicked).filter(touchable).on("touchstart.zoom", touchstarted).on("touchmove.zoom", touchmoved).on("touchend.zoom touchcancel.zoom", touchended).style("-webkit-tap-highlight-color", "rgba(0,0,0,0)");
+    }
+    zoom3.transform = function(collection, transform2, point, event) {
+      var selection2 = collection.selection ? collection.selection() : collection;
+      selection2.property("__zoom", defaultTransform);
+      if (collection !== selection2) {
+        schedule2(collection, transform2, point, event);
+      } else {
+        selection2.interrupt().each(function() {
+          gesture(this, arguments).event(event).start().zoom(null, typeof transform2 === "function" ? transform2.apply(this, arguments) : transform2).end();
+        });
+      }
+    };
+    zoom3.scaleBy = function(selection2, k, p, event) {
+      zoom3.scaleTo(selection2, function() {
+        var k0 = this.__zoom.k, k1 = typeof k === "function" ? k.apply(this, arguments) : k;
+        return k0 * k1;
+      }, p, event);
+    };
+    zoom3.scaleTo = function(selection2, k, p, event) {
+      zoom3.transform(selection2, function() {
+        var e = extent.apply(this, arguments), t02 = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p, p1 = t02.invert(p0), k1 = typeof k === "function" ? k.apply(this, arguments) : k;
+        return constrain(translate(scale(t02, k1), p0, p1), e, translateExtent);
+      }, p, event);
+    };
+    zoom3.translateBy = function(selection2, x, y, event) {
+      zoom3.transform(selection2, function() {
+        return constrain(this.__zoom.translate(
+          typeof x === "function" ? x.apply(this, arguments) : x,
+          typeof y === "function" ? y.apply(this, arguments) : y
+        ), extent.apply(this, arguments), translateExtent);
+      }, null, event);
+    };
+    zoom3.translateTo = function(selection2, x, y, p, event) {
+      zoom3.transform(selection2, function() {
+        var e = extent.apply(this, arguments), t = this.__zoom, p0 = p == null ? centroid(e) : typeof p === "function" ? p.apply(this, arguments) : p;
+        return constrain(identity2.translate(p0[0], p0[1]).scale(t.k).translate(
+          typeof x === "function" ? -x.apply(this, arguments) : -x,
+          typeof y === "function" ? -y.apply(this, arguments) : -y
+        ), e, translateExtent);
+      }, p, event);
+    };
+    function scale(transform2, k) {
+      k = Math.max(scaleExtent[0], Math.min(scaleExtent[1], k));
+      return k === transform2.k ? transform2 : new Transform(k, transform2.x, transform2.y);
+    }
+    function translate(transform2, p0, p1) {
+      var x = p0[0] - p1[0] * transform2.k, y = p0[1] - p1[1] * transform2.k;
+      return x === transform2.x && y === transform2.y ? transform2 : new Transform(transform2.k, x, y);
+    }
+    function centroid(extent2) {
+      return [(+extent2[0][0] + +extent2[1][0]) / 2, (+extent2[0][1] + +extent2[1][1]) / 2];
+    }
+    function schedule2(transition2, transform2, point, event) {
+      transition2.on("start.zoom", function() {
+        gesture(this, arguments).event(event).start();
+      }).on("interrupt.zoom end.zoom", function() {
+        gesture(this, arguments).event(event).end();
+      }).tween("zoom", function() {
+        var that = this, args = arguments, g = gesture(that, args).event(event), e = extent.apply(that, args), p = point == null ? centroid(e) : typeof point === "function" ? point.apply(that, args) : point, w = Math.max(e[1][0] - e[0][0], e[1][1] - e[0][1]), a2 = that.__zoom, b = typeof transform2 === "function" ? transform2.apply(that, args) : transform2, i = interpolate2(a2.invert(p).concat(w / a2.k), b.invert(p).concat(w / b.k));
+        return function(t) {
+          if (t === 1) t = b;
+          else {
+            var l = i(t), k = w / l[2];
+            t = new Transform(k, p[0] - l[0] * k, p[1] - l[1] * k);
+          }
+          g.zoom(null, t);
+        };
+      });
+    }
+    function gesture(that, args, clean) {
+      return !clean && that.__zooming || new Gesture(that, args);
+    }
+    function Gesture(that, args) {
+      this.that = that;
+      this.args = args;
+      this.active = 0;
+      this.sourceEvent = null;
+      this.extent = extent.apply(that, args);
+      this.taps = 0;
+    }
+    Gesture.prototype = {
+      event: function(event) {
+        if (event) this.sourceEvent = event;
+        return this;
+      },
+      start: function() {
+        if (++this.active === 1) {
+          this.that.__zooming = this;
+          this.emit("start");
+        }
+        return this;
+      },
+      zoom: function(key, transform2) {
+        if (this.mouse && key !== "mouse") this.mouse[1] = transform2.invert(this.mouse[0]);
+        if (this.touch0 && key !== "touch") this.touch0[1] = transform2.invert(this.touch0[0]);
+        if (this.touch1 && key !== "touch") this.touch1[1] = transform2.invert(this.touch1[0]);
+        this.that.__zoom = transform2;
+        this.emit("zoom");
+        return this;
+      },
+      end: function() {
+        if (--this.active === 0) {
+          delete this.that.__zooming;
+          this.emit("end");
+        }
+        return this;
+      },
+      emit: function(type) {
+        var d = select(this.that).datum();
+        listeners.call(
+          type,
+          this.that,
+          new ZoomEvent(type, {
+            sourceEvent: this.sourceEvent,
+            target: zoom3,
+            transform: this.that.__zoom,
+            dispatch: listeners
+          }),
+          d
+        );
+      }
+    };
+    function wheeled(event, ...args) {
+      if (!filter2.apply(this, arguments)) return;
+      var g = gesture(this, args).event(event), t = this.__zoom, k = Math.max(scaleExtent[0], Math.min(scaleExtent[1], t.k * Math.pow(2, wheelDelta.apply(this, arguments)))), p = pointer(event);
+      if (g.wheel) {
+        if (g.mouse[0][0] !== p[0] || g.mouse[0][1] !== p[1]) {
+          g.mouse[1] = t.invert(g.mouse[0] = p);
+        }
+        clearTimeout(g.wheel);
+      } else if (t.k === k) return;
+      else {
+        g.mouse = [p, t.invert(p)];
+        interrupt(this);
+        g.start();
+      }
+      noevent2(event);
+      g.wheel = setTimeout(wheelidled, wheelDelay);
+      g.zoom("mouse", constrain(translate(scale(t, k), g.mouse[0], g.mouse[1]), g.extent, translateExtent));
+      function wheelidled() {
+        g.wheel = null;
+        g.end();
+      }
+    }
+    function mousedowned(event, ...args) {
+      if (touchending || !filter2.apply(this, arguments)) return;
+      var currentTarget = event.currentTarget, g = gesture(this, args, true).event(event), v = select(event.view).on("mousemove.zoom", mousemoved, true).on("mouseup.zoom", mouseupped, true), p = pointer(event, currentTarget), x0 = event.clientX, y0 = event.clientY;
+      nodrag(event.view);
+      nopropagation(event);
+      g.mouse = [p, this.__zoom.invert(p)];
+      interrupt(this);
+      g.start();
+      function mousemoved(event2) {
+        noevent2(event2);
+        if (!g.moved) {
+          var dx = event2.clientX - x0, dy = event2.clientY - y0;
+          g.moved = dx * dx + dy * dy > clickDistance2;
+        }
+        g.event(event2).zoom("mouse", constrain(translate(g.that.__zoom, g.mouse[0] = pointer(event2, currentTarget), g.mouse[1]), g.extent, translateExtent));
+      }
+      function mouseupped(event2) {
+        v.on("mousemove.zoom mouseup.zoom", null);
+        yesdrag(event2.view, g.moved);
+        noevent2(event2);
+        g.event(event2).end();
+      }
+    }
+    function dblclicked(event, ...args) {
+      if (!filter2.apply(this, arguments)) return;
+      var t02 = this.__zoom, p0 = pointer(event.changedTouches ? event.changedTouches[0] : event, this), p1 = t02.invert(p0), k1 = t02.k * (event.shiftKey ? 0.5 : 2), t12 = constrain(translate(scale(t02, k1), p0, p1), extent.apply(this, args), translateExtent);
+      noevent2(event);
+      if (duration > 0) select(this).transition().duration(duration).call(schedule2, t12, p0, event);
+      else select(this).call(zoom3.transform, t12, p0, event);
+    }
+    function touchstarted(event, ...args) {
+      if (!filter2.apply(this, arguments)) return;
+      var touches = event.touches, n = touches.length, g = gesture(this, args, event.changedTouches.length === n).event(event), started, i, t, p;
+      nopropagation(event);
+      for (i = 0; i < n; ++i) {
+        t = touches[i], p = pointer(t, this);
+        p = [p, this.__zoom.invert(p), t.identifier];
+        if (!g.touch0) g.touch0 = p, started = true, g.taps = 1 + !!touchstarting;
+        else if (!g.touch1 && g.touch0[2] !== p[2]) g.touch1 = p, g.taps = 0;
+      }
+      if (touchstarting) touchstarting = clearTimeout(touchstarting);
+      if (started) {
+        if (g.taps < 2) touchfirst = p[0], touchstarting = setTimeout(function() {
+          touchstarting = null;
+        }, touchDelay);
+        interrupt(this);
+        g.start();
+      }
+    }
+    function touchmoved(event, ...args) {
+      if (!this.__zooming) return;
+      var g = gesture(this, args).event(event), touches = event.changedTouches, n = touches.length, i, t, p, l;
+      noevent2(event);
+      for (i = 0; i < n; ++i) {
+        t = touches[i], p = pointer(t, this);
+        if (g.touch0 && g.touch0[2] === t.identifier) g.touch0[0] = p;
+        else if (g.touch1 && g.touch1[2] === t.identifier) g.touch1[0] = p;
+      }
+      t = g.that.__zoom;
+      if (g.touch1) {
+        var p0 = g.touch0[0], l0 = g.touch0[1], p1 = g.touch1[0], l1 = g.touch1[1], dp = (dp = p1[0] - p0[0]) * dp + (dp = p1[1] - p0[1]) * dp, dl = (dl = l1[0] - l0[0]) * dl + (dl = l1[1] - l0[1]) * dl;
+        t = scale(t, Math.sqrt(dp / dl));
+        p = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+        l = [(l0[0] + l1[0]) / 2, (l0[1] + l1[1]) / 2];
+      } else if (g.touch0) p = g.touch0[0], l = g.touch0[1];
+      else return;
+      g.zoom("touch", constrain(translate(t, p, l), g.extent, translateExtent));
+    }
+    function touchended(event, ...args) {
+      if (!this.__zooming) return;
+      var g = gesture(this, args).event(event), touches = event.changedTouches, n = touches.length, i, t;
+      nopropagation(event);
+      if (touchending) clearTimeout(touchending);
+      touchending = setTimeout(function() {
+        touchending = null;
+      }, touchDelay);
+      for (i = 0; i < n; ++i) {
+        t = touches[i];
+        if (g.touch0 && g.touch0[2] === t.identifier) delete g.touch0;
+        else if (g.touch1 && g.touch1[2] === t.identifier) delete g.touch1;
+      }
+      if (g.touch1 && !g.touch0) g.touch0 = g.touch1, delete g.touch1;
+      if (g.touch0) g.touch0[1] = this.__zoom.invert(g.touch0[0]);
+      else {
+        g.end();
+        if (g.taps === 2) {
+          t = pointer(t, this);
+          if (Math.hypot(touchfirst[0] - t[0], touchfirst[1] - t[1]) < tapDistance) {
+            var p = select(this).on("dblclick.zoom");
+            if (p) p.apply(this, arguments);
+          }
+        }
+      }
+    }
+    zoom3.wheelDelta = function(_) {
+      return arguments.length ? (wheelDelta = typeof _ === "function" ? _ : constant4(+_), zoom3) : wheelDelta;
+    };
+    zoom3.filter = function(_) {
+      return arguments.length ? (filter2 = typeof _ === "function" ? _ : constant4(!!_), zoom3) : filter2;
+    };
+    zoom3.touchable = function(_) {
+      return arguments.length ? (touchable = typeof _ === "function" ? _ : constant4(!!_), zoom3) : touchable;
+    };
+    zoom3.extent = function(_) {
+      return arguments.length ? (extent = typeof _ === "function" ? _ : constant4([[+_[0][0], +_[0][1]], [+_[1][0], +_[1][1]]]), zoom3) : extent;
+    };
+    zoom3.scaleExtent = function(_) {
+      return arguments.length ? (scaleExtent[0] = +_[0], scaleExtent[1] = +_[1], zoom3) : [scaleExtent[0], scaleExtent[1]];
+    };
+    zoom3.translateExtent = function(_) {
+      return arguments.length ? (translateExtent[0][0] = +_[0][0], translateExtent[1][0] = +_[1][0], translateExtent[0][1] = +_[0][1], translateExtent[1][1] = +_[1][1], zoom3) : [[translateExtent[0][0], translateExtent[0][1]], [translateExtent[1][0], translateExtent[1][1]]];
+    };
+    zoom3.constrain = function(_) {
+      return arguments.length ? (constrain = _, zoom3) : constrain;
+    };
+    zoom3.duration = function(_) {
+      return arguments.length ? (duration = +_, zoom3) : duration;
+    };
+    zoom3.interpolate = function(_) {
+      return arguments.length ? (interpolate2 = _, zoom3) : interpolate2;
+    };
+    zoom3.on = function() {
+      var value = listeners.on.apply(listeners, arguments);
+      return value === listeners ? zoom3 : value;
+    };
+    zoom3.clickDistance = function(_) {
+      return arguments.length ? (clickDistance2 = (_ = +_) * _, zoom3) : Math.sqrt(clickDistance2);
+    };
+    zoom3.tapDistance = function(_) {
+      return arguments.length ? (tapDistance = +_, zoom3) : tapDistance;
+    };
+    return zoom3;
+  }
+
   // client-src/tabs-graph.js
   var TYPE_COLOR = { person: "#e0a458", institution: "#5fb3d4", event: "#d46a6a", place: "#7fcb8f", concept: "#a78bfa", work: "#d4a5e0" };
   var REL_LABEL = { causal: "\u5BFC\u81F4", temporal: "\u5148\u540E\u4E8E", contrast: "\u5BF9\u7167", part_of: "\u5C5E\u4E8E", example_of: "\u4F8B\u5982" };
   var TYPE_LABEL = { person: "\u4EBA", institution: "\u5236\u5EA6", event: "\u4E8B\u4EF6", place: "\u5730\u65B9", concept: "\u6982\u5FF5", work: "\u4F5C\u54C1" };
-  function computeLayout(data, width, height) {
-    const nodes = Array.isArray(data && data.nodes) ? data.nodes.filter((n) => n && typeof n.name === "string") : [];
-    const edges = Array.isArray(data && data.edges) ? data.edges : [];
-    const ids = new Map(nodes.map((node, index) => [node.name, index]));
-    const links = edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
-    const cx = width / 2;
-    const cy = height / 2;
-    const points = nodes.map((node) => ({ x: cx + (Math.random() - 0.5) * width * 0.7, y: cy + (Math.random() - 0.5) * height * 0.7, vx: 0, vy: 0, node }));
-    for (let step = 0; step < 240; step += 1) {
-      for (let i = 0; i < points.length; i += 1) {
-        for (let j = i + 1; j < points.length; j += 1) {
-          const dx = points[j].x - points[i].x;
-          const dy = points[j].y - points[i].y;
-          const d2 = dx * dx + dy * dy + 0.01;
-          const d = Math.sqrt(d2);
-          const force = 2600 / d2;
-          points[i].vx -= dx / d * force;
-          points[i].vy -= dy / d * force;
-          points[j].vx += dx / d * force;
-          points[j].vy += dy / d * force;
-        }
-      }
-      for (const link of links) {
-        const a = points[ids.get(link.from)];
-        const b = points[ids.get(link.to)];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-        const force = (d - 120) * 0.02;
-        a.vx += dx / d * force;
-        a.vy += dy / d * force;
-        b.vx -= dx / d * force;
-        b.vy -= dy / d * force;
-      }
-      for (const p of points) {
-        p.vx += (cx - p.x) * 12e-4;
-        p.vy += (cy - p.y) * 12e-4;
-        p.vx *= 0.85;
-        p.vy *= 0.85;
-        p.x += p.vx;
-        p.y += p.vy;
-      }
-    }
-    return { nodes, links, points, ids };
+  var GRAPH_VIEW_HEIGHT = 340;
+  function sizeOf(node) {
+    return node.type === "person" || node.type === "institution" ? 6.5 : 5.2;
   }
   function createGraphTab(ctx = {}) {
     const h = ctx.h;
@@ -1532,9 +5050,16 @@
       const [data, setData] = React.useState(null);
       const [error, setError] = React.useState("");
       const [selected, setSelected] = React.useState(null);
-      const [size, setSize] = React.useState({ width: 380, height: 300 });
       const [reloadKey, setReloadKey] = React.useState(0);
-      const boxRef = React.useRef(null);
+      const [zoomLevel, setZoomLevel] = React.useState(1);
+      const wrapRef = React.useRef(null);
+      const canvasRef = React.useRef(null);
+      const graphRef = React.useRef(null);
+      const transformRef = React.useRef(identity2);
+      const selectedRef = React.useRef(null);
+      React.useEffect(() => {
+        selectedRef.current = selected;
+      }, [selected]);
       React.useEffect(() => {
         let alive = true;
         const load = () => {
@@ -1551,87 +5076,176 @@
           });
         };
         load();
-        const timer = setInterval(load, 3e4);
+        const timer2 = setInterval(load, 3e4);
         return () => {
           alive = false;
-          clearInterval(timer);
+          clearInterval(timer2);
         };
       }, [reloadKey]);
       React.useEffect(() => {
-        const measure = () => {
-          const box = boxRef.current;
-          if (!box || typeof box.getBoundingClientRect !== "function") return;
-          const rect = box.getBoundingClientRect();
-          if (rect.width > 40) setSize({ width: Math.round(rect.width), height: Math.max(240, Math.min(380, Math.round(rect.width * 0.8))) });
+        const wrap = wrapRef.current;
+        const canvas = canvasRef.current;
+        if (!wrap || !canvas || !data) return void 0;
+        const nodes2 = (Array.isArray(data.nodes) ? data.nodes : []).filter((node) => node && typeof node.name === "string").slice(0, 3e3).map((node) => ({ ...node }));
+        const byName = new Map(nodes2.map((node) => [node.name, node]));
+        const links = (Array.isArray(data.edges) ? data.edges : []).filter((edge) => byName.has(edge.from) && byName.has(edge.to)).slice(0, 6e3).map((edge) => ({ source: edge.from, target: edge.to, relation: edge.relation, note: edge.note, confidence: edge.confidence }));
+        if (nodes2.length === 0) {
+          graphRef.current = null;
+          return void 0;
+        }
+        const dpr = typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1;
+        const width = Math.max(260, wrap.clientWidth || 360);
+        const height = GRAPH_VIEW_HEIGHT;
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.width = width + "px";
+        canvas.style.height = height + "px";
+        const context = canvas.getContext("2d");
+        if (!context) return void 0;
+        context.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const draw = () => {
+          const transform2 = transformRef.current;
+          context.setTransform(dpr, 0, 0, dpr, 0, 0);
+          context.clearRect(0, 0, width, height);
+          context.save();
+          context.translate(transform2.x, transform2.y);
+          context.scale(transform2.k, transform2.k);
+          context.lineWidth = 0.6 / transform2.k;
+          context.strokeStyle = "rgba(140,170,190,0.30)";
+          context.beginPath();
+          for (const link2 of links) {
+            if (!link2.source || typeof link2.source.x !== "number" || !link2.target || typeof link2.target.x !== "number") continue;
+            context.moveTo(link2.source.x, link2.source.y);
+            context.lineTo(link2.target.x, link2.target.y);
+          }
+          context.stroke();
+          const selectedName = selectedRef.current;
+          const showLabels = transform2.k >= 0.55;
+          for (const node of nodes2) {
+            if (typeof node.x !== "number" || typeof node.y !== "number") continue;
+            const radius = sizeOf(node) + (node.name === selectedName ? 3 : 0);
+            context.beginPath();
+            context.fillStyle = TYPE_COLOR[node.type] || "#8aa2b4";
+            context.arc(node.x, node.y, radius, 0, Math.PI * 2);
+            context.fill();
+            if (node.name === selectedName) {
+              context.strokeStyle = "#ffffff";
+              context.lineWidth = 2 / transform2.k;
+              context.stroke();
+            }
+          }
+          if (showLabels) {
+            context.fillStyle = "rgba(210,225,235,0.92)";
+            const fontSize = 10 / transform2.k;
+            context.font = fontSize + 'px -apple-system, "PingFang SC", sans-serif';
+            context.textBaseline = "middle";
+            for (const node of nodes2) {
+              if (typeof node.x !== "number") continue;
+              context.fillText(node.name, node.x + (sizeOf(node) + 3) / transform2.k, node.y);
+            }
+          }
+          context.restore();
         };
-        measure();
-        if (typeof window !== "undefined") window.addEventListener("resize", measure);
+        const simulation2 = simulation(nodes2).force("link", link(links).id((node) => node.name).distance(70).strength(0.18)).force("charge", manyBody().strength(-30).theta(0.9)).force("center", center(width / 2, height / 2)).force("collide", collide().radius((node) => sizeOf(node) + 2)).alphaDecay(0.035).stop();
+        simulation2.tick(160);
+        draw();
+        simulation2.on("tick", draw);
+        simulation2.alpha(0.25).restart();
+        const zoomBehavior = zoom2().scaleExtent([0.08, 8]).on("zoom", (event) => {
+          transformRef.current = event.transform;
+          setZoomLevel(Number(event.transform.k.toFixed(2)));
+          draw();
+        });
+        const selection2 = select(canvas);
+        selection2.call(zoomBehavior);
+        selection2.on("dblclick.zoom", null);
+        const pickNode = (event) => {
+          const rect = canvas.getBoundingClientRect();
+          const transform2 = transformRef.current;
+          const gx = (event.clientX - rect.left - transform2.x) / transform2.k;
+          const gy = (event.clientY - rect.top - transform2.y) / transform2.k;
+          let best = null;
+          let bestDistance = 14;
+          for (const node of nodes2) {
+            if (typeof node.x !== "number") continue;
+            const distance = Math.hypot(node.x - gx, node.y - gy);
+            if (distance < bestDistance) {
+              best = node;
+              bestDistance = distance;
+            }
+          }
+          if (best !== null) setSelected(best.name);
+        };
+        canvas.addEventListener("click", pickNode);
+        graphRef.current = { nodes: nodes2, links, simulation: simulation2, width, height };
         return () => {
-          if (typeof window !== "undefined") window.removeEventListener("resize", measure);
+          simulation2.stop();
+          selection2.on(".zoom", null);
+          canvas.removeEventListener("click", pickNode);
+          graphRef.current = null;
         };
-      }, [data]);
-      const layout = React.useMemo(() => computeLayout(data, size.width, size.height), [data, size.width, size.height]);
-      const nodeCount = layout.nodes.length;
+      }, [data, reloadKey]);
+      const resetView = () => {
+        const graph = graphRef.current;
+        if (!graph || !canvasRef.current) return;
+        const reset = identity2.translate(0, 0).scale(1);
+        select(canvasRef.current).call(zoom2().transform, reset);
+        transformRef.current = reset;
+        setZoomLevel(1);
+      };
+      const nudgeZoom = (factor) => {
+        const graph = graphRef.current;
+        if (!graph || !canvasRef.current) return;
+        const behavior = zoom2().scaleExtent([0.08, 8]);
+        select(canvasRef.current).call(behavior.scaleBy, factor);
+      };
+      const nodes = Array.isArray(data && data.nodes) ? data.nodes : [];
+      const edges = Array.isArray(data && data.edges) ? data.edges : [];
+      const selectedNode = selected ? nodes.find((node) => node.name === selected) : null;
+      const selectedRels = selectedNode ? edges.filter((edge) => edge.from === selectedNode.name || edge.to === selectedNode.name) : [];
+      const selectedClaims = selectedNode && Array.isArray(data && data.claims) ? data.claims.filter((claim) => Array.isArray(claim.nodes) && claim.nodes.includes(selectedNode.name)) : [];
       const last = data && data.last ? data.last : null;
       const lastText = last ? last.ok === true ? `\u62BD\u53D6 +${last.addedNodes || 0} \u8282\u70B9` : `\u62BD\u53D6\u5931\u8D25\uFF1A${last.reason || "unknown"}` : "\u5C1A\u672A\u62BD\u53D6";
-      const selectedNode = selected ? layout.nodes.find((node) => node.name === selected) : null;
-      const selectedRels = selectedNode && data && Array.isArray(data.edges) ? data.edges.filter((edge) => edge.from === selectedNode.name || edge.to === selectedNode.name) : [];
-      const selectedClaims = selectedNode && data && Array.isArray(data.claims) ? data.claims.filter((claim) => Array.isArray(claim.nodes) && claim.nodes.includes(selectedNode.name)) : [];
       const detail = selectedNode ? h(
         "div",
-        { style: { marginTop: 10, padding: "8px 10px", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, fontSize: 12, lineHeight: 1.6 } },
+        { style: { marginTop: 8, padding: "8px 10px", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, fontSize: 12, lineHeight: 1.65 } },
         h(
           "div",
           { style: { display: "flex", gap: 6, alignItems: "baseline" } },
           h("strong", null, selectedNode.name),
           h("span", { style: { color: TYPE_COLOR[selectedNode.type] || "#8aa2b4" } }, TYPE_LABEL[selectedNode.type] || selectedNode.type || "\u6761\u76EE")
         ),
-        selectedNode.summary ? h("div", { style: { opacity: 0.8, marginTop: 4 } }, selectedNode.summary) : null,
+        selectedNode.summary ? h("div", { style: { opacity: 0.8, marginTop: 3 } }, selectedNode.summary) : null,
         selectedRels.length > 0 ? h(
           "div",
-          { style: { marginTop: 6, opacity: 0.85 } },
+          { style: { marginTop: 5, opacity: 0.85 } },
           selectedRels.slice(0, 8).map((edge) => h(
             "div",
             { key: edge.id || edge.from + edge.to + edge.relation },
             edge.from === selectedNode.name ? `${REL_LABEL[edge.relation] || "\u5173\u8054"} ${edge.to}` : `${edge.from} ${REL_LABEL[edge.relation] || "\u5173\u8054"} \u5B83`,
-            edge.note ? `\uFF08${edge.note}\uFF09` : "",
-            " ",
-            h("span", { style: { opacity: 0.5 } }, "[" + (edge.confidence || "low") + "]")
+            edge.note ? `\uFF08${edge.note}\uFF09` : ""
           ))
         ) : null,
         selectedClaims.length > 0 ? h(
           "div",
-          { style: { marginTop: 6, opacity: 0.85 } },
+          { style: { marginTop: 5, opacity: 0.85 } },
           selectedClaims.slice(0, 4).map((claim) => h("div", { key: claim.id || claim.text }, "\u5224\u65AD\uFF1A" + claim.text + " [" + (claim.confidence || "low") + "]"))
         ) : null
       ) : null;
-      const linkEls = layout.links.map((edge, index) => {
-        const a = layout.points[layout.ids.get(edge.from)];
-        const b = layout.points[layout.ids.get(edge.to)];
-        if (!a || !b) return null;
-        return h("line", { key: "l" + index, x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: "rgba(140,170,190,0.35)", strokeWidth: 1 });
-      });
-      const nodeEls = layout.points.map((p) => h(
-        "g",
-        { key: "n" + p.node.name, style: { cursor: "pointer" }, onClick: () => setSelected(p.node.name) },
-        h("circle", { cx: p.x, cy: p.y, r: selected === p.node.name ? 9 : 6, fill: TYPE_COLOR[p.node.type] || "#8aa2b4", stroke: "#0f1720", strokeWidth: 2 }),
-        h("text", { x: p.x + 9, y: p.y + 4, fill: "rgba(210,225,235,0.9)", fontSize: 11 }, p.node.name)
-      ));
-      const svgEl = nodeCount === 0 ? null : h(
+      const body = error ? h("div", { style: { fontSize: 12, color: "#e0a458" } }, "\u8BFB\u53D6\u56FE\u8C31\u5931\u8D25\uFF1A" + error, h("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u8BD5")) : nodes.length === 0 ? h("div", { style: { fontSize: 12, lineHeight: 1.7, opacity: 0.85 } }, "\u56FE\u8C31\u8FD8\u5728\u957F\uFF1A\u540E\u53F0\u6BCF 2 \u5C0F\u65F6\u4ECE\u5B66\u4E60\u65E5\u5FD7\u91CC\u62BD\u4E00\u8F6E\u3002", h("br"), "\u5F53\u524D\u72B6\u6001\uFF1A" + lastText + "\u3002") : h(
         "div",
-        { ref: boxRef, style: { position: "relative", width: "100%", borderRadius: 10, overflow: "hidden", background: "rgba(10,16,22,0.55)" } },
-        h("svg", { viewBox: `0 0 ${size.width} ${size.height}`, width: "100%", height: size.height, style: { display: "block" } }, linkEls, nodeEls),
+        { ref: wrapRef, style: { position: "relative", width: "100%", borderRadius: 10, overflow: "hidden", background: "rgba(10,16,22,0.55)", border: "1px solid rgba(255,255,255,0.08)" } },
+        h("canvas", { ref: canvasRef, style: { display: "block", cursor: "grab" } }),
+        h(
+          "div",
+          { style: { position: "absolute", right: 8, bottom: 8, display: "flex", gap: 4 } },
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => nudgeZoom(1.3) }, "+"),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => nudgeZoom(0.77) }, "\u2212"),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D")
+        ),
+        h("div", { style: { position: "absolute", left: 8, bottom: 8, fontSize: 11, opacity: 0.55 } }, "\u6EDA\u8F6E\u7F29\u653E \xB7 \u62D6\u52A8\u5E73\u79FB \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5 \xB7 " + zoomLevel + "\xD7"),
         detail
       );
-      const emptyEl = nodeCount === 0 ? h(
-        "div",
-        { style: { fontSize: 12, lineHeight: 1.7, opacity: 0.85 } },
-        "\u56FE\u8C31\u8FD8\u5728\u957F\uFF1A\u540E\u53F0\u6BCF 2 \u5C0F\u65F6\u4ECE\u5B66\u4E60\u65E5\u5FD7\u91CC\u62BD\u4E00\u8F6E\u3002",
-        h("br"),
-        "\u5F53\u524D\u72B6\u6001\uFF1A" + lastText + "\u3002"
-      ) : null;
-      const errorEl = error ? h("div", { style: { fontSize: 12, color: "#e0a458" } }, "\u8BFB\u53D6\u56FE\u8C31\u5931\u8D25\uFF1A" + error, h("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u8BD5")) : null;
-      const body = errorEl || emptyEl || svgEl;
       return h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -1639,7 +5253,7 @@
           "div",
           { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: 12 } },
           h("strong", null, "\u8BA4\u77E5\u56FE\u8C31"),
-          h("span", { style: { opacity: 0.7 } }, nodeCount + " \u8282\u70B9 / " + layout.links.length + " \u5173\u7CFB"),
+          h("span", { style: { opacity: 0.7 } }, nodes.length + " \u8282\u70B9 / " + edges.length + " \u5173\u7CFB / " + (data && data.claims ? data.claims.length : 0) + " \u5224\u65AD"),
           h("span", { style: { opacity: 0.55 } }, lastText)
         ),
         body,
@@ -1663,12 +5277,12 @@
     const text = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? "" : value)).join("").trim();
     if (!text) return [];
     const out = [];
-    let start = 0;
+    let start2 = 0;
     for (let i = 0; i < text.length; i += 1) {
       const ch = text.charAt(i);
       if (ch !== "\u3002" && ch !== "\uFF01" && ch !== "\uFF1F") continue;
-      const sentence = text.slice(start, i + 1).trim();
-      start = i + 1;
+      const sentence = text.slice(start2, i + 1).trim();
+      start2 = i + 1;
       if (!sentence) continue;
       const plain = sentence.replace(/[，。！？；、：,.!?;:\s]/g, "");
       if (plain.length < 5) continue;
@@ -1679,27 +5293,27 @@
   function feihuaPlainOf(text) {
     return String(text == null ? "" : text).replace(/[，。！？；、：,.!?;:\s"'“”‘’「」『』《》〈〉（）()\[\]【】·—…～~]/g, "");
   }
-  function registerFeihuaLookup(index, entry) {
-    if (!index || !entry) return;
+  function registerFeihuaLookup(index2, entry) {
+    if (!index2 || !entry) return;
     const plain = feihuaPlainOf(entry.text);
     if (!plain) return;
     entry.plain = plain;
-    if (!index.byPlain[plain]) index.byPlain[plain] = entry;
+    if (!index2.byPlain[plain]) index2.byPlain[plain] = entry;
     const clauses = String(entry.text).split(/[，、；：,;:]/);
     for (const clause of clauses) {
       const clausePlain = feihuaPlainOf(clause);
-      if (clausePlain.length < 2 || index.clauseMap[clausePlain]) continue;
-      index.clauseMap[clausePlain] = entry;
+      if (clausePlain.length < 2 || index2.clauseMap[clausePlain]) continue;
+      index2.clauseMap[clausePlain] = entry;
     }
   }
-  function feihuaLookup(index, input) {
-    if (!index || !index.entries) return null;
+  function feihuaLookup(index2, input) {
+    if (!index2 || !index2.entries) return null;
     const plain = feihuaPlainOf(input);
     if (!plain) return null;
-    if (index.clauseMap && index.clauseMap[plain]) return { entry: index.clauseMap[plain], match: "clause" };
-    if (index.byPlain && index.byPlain[plain]) return { entry: index.byPlain[plain], match: "sentence" };
+    if (index2.clauseMap && index2.clauseMap[plain]) return { entry: index2.clauseMap[plain], match: "clause" };
+    if (index2.byPlain && index2.byPlain[plain]) return { entry: index2.byPlain[plain], match: "sentence" };
     if (plain.length < 5) return null;
-    for (const entry of index.entries) {
+    for (const entry of index2.entries) {
       const entryPlain = entry.plain || feihuaPlainOf(entry.text);
       if (entryPlain.indexOf(plain) >= 0) return { entry, match: "contains" };
     }
@@ -1761,27 +5375,27 @@
     for (const char of FEIHUA_CANDIDATE_CHARS) {
       if (counts[char] >= FEIHUA_MIN_ENTRIES) candidates.push({ char, count: counts[char] });
     }
-    const index = { entries, byChar, counts, clauseMap: {}, byPlain: {} };
-    for (const entry of entries) registerFeihuaLookup(index, entry);
-    if (ciBankData) mergeFeihuaItems(index, ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : Array.isArray(ciBankData) ? ciBankData : []);
-    return finishFeihuaIndex(index);
+    const index2 = { entries, byChar, counts, clauseMap: {}, byPlain: {} };
+    for (const entry of entries) registerFeihuaLookup(index2, entry);
+    if (ciBankData) mergeFeihuaItems(index2, ciBankData && Array.isArray(ciBankData.items) ? ciBankData.items : Array.isArray(ciBankData) ? ciBankData : []);
+    return finishFeihuaIndex(index2);
   }
-  function mergeFeihuaFullEntries(index, char, entries) {
-    if (!index || !index.entries || !Array.isArray(entries)) return 0;
+  function mergeFeihuaFullEntries(index2, char, entries) {
+    if (!index2 || !index2.entries || !Array.isArray(entries)) return 0;
     const key = String(char == null ? "" : char);
     if (!key) return 0;
-    if (!index.__seen) index.__seen = new Set(index.entries.map((entry) => entry.text));
-    if (!index.__plainSeen) {
-      index.__plainSeen = /* @__PURE__ */ new Set();
-      for (const entry of index.entries) {
+    if (!index2.__seen) index2.__seen = new Set(index2.entries.map((entry) => entry.text));
+    if (!index2.__plainSeen) {
+      index2.__plainSeen = /* @__PURE__ */ new Set();
+      for (const entry of index2.entries) {
         const plain = entry.plain || feihuaPlainOf(entry.text);
-        if (plain) index.__plainSeen.add(plain);
+        if (plain) index2.__plainSeen.add(plain);
       }
     }
-    if (!index.__fullMerged) index.__fullMerged = {};
-    if (index.__fullMerged[key]) return 0;
-    if (!Array.isArray(index.byChar[key])) index.byChar[key] = [];
-    index.counts[key] = index.counts[key] || 0;
+    if (!index2.__fullMerged) index2.__fullMerged = {};
+    if (index2.__fullMerged[key]) return 0;
+    if (!Array.isArray(index2.byChar[key])) index2.byChar[key] = [];
+    index2.counts[key] = index2.counts[key] || 0;
     let added = 0;
     for (const item of entries) {
       let text = "";
@@ -1797,18 +5411,18 @@
       }
       if (!text || !/[。！？]$/.test(text) || text.indexOf(key) < 0) continue;
       const plain = feihuaPlainOf(text);
-      if (!plain || index.__seen.has(text) || index.__plainSeen.has(plain)) continue;
-      index.__seen.add(text);
-      index.__plainSeen.add(plain);
+      if (!plain || index2.__seen.has(text) || index2.__plainSeen.has(plain)) continue;
+      index2.__seen.add(text);
+      index2.__plainSeen.add(plain);
       const entry = { text, source, plain };
-      index.entries.push(entry);
-      registerFeihuaLookup(index, entry);
-      index.byChar[key].push(entry);
-      index.counts[key] += 1;
+      index2.entries.push(entry);
+      registerFeihuaLookup(index2, entry);
+      index2.byChar[key].push(entry);
+      index2.counts[key] += 1;
       added += 1;
     }
-    index.__fullMerged[key] = true;
-    finishFeihuaIndex(index);
+    index2.__fullMerged[key] = true;
+    finishFeihuaIndex(index2);
     return added;
   }
   function feihuaSourceOf(item) {
@@ -1817,57 +5431,57 @@
     const title = typeof label === "string" ? label : "";
     return author && title ? author + "\u300A" + title + "\u300B" : author || title;
   }
-  function mergeFeihuaItems(index, items) {
-    if (!index || !index.entries) return index;
-    if (!index.__seen) index.__seen = new Set(index.entries.map((entry) => entry.text));
+  function mergeFeihuaItems(index2, items) {
+    if (!index2 || !index2.entries) return index2;
+    if (!index2.__seen) index2.__seen = new Set(index2.entries.map((entry) => entry.text));
     for (const item of Array.isArray(items) ? items : []) {
       if (!item) continue;
       const source = feihuaSourceOf(item);
       for (const text of completeSentencesFromLines(item.lines)) {
-        if (!text || !/[。！？]$/.test(text) || index.__seen.has(text)) continue;
-        index.__seen.add(text);
+        if (!text || !/[。！？]$/.test(text) || index2.__seen.has(text)) continue;
+        index2.__seen.add(text);
         const entry = { text, source };
-        index.entries.push(entry);
-        registerFeihuaLookup(index, entry);
+        index2.entries.push(entry);
+        registerFeihuaLookup(index2, entry);
         for (const char of FEIHUA_CANDIDATE_CHARS) {
           if (text.indexOf(char) >= 0) {
-            index.byChar[char].push(entry);
-            index.counts[char] = (index.counts[char] || 0) + 1;
+            index2.byChar[char].push(entry);
+            index2.counts[char] = (index2.counts[char] || 0) + 1;
           }
         }
       }
     }
-    return index;
+    return index2;
   }
-  function finishFeihuaIndex(index) {
-    if (!index || !index.counts) return index;
+  function finishFeihuaIndex(index2) {
+    if (!index2 || !index2.counts) return index2;
     const candidates = [];
     for (const char of FEIHUA_CANDIDATE_CHARS) {
-      const count = index.counts[char] || 0;
+      const count = index2.counts[char] || 0;
       if (count >= FEIHUA_MIN_ENTRIES) candidates.push({ char, count });
     }
-    candidates.sort((a, b) => b.count - a.count || a.char.localeCompare(b.char, "zh"));
-    index.candidates = candidates.slice(0, FEIHUA_CANDIDATE_LIMIT);
-    return index;
+    candidates.sort((a2, b) => b.count - a2.count || a2.char.localeCompare(b.char, "zh"));
+    index2.candidates = candidates.slice(0, FEIHUA_CANDIDATE_LIMIT);
+    return index2;
   }
   function feihuaRandomIndex(length, random) {
     if (!length || length <= 0) return 0;
     const value = typeof random === "function" ? Number(random()) : Math.random();
-    let index = Math.floor((Number.isFinite(value) ? value : 0) * length);
-    if (index < 0) index = 0;
-    if (index >= length) index = length - 1;
-    return index;
+    let index2 = Math.floor((Number.isFinite(value) ? value : 0) * length);
+    if (index2 < 0) index2 = 0;
+    if (index2 >= length) index2 = length - 1;
+    return index2;
   }
-  function feihuaPickSystem(index, char, usedPlains, random) {
-    if (!index || !index.byChar) return null;
+  function feihuaPickSystem(index2, char, usedPlains, random) {
+    if (!index2 || !index2.byChar) return null;
     const used = usedPlains instanceof Set ? usedPlains : new Set(Array.isArray(usedPlains) ? usedPlains : []);
-    const pool = (index.byChar[char] || []).filter((entry) => !used.has(entry.plain || feihuaPlainOf(entry.text)));
+    const pool = (index2.byChar[char] || []).filter((entry) => !used.has(entry.plain || feihuaPlainOf(entry.text)));
     if (!pool.length) return null;
     return pool[feihuaRandomIndex(pool.length, random)];
   }
-  function feihuaStart(index, char, random) {
+  function feihuaStart(index2, char, random) {
     const charValue = String(char || "\u82B1");
-    const system = feihuaPickSystem(index, charValue, /* @__PURE__ */ new Set(), random);
+    const system = feihuaPickSystem(index2, charValue, /* @__PURE__ */ new Set(), random);
     if (!system) {
       return {
         char: charValue,
@@ -1889,7 +5503,7 @@
       message: "\u8BF7\u63A5\u4E00\u53E5\u542B\u300C" + charValue + "\u300D\u7684\u8BD7\u53E5"
     };
   }
-  function feihuaSubmit(state, index, input, random) {
+  function feihuaSubmit(state, index2, input, random) {
     if (!state || state.phase !== "playing") return state;
     const raw = String(input == null ? "" : input).trim();
     const plain = feihuaPlainOf(raw);
@@ -1904,7 +5518,7 @@
     if (usedPlains.has(plain)) {
       return Object.assign({}, state, { feedback: { kind: "bad", text: "\u8FD9\u53E5\u672C\u5C40\u5DF2\u7ECF\u7528\u8FC7\u4E86" } });
     }
-    const lookup = feihuaLookup(index, raw);
+    const lookup = feihuaLookup(index2, raw);
     if (lookup && usedPlains.has(lookup.entry.plain || feihuaPlainOf(lookup.entry.text))) {
       return Object.assign({}, state, { feedback: { kind: "bad", text: "\u8FD9\u53E5\u672C\u5C40\u5DF2\u7ECF\u7528\u8FC7\u4E86" } });
     }
@@ -1916,7 +5530,7 @@
     const entry = lookup.entry;
     const nextUsed = used.concat([entry]);
     const nextPlains = new Set(nextUsed.map((item) => item.plain || feihuaPlainOf(item.text)));
-    const system = feihuaPickSystem(index, state.char, nextPlains, random);
+    const system = feihuaPickSystem(index2, state.char, nextPlains, random);
     const score = state.score + 1;
     const feedback = {
       kind: "good",
@@ -1989,7 +5603,7 @@
       const api = props.api || {};
       const poemsRes = api.poemsRes || {};
       const ciRes = api.ciRes || {};
-      const index = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
+      const index2 = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
       const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
       const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
       const [char, setChar] = React.useState(null);
@@ -2002,24 +5616,24 @@
       bestRef.current = best;
       const launch = num(api.feihuaLaunch, 0);
       const launchRef = React.useRef(0);
-      const activeChar = index ? char || pickDefaultFeihuaChar(index, api.poem) : null;
+      const activeChar = index2 ? char || pickDefaultFeihuaChar(index2, api.poem) : null;
       React.useEffect(() => {
-        if (!index || !activeChar) return;
+        if (!index2 || !activeChar) return;
         if (launch > 0 && launch !== launchRef.current) {
           launchRef.current = launch;
-          setGame(feihuaStart(index, activeChar));
+          setGame(feihuaStart(index2, activeChar));
           setMode("chain");
           if (typeof api.consumeFeihuaLaunch === "function") api.consumeFeihuaLaunch();
         }
-      }, [launch, index, activeChar]);
+      }, [launch, index2, activeChar]);
       const [fullInfo, setFullInfo] = React.useState({ char: "", status: "idle", count: 0 });
       const fullTokenRef = React.useRef(0);
       React.useEffect(() => {
-        if (!index || !activeChar) return void 0;
+        if (!index2 || !activeChar) return void 0;
         const target = activeChar;
         const cached = readFeihuaFullCache(target);
         if (cached && cached.status === "ready") {
-          mergeFeihuaFullEntries2(index, target, cached.entries);
+          mergeFeihuaFullEntries2(index2, target, cached.entries);
           setFullInfo({ char: target, status: "ready", count: cached.count });
           return void 0;
         }
@@ -2033,7 +5647,7 @@
         requestFeihuaFull(target).then((result) => {
           if (token !== fullTokenRef.current) return;
           if (result && result.ok && Array.isArray(result.entries)) {
-            mergeFeihuaFullEntries2(index, target, result.entries);
+            mergeFeihuaFullEntries2(index2, target, result.entries);
             setFullInfo({ char: target, status: "ready", count: result.count || result.entries.length });
           } else {
             setFullInfo({ char: target, status: "error", count: 0 });
@@ -2043,7 +5657,7 @@
           fullTokenRef.current += 1;
           abortFeihuaFull(target);
         };
-      }, [activeChar, index]);
+      }, [activeChar, index2]);
       if (poemsRes.status === "error") {
         return h(EmptyState, {
           title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
@@ -2061,21 +5675,21 @@
         });
       }
       if (!poemsRes.data || !ciRes.data) return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
-      if (!index || !index.entries.length) {
+      if (!index2 || !index2.entries.length) {
         return h(EmptyState, { title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u4E3A\u7A7A", message: "\u8BD7/\u8BCD\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u53E5\u5B50\u3002", icon: "\u{1FAB6}" });
       }
-      const candidateChips = index.candidates.slice();
+      const candidateChips = index2.candidates.slice();
       if (!candidateChips.some((item) => item.char === activeChar)) {
-        candidateChips.unshift({ char: activeChar, count: index.counts[activeChar] || 0 });
+        candidateChips.unshift({ char: activeChar, count: index2.counts[activeChar] || 0 });
       }
-      const charEntries = index.byChar[activeChar] || [];
+      const charEntries = index2.byChar[activeChar] || [];
       const bestForChar = best.chars[activeChar] || 0;
       function startGame(target) {
         const use = target || activeChar;
-        if (!index || !use) return;
+        if (!index2 || !use) return;
         setChar(use);
         setInputText("");
-        setGame(feihuaStart(index, use));
+        setGame(feihuaStart(index2, use));
         setMode("chain");
         setAtlasLimit(FEIHUA_ATLAS_PAGE);
         const cachedFull = readFeihuaFullCache(use);
@@ -2085,7 +5699,7 @@
           requestFeihuaFull(use).then((result) => {
             if (token !== fullTokenRef.current) return;
             if (result && result.ok && Array.isArray(result.entries)) {
-              mergeFeihuaFullEntries2(index, use, result.entries);
+              mergeFeihuaFullEntries2(index2, use, result.entries);
               setFullInfo({ char: use, status: "ready", count: result.count || result.entries.length });
             }
           }).catch(() => {
@@ -2106,14 +5720,14 @@
         setAtlasLimit(FEIHUA_ATLAS_PAGE);
       }
       function randomChar() {
-        if (!index || !index.candidates.length) return;
-        const pool = index.candidates.filter((item) => item.char !== activeChar);
-        const picked = pool.length ? pool[feihuaRandomIndex(pool.length)] : index.candidates[0];
+        if (!index2 || !index2.candidates.length) return;
+        const pool = index2.candidates.filter((item) => item.char !== activeChar);
+        const picked = pool.length ? pool[feihuaRandomIndex(pool.length)] : index2.candidates[0];
         chooseChar(picked.char);
       }
       function submitAnswer() {
         if (!game || game.phase !== "playing") return;
-        const next = feihuaSubmit(game, index, inputText);
+        const next = feihuaSubmit(game, index2, inputText);
         if (!next || next === game) return;
         setGame(next);
         if (next.feedback && next.feedback.kind === "good") setInputText("");
@@ -2440,7 +6054,7 @@
       if (!name) continue;
       map[name] = (map[name] || 0) + 1;
     }
-    return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh"));
+    return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a2, b) => b.count - a2.count || a2.name.localeCompare(b.name, "zh"));
   }
   function ciBankRhythmics(ciBankData) {
     const map = {};
@@ -2449,7 +6063,7 @@
       if (!name) continue;
       map[name] = (map[name] || 0) + 1;
     }
-    return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh"));
+    return Object.keys(map).map((name) => ({ name, count: map[name] })).sort((a2, b) => b.count - a2.count || a2.name.localeCompare(b.name, "zh"));
   }
   function filterLibraryItems(items, category, query, rhythmic) {
     const cat = category && category !== "all" ? category : "all";
@@ -2512,8 +6126,8 @@
       const [inputReport, setInputReport] = React.useState(null);
       const ciMode = category === "ci-selected" || category === "ci-bank";
       React.useEffect(() => {
-        const timer = setTimeout(() => setDebounced(query), 300);
-        return () => clearTimeout(timer);
+        const timer2 = setTimeout(() => setDebounced(query), 300);
+        return () => clearTimeout(timer2);
       }, [query]);
       React.useEffect(() => {
         setVisible(LIBRARY_PAGE);
@@ -2665,7 +6279,7 @@
       if (detail) {
         const rhymeIndexes = detail.tones && Array.isArray(detail.rhymeIdx) ? detail.rhymeIdx : [];
         const rhymeSet = {};
-        for (const index of rhymeIndexes) rhymeSet[index] = true;
+        for (const index2 of rhymeIndexes) rhymeSet[index2] = true;
         const rows = [];
         const lines = Array.isArray(detail.lines) ? detail.lines : [];
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -2699,7 +6313,7 @@
             { className: "dshp-lib-note" },
             ((LIBRARY_CATEGORIES.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
           ),
-          detail.tones ? h("div", { className: "dshp-lib-lines" }, rows) : h("div", { className: "dshp-lib-plain" }, lines.map((line, index) => h("div", { key: index }, line))),
+          detail.tones ? h("div", { className: "dshp-lib-lines" }, rows) : h("div", { className: "dshp-lib-plain" }, lines.map((line, index2) => h("div", { key: index2 }, line))),
           detail.tones ? h(
             "div",
             { className: "dshp-lib-tags" },
@@ -3235,8 +6849,8 @@
     ) : [];
     if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false };
     const roll = Number(typeof random === "function" ? random() : Math.random());
-    const index = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
-    return { file: list[index].file, video: true };
+    const index2 = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
+    return { file: list[index2].file, video: true };
   }
   function nextWanderTarget(input) {
     const opts = input && typeof input === "object" ? input : {};
@@ -3508,8 +7122,8 @@
       function formatDateLabel(dateStr) {
         const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
         if (matched) return Number(matched[2]) + " \u6708 " + Number(matched[3]) + " \u65E5";
-        const now = /* @__PURE__ */ new Date();
-        return now.getMonth() + 1 + " \u6708 " + now.getDate() + " \u65E5";
+        const now2 = /* @__PURE__ */ new Date();
+        return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
       }
       const PUNCTUATION = "\uFF0C\u3002\uFF01\uFF1F\uFF1B\u3001\uFF1A,.!?;:\u300C\u300D\u300E\u300F\uFF08\uFF09()\u300A\u300B\u3008\u3009\u201C\u201D\u2018\u2019\u2014\u2026\xB7";
       const TONE_ANY_CHARS = "\u25CB\u3007";
@@ -3644,13 +7258,13 @@
         const delay = Math.max(0, num(opts.delay, SAVE_DEBOUNCE_MS));
         const onError = typeof opts.onError === "function" ? opts.onError : null;
         const onSaved = typeof opts.onSaved === "function" ? opts.onSaved : null;
-        let timer = null;
+        let timer2 = null;
         let pending = null;
         let disposed = false;
         function flush() {
-          if (timer) {
-            clearTimeout(timer);
-            timer = null;
+          if (timer2) {
+            clearTimeout(timer2);
+            timer2 = null;
           }
           if (!pending) return Promise.resolve();
           const body = pending;
@@ -3687,18 +7301,18 @@
           if (patch && typeof patch === "object") {
             pending = Object.assign({}, pending || {}, patch);
           }
-          if (timer) clearTimeout(timer);
-          timer = setTimeout(() => {
-            timer = null;
+          if (timer2) clearTimeout(timer2);
+          timer2 = setTimeout(() => {
+            timer2 = null;
             flush().catch(() => {
             });
           }, delay);
         }
         function dispose() {
           disposed = true;
-          if (timer) {
-            clearTimeout(timer);
-            timer = null;
+          if (timer2) {
+            clearTimeout(timer2);
+            timer2 = null;
           }
           pending = null;
         }
@@ -3713,11 +7327,11 @@
         const todayId = opts.todayId || null;
         if (mode === "random") {
           const random = typeof opts.random === "function" ? opts.random : Math.random;
-          let index = Math.floor(num(random(), 0) * items.length);
-          if (!Number.isFinite(index) || index < 0) index = 0;
-          if (index >= items.length) index = items.length - 1;
-          if (items.length > 1 && items[index].id === currentId) index = (index + 1) % items.length;
-          return items[index].id;
+          let index2 = Math.floor(num(random(), 0) * items.length);
+          if (!Number.isFinite(index2) || index2 < 0) index2 = 0;
+          if (index2 >= items.length) index2 = items.length - 1;
+          if (items.length > 1 && items[index2].id === currentId) index2 = (index2 + 1) % items.length;
+          return items[index2].id;
         }
         if (todayId && currentId !== todayId && items.some((item) => item.id === todayId)) {
           return todayId;
@@ -3788,7 +7402,7 @@
         const controller = typeof AbortController === "function" ? new AbortController() : null;
         let aborted = false;
         let settled = false;
-        let timer = null;
+        let timer2 = null;
         let abortResolve = null;
         const abortPromise = new Promise((resolve) => {
           abortResolve = () => resolve({ ok: false, reason: "aborted" });
@@ -3804,7 +7418,7 @@
         const finish = (result) => {
           if (settled) return result;
           settled = true;
-          if (timer) clearTimeout(timer);
+          if (timer2) clearTimeout(timer2);
           delete feihuaFullInflight[key];
           if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
           return result;
@@ -3830,8 +7444,8 @@
             return { ok: true, char: key, entries, count };
           }).catch(() => ({ ok: false, reason: "json" }));
         }).catch(() => ({ ok: false, reason: aborted ? "aborted" : "network" }));
-        const timeout = new Promise((resolve) => {
-          timer = setTimeout(() => {
+        const timeout2 = new Promise((resolve) => {
+          timer2 = setTimeout(() => {
             try {
               if (controller) controller.abort();
             } catch (error) {
@@ -3839,7 +7453,7 @@
             resolve({ ok: false, reason: "timeout" });
           }, FEIHUA_FULL_TIMEOUT_MS);
         });
-        item.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+        item.promise = Promise.race([task, timeout2, abortPromise]).then(finish);
         feihuaFullInflight[key] = item;
         return item.promise;
       }
@@ -3847,20 +7461,20 @@
         if (!poemsData || !Array.isArray(poemsData.items)) return null;
         const cached = feihuaIndexCache;
         if (cached.index && cached.poems === poemsData && cached.ci === ciData && cached.anthology === anthologyData && cached.bank === bankData && cached.ciBank === ciBankData) return cached.index;
-        const index = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
-        feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index };
-        return index;
+        const index2 = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
+        feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index: index2 };
+        return index2;
       }
       function clearFeihuaIndexCache() {
         feihuaIndexCache = { poems: null, ci: null, index: null };
       }
-      function pickDefaultFeihuaChar(index, poem) {
+      function pickDefaultFeihuaChar(index2, poem) {
         const fallback = "\u82B1";
-        if (!index || !Array.isArray(index.candidates) || !index.candidates.length) return fallback;
+        if (!index2 || !Array.isArray(index2.candidates) || !index2.candidates.length) return fallback;
         const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
         const text = lines.join("");
         let best = null;
-        for (const item of index.candidates) {
+        for (const item of index2.candidates) {
           if (!item || item.count <= 0) continue;
           if (text.indexOf(item.char) < 0) continue;
           if (!best || item.count > best.count) best = item;
@@ -3941,7 +7555,7 @@
             const hits = countWeatherTagHits(item.lines, safeTags);
             if (hits > 0) out.push({ kind, id: item.id, hits, item });
           }
-          out.sort((a, b) => b.hits - a.hits || String(a.id).localeCompare(String(b.id)));
+          out.sort((a2, b) => b.hits - a2.hits || String(a2.id).localeCompare(String(b.id)));
           return out;
         };
         const extras = extraSources && typeof extraSources === "object" ? extraSources : {};
@@ -3965,8 +7579,8 @@
         const date = meta && meta.date ? String(meta.date) : "";
         const category = meta && meta.category ? String(meta.category) : "";
         const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : "";
-        const index = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
-        return pool[index];
+        const index2 = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
+        return pool[index2];
       }
       function weatherChipText(city, weather) {
         if (!weather || typeof weather !== "object") return "";
@@ -4053,8 +7667,8 @@
         const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
         return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS));
       }
-      function mealMomentFor(now) {
-        const parts = shanghaiParts(num(now, Date.now()));
+      function mealMomentFor(now2) {
+        const parts = shanghaiParts(num(now2, Date.now()));
         const minutes = parts.minutes;
         const windows = [
           { meal: "breakfast", label: "\u65E9\u996D", start: 7 * 60, end: 9 * 60, window: "07:00\u201309:00" },
@@ -4066,23 +7680,23 @@
         }
         return null;
       }
-      function normalizeMealState(raw, now) {
+      function normalizeMealState(raw, now2) {
         const source = raw && typeof raw === "object" ? raw : {};
-        const dateKey = shanghaiParts(num(now, Date.now())).dateKey;
+        const dateKey = shanghaiParts(num(now2, Date.now())).dateKey;
         const sameDay = source.date === dateKey;
         const meals = {};
         const previous = sameDay && source.meals && typeof source.meals === "object" ? source.meals : {};
         for (const meal of ["breakfast", "lunch", "dinner"]) if (previous[meal] === true) meals[meal] = true;
         return { date: dateKey, meals };
       }
-      function readMealState(now) {
+      function readMealState(now2) {
         const storage = getStorage();
-        if (!storage) return normalizeMealState(null, now);
+        if (!storage) return normalizeMealState(null, now2);
         try {
           const raw = storage.getItem(MEAL_KEY);
-          return normalizeMealState(raw ? JSON.parse(raw) : null, now);
+          return normalizeMealState(raw ? JSON.parse(raw) : null, now2);
         } catch (error) {
-          return normalizeMealState(null, now);
+          return normalizeMealState(null, now2);
         }
       }
       function writeMealState(state) {
@@ -4093,8 +7707,8 @@
         } catch (error) {
         }
       }
-      function markMealDone(state, meal, now) {
-        const base = normalizeMealState(state, now);
+      function markMealDone(state, meal, now2) {
+        const base = normalizeMealState(state, now2);
         const meals = Object.assign({}, base.meals);
         meals[meal] = true;
         return { date: base.date, meals };
@@ -4183,7 +7797,7 @@
         if (typeof fetch !== "function") return Promise.resolve({ ok: false, entries: [] });
         const controller = typeof AbortController === "function" ? new AbortController() : null;
         let settled = false;
-        let timer = null;
+        let timer2 = null;
         let abortResolve = null;
         const abortPromise = new Promise((resolve) => {
           abortResolve = () => resolve({ ok: false, entries: [], reason: "aborted" });
@@ -4191,7 +7805,7 @@
         const finish = (result) => {
           if (settled) return result;
           settled = true;
-          if (timer) clearTimeout(timer);
+          if (timer2) clearTimeout(timer2);
           petMediaInflight = null;
           if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
           return result;
@@ -4204,8 +7818,8 @@
             return { ok: true, entries };
           }).catch(() => ({ ok: false, entries: [], reason: "json" }));
         }).catch(() => ({ ok: false, entries: [], reason: "network" }));
-        const timeout = new Promise((resolve) => {
-          timer = setTimeout(() => {
+        const timeout2 = new Promise((resolve) => {
+          timer2 = setTimeout(() => {
             try {
               if (controller) controller.abort();
             } catch (error) {
@@ -4220,7 +7834,7 @@
           }
           if (abortResolve) abortResolve();
         } };
-        inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+        inflight.promise = Promise.race([task, timeout2, abortPromise]).then(finish);
         petMediaInflight = inflight;
         return inflight.promise;
       }
@@ -4234,19 +7848,19 @@
           return 0;
         }
       }
-      function writeMotionRotation(index) {
+      function writeMotionRotation(index2) {
         const storage = getStorage();
         if (!storage) return;
         try {
-          storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index, 0)))));
+          storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index2, 0)))));
         } catch (error) {
         }
       }
-      function nextMotionEntry(entries, index) {
+      function nextMotionEntry(entries, index2) {
         if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 };
         const size = entries.length;
-        const start = Math.max(0, Math.floor(num(index, 0))) % size;
-        return { entry: entries[start], index: (start + 1) % size, size, position: start };
+        const start2 = Math.max(0, Math.floor(num(index2, 0))) % size;
+        return { entry: entries[start2], index: (start2 + 1) % size, size, position: start2 };
       }
       function nextMotionDelay(options) {
         const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
@@ -4278,9 +7892,9 @@
         const opts = options && typeof options === "object" ? options : {};
         if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
         const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let timer = null;
-        const timeout = new Promise((resolve) => {
-          timer = setTimeout(() => {
+        let timer2 = null;
+        const timeout2 = new Promise((resolve) => {
+          timer2 = setTimeout(() => {
             try {
               if (controller) controller.abort();
             } catch (error) {
@@ -4308,8 +7922,8 @@
             return parsed;
           }).catch(() => ({ ok: false, reason: "json" }));
         }).catch(() => ({ ok: false, reason: "network" }));
-        return Promise.race([request, timeout]).then((result) => {
-          if (timer) clearTimeout(timer);
+        return Promise.race([request, timeout2]).then((result) => {
+          if (timer2) clearTimeout(timer2);
           return result;
         });
       }
@@ -4386,11 +8000,11 @@
           return "";
         }
       }
-      function writeSeenActionId(id) {
+      function writeSeenActionId(id2) {
         const storage = getStorage();
         if (!storage) return;
         try {
-          storage.setItem(ACTION_SEEN_KEY, String(id == null ? "" : id));
+          storage.setItem(ACTION_SEEN_KEY, String(id2 == null ? "" : id2));
         } catch (error) {
         }
       }
@@ -4413,8 +8027,8 @@
         const countBy = (patterns) => {
           let sum = 0;
           for (const file of files) {
-            const id = String(file.id || "") + " " + String(file.path || "");
-            if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue;
+            const id2 = String(file.id || "") + " " + String(file.path || "");
+            if (!patterns.some((pattern) => id2.toLowerCase().indexOf(pattern) >= 0)) continue;
             sum += Math.max(0, Math.floor(num(file.entries, 0)));
           }
           return sum;
@@ -4521,7 +8135,7 @@
             repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
             project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
           } : null,
-          modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a, b) => b.count - a.count).slice(0, 4) : []
+          modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a2, b) => b.count - a2.count).slice(0, 4) : []
         };
       }
       function switchNode(checked, onChange, label) {
@@ -4544,19 +8158,19 @@
           context.length > 0 ? h(
             "div",
             { className: "dshp-self-context" },
-            context.map((line, index) => h("div", { className: "dshp-self-context-line", key: "ctx-" + index }, line))
+            context.map((line, index2) => h("div", { className: "dshp-self-context-line", key: "ctx-" + index2 }, line))
           ) : null,
           h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
         );
       }
-      function readSpontState(now) {
+      function readSpontState(now2) {
         const storage = getStorage();
-        if (!storage) return normalizeSpontState(null, now);
+        if (!storage) return normalizeSpontState(null, now2);
         try {
           const raw = storage.getItem(SPONT_KEY);
-          return normalizeSpontState(raw ? JSON.parse(raw) : null, now);
+          return normalizeSpontState(raw ? JSON.parse(raw) : null, now2);
         } catch (error) {
-          return normalizeSpontState(null, now);
+          return normalizeSpontState(null, now2);
         }
       }
       function writeSpontState(state) {
@@ -4579,9 +8193,9 @@
         const opts = options && typeof options === "object" ? options : {};
         if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
         const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let timer = null;
-        const timeout = new Promise((resolve) => {
-          timer = setTimeout(() => {
+        let timer2 = null;
+        const timeout2 = new Promise((resolve) => {
+          timer2 = setTimeout(() => {
             try {
               if (controller) controller.abort();
             } catch (error) {
@@ -4595,8 +8209,8 @@
           }
           return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
         }).catch(() => ({ ok: false, reason: "network" }));
-        return Promise.race([request, timeout]).then((result) => {
-          if (timer) clearTimeout(timer);
+        return Promise.race([request, timeout2]).then((result) => {
+          if (timer2) clearTimeout(timer2);
           return result;
         });
       }
@@ -4607,33 +8221,33 @@
       }
       function buildPingshuiIndex(raw) {
         const sourceCategories = raw && Array.isArray(raw.categories) ? raw.categories : [];
-        const categories = sourceCategories.map((cat, index) => {
+        const categories = sourceCategories.map((cat, index2) => {
           const value = cat && typeof cat === "object" ? cat : {};
           return {
-            index,
-            name: String(value.name || value.short || "\u97F5\u90E8" + (index + 1)),
-            short: String(value.short || value.name || "\u97F5\u90E8" + (index + 1)),
+            index: index2,
+            name: String(value.name || value.short || "\u97F5\u90E8" + (index2 + 1)),
+            short: String(value.short || value.name || "\u97F5\u90E8" + (index2 + 1)),
             tone: String(value.tone || "").toLowerCase() === "ping" || value.tone === "\u5E73" ? "\u5E73" : "\u4EC4",
             chars: String(value.chars == null ? "" : value.chars)
           };
         });
         const charMap = {};
-        const addChar = (ch, index) => {
+        const addChar = (ch, index2) => {
           if (!ch) return;
           const list = charMap[ch] || (charMap[ch] = []);
-          if (list.indexOf(index) < 0) list.push(index);
+          if (list.indexOf(index2) < 0) list.push(index2);
         };
         const rawIndex = raw && raw.charIndex && typeof raw.charIndex === "object" ? raw.charIndex : null;
         if (rawIndex) {
           for (const ch of Object.keys(rawIndex)) {
             const arr = Array.isArray(rawIndex[ch]) ? rawIndex[ch] : [];
-            for (const index of arr) if (Number.isInteger(index) && categories[index]) addChar(ch, index);
+            for (const index2 of arr) if (Number.isInteger(index2) && categories[index2]) addChar(ch, index2);
           }
         }
         for (const cat of categories) for (const ch of Array.from(cat.chars)) addChar(ch, cat.index);
         function charInfo(ch) {
           const indices = charMap[ch] || [];
-          const cats = indices.map((index) => categories[index]).filter(Boolean);
+          const cats = indices.map((index2) => categories[index2]).filter(Boolean);
           const tones = [];
           for (const cat of cats) if (tones.indexOf(cat.tone) < 0) tones.push(cat.tone);
           const rhymes = [];
@@ -4657,10 +8271,10 @@
           const lineChars = Array.from(String(lines[lineIndex] == null ? "" : lines[lineIndex]));
           const toneChars = Array.from(String(toneLines[lineIndex] == null ? "" : toneLines[lineIndex]));
           const cells = [];
-          for (let index = 0; index < lineChars.length; index += 1) {
-            const ch = lineChars[index];
+          for (let index2 = 0; index2 < lineChars.length; index2 += 1) {
+            const ch = lineChars[index2];
             if (isPunctuation(ch)) continue;
-            const rawTone = toneChars[index] || "";
+            const rawTone = toneChars[index2] || "";
             const info = pingshui && typeof pingshui.charInfo === "function" ? pingshui.charInfo(ch) : { tones: [], rhymes: [], candidates: [] };
             const allowed = rawTone ? tonesFromToneChar(rawTone) : info.tones || [];
             cells.push({
@@ -4675,8 +8289,8 @@
         }
         return out;
       }
-      function patternForShape(form, start, firstRhyme) {
-        const key = start + (firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
+      function patternForShape(form, start2, firstRhyme) {
+        const key = start2 + (firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
         const five = TONE_QUATRAINS[key] || TONE_QUATRAINS["\u5E73\u8D77\u4E0D\u5165\u97F5"];
         const size = form && form.charAt(0) === "\u4E03" ? 7 : 5;
         const base = size === 7 ? five.map((line) => (line.charAt(0) === "\u5E73" ? "\u4EC4\u4EC4" : "\u5E73\u5E73") + line) : five.slice();
@@ -4687,9 +8301,9 @@
         const listA = cellA && Array.isArray(cellA.allowed) ? cellA.allowed : [];
         const listB = cellB && Array.isArray(cellB.allowed) ? cellB.allowed : [];
         if (!listA.length || !listB.length) return null;
-        for (const a of listA) {
+        for (const a2 of listA) {
           for (const b of listB) {
-            if (relation === "dui" ? a !== b : a === b) return true;
+            if (relation === "dui" ? a2 !== b : a2 === b) return true;
           }
         }
         return false;
@@ -4736,9 +8350,9 @@
         if (rhymeOptions.length === 0) rhymeOptions.push(true, false);
         const mandatory = size === 5 ? [1, 3] : [1, 3, 5];
         let best = null;
-        for (const start of startOptions) {
+        for (const start2 of startOptions) {
           for (const firstRhyme of rhymeOptions) {
-            const pattern2 = patternForShape(report.form, start, firstRhyme);
+            const pattern2 = patternForShape(report.form, start2, firstRhyme);
             let violations = 0;
             for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
               for (const position of mandatory) {
@@ -4748,7 +8362,7 @@
                 if (cell.allowed.indexOf(expected) < 0) violations += 1;
               }
             }
-            if (!best || violations < best.violations) best = { start, firstRhyme, pattern: pattern2, violations };
+            if (!best || violations < best.violations) best = { start: start2, firstRhyme, pattern: pattern2, violations };
           }
         }
         report.start = best.start;
@@ -4758,7 +8372,7 @@
         const rhymeIndexes = [];
         for (let lineIndex = 1; lineIndex < lineCount; lineIndex += 2) rhymeIndexes.push(lineIndex);
         if (best.firstRhyme) rhymeIndexes.unshift(0);
-        rhymeIndexes.sort((a, b) => a - b);
+        rhymeIndexes.sort((a2, b) => a2 - b);
         for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
           for (const position of mandatory) {
             const cell = annotation[lineIndex][position];
@@ -4846,8 +8460,8 @@
         if (![4, 8].includes(clauses.length)) return { error: "\u9700\u8981 4 \u53E5\u6216 8 \u53E5\uFF08\u5F53\u524D " + clauses.length + " \u53E5\uFF09\uFF0C\u8BF7\u7528\u6362\u884C\u6216\u6807\u70B9\u5206\u9694" };
         const size = clauses[0].chars.length;
         if (![5, 7].includes(size)) return { error: "\u6BCF\u53E5\u9700\u8981 5 \u6216 7 \u4E2A\u5B57\uFF08\u9996\u53E5\u4E3A " + size + " \u5B57\uFF09" };
-        for (let index = 0; index < clauses.length; index += 1) {
-          if (clauses[index].chars.length !== size) return { error: "\u7B2C " + (index + 1) + " \u53E5\u4E3A " + clauses[index].chars.length + " \u5B57\uFF0C\u4E0E\u524D\u53E5 " + size + " \u5B57\u4E0D\u4E00\u81F4" };
+        for (let index2 = 0; index2 < clauses.length; index2 += 1) {
+          if (clauses[index2].chars.length !== size) return { error: "\u7B2C " + (index2 + 1) + " \u53E5\u4E3A " + clauses[index2].chars.length + " \u5B57\uFF0C\u4E0E\u524D\u53E5 " + size + " \u5B57\u4E0D\u4E00\u81F4" };
         }
         return { lines: clauses };
       }
@@ -4868,13 +8482,13 @@
         return lines.join("\n");
       }
       function detectionRhymeIndexes(report) {
-        const set = {};
-        for (const item of report && report.rhymeLines || []) set[item.line - 1] = true;
-        return set;
+        const set3 = {};
+        for (const item of report && report.rhymeLines || []) set3[item.line - 1] = true;
+        return set3;
       }
-      function normalizeMascotEggState(raw, now) {
+      function normalizeMascotEggState(raw, now2) {
         const source = raw && typeof raw === "object" ? raw : {};
-        const dateKey = shanghaiParts(now).dateKey;
+        const dateKey = shanghaiParts(now2).dateKey;
         const sameDay = source.date === dateKey;
         return {
           date: dateKey,
@@ -4883,14 +8497,14 @@
           idleAt: num(source.idleAt, 0)
         };
       }
-      function readMascotEggState(now) {
+      function readMascotEggState(now2) {
         const storage = getStorage();
-        if (!storage) return normalizeMascotEggState(null, now);
+        if (!storage) return normalizeMascotEggState(null, now2);
         try {
           const raw = storage.getItem(MASCOT_EGG_KEY);
-          return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now);
+          return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now2);
         } catch (error) {
-          return normalizeMascotEggState(null, now);
+          return normalizeMascotEggState(null, now2);
         }
       }
       function writeMascotEggState(state) {
@@ -4901,9 +8515,9 @@
         } catch (error) {
         }
       }
-      function recordMascotEgg(state, patch, now) {
-        const base = normalizeMascotEggState(state, now);
-        const time = num(now, Date.now());
+      function recordMascotEgg(state, patch, now2) {
+        const base = normalizeMascotEggState(state, now2);
+        const time = num(now2, Date.now());
         return {
           date: base.date,
           greeted: base.greeted || Boolean(patch && patch.greet),
@@ -4911,12 +8525,12 @@
           idleAt: patch && patch.idle ? time : base.idleAt
         };
       }
-      function shouldShowDailyGreet(state, now) {
-        return !normalizeMascotEggState(state, now).greeted;
+      function shouldShowDailyGreet(state, now2) {
+        return !normalizeMascotEggState(state, now2).greeted;
       }
-      function canShowIdlePose(state, now, lastInteractionAt) {
-        const normalized = normalizeMascotEggState(state, now);
-        const time = num(now, Date.now());
+      function canShowIdlePose(state, now2, lastInteractionAt) {
+        const normalized = normalizeMascotEggState(state, now2);
+        const time = num(now2, Date.now());
         if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false;
         const lastInteraction = num(lastInteractionAt, 0);
         if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false;
@@ -4925,8 +8539,8 @@
       function pickMascotExpression(random) {
         const value = typeof random === "function" ? Number(random()) : Math.random();
         const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        const index = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
-        return MASCOT_EXPRESSION_FILES[index] || MASCOT_EXPRESSION_FILES[0];
+        const index2 = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
+        return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
       }
       let bootstrapCache = null;
       const RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
@@ -4951,19 +8565,19 @@
         }
         return null;
       }
-      function fetchJson(path, init) {
-        return fetchJsonUrl(ROUTE + path, init);
+      function fetchJson(path, init2) {
+        return fetchJsonUrl(ROUTE + path, init2);
       }
-      function fetchJsonUrl(url, init) {
+      function fetchJsonUrl(url, init2) {
         if (typeof fetch !== "function") return Promise.reject(new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u7F51\u7EDC\u8BF7\u6C42"));
         const controller = typeof AbortController === "function" ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => {
+        const timer2 = controller ? setTimeout(() => {
           try {
             controller.abort();
           } catch (error) {
           }
         }, FETCH_TIMEOUT_MS) : null;
-        const options = Object.assign({}, init || {});
+        const options = Object.assign({}, init2 || {});
         if (controller) options.signal = controller.signal;
         return Promise.resolve().then(() => fetch(url, options)).then((response) => {
           if (!response || typeof response.ok !== "boolean") throw new Error("\u54CD\u5E94\u5F02\u5E38");
@@ -4982,7 +8596,7 @@
           }
           return data;
         }).finally(() => {
-          if (timer) clearTimeout(timer);
+          if (timer2) clearTimeout(timer2);
         });
       }
       function clearResourceCache(kind) {
@@ -5434,10 +9048,10 @@
         return h(
           "div",
           { className: "dshp-line" },
-          cells.map((cell, index) => h(
+          cells.map((cell, index2) => h(
             "span",
             {
-              key: index,
+              key: index2,
               className: cell.className,
               title: cell.punctuation ? void 0 : cell.tone || ""
             },
@@ -5458,11 +9072,11 @@
           h(
             "div",
             { className: "dshp-poem-lines" },
-            text.lines.map((line, index) => h(ToneLine, {
-              key: index,
+            text.lines.map((line, index2) => h(ToneLine, {
+              key: index2,
               line,
-              tones: Array.isArray(props.poem.tones) ? props.poem.tones[index] : "",
-              rhyme: rhymeLines.indexOf(index) >= 0,
+              tones: Array.isArray(props.poem.tones) ? props.poem.tones[index2] : "",
+              rhyme: rhymeLines.indexOf(index2) >= 0,
               showTones: props.showTones !== false
             }))
           ),
@@ -5471,7 +9085,7 @@
       }
       function AnalysisBody(props) {
         const poem = props.poem || {};
-        const rhymeLines = poemRhymeLines(poem).map((index) => "\u7B2C " + (index + 1) + " \u53E5");
+        const rhymeLines = poemRhymeLines(poem).map((index2) => "\u7B2C " + (index2 + 1) + " \u53E5");
         const firstRhyme = poem.firstRhyme === true ? "\u662F" : poem.firstRhyme === false ? "\u5426" : "\u2014";
         return h(
           "div",
@@ -5511,7 +9125,7 @@
           { className: "dshp-poem" },
           h("div", { className: "dshp-poem-title" }, text.title || "\u65E0\u9898"),
           text.author ? h("div", { className: "dshp-poem-author" }, text.author) : null,
-          h("div", { className: "dshp-ci-lines" }, text.lines.map((line, index) => h("div", { key: index }, line)))
+          h("div", { className: "dshp-ci-lines" }, text.lines.map((line, index2) => h("div", { key: index2 }, line)))
         );
       }
       function PoetryWidget(props) {
@@ -5871,8 +9485,8 @@
             moodAiPendingRef.current = true;
             return Promise.resolve({ ok: false, reason: "inflight" });
           }
-          const now = Date.now();
-          moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now });
+          const now2 = Date.now();
+          moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now2 });
           const token = moodAiTokenRef.current + 1;
           moodAiTokenRef.current = token;
           moodAiInFlightRef.current = true;
@@ -5952,18 +9566,18 @@
           }, MASCOT_EXPRESSION_MS);
         }
         React.useEffect(() => {
-          const timer = setInterval(() => {
+          const timer2 = setInterval(() => {
             if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             const ui = uiRef.current;
             if (ui.panelOpen || ui.step >= 0 || ui.settings.hidden) return;
             if (mascotExprTimerRef.current) return;
-            const now = Date.now();
-            const state = readMascotEggState(now);
-            if (!canShowIdlePose(state, now, lastInteractionRef.current)) return;
-            writeMascotEggState(recordMascotEgg(state, { idle: true }, now));
+            const now2 = Date.now();
+            const state = readMascotEggState(now2);
+            if (!canShowIdlePose(state, now2, lastInteractionRef.current)) return;
+            writeMascotEggState(recordMascotEgg(state, { idle: true }, now2));
             showMascotExpression(pickMascotExpression());
           }, MASCOT_IDLE_POLL_MS);
-          return () => clearInterval(timer);
+          return () => clearInterval(timer2);
         }, []);
         React.useEffect(() => {
           if (!WINDOW_WANDER_ENABLED) return void 0;
@@ -5971,21 +9585,21 @@
           if (!wanderRef.current.nextAt) {
             wanderRef.current.nextAt = Date.now() + WANDER_FIRST_MIN_MS + Math.random() * (WANDER_FIRST_MAX_MS - WANDER_FIRST_MIN_MS);
           }
-          const timer = setInterval(() => {
+          const timer2 = setInterval(() => {
             if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             const ui = uiRef.current;
             if (ui.panelOpen || settingsRef.current.hidden) return;
             if (dragRef.current) return;
-            const now = Date.now();
-            if (now - lastInteractionRef.current < WANDER_INTERACTION_PAUSE_MS) return;
-            if (now < wanderRef.current.nextAt) return;
+            const now2 = Date.now();
+            if (now2 - lastInteractionRef.current < WANDER_INTERACTION_PAUSE_MS) return;
+            if (now2 < wanderRef.current.nextAt) return;
             const size = Math.max(40, Math.round(BASE_SIZE * settingsRef.current.scale));
             const target = nextWanderTarget({
               viewport: { w: readWindowWidth(), h: readWindowHeight() },
               size,
               current: posRef.current
             });
-            wanderRef.current.nextAt = now + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS);
+            wanderRef.current.nextAt = now2 + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS);
             const picked = pickWanderMedia(petMediaEntriesRef.current || [], Math.random);
             setWanderFile(picked.file);
             setWalking(true);
@@ -6000,7 +9614,7 @@
             }, WANDER_WALK_MS);
           }, WANDER_TICK_MS);
           return () => {
-            clearInterval(timer);
+            clearInterval(timer2);
             if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
             wanderRef.current.timer = null;
           };
@@ -6050,13 +9664,13 @@
         React.useEffect(() => {
           if (!(settings.weatherPoem || settings.mood)) return void 0;
           refreshWeather(false);
-          const timer = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
-          return () => clearInterval(timer);
+          const timer2 = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
+          return () => clearInterval(timer2);
         }, [settings.weatherPoem, settings.mood, settings.weatherCity, refreshWeather]);
         React.useEffect(() => {
           if (!(settings.mood || settings.spontaneousPoem)) return void 0;
-          const timer = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
-          return () => clearInterval(timer);
+          const timer2 = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
+          return () => clearInterval(timer2);
         }, [settings.mood, settings.spontaneousPoem]);
         const [poemsRes, reloadPoems] = useResource("poems", Boolean(boot.data));
         const poetryOn = panelOpen && panelTab === "poetry";
@@ -6123,7 +9737,7 @@
           if (weatherActive && weatherEntry && (!selectedPoemId || selectedPoemId === weatherEntry.id)) return weatherEntry.item || null;
           const weatherPick = weatherActive && selectedPoemId ? weatherPool.find((entry) => entry.id === selectedPoemId) : null;
           if (weatherPick) return weatherPick.item || null;
-          const findById = (id) => poemItems.find((item) => item && item.id === id);
+          const findById = (id2) => poemItems.find((item) => item && item.id === id2);
           if (!boot.data) return null;
           if (poemItems.length) return findById(selectedPoemId) || findById(activeTodayPoemId) || poemItems[0] || null;
           if (cachedPoem && (!selectedPoemId || cachedPoem.id === selectedPoemId || cachedPoem.id === activeTodayPoemId)) return cachedPoem;
@@ -6219,11 +9833,11 @@
         }, [settings.mood, moodCatalog, petMediaRes.status]);
         React.useEffect(() => {
           if (!settings.mood) return void 0;
-          const timer = setInterval(() => {
+          const timer2 = setInterval(() => {
             if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             scheduleMoodAiRefresh();
           }, MOOD_REFRESH_MS);
-          return () => clearInterval(timer);
+          return () => clearInterval(timer2);
         }, [settings.mood, scheduleMoodAiRefresh]);
         React.useEffect(() => {
           if (!settings.mood) return;
@@ -6263,14 +9877,14 @@
         }, [settings.mood]);
         React.useEffect(() => {
           if (!settings.mood) return;
-          const now = Date.now();
+          const now2 = Date.now();
           const last = lastInteractionRef.current;
-          const idle = last > 0 && now - last >= 30 * 60 * 1e3;
+          const idle = last > 0 && now2 - last >= 30 * 60 * 1e3;
           if (idle !== moodIdleRef.current) {
             moodIdleRef.current = idle;
             scheduleMoodAiRefresh();
           }
-          const bucket = moodTimeBucket(now);
+          const bucket = moodTimeBucket(now2);
           if (moodTimeBucketRef.current && bucket !== moodTimeBucketRef.current) scheduleMoodAiRefresh();
           moodTimeBucketRef.current = bucket;
         }, [moodTick, settings.mood]);
@@ -6306,16 +9920,16 @@
             return void 0;
           }
           let cancelled = false;
-          let timer = null;
-          const schedule = (delay) => {
-            if (timer) clearTimeout(timer);
-            if (!cancelled) timer = setTimeout(run, Math.max(1e3, delay));
+          let timer2 = null;
+          const schedule2 = (delay) => {
+            if (timer2) clearTimeout(timer2);
+            if (!cancelled) timer2 = setTimeout(run, Math.max(1e3, delay));
           };
           const run = () => {
             if (cancelled) return;
             const ui = uiRef.current;
             if (spontPoemRef.current) {
-              schedule(SPONT_CLOSE_RECHECK_MS);
+              schedule2(SPONT_CLOSE_RECHECK_MS);
               return;
             }
             const ok = canShowSpontaneous({
@@ -6330,9 +9944,9 @@
             });
             if (ok) {
               startSpontaneousCard({ record: true });
-              schedule(nextSpontPollDelay());
+              schedule2(nextSpontPollDelay());
             } else {
-              schedule(SPONT_RETRY_MS);
+              schedule2(SPONT_RETRY_MS);
             }
           };
           const onWake = () => wakeSpontaneous(nextSpontEventDelay());
@@ -6343,10 +9957,10 @@
           if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
           if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
           const initialDelay = spontWake > 0 ? num(spontWakeDelayRef.current, nextSpontEventDelay()) : nextSpontPollDelay();
-          schedule(initialDelay);
+          schedule2(initialDelay);
           return () => {
             cancelled = true;
-            if (timer) clearTimeout(timer);
+            if (timer2) clearTimeout(timer2);
             if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
             if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
           };
@@ -6408,11 +10022,11 @@
         }, []);
         React.useEffect(() => {
           if (!spontPoem) return void 0;
-          const timer = setTimeout(() => {
+          const timer2 = setTimeout(() => {
             spontReqRef.current += 1;
             setSpontPoem(null);
           }, SPONT_AUTO_CLOSE_MS);
-          return () => clearTimeout(timer);
+          return () => clearTimeout(timer2);
         }, [spontPoem]);
         React.useEffect(() => {
           if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
@@ -6434,7 +10048,7 @@
             return void 0;
           }
           let cancelled = false;
-          let timer = null;
+          let timer2 = null;
           const working = buildFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
           let offset = 0;
           const CHUNK = 500;
@@ -6444,17 +10058,17 @@
             mergeFeihuaItems(working, ciBankItemsData.slice(offset, offset + CHUNK));
             offset += CHUNK;
             if (offset < ciBankItemsData.length) {
-              timer = setTimeout(run, 0);
+              timer2 = setTimeout(run, 0);
             } else {
               finishFeihuaIndex(working);
               setFeihuaIndex(working);
               setFeihuaBuilding(false);
             }
           };
-          timer = setTimeout(run, 0);
+          timer2 = setTimeout(run, 0);
           return () => {
             cancelled = true;
-            if (timer) clearTimeout(timer);
+            if (timer2) clearTimeout(timer2);
           };
         }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status]);
         React.useEffect(() => {
@@ -6464,18 +10078,18 @@
           });
         }, [settings.snap, mascotSize, viewport.w, viewport.h]);
         React.useEffect(() => {
-          const timer = setTimeout(() => {
+          const timer2 = setTimeout(() => {
             writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap });
           }, 250);
-          return () => clearTimeout(timer);
+          return () => clearTimeout(timer2);
         }, [pos, settings.snap]);
         React.useEffect(() => {
           const seconds = num(settings.autoplay, 0);
           if (!seconds || step < 0 || panelOpen || settings.hidden) return void 0;
-          const timer = setTimeout(() => {
+          const timer2 = setTimeout(() => {
             setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
           }, seconds * 1e3);
-          return () => clearTimeout(timer);
+          return () => clearTimeout(timer2);
         }, [settings.autoplay, step, panelOpen, settings.hidden]);
         React.useEffect(() => {
           if (!panelOpen && step < 0) return void 0;
@@ -6555,12 +10169,12 @@
         }
         function handleMascotTap() {
           if (settingsRef.current.hidden) return;
-          const now = Date.now();
+          const now2 = Date.now();
           clicksRef.current += 1;
           noteInteraction();
-          const eggState = readMascotEggState(now);
-          if (shouldShowDailyGreet(eggState, now)) {
-            writeMascotEggState(recordMascotEgg(eggState, { greet: true }, now));
+          const eggState = readMascotEggState(now2);
+          if (shouldShowDailyGreet(eggState, now2)) {
+            writeMascotEggState(recordMascotEgg(eggState, { greet: true }, now2));
             showMascotExpression(MASCOT_EXPRESSION_FILES[0]);
           }
           if (!settingsRef.current.tutorialSeen) updateSettings({ tutorialSeen: true });
@@ -6612,12 +10226,12 @@
         function maybeTriggerMeal() {
           if (!settingsRef.current || settingsRef.current.hidden) return;
           if (mealActiveRef.current) return;
-          const now = Date.now();
+          const now2 = Date.now();
           const visible = typeof document === "undefined" ? true : document.visibilityState !== "hidden";
-          const state = readMealState(now);
-          const moment = mealTriggerFor({ now, hidden: settingsRef.current.hidden, panelOpen: uiRef.current.panelOpen, visible, state });
+          const state = readMealState(now2);
+          const moment = mealTriggerFor({ now: now2, hidden: settingsRef.current.hidden, panelOpen: uiRef.current.panelOpen, visible, state });
           if (!moment) return;
-          writeMealState(markMealDone(state, moment.meal, now));
+          writeMealState(markMealDone(state, moment.meal, now2));
           const entry = pickMealMedia(petMediaEntriesRef.current || [], moment.meal);
           const file = entry && entry.file ? entry.file : "dsh-whale-state-daily-eat.webp";
           const text = moment.meal === "lunch" ? "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403\u5348\u996D\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002\u8FD9\u987F\u7528 token \u6362\u7684\u767D\u996D\u3002" : "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403" + moment.label + "\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002";
@@ -6738,20 +10352,20 @@
             else showToast(poemsRes.status === "loading" ? "\u8BD7\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019" : "\u8BD7\u5E93\u6682\u65F6\u4E0D\u53EF\u7528");
             return;
           }
-          const nextId = selectNextPoemId({
+          const nextId2 = selectNextPoemId({
             items,
             currentId: poem && poem.id,
             todayId: activeTodayPoemId,
             mode: settingsRef.current.mode
           });
-          if (!nextId) {
+          if (!nextId2) {
             showToast("\u6682\u65E0\u53EF\u7528\u7684\u8BD7\u7BC7");
             return;
           }
           userPickedPoemRef.current = true;
-          setSelectedPoemId(nextId);
-          if (settingsRef.current.mode === "random" && nextId !== activeTodayPoemId) {
-            saverRef.current.save({ lastPoemId: nextId });
+          setSelectedPoemId(nextId2);
+          if (settingsRef.current.mode === "random" && nextId2 !== activeTodayPoemId) {
+            saverRef.current.save({ lastPoemId: nextId2 });
           }
         }
         function backToToday() {
@@ -6838,8 +10452,8 @@
         function startSpontaneousCard(options) {
           const opts = options && typeof options === "object" ? options : {};
           const ui = uiRef.current;
-          const now = Date.now();
-          const state = readSpontState(now);
+          const now2 = Date.now();
+          const state = readSpontState(now2);
           const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== "ai" ? ui.moodView.key : "calm";
           const preview = opts.preview === true;
           const record = opts.record === true;
@@ -6848,12 +10462,12 @@
               selfStatus: selfStatusRef.current,
               mood: moodViewRef.current,
               weather: weatherRef.current,
-              now
+              now: now2
             });
             const last = selfTalkNoveltyRef.current;
-            if (last.signature === signature && now - last.at < 20 * 60 * 1e3) return null;
-            if (last.signature === "" && last.at > 0 && now - last.at < 60 * 1e3) return null;
-            selfTalkNoveltyRef.current = { signature, at: now };
+            if (last.signature === signature && now2 - last.at < 20 * 60 * 1e3) return null;
+            if (last.signature === "" && last.at > 0 && now2 - last.at < 60 * 1e3) return null;
+            selfTalkNoveltyRef.current = { signature, at: now2 };
           }
           const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX);
           const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state });
@@ -6865,7 +10479,7 @@
           spontReqRef.current = token;
           setSpontPreview(preview);
           setSpontPoem({ type: "thinking", title: "\u5B83\u6B63\u5728\u60F3\u2026", line: "", placeholder: true });
-          const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now - lastInteractionRef.current) / 6e4)) : 0;
+          const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now2 - lastInteractionRef.current) / 6e4)) : 0;
           const weatherValue = weatherRef.current ? String(weatherRef.current.category || weatherRef.current.label || "") : "";
           const view = ui.moodView || null;
           const moodLabel = view && typeof view.label === "string" ? view.label.trim() : "";
@@ -7033,12 +10647,12 @@
             }
             return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u77E5\u8BC6\u5361\u2026" });
           }
-          const index = Math.abs(hashString(dateSeed + "|knowledge")) % cards.length;
+          const index2 = Math.abs(hashString(dateSeed + "|knowledge")) % cards.length;
           return h(
             "div",
             null,
-            h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u4ECA\u65E5\u77E5\u8BC6\u5361 \xB7 \u7B2C " + (index + 1) + " / " + cards.length + " \u5F20"),
-            h(KnowledgeCardView, { card: cards[index] })
+            h("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u4ECA\u65E5\u77E5\u8BC6\u5361 \xB7 \u7B2C " + (index2 + 1) + " / " + cards.length + " \u5F20"),
+            h(KnowledgeCardView, { card: cards[index2] })
           );
         }
         function renderYunStep() {
@@ -7068,13 +10682,13 @@
             }
             return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u58F0\u5F8B\u542F\u8499\u2026" });
           }
-          const index = Math.abs(hashString(dateSeed + "|yun")) % chapters.length;
-          const picked = chapters[index];
+          const index2 = Math.abs(hashString(dateSeed + "|yun")) % chapters.length;
+          const picked = chapters[index2];
           const chapter = picked.chapter || {};
           return h(
             "div",
             { className: "dshp-card" },
-            h("div", { className: "dshp-card-summary" }, "\u58F0\u5F8B\u542F\u8499 \xB7 " + (picked.volume || "") + " \xB7 \u7B2C " + (index + 1) + " / " + chapters.length + " \u97F5\u90E8"),
+            h("div", { className: "dshp-card-summary" }, "\u58F0\u5F8B\u542F\u8499 \xB7 " + (picked.volume || "") + " \xB7 \u7B2C " + (index2 + 1) + " / " + chapters.length + " \u97F5\u90E8"),
             h("div", { className: "dshp-card-title" }, String(chapter.name || "\u97F5\u90E8")),
             chapter.exampleLine ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : Array.isArray(chapter.paragraphs) && chapter.paragraphs.length ? h("div", { className: "dshp-example" }, h("div", { className: "dshp-example-text" }, String(chapter.paragraphs[0]))) : null,
             Array.isArray(chapter.exampleChars) && chapter.exampleChars.length ? h("div", { className: "dshp-tags" }, chapter.exampleChars.map((ch, i) => h("span", { key: i, className: "dshp-tag" }, String(ch)))) : null,
@@ -7111,15 +10725,15 @@
             }
             return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u8BCD\u724C\u2026" });
           }
-          const index = Math.abs(hashString(dateSeed + "|ci")) % ciCards.length;
-          const card = ciCards[index] || {};
+          const index2 = Math.abs(hashString(dateSeed + "|ci")) % ciCards.length;
+          const card = ciCards[index2] || {};
           const ciItems = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [];
           const matched = ciItems.filter((item) => item && item.rhythmic && item.rhythmic === card.name);
           const ci = matched.length ? matched[Math.abs(hashString(dateSeed + "|ciname")) % matched.length] : ciItems.length ? ciItems[Math.abs(hashString(dateSeed + "|ciany")) % ciItems.length] : null;
           const meta = h(
             "div",
             { className: "dshp-card" },
-            h("div", { className: "dshp-card-summary" }, "\u8BCD\u724C\u540D\u7BC7 \xB7 \u7B2C " + (index + 1) + " / " + ciCards.length + " \u4E2A\u8BCD\u724C"),
+            h("div", { className: "dshp-card-summary" }, "\u8BCD\u724C\u540D\u7BC7 \xB7 \u7B2C " + (index2 + 1) + " / " + ciCards.length + " \u4E2A\u8BCD\u724C"),
             h(
               "div",
               { className: "dshp-card-title" },
@@ -7158,10 +10772,10 @@
               })
             });
           }
-          const index = feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
-          if (!index || !ciRes.data) return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
-          const char = pickDefaultFeihuaChar(index, poem);
-          const count = (index.byChar[char] || []).length;
+          const index2 = feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
+          if (!index2 || !ciRes.data) return h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
+          const char = pickDefaultFeihuaChar(index2, poem);
+          const count = (index2.byChar[char] || []).length;
           const best = readFeihuaBest();
           const charBest = best.chars[char] || 0;
           return h(
@@ -7249,16 +10863,16 @@
                 h(
                   "span",
                   { className: "dshp-dots", role: "group", "aria-label": "\u5207\u6362\u5230\u6307\u5B9A\u5361\u7247" },
-                  STEPS.map((label, index) => h("button", {
+                  STEPS.map((label, index2) => h("button", {
                     key: label,
                     type: "button",
-                    className: cx("dshp-dot", index === step && "dshp-is-active"),
+                    className: cx("dshp-dot", index2 === step && "dshp-is-active"),
                     title: label,
-                    "aria-label": "\u5207\u6362\u5230\u7B2C " + (index + 1) + " \u5F20\uFF1A" + label,
-                    "aria-current": index === step ? "step" : void 0,
+                    "aria-label": "\u5207\u6362\u5230\u7B2C " + (index2 + 1) + " \u5F20\uFF1A" + label,
+                    "aria-current": index2 === step ? "step" : void 0,
                     onClick: (event) => {
                       event.stopPropagation();
-                      setStep(index);
+                      setStep(index2);
                     }
                   })),
                   h("button", {
@@ -7505,7 +11119,7 @@
           if (!settings.hidden) {
             maybeTriggerMeal();
           }
-          const timer = setInterval(() => {
+          const timer2 = setInterval(() => {
             maybeTriggerMeal();
           }, 60 * 1e3);
           const onVisible = () => {
@@ -7516,7 +11130,7 @@
           if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
           if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
           return () => {
-            clearInterval(timer);
+            clearInterval(timer2);
             if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
             if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
           };
@@ -7563,7 +11177,7 @@
             });
           };
           load();
-          const timer = setInterval(load, SELF_POLL_MS);
+          const timer2 = setInterval(load, SELF_POLL_MS);
           const onVisibility = () => {
             if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             load();
@@ -7571,7 +11185,7 @@
           if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
             if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
           };
         }, []);
@@ -7622,7 +11236,7 @@
             });
           };
           load();
-          const timer = setInterval(load, MEMORY_POLL_MS);
+          const timer2 = setInterval(load, MEMORY_POLL_MS);
           const onVisibility = () => {
             if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             load();
@@ -7630,16 +11244,16 @@
           if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
             if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
           };
         }, [panelOpen, panelTab, settings.hidden, memoryTick]);
         React.useEffect(() => {
           let lastAt = 0;
           const send = (kind) => {
-            const now = Date.now();
-            if (now - lastAt < PRESENCE_THROTTLE_MS) return;
-            lastAt = now;
+            const now2 = Date.now();
+            if (now2 - lastAt < PRESENCE_THROTTLE_MS) return;
+            lastAt = now2;
             fetchJson(PRESENCE_PATH, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -7681,10 +11295,10 @@
             });
           };
           load();
-          const timer = setInterval(load, WORKS_POLL_MS);
+          const timer2 = setInterval(load, WORKS_POLL_MS);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
           };
         }, [panelOpen, panelTab, settings.hidden]);
         React.useEffect(() => {
@@ -7703,10 +11317,10 @@
             });
           };
           load();
-          const timer = setInterval(load, ATTENTION_POLL_MS);
+          const timer2 = setInterval(load, ATTENTION_POLL_MS);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
           };
         }, [panelOpen, settings.hidden]);
         React.useEffect(() => {
@@ -7725,10 +11339,10 @@
             });
           };
           load();
-          const timer = setInterval(load, TWIN_POLL_MS);
+          const timer2 = setInterval(load, TWIN_POLL_MS);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
           };
         }, [panelOpen, panelTab, settings.hidden]);
         React.useEffect(() => {
@@ -7747,10 +11361,10 @@
             });
           };
           load();
-          const timer = setInterval(load, HEALTH_POLL_MS);
+          const timer2 = setInterval(load, HEALTH_POLL_MS);
           return () => {
             alive = false;
-            clearInterval(timer);
+            clearInterval(timer2);
           };
         }, [panelOpen, panelTab, settings.hidden]);
         function loadProjectDetail() {
@@ -7777,8 +11391,8 @@
             return { ok: false };
           });
         }
-        function attentionAction(id, action, text) {
-          const payload = { action, id };
+        function attentionAction(id2, action, text) {
+          const payload = { action, id: id2 };
           if (typeof text === "string" && text.length > 0) payload.text = text;
           return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
             if (data && data.ok === true) {
@@ -8190,10 +11804,10 @@
           { className: "dshp-card" },
           h("div", { className: "dshp-card-title" }, String(card.title || "\u683C\u5F8B\u77E5\u8BC6")),
           card.summary ? h("div", { className: "dshp-card-summary" }, String(card.summary)) : null,
-          paragraphs.map((paragraph, index) => h("p", { key: index, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
-          examples.map((example, index) => h(
+          paragraphs.map((paragraph, index2) => h("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
+          examples.map((example, index2) => h(
             "div",
-            { key: "example-" + index, className: "dshp-example" },
+            { key: "example-" + index2, className: "dshp-example" },
             h("div", { className: "dshp-example-text" }, String(example && example.text || "")),
             example && example.note ? h("div", { className: "dshp-example-note" }, String(example.note)) : null
           ))

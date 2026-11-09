@@ -484,9 +484,9 @@ export async function apply(ctx) {
               const body = JSON.stringify({
                 ok: true,
                 ...knowledgeGraph.snapshot(),
-                nodes: graph.nodes.slice(-200),
-                edges: graph.edges.slice(-200),
-                claims: graph.claims.slice(-100),
+                nodes: graph.nodes,
+                edges: graph.edges,
+                claims: graph.claims,
               })
               res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Length': String(Buffer.byteLength(body)) })
               res.end(body)
