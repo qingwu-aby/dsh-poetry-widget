@@ -71,6 +71,8 @@ import { createKnowledgeExtractor } from './lib/knowledge-extract.mjs'
 import { createSelfTrainer } from './lib/self-trainer.mjs'
 import { createRelationshipMemory } from './lib/relationship-memory.mjs'
 import { createEmotionalState } from './lib/emotional-continuity.mjs'
+import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
+import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { createCommitments } from './lib/commitments.mjs'
 import { describeImages, extractImagePaths, sanitizeUserText } from './lib/image-ocr.mjs'
@@ -301,6 +303,21 @@ export async function apply(ctx) {
         knownPoemIds: () => dataStore.knownPoemIds(),
         onWarn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
       })
+      // W1：状态文件 schema 注册表（启动时规范化/迁移；dry-run 只报告）。
+      let migrationSummary = null
+      try {
+        const migrateMode = String(env.DSH_POETRY_MIGRATE ?? '').toLowerCase()
+        if (migrateMode !== 'off') {
+          const stateRegistry = createStateRegistry(createStateSpecs(settingsPath.dir))
+          const migration = migrateAll(stateRegistry, { dryRun: migrateMode === 'dry-run', logger })
+          migrationSummary = summarizeMigrations(migration)
+          if (migration.changed > 0) {
+            logger?.info?.(`[dsh-little-whale] 状态迁移：${migration.changed}/${migration.total} 个文件被规范化，${migration.errors} 个错误`)
+          }
+        }
+      } catch (error) {
+        logger?.warn?.(`[dsh-little-whale] 状态迁移初始化失败：${error instanceof Error ? error.message : String(error)}`)
+      }
       const fence = createTrustFence({ getConnection: () => connection, logger })
       // 天气服务：Open-Meteo 免密钥；fetch 用宿主 Node 的全局 fetch，请求 6s 超时、进程内缓存。
       const weatherService = createWeatherService({
@@ -1304,6 +1321,7 @@ export async function apply(ctx) {
           relationship: relationship.snapshot(),
           emotional: emotional.snapshot(),
           dailyLife: dailyLife.snapshot(),
+          stateMigrations: migrationSummary,
           commitments: commitments.snapshot(),
           guiPush: guiPush.snapshot(),
           localVoice: localVoice.snapshot(),

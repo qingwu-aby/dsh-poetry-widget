@@ -3,6 +3,7 @@
   "files": {
     "includes": [
       "lib/kernel/**/*.mjs",
+      "lib/composition/**/*.mjs",
       "scripts/check-deps.mjs",
       "scripts/check-size.mjs",
       "tests/kernel.test.mjs"
