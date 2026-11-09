@@ -13,10 +13,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createSelfDrive } from '../lib/self-drive.mjs'
-import { createSelfEvents } from '../lib/self-events.mjs'
+import { createSelfDrive } from '../lib/legacy/self-drive.mjs'
+import { createSelfEvents } from '../lib/legacy/self-events.mjs'
 import { createSelfTalkService } from '../lib/self-talk.mjs'
-import { createSelfWorks } from '../lib/self-works.mjs'
+import { createSelfWorks } from '../lib/legacy/self-works.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DAY = new Date().toISOString().slice(0, 10).replace(/-/g, '')

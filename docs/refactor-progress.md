@@ -53,7 +53,8 @@
 - [x] ADR×3、architecture/config/state-files/refactor-progress 文档
 - [x] README 精简至 86 行；PLAN.md 归档
 - [ ] JSDoc/`tsc --noEmit` — 可选后续
-- [ ] 旧路径 shim 清理（72 个兼容层）— 可选后续
+- [x] 旧路径 shim 隔离：72 个兼容层统一移到 `lib/legacy/`，57 个文件 import 重写；lib 根目录只剩真实共享模块；0 循环、512/512
+- [ ] shim 最终删除（需把跨域 import 改为域 facade，留作后续）
 
 ## 历史阶段（早期记录，保留）
 - [x] HTTP JSON 契约测试：`tests/domains/http-contract.test.mjs`（10 条：health/self/memory/graph/works/model-errors/settings/bootstrap/view=1/方法守卫；512/512）

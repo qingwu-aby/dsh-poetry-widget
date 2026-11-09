@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { seedMemoryBaseline } from '../lib/memory-baseline.mjs'
+import { seedMemoryBaseline } from '../lib/legacy/memory-baseline.mjs'
 
 const home = process.env.HOME || os.homedir()
 const dshHome = process.env.DSH_HOME ? path.resolve(process.env.DSH_HOME) : path.join(home, '.dsh')

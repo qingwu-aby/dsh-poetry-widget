@@ -18,7 +18,8 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 │   memory emotion relationship learning knowledge chat works being voice twin life host integration
 ├─ lib/kernel/          基础设施（新）
 │   json-store  state-schema  model-call  config  logger  service
-└─ lib/*.mjs            既有实现（逐步迁入 domain）
+├─ lib/legacy/          旧路径兼容 shim（72 个，只做 export *；新代码不要引用）
+└─ lib/*.mjs            未归域的共享实现（settings-store/paths/llm-call 等）
 ```
 
 ## 依赖规则（scripts/check-deps.mjs 强制）
