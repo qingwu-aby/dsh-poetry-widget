@@ -12121,3 +12121,26 @@ test('v3.00：用户附图 OCR 路径识别与脱敏', async () => {
   const safe = ocr.extractImagePaths('https://example.com/attachments/v1/objects/ab/cd', { mustExist: false, home: '/Users/x' })
   assert.equal(safe.length, 0, '只接受本机 attachments 路径')
 })
+
+test('v3.01：世界观版本回退、单源判断降置信、维基生态站点过滤', async () => {
+  const wv = await import('../lib/worldview.mjs')
+  const raw = { ok: true, v: 4, beliefs: [], concepts: [], questions: [], contradictions: [], essay: { text: '一段足够长的旧世界观文字，用来验证版本号回退。' }, history: [{ at: 1, version: 3, changed: 'x' }, { at: 2, version: 4, changed: 'y' }] }
+  const norm = wv.normalizeWorldview(raw)
+  assert.equal(norm.essay.version, 4)
+
+  const kg = await import('../lib/knowledge-graph.mjs')
+  const merged = kg.mergeGraph(kg.emptyGraph(), { nodes: [{ name: '甲', type: 'concept' }, { name: '乙', type: 'concept' }], edges: [], claims: [{ text: '甲乙之间有因果关系。', nodes: ['甲'], confidence: 'high' }] }, 1000, 1)
+  assert.equal(merged.graph.claims[0].confidence, 'medium', '单来源 high 降为 medium')
+  const again = kg.mergeGraph(merged.graph, { nodes: [], edges: [], claims: [{ text: '甲乙之间有因果关系。', nodes: ['甲'], confidence: 'high' }] }, 2000, 2)
+  assert.equal(again.graph.claims[0].confidence, 'high', '第二来源后可升 high')
+
+  const w = await import('../lib/self-wander.mjs')
+  assert.equal(w.isBlockedWanderHost('donate.wikimedia.org'), true)
+  assert.equal(w.isBlockedWanderHost('meta.wikimedia.org'), true)
+  assert.equal(w.isBlockedWanderHost('zh.wikipedia.org'), false)
+  assert.equal(w.isBlockedWanderUrl('https://foundation.wikimedia.org/wiki/Home'), true)
+
+  const prompts = await import('../lib/self-growth-prompts.mjs')
+  const prompt = prompts.buildLearnPrompt({ now: FIXED_NOW.getTime(), state: defaultSelfState(FIXED_NOW.getTime()), broadenHint: '自然科学：挑一个具体的科学概念或发现' })
+  assert.match(prompt, /本周可以补一个世界知识的空白板块/)
+})

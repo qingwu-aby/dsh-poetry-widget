@@ -116,7 +116,7 @@ import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
-import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
+import { createSettingsStore, resolveSettingsPath, writeJsonAtomic } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
 import { createWeatherService } from './lib/weather.mjs'
 
@@ -547,22 +547,30 @@ export async function apply(ctx) {
             selfFacts: Array.isArray(digest.selfFacts) ? digest.selfFacts : [],
             graphLines: typeof knowledgeGraph.worldviewLines === 'function' ? knowledgeGraph.worldviewLines(8) : [],
           })
-          const result = await callModelForRole({
-            role: 'growth',
-            policy: modelPolicy,
-            resolveLlm: getLlm,
-            system: '你是小鲸鱼，在整理自己的世界观；只输出严格 JSON，不写套话。',
-            prompt,
-            maxTokens: 1800,
-            timeoutMs: 60000,
-            timeoutCode: 'WORLDVIEW_TIMEOUT',
-            timeoutMessage: '世界观整理超时',
-            prefix: '世界观整理候选失败',
-            modelErrorsPath,
-            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
-          })
-          const parsed = result === null ? null : parseWorldviewSynthesis(result.text)
+          const attemptWorldview = async (maxTokens) => {
+            const result = await callModelForRole({
+              role: 'consolidate',
+              policy: modelPolicy,
+              resolveLlm: getLlm,
+              system: '你是小鲸鱼，在整理自己的世界观；只输出严格 JSON，不写套话。',
+              prompt,
+              maxTokens,
+              timeoutMs: 120000,
+              timeoutCode: 'WORLDVIEW_TIMEOUT',
+              timeoutMessage: '世界观整理超时',
+              prefix: '世界观整理候选失败',
+              modelErrorsPath,
+              warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
+            })
+            return result === null ? { parsed: null, raw: '' } : { parsed: parseWorldviewSynthesis(result.text), raw: String(result.text || '') }
+          }
+          let attempt = await attemptWorldview(5000)
+          if (attempt.parsed === null) attempt = await attemptWorldview(8000)
+          const parsed = attempt.parsed
           if (parsed === null) {
+            try {
+              writeJsonAtomic(path.join(settingsPath.dir, 'worldview-debug.json'), { at: Date.now(), raw: attempt.raw.slice(0, 3000) })
+            } catch { /* ignore */ }
             logger?.warn?.('[dsh-little-whale] 世界观整理没有产出可用 JSON')
             return { ok: false, reason: 'no-output', reasonTag: reason }
           }
@@ -938,6 +946,18 @@ export async function apply(ctx) {
       } catch (error) {
         logger?.warn?.(`[dsh-little-whale] 成长计数校正失败：${error instanceof Error ? error.message : String(error)}`)
       }
+      // v3.01：每周轮换一个“世界知识空白板块”，给自学一个补广度的方向。
+      const weeklyBroadenTopic = () => {
+        const topics = [
+          '自然科学：挑一个具体的科学概念或发现（物理/生物/地质/天文都行），查清它是什么、怎么被发现的',
+          '世界地理与文化：挑一个国家或地区的一个具体地点、习俗或语言现象，弄清它在哪、为什么是这样',
+          '当代世界：挑一条最近的国际新闻或经济现象，查清背景和各方立场',
+          '艺术：挑一件艺术作品或一个艺术家，弄清它想表达什么、用了什么手法',
+        ]
+        const nowMs = Date.now()
+        const week = Math.floor((nowMs - Date.UTC(2026, 0, 5)) / (7 * 24 * 3600 * 1000))
+        return topics[((week % topics.length) + topics.length) % topics.length]
+      }
       const growth = createSelfGrowth({
         state: selfState,
         getLlm,
@@ -959,6 +979,7 @@ export async function apply(ctx) {
         policy: modelPolicy,
         modelErrorsPath,
         getGraphGaps: (limit) => knowledgeGraph.gaps(limit),
+        getBroadenHint: weeklyBroadenTopic,
       })
       growth.start({ heartbeat: true })
       heartbeat.add('自驱成长', () => growth.tick())
