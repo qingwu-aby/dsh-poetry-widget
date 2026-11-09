@@ -19,8 +19,21 @@
 - [ ] `kernel/service.mjs` + 注册表：统一 start/stop/tick/snapshot
 - [ ] 收紧 check-size 为 `--strict`
 
-## 下一步（按顺序）
-1. 拆 index.js 成 `composition/{services,routes,lifecycle}.mjs`（目标 <300 行，导出面不变）
-2. `kernel/service.mjs` + 注册表：统一 start/stop/tick/snapshot
-3. 测试拆分（memory/chat 先迁到 tests/domains/）
-4. 收紧 `check-size --strict`
+## W2（进行中）
+- [x] 13 个域 facade（`lib/domain/*/index.mjs`）
+- [x] 域内迁第一批：**memory**（8 模块）、**emotion**（4）、**relationship**（3）、**knowledge**（3）——旧路径保留 re-export shim，502/502
+- [ ] 域内迁第二批：learning / chat / works / being / voice / twin / life / host
+- [ ] index.js 剩余服务组装迁移（宿主依赖服务按波次）
+- [ ] 测试拆分（tests/domains/）
+- [ ] 更新剩余域 facade（learning/chat/... 当前仍指向旧文件，内迁后改为新路径）
+
+## W3/W4（backlog）
+- [ ] 客户端 store/hook 层与 tab 注册表；HTTP JSON 契约测试
+- [ ] JSDoc/@ts-check + tsc --noEmit；coverage 门槛；PLAN.md 归档与 README 精简
+- [ ] 收紧 check-size --strict（依赖 index.js 服务组装完成）
+
+## 已知债务
+1. index.js 仍有 ~1343 行、约 30 个服务在入口创建，互相引用顺序敏感；
+2. 域 facade 目前只是 re-export，内部文件仍在 `lib/` 平铺；
+3. host.test.mjs 仍 12k 行未拆；
+4. 客户端 client.js 仍 ~5.6k 行；无 TS/覆盖率门槛。

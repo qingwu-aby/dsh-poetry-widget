@@ -7,7 +7,9 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
+import { createPluginLogger } from '../lib/kernel/logger.mjs'
 import { createModelCaller } from '../lib/kernel/model-call.mjs'
+import { createServiceRegistry } from '../lib/kernel/service.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
 
 function tmpDir(name) {
@@ -178,4 +180,34 @@ test('config：默认值、布尔/数字/枚举解析与非法回退', () => {
   assert.equal(invalid.wanderMin, 40)
   assert.ok(describeConfig().length >= 30)
   assert.equal(describeConfig().find((row) => row.name === 'deepseekApiKey').default, '（已隐藏）')
+})
+
+test('logger：转发底层日志并统计静默失败', () => {
+  const lines = []
+  const base = { info: (m) => lines.push(['info', m]), warn: (m) => lines.push(['warn', m]) }
+  const logger = createPluginLogger(base)
+  logger.info('a')
+  logger.warn('b')
+  logger.error('c')
+  assert.equal(lines.length, 3)
+  const snapshot = logger.snapshot()
+  assert.equal(snapshot.counters.warn, 1)
+  assert.equal(snapshot.counters.error, 1)
+  assert.equal(snapshot.lastWarn, 'b')
+  assert.equal(snapshot.lastError, 'c')
+  assert.equal(snapshot.silentFailures, 2)
+  logger.reset()
+  assert.equal(logger.snapshot().silentFailures, 0)
+})
+
+test('service：契约与注册表（重复注册报错、快照聚合、stop 全部）', () => {
+  const stopped = []
+  const registry = createServiceRegistry()
+  registry.register({ name: 'a', start: () => {}, stop: () => stopped.push('a'), snapshot: () => ({ ok: 1 }) })
+  registry.register({ name: 'b', stop: () => stopped.push('b') })
+  assert.deepEqual(registry.names(), ['a', 'b'])
+  assert.deepEqual(registry.snapshot(), { a: { ok: 1 }, b: {} })
+  assert.throws(() => registry.register({ name: 'a' }))
+  registry.stopAll()
+  assert.deepEqual(stopped, ['a', 'b'])
 })

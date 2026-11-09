@@ -65,8 +65,10 @@ import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { registerReadonlyRoutes } from './lib/composition/readonly-routes.mjs'
 import { createBaseServices } from './lib/composition/base-services.mjs'
+import { buildRuntimeSnapshot } from './lib/composition/health.mjs'
 import { createKnowledgeServices } from './lib/composition/knowledge-services.mjs'
 import { disposeAll } from './lib/composition/lifecycle.mjs'
+import { createPluginLogger } from './lib/kernel/logger.mjs'
 import { createChatHttpService } from './lib/composition/chat-service.mjs'
 import { registerAttentionRoutes, registerManualReadRoute, registerProjectRoutes, registerTwinRoutes } from './lib/composition/interactive-routes.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
@@ -126,7 +128,7 @@ const ASSETS_ROUTE = '/api/dsh-poetry/assets'
  * @param {import('@deepseek-ai/cordis').Context} ctx
  */
 export async function apply(ctx) {
-  const logger = ctx?.logger ?? null
+  const logger = createPluginLogger(ctx?.logger ?? null)
   // v1.75：宿主 API 适配层（inject/get/effect 缺失或抛错时降级，不让 apply 抛未捕获异常）。
   const host = createDshHost(ctx, logger)
   const env = process.env
@@ -1197,46 +1199,46 @@ export async function apply(ctx) {
         getReadings: readingHint,
         memoryHub,
         // v1.73：health.json 暴露后台服务快照，方便看 8 个定时器是不是还活着。
-        getRuntime: () => ({
-          growth: growth.snapshot(),
-          drive: selfDrive.snapshot(),
-          wander: selfWander.snapshot(),
-          reading: selfReading.snapshot(),
-          netlang: selfNetlang.snapshot(),
-          consolidate: memoryConsolidator.snapshot(),
-          services: serviceRuntime.snapshot(),
-          budget: modelBudget.snapshot(),
-          gate: modelGate.snapshot(),
-          heartbeat: heartbeat.snapshot(),
-          web: webAccess.snapshot(),
-          modelErrors: summarizeModelErrors(modelErrorsPath, { since: Date.now() - 24 * 60 * 60 * 1000 }),
-          growthMetrics: growthMetrics.snapshot(),
-          works: selfWorks.snapshot(),
-          mediaBudget: mediaBudget.snapshot(),
-          outbox: outbox.snapshot(),
-          attention: { mode: attention.mode(), pending: attention.pending().length },
-          promptLayers: { version: PROMPT_LAYERS_VERSION },
-          events: selfEvents.snapshot(),
-          metabolism: selfMetabolism.snapshot(),
-          worldFeedback: worldFeedback.recent(5),
-          lifecycle: selfLifecycle.snapshot(),
-          twin: { enabled: twinEnabled },
-          webBench: webBench.snapshot(),
-          agentLoop: agentLoop.snapshot(),
-          knowledgeGraph: knowledgeGraph.snapshot(),
-          selfTrainer: selfTrainer.snapshot(),
-          relationship: relationship.snapshot(),
-          emotional: emotional.snapshot(),
-          dailyLife: dailyLife.snapshot(),
-          stateMigrations: migrationSummary,
-          commitments: commitments.snapshot(),
-          guiPush: guiPush.snapshot(),
-          localVoice: localVoice.snapshot(),
-          worldview: (() => {
-            const snap = worldview.snapshot()
-            return { version: snap.essay.version, beliefs: snap.beliefs.length, concepts: snap.concepts.length, questions: snap.questions.length, contradictions: snap.contradictions.filter((item) => item.status === 'open').length, essayAt: snap.essay.at }
-          })(),
-        }),
+        getRuntime: () =>
+          buildRuntimeSnapshot({
+            growth,
+            selfDrive,
+            selfWander,
+            selfReading,
+            selfNetlang,
+            memoryConsolidator,
+            serviceRuntime,
+            modelBudget,
+            modelGate,
+            heartbeat,
+            webAccess,
+            summarizeModelErrors,
+            modelErrorsPath,
+            growthMetrics,
+            selfWorks,
+            mediaBudget,
+            outbox,
+            attention,
+            promptLayersVersion: PROMPT_LAYERS_VERSION,
+            selfEvents,
+            selfMetabolism,
+            worldFeedback,
+            selfLifecycle,
+            twinEnabled,
+            webBench,
+            agentLoop,
+            knowledgeGraph,
+            selfTrainer,
+            relationship,
+            emotional,
+            dailyLife,
+            migrationSummary,
+            commitments,
+            guiPush,
+            localVoice,
+            worldview,
+            logger: logger.snapshot(),
+          }),
         env,
         home,
       })
