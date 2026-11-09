@@ -27,7 +27,7 @@
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `WHALE_WORKSPACE` | `~/Documents/deepseek-harness/default-workspace` | 巡检工作区（含 `agent-loop/`） |
+| `WHALE_WORKSPACE` | `~/dsh-workspace` | 巡检工作区（含 `agent-loop/`） |
 | `WHALE_MLX_HOME` | `~/Library/Application Support/dsh-whale-mlx` | 模型/adapter/日志目录 |
 | `WHALE_DSH_HOME` | `~/.dsh` | DSH 家目录（journal/credentials/chat-history） |
 | `WHALE_REPO` | `$WHALE_WORKSPACE/dsh-poetry-widget` | 插件仓库路径（health-check 用） |

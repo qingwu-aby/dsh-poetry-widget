@@ -7,7 +7,7 @@ import os from 'node:os'
 
 const HOME = os.homedir()
 const ROOT = path.dirname(new URL(import.meta.url).pathname)
-const REPO = process.env.WHALE_REPO || path.join(HOME, 'Documents/deepseek-harness/default-workspace/dsh-poetry-widget')
+const REPO = process.env.WHALE_REPO || path.join(HOME, 'dsh-workspace/dsh-poetry-widget')
 const STATE = path.join(ROOT, 'state', 'health.json')
 const DSH_HOME = process.env.WHALE_DSH_HOME || path.join(HOME, '.dsh')
 const readJson = (file, fallback = null) => { try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return fallback } }

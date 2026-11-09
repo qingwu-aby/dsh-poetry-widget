@@ -5,6 +5,6 @@ LOGDIR="${WHALE_MLX_HOME:-$HOME/Library/Application Support/dsh-whale-mlx}/self-
 mkdir -p "$LOGDIR"
 STAMP=$(date +%Y%m%d-%H%M%S)
 export PATH="$HOME/.local/bin:$HOME/.venvs/mlx/bin:/opt/homebrew/bin:/usr/bin:/bin"
-cd "${WHALE_WORKSPACE:-$HOME/Documents/deepseek-harness/default-workspace}" || exit 1
+cd "${WHALE_WORKSPACE:-$HOME/dsh-workspace}" || exit 1
 node agent-loop/self-train.mjs >> "$LOGDIR/run-$STAMP.log" 2>&1
 echo "exit=$?" >> "$LOGDIR/run-$STAMP.log"

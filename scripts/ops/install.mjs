@@ -12,7 +12,7 @@ import path from 'node:path'
 const HOME = os.homedir()
 const OPS = path.dirname(new URL(import.meta.url).pathname)
 const REPO = path.resolve(OPS, '..', '..')
-const WORKSPACE = process.env.WHALE_WORKSPACE || path.join(HOME, 'Documents/deepseek-harness/default-workspace')
+const WORKSPACE = process.env.WHALE_WORKSPACE || path.join(HOME, 'dsh-workspace')
 const MLX_HOME = process.env.WHALE_MLX_HOME || path.join(HOME, 'Library/Application Support/dsh-whale-mlx')
 const LAUNCH_AGENTS = path.join(HOME, 'Library/LaunchAgents')
 const args = new Set(process.argv.slice(2))

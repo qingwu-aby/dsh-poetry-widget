@@ -1,4 +1,4 @@
-你是常驻自进化巡检。工作区是 agent-loop 的父目录（默认 ~/Documents/deepseek-harness/default-workspace，可由 WHALE_WORKSPACE 覆盖）。
+你是常驻自进化巡检。工作区是 agent-loop 的父目录（默认 ~/dsh-workspace，可由 WHALE_WORKSPACE 覆盖）。
 
 步骤：
 1. 读 `agent-loop/ledger.md`；看 `agent-loop/queue/` 里有没有 `.md` 任务。

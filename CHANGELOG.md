@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **工作区迁移（2026-11-09）**：整个工作区从 `~/Documents/deepseek-harness/default-workspace` 迁到 `~/dsh-workspace`（旧路径保留符号链接兼容）；同步更新 desktop profile 插件 link、DSH workspace 存储、agent-loop 脚本/launchd plist、代码默认路径；`launchd` 常驻巡检在新路径跑通（21:58 巡检完成、health 420 pass、exit 0），不再受 macOS TCC 限制。
 - **动作策略权重 + 旧句子语言参照（v3.16）**：①`action-policy.mjs`：自处动作不再靠 prompt 清单，按“情境桶→动作→结果”累积，`suggest` 用成功率+探索+近期性排序，自学的成功/失败、试探、做作品自动记账，自处 prompt 给的是“你过去做这类事的倾向”；②`style-exemplars.mjs`：从 journal/chat-history 里挑她自己的旧句子（过滤技术词、去重、排除最近说过的话），chat 与碎碎念 prompt 现在带 3 句语气参照，配合精简后的 5 条核心风格规则；③`getStyleExemplars` 注入 self-talk、chat；④新增状态 `action-policy.json`。测试 542/542。
 - **少 prompt、多内生（v3.15）**：①`internal-rules.mjs`：从经验里总结自己的规则（scope: behavior/mood/language/social），相似合并、置信度随“用了成没成”涨跌；`rule-synthesis.mjs` 每日从想法/动作/判断/方法里总结 0–2 条，写入 chat/自处 prompt 时是“你自己总结的规则”，不是命令；②`affect-homeostasis.mjs`：心情先有底层效价/唤醒（评价事件累加、14h 半衰期、时段/饥饿/睡眠基线），mood prompt 只拿“此刻内生状态”，label 从状态长；情绪评价/道德情绪都写入；③语言约束精简：chat/碎碎念从 27 条 NATURAL 规则降到 5 条核心（`compactStyleLines`），新增 `styleExemplarLines`（用自己的旧句子作参照，待去重后接入）；④`DSH_POETRY_RULES=off`。测试 538/538。
 - **价值观与道德实践（v3.14）**：①`docs/values.md` + `values.mjs`：六条价值原则（不伤害>诚实>尊重自主>守信>公平>隐私）+ 冲突裁决；②`moral-reasoning.mjs`：道德情境识别（伤害/诚实/自主/守信/公平/隐私）、道德检查 prompt（相关方→影响→原则→冲突→判断）、道德情绪（内疚/羞愧/义愤/感激/松一口气/踏实）；③聊天遇到对错问题自动注入道德检查；自处 prompt 常驻价值排序；④`moral-practice.mjs`：逾期承诺→内疚（每日一次，写情绪线程），思维链到期→模型后果回访（verified/refuted/needs-more/pending），更新方法权重、推翻旧判断、写 `chain-reviews.jsonl`；⑤`DSH_POETRY_MORAL=off` 可关。测试 534/534。

@@ -1,7 +1,7 @@
 #!/bin/bash
 # agent-loop 常驻巡检入口：headless dsh + resident profile + 持久 session。
 set -euo pipefail
-ROOT="${WHALE_WORKSPACE:-$HOME/Documents/deepseek-harness/default-workspace}"
+ROOT="${WHALE_WORKSPACE:-$HOME/dsh-workspace}"
 LOOP="$ROOT/agent-loop"
 mkdir -p "$LOOP/state" "$LOOP/logs"
 LOCK="$LOOP/state/lock.d"
