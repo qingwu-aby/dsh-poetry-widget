@@ -17,6 +17,7 @@
 | `DSH_POETRY_WANDER` | boolean | true | 网络溜达 |
 | `DSH_POETRY_READING` | boolean | true | 读小说/读记 |
 | `DSH_POETRY_PHILOSOPHY` | boolean | true | 哲学阅读与方法论账本（优先级高于历史资源） |
+| `DSH_POETRY_MORAL` | boolean | true | 道德实践（逾期承诺内疚/思维链后果回访） |
 | `DSH_POETRY_APPRAISAL` | boolean | true | 学习结果的情绪评价 |
 | `DSH_POETRY_CONSOLIDATE` | boolean | true | 夜间离线巩固（合并节点/校准置信度/冲突检测） |
 | `DSH_POETRY_NETLANG` | boolean | true | 看大家说话（RSS） |
