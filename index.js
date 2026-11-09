@@ -72,6 +72,7 @@ import { createSelfTrainer } from './lib/self-trainer.mjs'
 import { createRelationshipMemory } from './lib/relationship-memory.mjs'
 import { createEmotionalState } from './lib/emotional-continuity.mjs'
 import { createStateRegistry, migrateAll, summarizeMigrations } from './lib/kernel/state-schema.mjs'
+import { callRole } from './lib/kernel/model-call.mjs'
 import { createStateSpecs } from './lib/composition/state-specs.mjs'
 import { createDailyLife } from './lib/daily-life.mjs'
 import { createCommitments } from './lib/commitments.mjs'
@@ -118,7 +119,7 @@ import { createWebAccess } from './lib/safe-web.mjs'
 import { createHeartbeat } from './lib/heartbeat.mjs'
 import { createModelBudget, createModelGate } from './lib/model-budget.mjs'
 import { loadTopicBank, resolveTopicsArchivePath, resolveTopicsPath } from './lib/self-talk-topics.mjs'
-import { createSettingsStore, resolveSettingsPath, writeJsonAtomic } from './lib/settings-store.mjs'
+import { createSettingsStore, resolveSettingsPath } from './lib/settings-store.mjs'
 import { createTrustFence } from './lib/trust.mjs'
 import { createWeatherService } from './lib/weather.mjs'
 
@@ -564,30 +565,20 @@ export async function apply(ctx) {
             selfFacts: Array.isArray(digest.selfFacts) ? digest.selfFacts : [],
             graphLines: typeof knowledgeGraph.worldviewLines === 'function' ? knowledgeGraph.worldviewLines(8) : [],
           })
-          const attemptWorldview = async (maxTokens) => {
-            const result = await callModelForRole({
-              role: 'consolidate',
-              policy: modelPolicy,
-              resolveLlm: getLlm,
-              system: '你是小鲸鱼，在整理自己的世界观；只输出严格 JSON，不写套话。',
-              prompt,
-              maxTokens,
-              timeoutMs: 120000,
-              timeoutCode: 'WORLDVIEW_TIMEOUT',
-              timeoutMessage: '世界观整理超时',
-              prefix: '世界观整理候选失败',
-              modelErrorsPath,
-              warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
-            })
-            return result === null ? { parsed: null, raw: '' } : { parsed: parseWorldviewSynthesis(result.text), raw: String(result.text || '') }
-          }
-          let attempt = await attemptWorldview(5000)
-          if (attempt.parsed === null) attempt = await attemptWorldview(8000)
-          const parsed = attempt.parsed
+          const worldviewResult = await callRole('worldview', {
+            attempts: [
+              { maxTokens: 5000, prompt },
+              { maxTokens: 8000, prompt },
+            ],
+            parse: parseWorldviewSynthesis,
+            debugFile: path.join(settingsPath.dir, 'worldview-debug.json'),
+            policy: modelPolicy,
+            resolveLlm: getLlm,
+            modelErrorsPath,
+            warn: (message) => logger?.warn?.(`[dsh-little-whale] ${message}`),
+          })
+          const parsed = worldviewResult.ok === true ? worldviewResult.parsed : null
           if (parsed === null) {
-            try {
-              writeJsonAtomic(path.join(settingsPath.dir, 'worldview-debug.json'), { at: Date.now(), raw: attempt.raw.slice(0, 3000) })
-            } catch { /* ignore */ }
             logger?.warn?.('[dsh-little-whale] 世界观整理没有产出可用 JSON')
             return { ok: false, reason: 'no-output', reasonTag: reason }
           }

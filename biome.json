@@ -6,7 +6,8 @@
       "lib/composition/**/*.mjs",
       "scripts/check-deps.mjs",
       "scripts/check-size.mjs",
-      "tests/kernel.test.mjs"
+      "tests/kernel.test.mjs",
+      "scripts/gen-config-doc.mjs"
     ]
   },
   "formatter": {

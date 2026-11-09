@@ -5,7 +5,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
+import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
+import { createModelCaller } from '../lib/kernel/model-call.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
 
 function tmpDir(name) {
@@ -106,3 +108,74 @@ test('state-schema：需要时写回并备份，损坏文件报错不写', () =>
 function fsWrite(file, content) {
   writeFileSync(file, content, 'utf8')
 }
+
+test('model-call：空响应自动换更大 token 重试', async () => {
+  const calls = []
+  const caller = createModelCaller({
+    invoke: async (options) => {
+      calls.push(options.maxTokens)
+      if (calls.length === 1) return null
+      return { text: '{"ok":1}' }
+    },
+  })
+  const result = await caller.callRole('worldview', {
+    attempts: [
+      { maxTokens: 5000, prompt: 'p' },
+      { maxTokens: 8000, prompt: 'p' },
+    ],
+    parse: (text) => JSON.parse(text),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.attempts, 2)
+  assert.deepEqual(calls, [5000, 8000])
+})
+
+test('model-call：解析失败落 debug 文件并报告 invalid', async () => {
+  const dir = tmpDir('model-call')
+  const debugFile = path.join(dir, 'debug.json')
+  const caller = createModelCaller({ invoke: async () => ({ text: 'not json' }) })
+  const result = await caller.callRole('knowledge_extract', {
+    attempts: [
+      { maxTokens: 1000, prompt: 'p' },
+      { maxTokens: 2000, prompt: 'p' },
+    ],
+    parse: () => null,
+    debugFile,
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'invalid')
+  const debug = JSON.parse(readFileSync(debugFile, 'utf8'))
+  assert.equal(debug.raw, 'not json')
+  assert.equal(debug.profile, 'knowledge_extract')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('model-call：两次都空 → empty', async () => {
+  const caller = createModelCaller({ invoke: async () => null })
+  const result = await caller.callRole('worldview', { attempts: [{ maxTokens: 100, prompt: 'p' }] })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'empty')
+})
+
+test('config：默认值、布尔/数字/枚举解析与非法回退', () => {
+  const defaults = readConfig({})
+  assert.equal(defaults.twin, false)
+  assert.equal(defaults.dailyLife, true)
+  assert.equal(defaults.migrate, 'on')
+  assert.equal(defaults.wanderMin, 40)
+  const custom = readConfig({
+    DSH_POETRY_TWIN: 'on',
+    DSH_POETRY_LOCAL_VOICE: 'MOOD',
+    DSH_POETRY_MIGRATE: 'dry-run',
+    DSH_POETRY_WANDER_MIN: '15',
+  })
+  assert.equal(custom.twin, true)
+  assert.equal(custom.localVoice, 'mood')
+  assert.equal(custom.migrate, 'dry-run')
+  assert.equal(custom.wanderMin, 15)
+  const invalid = readConfig({ DSH_POETRY_LOCAL_VOICE: 'loud', DSH_POETRY_WANDER_MIN: 'abc' })
+  assert.equal(invalid.localVoice, 'off')
+  assert.equal(invalid.wanderMin, 40)
+  assert.ok(describeConfig().length >= 30)
+  assert.equal(describeConfig().find((row) => row.name === 'deepseekApiKey').default, '（已隐藏）')
+})
