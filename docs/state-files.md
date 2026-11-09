@@ -35,6 +35,8 @@
 | thought-chains.jsonl | thought-chain | — | 思维链（问题→前提→正反→判断→检验，v3.13） |
 | moral-state.json | moral-practice | v | 道德实践状态（内疚去重/已回访链，v3.14） |
 | chain-reviews.jsonl | moral-practice | — | 思维链后果回访记录（v3.14） |
+| internal-rules.json | internal-rules | v | 内生规则（经验总结 + 置信度，v3.15） |
+| affect-state.json | affect-homeostasis | v | 底层效价/唤醒状态（事件累加 + 身体基线，v3.15） |
 | appraisal-state.json | appraisal | v | 情绪评价游标（v3.11） |
 | nightly-consolidation.json | nightly-consolidation | v | 夜间巩固报告（学习汇总/合并/冲突，v3.10） |
 | nightly-consolidation-state.json | nightly-consolidation | v | 夜间巩固当天已跑标记（v3.10） |

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **少 prompt、多内生（v3.15）**：①`internal-rules.mjs`：从经验里总结自己的规则（scope: behavior/mood/language/social），相似合并、置信度随“用了成没成”涨跌；`rule-synthesis.mjs` 每日从想法/动作/判断/方法里总结 0–2 条，写入 chat/自处 prompt 时是“你自己总结的规则”，不是命令；②`affect-homeostasis.mjs`：心情先有底层效价/唤醒（评价事件累加、14h 半衰期、时段/饥饿/睡眠基线），mood prompt 只拿“此刻内生状态”，label 从状态长；情绪评价/道德情绪都写入；③语言约束精简：chat/碎碎念从 27 条 NATURAL 规则降到 5 条核心（`compactStyleLines`），新增 `styleExemplarLines`（用自己的旧句子作参照，待去重后接入）；④`DSH_POETRY_RULES=off`。测试 538/538。
 - **价值观与道德实践（v3.14）**：①`docs/values.md` + `values.mjs`：六条价值原则（不伤害>诚实>尊重自主>守信>公平>隐私）+ 冲突裁决；②`moral-reasoning.mjs`：道德情境识别（伤害/诚实/自主/守信/公平/隐私）、道德检查 prompt（相关方→影响→原则→冲突→判断）、道德情绪（内疚/羞愧/义愤/感激/松一口气/踏实）；③聊天遇到对错问题自动注入道德检查；自处 prompt 常驻价值排序；④`moral-practice.mjs`：逾期承诺→内疚（每日一次，写情绪线程），思维链到期→模型后果回访（verified/refuted/needs-more/pending），更新方法权重、推翻旧判断、写 `chain-reviews.jsonl`；⑤`DSH_POETRY_MORAL=off` 可关。测试 534/534。
 - **完整读书 + 独立思想（v3.13）**：①哲学阅读从“摘段”改为**整本书分块读完**（每 2h 读 ~12000 字，按段落切块、记录进度/前情，跨多次读完）；②每读一段新增“我的判断”（接受/反对/存疑 + 理由）进 `positions.json`；③读完做**整本总结合成**（问题/论证骨架/接受/反对/存疑/改变/遗留问题）写 `· 哲学·总`；④新增 `thought-chains.jsonl`：把书里的方法用到她真正在意的事上，产出“问题→前提→正反→判断→怎么检验”的链；⑤自处 prompt 注入最近判断/思维链；模块拆分 `self-philosophy-core.mjs`（服务 <400 行）。测试 529/529。
 - **哲学阅读 + 方法论账本（v3.12）**：接入用户指定仓库（JuneFreer/philosophy-book 164 txt、HarborLibrary/Philosophy 6 txt、RedRevolution1949/marxism-philosophy 的 HTML/TXT；PDF 暂不读），每 2h 按“问题→论证→反方→我的看法”读一段，写 learning-log `· 哲学` 并抽取方法进 `methods.json`；哲学/方法优先级高于历史（自学 prompt、话题采样、历史降为背景）；知识图谱/夜间巩固/情绪评价识别 `· 哲学`；新增 `DSH_POETRY_PHILOSOPHY=off`。测试 525/525。
