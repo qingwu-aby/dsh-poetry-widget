@@ -23404,6 +23404,140 @@
     }
   }
 
+  // client-src/local-state.js
+  var POS_KEY = "dshp.position.v1";
+  var MASCOT_EGG_KEY = "dshp-mascot-egg-v1";
+  function normalizeMascotEggState(raw, now2) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(now2).dateKey;
+    const sameDay = source.date === dateKey;
+    return {
+      date: dateKey,
+      greeted: sameDay ? source.greeted === true : false,
+      greetAt: sameDay ? num(source.greetAt, 0) : 0,
+      idleAt: num(source.idleAt, 0)
+    };
+  }
+  function readMascotEggState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeMascotEggState(null, now2);
+    try {
+      const raw = storage.getItem(MASCOT_EGG_KEY);
+      return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now2);
+    } catch {
+      return normalizeMascotEggState(null, now2);
+    }
+  }
+  function writeMascotEggState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state));
+    } catch {
+    }
+  }
+  function recordMascotEgg(state, patch, now2) {
+    const base = normalizeMascotEggState(state, now2);
+    const time = num(now2, Date.now());
+    return {
+      date: base.date,
+      greeted: base.greeted || Boolean(patch && patch.greet),
+      greetAt: patch && patch.greet ? time : base.greetAt,
+      idleAt: patch && patch.idle ? time : base.idleAt
+    };
+  }
+  function readStoredPosition() {
+    const storage = getStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(POS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null;
+      return {
+        x: Number(parsed.x),
+        y: Number(parsed.y),
+        snap: parsed.snap === "right" || parsed.snap === "free" ? parsed.snap : "left"
+      };
+    } catch {
+      return null;
+    }
+  }
+  function writeStoredPosition(position) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(
+        POS_KEY,
+        JSON.stringify({
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+          snap: position.snap
+        })
+      );
+    } catch {
+    }
+  }
+
+  // client-src/resources.js
+  var RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
+  function createResourceStore(deps) {
+    const cache = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
+    const inflight = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
+    let assetDataVersion = "";
+    function setAssetDataVersion(version) {
+      const next = version == null ? "" : String(version);
+      if (next === assetDataVersion) return;
+      assetDataVersion = next;
+      deps.clearFeihuaFullCache();
+      deps.clearPetMediaCache();
+      for (const kind of ["anthology", "bank", "pingshui", "ciBank", "moodCatalog"]) {
+        cache[kind] = null;
+        inflight[kind] = null;
+      }
+    }
+    function clear(kind) {
+      deps.clearFeihuaIndexCache();
+      deps.clearFeihuaFullCache();
+      deps.clearPetMediaCache();
+      if (kind) {
+        cache[kind] = null;
+        inflight[kind] = null;
+        return;
+      }
+      for (const key of RESOURCE_CACHE_KEYS) {
+        cache[key] = null;
+        inflight[key] = null;
+      }
+    }
+    function load(kind) {
+      const assetFile = deps.assetDataFiles[kind];
+      if (!assetFile && !deps.resourcePaths[kind]) return Promise.reject(new Error("\u672A\u77E5\u6570\u636E\u7C7B\u578B\uFF1A" + kind));
+      if (cache[kind]) return Promise.resolve(cache[kind]);
+      if (!inflight[kind]) {
+        const url = assetFile ? deps.assetUrlFor(kind, assetDataVersion) : deps.route + deps.resourcePaths[kind];
+        inflight[kind] = deps.fetchJsonUrl(url).then(
+          (data) => {
+            cache[kind] = data;
+            inflight[kind] = null;
+            return data;
+          },
+          (error) => {
+            inflight[kind] = null;
+            throw error;
+          }
+        );
+      }
+      return inflight[kind];
+    }
+    return {
+      setAssetDataVersion,
+      clear,
+      load,
+      get: (kind) => cache[kind] || null
+    };
+  }
+
   // client-src/client.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
@@ -23437,7 +23571,6 @@
       const SETTINGS_URL = ROUTE + "settings.json";
       const WIDGET_ID = "dsh-little-whale";
       const CACHE_KEY = "dshp.firstscreen.v1";
-      const POS_KEY = "dshp.position.v1";
       const BASE_SIZE = 96;
       const MIN_SCALE = 0.6;
       const MAX_SCALE = 1.6;
@@ -23532,7 +23665,6 @@
         { id: "bank", label: "\u5168\u5510\u8BD7\u7CBE\u9009" },
         { id: "ci-selected", label: "\u5B8B\u8BCD\u7CBE\u9009" }
       ];
-      const MASCOT_EGG_KEY = "dshp-mascot-egg-v1";
       const MASCOT_EXPRESSION_MS = 2500;
       const MASCOT_IDLE_MIN_MS = 45 * 60 * 1e3;
       const MASCOT_IDLE_USER_MS = 5 * 60 * 1e3;
@@ -24995,45 +25127,6 @@
         for (const item of report && report.rhymeLines || []) set2[item.line - 1] = true;
         return set2;
       }
-      function normalizeMascotEggState(raw, now2) {
-        const source = raw && typeof raw === "object" ? raw : {};
-        const dateKey = shanghaiParts(now2).dateKey;
-        const sameDay = source.date === dateKey;
-        return {
-          date: dateKey,
-          greeted: sameDay ? source.greeted === true : false,
-          greetAt: sameDay ? num(source.greetAt, 0) : 0,
-          idleAt: num(source.idleAt, 0)
-        };
-      }
-      function readMascotEggState(now2) {
-        const storage = getStorage();
-        if (!storage) return normalizeMascotEggState(null, now2);
-        try {
-          const raw = storage.getItem(MASCOT_EGG_KEY);
-          return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now2);
-        } catch (error) {
-          return normalizeMascotEggState(null, now2);
-        }
-      }
-      function writeMascotEggState(state) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state));
-        } catch (error) {
-        }
-      }
-      function recordMascotEgg(state, patch, now2) {
-        const base = normalizeMascotEggState(state, now2);
-        const time = num(now2, Date.now());
-        return {
-          date: base.date,
-          greeted: base.greeted || Boolean(patch && patch.greet),
-          greetAt: patch && patch.greet ? time : base.greetAt,
-          idleAt: patch && patch.idle ? time : base.idleAt
-        };
-      }
       function shouldShowDailyGreet(state, now2) {
         return !normalizeMascotEggState(state, now2).greeted;
       }
@@ -25052,85 +25145,17 @@
         return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
       }
       let bootstrapCache = null;
-      const RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
-      const resourceCache = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null };
-      const resourceInflight = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null };
-      let assetDataVersion = "";
-      function setAssetDataVersion(version) {
-        const next = version == null ? "" : String(version);
-        if (next === assetDataVersion) return;
-        assetDataVersion = next;
-        clearFeihuaFullCache();
-        clearPetMediaCache();
-        for (const kind of ["anthology", "bank", "pingshui", "ciBank", "moodCatalog"]) {
-          resourceCache[kind] = null;
-          resourceInflight[kind] = null;
-        }
-      }
+      const resourceStore = createResourceStore({
+        fetchJsonUrl,
+        route: ROUTE,
+        assetDataFiles: ASSET_DATA_FILES,
+        resourcePaths: RESOURCE_PATHS,
+        assetUrlFor,
+        clearFeihuaIndexCache,
+        clearFeihuaFullCache,
+        clearPetMediaCache
+      });
       const fetchJson = createFetchJson(ROUTE);
-      function clearResourceCache(kind) {
-        clearFeihuaIndexCache();
-        clearFeihuaFullCache();
-        clearPetMediaCache();
-        if (kind) {
-          resourceCache[kind] = null;
-          resourceInflight[kind] = null;
-          return;
-        }
-        for (const key of RESOURCE_CACHE_KEYS) {
-          resourceCache[key] = null;
-          resourceInflight[key] = null;
-        }
-      }
-      function loadResource(kind) {
-        const assetFile = ASSET_DATA_FILES[kind];
-        if (!assetFile && !RESOURCE_PATHS[kind]) return Promise.reject(new Error("\u672A\u77E5\u6570\u636E\u7C7B\u578B\uFF1A" + kind));
-        if (resourceCache[kind]) return Promise.resolve(resourceCache[kind]);
-        if (!resourceInflight[kind]) {
-          const url = assetFile ? assetUrlFor(kind, assetDataVersion) : ROUTE + RESOURCE_PATHS[kind];
-          resourceInflight[kind] = fetchJsonUrl(url).then(
-            (data) => {
-              resourceCache[kind] = data;
-              resourceInflight[kind] = null;
-              return data;
-            },
-            (error) => {
-              resourceInflight[kind] = null;
-              throw error;
-            }
-          );
-        }
-        return resourceInflight[kind];
-      }
-      function readStoredPosition() {
-        const storage = getStorage();
-        if (!storage) return null;
-        try {
-          const raw = storage.getItem(POS_KEY);
-          if (!raw) return null;
-          const parsed = JSON.parse(raw);
-          if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null;
-          return {
-            x: Number(parsed.x),
-            y: Number(parsed.y),
-            snap: parsed.snap === "right" || parsed.snap === "free" ? parsed.snap : "left"
-          };
-        } catch (error) {
-          return null;
-        }
-      }
-      function writeStoredPosition(position) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(POS_KEY, JSON.stringify({
-            x: Math.round(position.x),
-            y: Math.round(position.y),
-            snap: position.snap
-          }));
-        } catch (error) {
-        }
-      }
       function putSettings(patch) {
         const request = buildSettingsRequest(patch);
         return fetchJson("settings.json", request.init).then((data) => {
@@ -25163,8 +25188,8 @@
         formatDateLabel,
         hashString,
         fetchJson,
-        loadResource,
-        clearResourceCache,
+        loadResource: resourceStore.load,
+        clearResourceCache: resourceStore.clear,
         readFirstScreenCache,
         writeFirstScreenCache,
         clearFirstScreenCache,
@@ -25368,7 +25393,7 @@
         formatDetectionReport,
         detectionRhymeIndexes,
         patternForShape,
-        setAssetDataVersion,
+        setAssetDataVersion: resourceStore.setAssetDataVersion,
         normalizeMascotEggState,
         readMascotEggState,
         writeMascotEggState,
@@ -25417,8 +25442,8 @@
       }
       function useResource(kind, active) {
         const [state, setState] = React.useState(() => ({
-          status: resourceCache[kind] ? "ready" : "idle",
-          data: resourceCache[kind] || null,
+          status: resourceStore.get(kind) ? "ready" : "idle",
+          data: resourceStore.get(kind) || null,
           error: null
         }));
         const alive = React.useRef(true);
@@ -25431,7 +25456,7 @@
           if (statusRef.current === "loading") return Promise.resolve();
           statusRef.current = "loading";
           setState((previous) => ({ status: "loading", data: previous.data, error: null }));
-          return loadResource(kind).then(
+          return resourceStore.load(kind).then(
             (data) => {
               statusRef.current = "ready";
               if (alive.current) setState({ status: "ready", data, error: null });
@@ -26068,13 +26093,13 @@
               const cached = cacheRef.current;
               if (cached && cached.dataVersion && data.dataVersion && cached.dataVersion !== data.dataVersion) {
                 clearFirstScreenCache();
-                clearResourceCache();
+                resourceStore.clear();
                 cacheRef.current = null;
               }
               const normalized = normalizeSettings(data.settings);
               settingsRef.current = normalized;
               setSettings(normalized);
-              setAssetDataVersion(data.dataVersion);
+              resourceStore.setAssetDataVersion(data.dataVersion);
               setBoot({ status: "ready", data, fromCache: false, stale: false, error: null });
             },
             (error) => {
@@ -26115,7 +26140,7 @@
         const poetryOn = panelOpen && panelTab === "poetry";
         const classActive = step === 2 || step === 4 || poetryOn && (poetryTab === "class" || poetryTab === "ci");
         const yunActive = step === 3 || poetryOn && poetryTab === "yun";
-        const weatherNeedsCi = settings.weatherPoem && !resourceCache.ci && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT;
+        const weatherNeedsCi = settings.weatherPoem && !resourceStore.get("ci") && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT;
         const ciActive = step === 4 || step === 5 || weatherNeedsCi || poetryOn && (poetryTab === "ci" || poetryTab === "feihua" || poetryTab === "library");
         const [knowledgeRes, reloadKnowledge] = useResource("knowledge", classActive);
         const [yunRes, reloadYun] = useResource("yun", yunActive);

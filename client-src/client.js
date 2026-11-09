@@ -126,6 +126,17 @@ import {
   pickWanderMedia,
 } from './wander.js'
 import { clearFirstScreenCache, createFetchJson, fetchJsonUrl, getStorage, readFirstScreenCache, writeFirstScreenCache } from './data.js'
+import {
+  MASCOT_EGG_KEY,
+  POS_KEY,
+  normalizeMascotEggState,
+  readMascotEggState,
+  readStoredPosition,
+  recordMascotEgg,
+  writeMascotEggState,
+  writeStoredPosition,
+} from './local-state.js'
+import { RESOURCE_CACHE_KEYS, createResourceStore } from './resources.js'
 
 /**
  * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
@@ -180,7 +191,6 @@ window.__ModuleLoader__.load({
   const SETTINGS_URL = ROUTE + 'settings.json'
   const WIDGET_ID = 'dsh-little-whale'
   const CACHE_KEY = 'dshp.firstscreen.v1'
-  const POS_KEY = 'dshp.position.v1'
   const BASE_SIZE = 96
   const MIN_SCALE = 0.6
   const MAX_SCALE = 1.6
@@ -278,7 +288,6 @@ window.__ModuleLoader__.load({
    { id: 'bank', label: '全唐诗精选' },
    { id: 'ci-selected', label: '宋词精选' },
   ]
-  const MASCOT_EGG_KEY = 'dshp-mascot-egg-v1'
   const MASCOT_EXPRESSION_MS = 2500
   const MASCOT_IDLE_MIN_MS = 45 * 60 * 1000
   const MASCOT_IDLE_USER_MS = 5 * 60 * 1000
@@ -2021,50 +2030,6 @@ window.__ModuleLoader__.load({
   }
 
   /* ---- 剩余立绘彩蛋（双击表情 / 每日 greet / idle 姿态限频） ---- */
-  function normalizeMascotEggState(raw, now) {
-  const source = raw && typeof raw === 'object' ? raw : {}
-  const dateKey = shanghaiParts(now).dateKey
-  const sameDay = source.date === dateKey
-  return {
-   date: dateKey,
-   greeted: sameDay ? source.greeted === true : false,
-   greetAt: sameDay ? num(source.greetAt, 0) : 0,
-   idleAt: num(source.idleAt, 0),
-  }
-  }
-
-  function readMascotEggState(now) {
-  const storage = getStorage()
-  if (!storage) return normalizeMascotEggState(null, now)
-  try {
-   const raw = storage.getItem(MASCOT_EGG_KEY)
-   return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now)
-  } catch (error) {
-   return normalizeMascotEggState(null, now)
-  }
-  }
-
-  function writeMascotEggState(state) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state))
-  } catch (error) {
-   /* 配额/隐私模式：忽略 */
-  }
-  }
-
-  function recordMascotEgg(state, patch, now) {
-  const base = normalizeMascotEggState(state, now)
-  const time = num(now, Date.now())
-  return {
-   date: base.date,
-   greeted: base.greeted || Boolean(patch && patch.greet),
-   greetAt: patch && patch.greet ? time : base.greetAt,
-   idleAt: patch && patch.idle ? time : base.idleAt,
-  }
-  }
-
   function shouldShowDailyGreet(state, now) {
   return !normalizeMascotEggState(state, now).greeted
   }
@@ -2086,92 +2051,19 @@ window.__ModuleLoader__.load({
   }
 
   let bootstrapCache = null
-  const RESOURCE_CACHE_KEYS = ['poems', 'ci', 'yun', 'knowledge', 'anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']
-  const resourceCache = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null }
-  const resourceInflight = { poems: null, ci: null, yun: null, knowledge: null, anthology: null, bank: null, pingshui: null, ciBank: null, moodCatalog: null }
-  let assetDataVersion = ''
-  function setAssetDataVersion(version) {
-  const next = version == null ? '' : String(version)
-  if (next === assetDataVersion) return
-  assetDataVersion = next
-  clearFeihuaFullCache()
-  clearPetMediaCache()
-  for (const kind of ['anthology', 'bank', 'pingshui', 'ciBank', 'moodCatalog']) {
-   resourceCache[kind] = null
-   resourceInflight[kind] = null
-  }
-  }
-
+  const resourceStore = createResourceStore({
+    fetchJsonUrl,
+    route: ROUTE,
+    assetDataFiles: ASSET_DATA_FILES,
+    resourcePaths: RESOURCE_PATHS,
+    assetUrlFor,
+    clearFeihuaIndexCache,
+    clearFeihuaFullCache,
+    clearPetMediaCache,
+  })
   const fetchJson = createFetchJson(ROUTE)
 
-  function clearResourceCache(kind) {
-  clearFeihuaIndexCache()
-  clearFeihuaFullCache()
-  clearPetMediaCache()
-  if (kind) {
-   resourceCache[kind] = null
-   resourceInflight[kind] = null
-   return
-  }
-  for (const key of RESOURCE_CACHE_KEYS) {
-   resourceCache[key] = null
-   resourceInflight[key] = null
-  }
-  }
-
-  function loadResource(kind) {
-  const assetFile = ASSET_DATA_FILES[kind]
-  if (!assetFile && !RESOURCE_PATHS[kind]) return Promise.reject(new Error('未知数据类型：' + kind))
-  if (resourceCache[kind]) return Promise.resolve(resourceCache[kind])
-  if (!resourceInflight[kind]) {
-   const url = assetFile ? assetUrlFor(kind, assetDataVersion) : ROUTE + RESOURCE_PATHS[kind]
-   resourceInflight[kind] = fetchJsonUrl(url).then(
-    (data) => {
-    resourceCache[kind] = data
-    resourceInflight[kind] = null
-    return data
-    },
-    (error) => {
-    resourceInflight[kind] = null
-    throw error
-    },
-   )
-  }
-  return resourceInflight[kind]
-  }
-
   /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
-  function readStoredPosition() {
-  const storage = getStorage()
-  if (!storage) return null
-  try {
-   const raw = storage.getItem(POS_KEY)
-   if (!raw) return null
-   const parsed = JSON.parse(raw)
-   if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null
-   return {
-    x: Number(parsed.x),
-    y: Number(parsed.y),
-    snap: parsed.snap === 'right' || parsed.snap === 'free' ? parsed.snap : 'left',
-   }
-  } catch (error) {
-   return null
-  }
-  }
-
-  function writeStoredPosition(position) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(POS_KEY, JSON.stringify({
-    x: Math.round(position.x),
-    y: Math.round(position.y),
-    snap: position.snap,
-   }))
-  } catch (error) {
-  }
-  }
-
   function putSettings(patch) {
   const request = buildSettingsRequest(patch)
   return fetchJson('settings.json', request.init).then((data) => {
@@ -2203,8 +2095,8 @@ window.__ModuleLoader__.load({
   formatDateLabel,
   hashString,
   fetchJson,
-  loadResource,
-  clearResourceCache,
+  loadResource: resourceStore.load,
+  clearResourceCache: resourceStore.clear,
   readFirstScreenCache,
   writeFirstScreenCache,
   clearFirstScreenCache,
@@ -2251,7 +2143,7 @@ window.__ModuleLoader__.load({
   TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
   assetUrlFor, buildLibraryItems, filterLibraryItems, libraryPage, libraryItemLabel, ciBankRhythmics, ciSelectedLibraryItems, ciSelectedRhythmics, mergeFeihuaItems, finishFeihuaIndex, feihuaSourceOf, completeSentencesFromLines,
   buildPingshuiIndex, annotatePoemLines, detectMetre, detectPoem, detectPoemText, parsePoemInput, formatDetectionReport, detectionRhymeIndexes, patternForShape,
-  setAssetDataVersion, normalizeMascotEggState, readMascotEggState, writeMascotEggState, recordMascotEgg, shouldShowDailyGreet, canShowIdlePose, pickMascotExpression,
+  setAssetDataVersion: resourceStore.setAssetDataVersion, normalizeMascotEggState, readMascotEggState, writeMascotEggState, recordMascotEgg, shouldShowDailyGreet, canShowIdlePose, pickMascotExpression,
   LibraryTab,
   GrowthTab,
   PoetryWidget,
@@ -2299,8 +2191,8 @@ window.__ModuleLoader__.load({
   */
   function useResource(kind, active) {
   const [state, setState] = React.useState(() => ({
-   status: resourceCache[kind] ? 'ready' : 'idle',
-   data: resourceCache[kind] || null,
+   status: resourceStore.get(kind) ? 'ready' : 'idle',
+   data: resourceStore.get(kind) || null,
    error: null,
   }))
   const alive = React.useRef(true)
@@ -2313,7 +2205,7 @@ window.__ModuleLoader__.load({
    if (statusRef.current === 'loading') return Promise.resolve()
    statusRef.current = 'loading'
    setState((previous) => ({ status: 'loading', data: previous.data, error: null }))
-   return loadResource(kind).then(
+   return resourceStore.load(kind).then(
     (data) => {
     statusRef.current = 'ready'
     if (alive.current) setState({ status: 'ready', data, error: null })
@@ -2993,13 +2885,13 @@ window.__ModuleLoader__.load({
     const cached = cacheRef.current
     if (cached && cached.dataVersion && data.dataVersion && cached.dataVersion !== data.dataVersion) {
      clearFirstScreenCache()
-     clearResourceCache()
+     resourceStore.clear()
      cacheRef.current = null
     }
     const normalized = normalizeSettings(data.settings)
     settingsRef.current = normalized
     setSettings(normalized)
-    setAssetDataVersion(data.dataVersion)
+    resourceStore.setAssetDataVersion(data.dataVersion)
     setBoot({ status: 'ready', data, fromCache: false, stale: false, error: null })
     },
     (error) => {
@@ -3043,7 +2935,7 @@ window.__ModuleLoader__.load({
   const poetryOn = panelOpen && panelTab === 'poetry'
   const classActive = step === 2 || step === 4 || (poetryOn && (poetryTab === 'class' || poetryTab === 'ci'))
   const yunActive = step === 3 || (poetryOn && poetryTab === 'yun')
-  const weatherNeedsCi = settings.weatherPoem && !resourceCache.ci
+  const weatherNeedsCi = settings.weatherPoem && !resourceStore.get('ci')
    && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather
    && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT
   const ciActive = step === 4 || step === 5 || weatherNeedsCi
