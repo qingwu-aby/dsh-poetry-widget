@@ -40,10 +40,11 @@
 - [ ] index.js 剩余服务组装迁移（memory 栈 / mood+selfTalk / being（selfState/selfDrive/growth）/ chatBridge+outbox+guiPush / 宿主服务，目标 <300 行）
 - [ ] 测试拆分（tests/domains/）
 
-## W3/W4（backlog，未开始）
+## W3/W4（进行中）
+- [x] HTTP JSON 契约测试：`tests/domains/http-contract.test.mjs`（10 条：health/self/memory/graph/works/model-errors/settings/bootstrap/view=1/方法守卫；512/512）
+- [x] PLAN.md 归档 → `docs/archive/PLAN.md`；新增 `npm run test:coverage`（仅报告，暂无门槛）
 - [ ] 测试拆分：host.test.mjs（12k 行）→ tests/domains/
 - [ ] 客户端 store/hook 层与 tab 注册表（client.js ~5.6k 行）
-- [ ] HTTP JSON 契约测试
 - [ ] JSDoc/@ts-check + tsc --noEmit；coverage 门槛；PLAN.md 归档与 README 精简
 - [ ] 4 个历史大模块拆到 <800 行
 

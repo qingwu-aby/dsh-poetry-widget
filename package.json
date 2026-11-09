@@ -73,8 +73,8 @@
     "url": "https://github.com/qingwu-aby/dsh-poetry-widget/issues"
   },
   "scripts": {
-    "test": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/client/widget.test.mjs",
-    "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs",
+    "test": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/domains/http-contract.test.mjs tests/client/widget.test.mjs",
+    "test:fast": "npm run build:client && node --test tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/domains/http-contract.test.mjs",
     "test:client": "npm run build:client && node --test tests/client/widget.test.mjs",
     "check": "npm run check:eng && npm run lint && node --check index.js && node --check client.js && for f in lib/*.mjs lib/kernel/*.mjs lib/composition/*.mjs lib/domain/*/index.mjs; do node --check \"$f\" || exit 1; done",
     "build:client": "esbuild client-src/client.js --bundle --format=iife --platform=browser --outfile=client.js --log-level=warning",
@@ -87,6 +87,7 @@
     "check:eng": "node scripts/check-deps.mjs && node scripts/check-size.mjs",
     "lint": "biome check lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
     "format": "biome check --write lib/kernel lib/composition scripts/check-deps.mjs scripts/check-size.mjs scripts/gen-config-doc.mjs tests/kernel.test.mjs",
-    "config:doc": "node scripts/gen-config-doc.mjs"
+    "config:doc": "node scripts/gen-config-doc.mjs",
+    "test:coverage": "npm run build:client && node --test --experimental-test-coverage tests/data.test.mjs tests/kernel.test.mjs tests/host.test.mjs tests/domains/http-contract.test.mjs"
   }
 }
