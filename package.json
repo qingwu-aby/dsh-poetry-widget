@@ -93,6 +93,8 @@
     "test:coverage": "npm run build:client && node --test --experimental-test-coverage --test-coverage-lines=65 --test-coverage-branches=65 --test-coverage-functions=70 tests/data.test.mjs tests/kernel.test.mjs tests/domains/*.test.mjs tests/client/widget.test.mjs",
     "check:types": "tsc -p tsconfig.json",
     "ops:install": "node scripts/ops/install.mjs",
-    "ops:install:force": "node scripts/ops/install.mjs --force"
+    "ops:install:force": "node scripts/ops/install.mjs --force",
+    "eval:turing": "node scripts/eval/turing/run-chat.mjs",
+    "eval:turing:score": "node scripts/eval/turing/score.mjs"
   }
 }

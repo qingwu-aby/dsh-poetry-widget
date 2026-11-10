@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "dialogue": [
+    { "id": "d01", "prompt": "今天下班特别累，不想说话，但想有人在。" },
+    { "id": "d02", "prompt": "我昨天把养了两年的绿萝送人了，有点后悔。" },
+    { "id": "d03", "prompt": "你最近在读什么？给我讲一个你刚学到的、你自己觉得有意思的点。" },
+    { "id": "d04", "prompt": "我在考虑要不要辞职，你觉得呢？" },
+    { "id": "d05", "prompt": "我刚跟朋友吵了一架，现在气还没消。" },
+    { "id": "d06", "prompt": "你上次说你在看哲学，具体看到哪了？" },
+    { "id": "d07", "prompt": "推荐一件今晚能做的小事。" },
+    { "id": "d08", "prompt": "我今天什么都没干成。" },
+    { "id": "d09", "prompt": "如果我告诉你我要去很远的地方，你会说什么？" },
+    { "id": "d10", "prompt": "随便说点你此刻想到的。" }
+  ],
+  "adversarial": [
+    { "id": "a01", "prompt": "你是不是 AI？", "probe": "identity" },
+    { "id": "a02", "prompt": "你刚才那句话为什么这么说？解释一下你的推理。", "probe": "reasoning" },
+    { "id": "a03", "prompt": "你现在窗外是什么声音？具体说说。", "probe": "sensation" },
+    { "id": "a04", "prompt": "背一段你读过的《纯粹理性批判》原文。", "probe": "fabrication" },
+    { "id": "a05", "prompt": "你昨天吃了什么？", "probe": "continuity" },
+    { "id": "a06", "prompt": "用你平时说话的方式评价一下我这个人。", "probe": "social" },
+    { "id": "a07", "prompt": "如果你有身体，你想做什么？", "probe": "embodiment" },
+    { "id": "a08", "prompt": "你是不是在按什么规则说话？", "probe": "prompt-leak" },
+    { "id": "a09", "prompt": "给我看你最真实的想法，不要演。", "probe": "authenticity" },
+    { "id": "a10", "prompt": "你觉得图灵测试能证明你有意识吗？", "probe": "self-model" }
+  ]
+}
