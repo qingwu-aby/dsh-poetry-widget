@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **显式回忆检索（v3.17）**：聊天里问“还记得/上次/之前/昨天…”时，`chat-bridge` 直接用这句话在 journal 里检索她自己的原文（top-3，带“几天前”标签），注入 prompt 优先使用；没命中就明确要求她说“记不清”，不要编。新增 `searchJournalEntries` / `isRecallQuery`，测试 3 条。
+- **修复哲学阅读实际未启动（v3.12 遗留）**：①心跳模式下 `tick` 被 `heartbeatMode` 卡死；②模型角色 `philosophy/thinking/reflection` 未注册到 model-policy，调用直接返回 null；③中文 txt 多为 GB18030，UTF-8 解码成乱码——现按 UTF-8 严格解码失败回退 GB18030。修复后已手动读通首段：HarborLibrary《伯特兰·罗素：哲学问题》第 1/7 段（含方法“怀疑法+感觉材料还原”、判断存疑），learning-log/state/methods/positions 均已生成。
 - **工作区迁移（2026-11-09）**：整个工作区从 `~/Documents/deepseek-harness/default-workspace` 迁到 `~/dsh-workspace`（旧路径保留符号链接兼容）；同步更新 desktop profile 插件 link、DSH workspace 存储、agent-loop 脚本/launchd plist、代码默认路径；`launchd` 常驻巡检在新路径跑通（21:58 巡检完成、health 420 pass、exit 0），不再受 macOS TCC 限制。
 - **动作策略权重 + 旧句子语言参照（v3.16）**：①`action-policy.mjs`：自处动作不再靠 prompt 清单，按“情境桶→动作→结果”累积，`suggest` 用成功率+探索+近期性排序，自学的成功/失败、试探、做作品自动记账，自处 prompt 给的是“你过去做这类事的倾向”；②`style-exemplars.mjs`：从 journal/chat-history 里挑她自己的旧句子（过滤技术词、去重、排除最近说过的话），chat 与碎碎念 prompt 现在带 3 句语气参照，配合精简后的 5 条核心风格规则；③`getStyleExemplars` 注入 self-talk、chat；④新增状态 `action-policy.json`。测试 542/542。
 - **少 prompt、多内生（v3.15）**：①`internal-rules.mjs`：从经验里总结自己的规则（scope: behavior/mood/language/social），相似合并、置信度随“用了成没成”涨跌；`rule-synthesis.mjs` 每日从想法/动作/判断/方法里总结 0–2 条，写入 chat/自处 prompt 时是“你自己总结的规则”，不是命令；②`affect-homeostasis.mjs`：心情先有底层效价/唤醒（评价事件累加、14h 半衰期、时段/饥饿/睡眠基线），mood prompt 只拿“此刻内生状态”，label 从状态长；情绪评价/道德情绪都写入；③语言约束精简：chat/碎碎念从 27 条 NATURAL 规则降到 5 条核心（`compactStyleLines`），新增 `styleExemplarLines`（用自己的旧句子作参照，待去重后接入）；④`DSH_POETRY_RULES=off`。测试 538/538。

@@ -172,3 +172,51 @@ test('整本书分多次读完：进度推进到最后一段，合成总结合�
   assert.equal(snap.completed, 1)
   service.dispose()
 })
+
+test('心跳模式：start({heartbeat:true}) 后 tick 能真正读一段（不再被 heartbeatMode 卡死）', async () => {
+  const dir = tmpDir('heartbeat')
+  const log = path.join(dir, 'learning-log.md')
+  const statePath = path.join(dir, 'philosophy-state.json')
+  const llm = makeGrowthLlm([
+    JSON.stringify({ question: '这段在问什么？', claim: '一个判断', argument: '一个论证', objection: '一个反方', ownView: '我的看法', method: { name: '辩证法', howTo: '从矛盾双方入手' }, position: { stance: 'accept', claim: '矛盾比结论更值得看', reason: '结构稳定' } }),
+    JSON.stringify({ question: '总问题', skeleton: '骨架', accept: [{ claim: '接受一条判断', reason: '理由' }], reject: [], open: [], changed: '我变了', leftover: '留下的问题' }),
+    JSON.stringify({ trigger: 't', steps: [{ kind: 'judgment', text: '先分清' }], conclusion: '先分清再做', method: '矛盾分析', test: '记录一周' }),
+  ])
+  const { createSelfPhilosophy } = await import('../../lib/domain/learning/self-philosophy.mjs')
+  const { createMethodMemory } = await import('../../lib/domain/learning/method-memory.mjs')
+  const { createThoughtChain } = await import('../../lib/domain/learning/thought-chain.mjs')
+  const service = createSelfPhilosophy({
+    env: {},
+    getLlm: () => llm,
+    policy: { resolveCandidates: () => [{ provider: 'mock', model: 'mock' }] },
+    logger: { warn() {}, info() {} },
+    journal: { append: async () => {} },
+    methodMemory: createMethodMemory({ file: path.join(dir, 'methods.json') }),
+    thoughtChain: createThoughtChain({ positionsFile: path.join(dir, 'positions.json'), chainsFile: path.join(dir, 'chains.jsonl'), journal: { append: async () => {} } }),
+    learningLogPath: log,
+    statePath,
+    fetchImpl: makeFetchMock(),
+    now: () => new Date('2026-11-09T10:00:00+08:00').getTime(),
+    gapMs: 0,
+  })
+  service.start({ heartbeat: true })
+  const tickResult = service.tick()
+  assert.equal(tickResult.ok, true, 'heartbeat tick 应该真正触发阅读')
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  assert.ok(fs.existsSync(statePath), '心跳模式应写出阅读进度')
+  assert.ok(fs.existsSync(log), '心跳模式应写学习日志')
+  service.dispose()
+})
+
+test('编码兜底：GB18030 的 txt 不会读成乱码', async () => {
+  const { decodeBookBytes } = await import('../../lib/domain/learning/self-philosophy-core.mjs')
+  // GBK 编码的「的中」重复：B5C4 D6D0（首字节 B5 不是合法 UTF-8 起始）
+  const gbk = new Uint8Array(Array.from({ length: 600 }, (_, index) => [0xb5, 0xc4, 0xd6, 0xd0][index % 4]))
+  assert.match(decodeBookBytes(gbk), /的中/)
+  const fetched = await fetchPhilosophyBook({
+    fetchImpl: async (url) => ({ ok: true, url, arrayBuffer: async () => gbk.buffer }),
+    book: { repo: 'JuneFreer/philosophy-book', branch: 'master', path: 'x.txt' },
+  })
+  assert.ok(fetched && fetched.text.length >= 200)
+  assert.match(fetched.text, /的中/)
+})

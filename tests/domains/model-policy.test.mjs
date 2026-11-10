@@ -388,7 +388,7 @@ const {
 // ---------------------------------------------------------------------------
 
 test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失', () => {
-  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate'])
+  assert.deepEqual(MODEL_POLICY_ROLES, ['mood', 'selfTalk', 'growth', 'voice', 'drive', 'probe', 'wander', 'read', 'netlang', 'consolidate', 'philosophy', 'thinking', 'reflection'])
   assert.deepEqual(MODEL_POLICY_EFFORTS, ['off', 'low', 'high', 'max'])
   assert.deepEqual(MODEL_POLICY_DEFAULT_EFFORTS, {
     mood: 'low',
@@ -401,6 +401,9 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
     read: 'low',
     netlang: 'low',
     consolidate: 'low',
+    philosophy: 'low',
+    thinking: 'high',
+    reflection: 'low',
   })
   assert.equal(MODEL_POLICY_DEFAULTS.roles.mood.reasoningEffort, 'low')
   assert.equal(MODEL_POLICY_DEFAULTS.roles.selfTalk.reasoningEffort, 'high')
@@ -412,6 +415,9 @@ test('model-policy M49：默认 effort/selection/env 覆盖/非法回退/缺失'
   assert.deepEqual(policy.resolve('growth').reasoningEffort, 'high')
   assert.deepEqual(policy.resolve('voice').reasoningEffort, 'high')
   assert.equal(policy.resolve('unknown'), null)
+  assert.deepEqual(policy.resolve('philosophy').reasoningEffort, 'low')
+  assert.deepEqual(policy.resolve('thinking').reasoningEffort, 'high')
+  assert.deepEqual(policy.resolve('reflection').reasoningEffort, 'low')
   const described = describeModelPolicy(policy)
   assert.match(described, /心情=deepseek-account\/deepseek-flash\(low\)/)
   assert.match(described, /碎碎念=deepseek-account\/deepseek-flash\(high\)/)
