@@ -95,6 +95,7 @@
     "ops:install": "node scripts/ops/install.mjs",
     "ops:install:force": "node scripts/ops/install.mjs --force",
     "eval:turing": "node scripts/eval/turing/run-chat.mjs",
-    "eval:turing:score": "node scripts/eval/turing/score.mjs"
+    "eval:turing:score": "node scripts/eval/turing/score.mjs",
+    "eval:turing:judge": "node scripts/eval/turing/judge.mjs"
   }
 }
