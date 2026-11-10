@@ -209,47 +209,25 @@ export function createGraphTab(ctx = {}) {
                 const view = viewRef.current
                 const attrs = { ...dataAttributes }
                 const baseSize = dataAttributes.size || 5
+                // 不做任何“高光”染色：选中/悬停只微微放大，颜色保持原样。
                 if (view.selected === node) {
-                  attrs.size = baseSize * 2.1
-                  attrs.color = '#ffe9b8'
+                  attrs.size = baseSize * 1.4
                   attrs.zIndex = 20
-                  attrs.labelColor = '#fff3d1'
                 } else if (view.hovered === node) {
-                  attrs.size = baseSize * 1.45
+                  attrs.size = baseSize * 1.18
                   attrs.zIndex = 10
-                } else if (view.selected) {
-                  attrs.color = hexAlpha(attrs.color, 0.42)
-                  attrs.labelColor = 'rgba(220,232,245,0.35)'
                 }
                 if (view.query.trim().length > 0) {
                   const matched = String(dataAttributes.label || '').includes(view.query.trim())
                   if (!matched) {
-                    attrs.color = hexAlpha(attrs.color, 0.18)
-                    attrs.labelColor = 'rgba(220,232,245,0.18)'
-                    attrs.size = Math.max(2.5, baseSize * 0.7)
-                  } else if (view.selected !== node) {
-                    attrs.color = '#ffe9b8'
-                    attrs.zIndex = 12
+                    attrs.color = hexAlpha(attrs.color, 0.22)
+                    attrs.labelColor = 'rgba(220,232,245,0.22)'
+                    attrs.size = Math.max(2.5, baseSize * 0.75)
                   }
                 }
                 return attrs
               },
-              edgeReducer: (edge, dataAttributes) => {
-                const view = viewRef.current
-                const attrs = { ...dataAttributes }
-                if (view.selected) {
-                  let ends = []
-                  try {
-                    ends = built.graph.extremities(edge)
-                  } catch {
-                    ends = []
-                  }
-                  const connected = ends.includes(view.selected)
-                  attrs.color = connected ? 'rgba(255,224,150,0.85)' : 'rgba(150,170,190,0.10)'
-                  attrs.size = connected ? 1.8 : 0.4
-                }
-                return attrs
-              },
+              edgeReducer: (edge, dataAttributes) => dataAttributes,
             })
             renderer.on('clickNode', ({ node }) => {
               try {
@@ -443,10 +421,9 @@ export function createGraphTab(ctx = {}) {
                 height: GRAPH_VIEW_HEIGHT + 'px',
                 borderRadius: 12,
                 overflow: 'hidden',
-                background: 'radial-gradient(120% 100% at 18% 8%, rgba(72,110,140,0.30), rgba(8,12,18,0.94) 62%), radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0)',
+                background: 'linear-gradient(180deg, rgba(13,19,27,0.96), rgba(8,12,18,0.96)), radial-gradient(circle at 1px 1px, rgba(255,255,255,0.04) 1px, transparent 0)',
                 backgroundSize: 'auto, 22px 22px',
-                border: '1px solid rgba(140,180,210,0.22)',
-                boxShadow: 'inset 0 0 40px rgba(0,0,0,0.30), 0 8px 24px rgba(0,0,0,0.18)',
+                border: '1px solid rgba(140,180,210,0.16)',
               },
             },
             hoverTooltip,
@@ -481,7 +458,7 @@ export function createGraphTab(ctx = {}) {
 
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 9 } },
       h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', fontSize: 12 } },
-        h('strong', { style: { fontSize: 15, letterSpacing: 1.5, background: 'linear-gradient(90deg, #e6b566, #63b6d8)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' } }, '认知图谱'),
+        h('strong', { style: { fontSize: 15, letterSpacing: 1.5 } }, '认知图谱'),
         h('span', { style: { opacity: 0.75 } }, stats.nodes + ' 节点 · ' + stats.edges + ' 关系 · ' + (data && data.claims ? data.claims.length : 0) + ' 判断'),
         h('span', { style: { opacity: 0.5, marginLeft: 'auto' } }, lastText)),
       body,
