@@ -9,6 +9,7 @@ import {
   searchJournalEntries,
 } from '../../lib/domain/memory/memory-recall.mjs'
 import { buildRecallLines, createChatBridge } from '../../lib/domain/chat/chat-bridge.mjs'
+import { compactStyleLines } from '../../lib/domain/voice/language-style.mjs'
 import { makeMockLlm } from '../helpers/harness.mjs'
 
 function tmpDir(prefix = 'dshp-recall') {
@@ -100,4 +101,12 @@ test('评测 peer 不写入她的 journal，避免测试对话污染记忆', asy
   })
   await bridge.chat({ text: '随便聊聊', peerId: 'turing-eval' })
   assert.equal(journal.length, 0)
+})
+
+
+test('语言规则：不用“日记/记录/翻不出来/不敢编”解释记忆', () => {
+  const lines = compactStyleLines().join('\n')
+  assert.match(lines, /日记/)
+  assert.match(lines, /翻不出来/)
+  assert.match(lines, /记不清/)
 })
