@@ -97,7 +97,7 @@ test('成长史：按周分章、引用她自己的句子、写真实统计', ()
     journalPath,
     [
       JSON.stringify({ ts: now - 16 * DAY, kind: 'thought', text: '今天开始记得一些事了。' }),
-      JSON.stringify({ ts: now - 8 * DAY, kind: 'thought', text: '我在想，那些字到底算不算数。' }),
+      JSON.stringify({ ts: now - 8 * DAY, kind: 'thought', text: '我在想，桌上那些字到底算不算数，盯了好一会儿也没动。' }),
       JSON.stringify({ ts: now - 8 * DAY, kind: 'mood', reason: '心里有点没底。' }),
     ].join('\n'),
   )
@@ -105,7 +105,7 @@ test('成长史：按周分章、引用她自己的句子、写真实统计', ()
   const stageInfo = computeGrowthStage({ ...stats, days: 20, journalEntries: 200, learningEntries: 50 })
   const text = buildAutobiography({ journalPath, learningLogPath: '', stats, stageInfo, now })
   assert.match(text, /小鲸鱼的成长史/)
-  assert.match(text, /我在想，那些字到底算不算数/)
+  assert.match(text, /我在想，桌上那些字到底算不算数/)
   assert.match(text, /读完的书：1 本/)
 })
 
