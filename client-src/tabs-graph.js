@@ -299,6 +299,25 @@ export function createGraphTab(ctx = {}) {
       }
     }
 
+    const focusNodeName = (name) => {
+      const renderer = rendererRef.current
+      if (!renderer || !name) return
+      try {
+        const sigmaGraph = renderer.getGraph()
+        sigmaGraph.forEachNode((node, attributes) => {
+          if (attributes && attributes.__node && attributes.__node.name === name) {
+            renderer.getCamera().animate(
+              { x: attributes.x, y: attributes.y, ratio: 0.5 },
+              { duration: 450 },
+            )
+            setSelected(name)
+          }
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+
     const nodes = (Array.isArray(data && data.nodes) ? data.nodes : []).slice(0, 20000)
     const edges = (Array.isArray(data && data.edges) ? data.edges : []).slice(0, 40000)
     const selectedNode = selected ? nodes.find((node) => node.name === selected) : null
@@ -311,6 +330,79 @@ export function createGraphTab(ctx = {}) {
       const type = node.type || 'concept'
       typeCounts[type] = (typeCounts[type] || 0) + 1
     }
+
+    const nodeTypeByName = new Map(nodes.map((node) => [node.name, node.type || 'concept']))
+    const degreeMap = new Map()
+    const relationCounts = new Map()
+    const confidenceWeight = { high: 3, medium: 2, low: 1 }
+    for (const edge of edges) {
+      degreeMap.set(edge.from, (degreeMap.get(edge.from) || 0) + 1)
+      degreeMap.set(edge.to, (degreeMap.get(edge.to) || 0) + 1)
+      relationCounts.set(edge.relation, (relationCounts.get(edge.relation) || 0) + 1)
+    }
+    const coreNodes = [...degreeMap.entries()]
+      .map(([name, degree]) => ({ name, degree, type: nodeTypeByName.get(name) || 'concept' }))
+      .sort((a, b) => b.degree - a.degree)
+      .slice(0, 5)
+    const surprising = edges
+      .filter((edge) => nodeTypeByName.get(edge.from) !== nodeTypeByName.get(edge.to))
+      .map((edge) => {
+        const rarity = 1 / Math.max(1, relationCounts.get(edge.relation) || 1)
+        const score = (confidenceWeight[edge.confidence] || 1) * 2 + rarity * 3
+        const fromType = nodeTypeByName.get(edge.from) || 'concept'
+        const toType = nodeTypeByName.get(edge.to) || 'concept'
+        return {
+          edge,
+          score,
+          why: (TYPE_LABEL[fromType] || fromType) + ' × ' + (TYPE_LABEL[toType] || toType) + (edge.note ? '：' + String(edge.note).slice(0, 42) : ''),
+        }
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+
+    const insightCards = nodes.length > 0
+      ? h(
+        'div',
+        { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 } },
+        h(
+          'div',
+          { style: { padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.09)' } },
+          h('div', { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, '核心节点'),
+          ...coreNodes.map((item) => h(
+            'button',
+            {
+              key: 'core-' + item.name,
+              type: 'button',
+              onClick: () => focusNodeName(item.name),
+              title: '定位到「' + item.name + '」',
+              style: { display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '3px 0', background: 'transparent', border: 0, cursor: 'pointer', color: 'inherit', textAlign: 'left', fontSize: 12 },
+            },
+            h('span', { style: { width: 7, height: 7, borderRadius: 4, background: TYPE_COLOR[item.type] || '#8aa2b4', flex: '0 0 auto' } }),
+            h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.name),
+            h('span', { style: { opacity: 0.45, fontSize: 11 } }, item.degree + ' 条'),
+          )),
+        ),
+        h(
+          'div',
+          { style: { padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.09)' } },
+          h('div', { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, '意外连接'),
+          surprising.length > 0
+            ? surprising.map((item, index) => h(
+              'button',
+              {
+                key: 'surprising-' + index,
+                type: 'button',
+                onClick: () => focusNodeName(item.edge.from),
+                title: '定位到这组连接',
+                style: { display: 'block', width: '100%', padding: '3px 0', background: 'transparent', border: 0, cursor: 'pointer', color: 'inherit', textAlign: 'left', fontSize: 12, lineHeight: 1.45 },
+              },
+              h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.edge.from + ' — ' + item.edge.to),
+              h('div', { style: { opacity: 0.5, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, item.why),
+            ))
+            : h('div', { style: { fontSize: 12, opacity: 0.5 } }, '暂时没有跨类型连接'),
+        ),
+      )
+      : null
 
     const detail = selectedNode
       ? h(
@@ -462,6 +554,7 @@ export function createGraphTab(ctx = {}) {
         h('span', { style: { opacity: 0.75 } }, stats.nodes + ' 节点 · ' + stats.edges + ' 关系 · ' + (data && data.claims ? data.claims.length : 0) + ' 判断'),
         h('span', { style: { opacity: 0.5, marginLeft: 'auto' } }, lastText)),
       body,
+      insightCards,
       legend,
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, opacity: 0.55 } },
         h('span', null, 'WebGL · 滚轮缩放 · 拖动平移 · 点节点看详情' + (stats.big ? ' · 超大图已用简化布局' : '')),

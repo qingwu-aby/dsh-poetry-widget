@@ -21877,6 +21877,23 @@
         } catch {
         }
       };
+      const focusNodeName = (name) => {
+        const renderer = rendererRef.current;
+        if (!renderer || !name) return;
+        try {
+          const sigmaGraph = renderer.getGraph();
+          sigmaGraph.forEachNode((node, attributes) => {
+            if (attributes && attributes.__node && attributes.__node.name === name) {
+              renderer.getCamera().animate(
+                { x: attributes.x, y: attributes.y, ratio: 0.5 },
+                { duration: 450 }
+              );
+              setSelected(name);
+            }
+          });
+        } catch {
+        }
+      };
       const nodes = (Array.isArray(data && data.nodes) ? data.nodes : []).slice(0, 2e4);
       const edges = (Array.isArray(data && data.edges) ? data.edges : []).slice(0, 4e4);
       const selectedNode = selected ? nodes.find((node) => node.name === selected) : null;
@@ -21889,6 +21906,66 @@
         const type = node.type || "concept";
         typeCounts[type] = (typeCounts[type] || 0) + 1;
       }
+      const nodeTypeByName = new Map(nodes.map((node) => [node.name, node.type || "concept"]));
+      const degreeMap = /* @__PURE__ */ new Map();
+      const relationCounts = /* @__PURE__ */ new Map();
+      const confidenceWeight = { high: 3, medium: 2, low: 1 };
+      for (const edge of edges) {
+        degreeMap.set(edge.from, (degreeMap.get(edge.from) || 0) + 1);
+        degreeMap.set(edge.to, (degreeMap.get(edge.to) || 0) + 1);
+        relationCounts.set(edge.relation, (relationCounts.get(edge.relation) || 0) + 1);
+      }
+      const coreNodes = [...degreeMap.entries()].map(([name, degree]) => ({ name, degree, type: nodeTypeByName.get(name) || "concept" })).sort((a2, b) => b.degree - a2.degree).slice(0, 5);
+      const surprising = edges.filter((edge) => nodeTypeByName.get(edge.from) !== nodeTypeByName.get(edge.to)).map((edge) => {
+        const rarity = 1 / Math.max(1, relationCounts.get(edge.relation) || 1);
+        const score = (confidenceWeight[edge.confidence] || 1) * 2 + rarity * 3;
+        const fromType = nodeTypeByName.get(edge.from) || "concept";
+        const toType = nodeTypeByName.get(edge.to) || "concept";
+        return {
+          edge,
+          score,
+          why: (TYPE_LABEL[fromType] || fromType) + " \xD7 " + (TYPE_LABEL[toType] || toType) + (edge.note ? "\uFF1A" + String(edge.note).slice(0, 42) : "")
+        };
+      }).sort((a2, b) => b.score - a2.score).slice(0, 4);
+      const insightCards = nodes.length > 0 ? h(
+        "div",
+        { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 } },
+        h(
+          "div",
+          { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
+          h("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u6838\u5FC3\u8282\u70B9"),
+          ...coreNodes.map((item) => h(
+            "button",
+            {
+              key: "core-" + item.name,
+              type: "button",
+              onClick: () => focusNodeName(item.name),
+              title: "\u5B9A\u4F4D\u5230\u300C" + item.name + "\u300D",
+              style: { display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "3px 0", background: "transparent", border: 0, cursor: "pointer", color: "inherit", textAlign: "left", fontSize: 12 }
+            },
+            h("span", { style: { width: 7, height: 7, borderRadius: 4, background: TYPE_COLOR[item.type] || "#8aa2b4", flex: "0 0 auto" } }),
+            h("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.name),
+            h("span", { style: { opacity: 0.45, fontSize: 11 } }, item.degree + " \u6761")
+          ))
+        ),
+        h(
+          "div",
+          { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
+          h("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u610F\u5916\u8FDE\u63A5"),
+          surprising.length > 0 ? surprising.map((item, index2) => h(
+            "button",
+            {
+              key: "surprising-" + index2,
+              type: "button",
+              onClick: () => focusNodeName(item.edge.from),
+              title: "\u5B9A\u4F4D\u5230\u8FD9\u7EC4\u8FDE\u63A5",
+              style: { display: "block", width: "100%", padding: "3px 0", background: "transparent", border: 0, cursor: "pointer", color: "inherit", textAlign: "left", fontSize: 12, lineHeight: 1.45 }
+            },
+            h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.edge.from + " \u2014 " + item.edge.to),
+            h("div", { style: { opacity: 0.5, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.why)
+          )) : h("div", { style: { fontSize: 12, opacity: 0.5 } }, "\u6682\u65F6\u6CA1\u6709\u8DE8\u7C7B\u578B\u8FDE\u63A5")
+        )
+      ) : null;
       const detail = selectedNode ? h(
         "div",
         {
@@ -22054,6 +22131,7 @@
           h("span", { style: { opacity: 0.5, marginLeft: "auto" } }, lastText)
         ),
         body,
+        insightCards,
         legend,
         h(
           "div",
