@@ -77,7 +77,27 @@ test('回忆提示的人类式措辞：不出现日记/翻不出来/不敢编', 
     assert.ok(!text.includes('日记'))
     assert.ok(!text.includes('翻不出来'))
     assert.ok(!text.includes('不敢编'))
+    assert.ok(!text.includes('编'))
   }
   assert.match(hit[0], /我记得那阵子/)
   assert.match(miss[0], /那阵子的事我记不清了/)
+})
+
+
+test('评测 peer 不写入她的 journal，避免测试对话污染记忆', async () => {
+  const dir = tmpDir()
+  const journal = []
+  const llm = makeMockLlm(() => JSON.stringify({ reply: '嗯。', felt: '', experiencing: '', murmur: '' }))
+  const bridge = createChatBridge({
+    llm,
+    policy: { resolveCandidates: () => [{ provider: 'p', model: 'm' }] },
+    journal: { append: async (entry) => journal.push(entry) },
+    selfState: { snapshot: () => ({ felt: '', experiencing: '', sleeping: false }) },
+    recall: { digest: () => ({ todayJournal: [] }), searchJournal: () => [] },
+    stateDir: dir,
+    logger: { warn() {} },
+    now: () => Date.now(),
+  })
+  await bridge.chat({ text: '随便聊聊', peerId: 'turing-eval' })
+  assert.equal(journal.length, 0)
 })
