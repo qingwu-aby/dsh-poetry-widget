@@ -173,18 +173,21 @@ test('整本书分多次读完：进度推进到最后一段，合成总结合�
   service.dispose()
 })
 
-test('心跳模式：start({heartbeat:true}) 后 tick 能真正读一段（不再被 heartbeatMode 卡死）', async () => {
+test('心跳模式：平时等她自己选；搁置超过 12h 才兜底读一段', async () => {
   const dir = tmpDir('heartbeat')
   const log = path.join(dir, 'learning-log.md')
   const statePath = path.join(dir, 'philosophy-state.json')
-  const llm = makeGrowthLlm([
-    JSON.stringify({ question: '这段在问什么？', claim: '一个判断', argument: '一个论证', objection: '一个反方', ownView: '我的看法', method: { name: '辩证法', howTo: '从矛盾双方入手' }, position: { stance: 'accept', claim: '矛盾比结论更值得看', reason: '结构稳定' } }),
+  const replies = [
+    JSON.stringify({ question: '第一段的问题是什么？', claim: '第一段主张', argument: '第一段论证', objection: '反方', ownView: '我的看法', method: { name: '辩证法', howTo: '从矛盾双方入手' }, position: { stance: 'accept', claim: '矛盾比结论更值得看', reason: '结构稳定' } }),
+    JSON.stringify({ question: '第二段的问题是什么？', claim: '第二段主张', argument: '第二段论证', objection: '反方', ownView: '我的看法', method: { name: '怀疑法', howTo: '先悬置判断' }, position: { stance: 'open', claim: '先悬置', reason: '证据不够' } }),
     JSON.stringify({ question: '总问题', skeleton: '骨架', accept: [{ claim: '接受一条判断', reason: '理由' }], reject: [], open: [], changed: '我变了', leftover: '留下的问题' }),
-    JSON.stringify({ trigger: 't', steps: [{ kind: 'judgment', text: '先分清' }], conclusion: '先分清再做', method: '矛盾分析', test: '记录一周' }),
-  ])
+  ]
+  const llm = makeGrowthLlm(replies)
   const { createSelfPhilosophy } = await import('../../lib/domain/learning/self-philosophy.mjs')
   const { createMethodMemory } = await import('../../lib/domain/learning/method-memory.mjs')
   const { createThoughtChain } = await import('../../lib/domain/learning/thought-chain.mjs')
+  let clock = new Date('2026-11-09T10:00:00+08:00').getTime()
+  const longBook = Array.from({ length: 600 }, (_, index) => `第${index + 1}段正文：这一段要足够长，用来让整本书至少分成两段，才能验证搁置兜底会接着读。`).join('\n')
   const service = createSelfPhilosophy({
     env: {},
     getLlm: () => llm,
@@ -195,16 +198,20 @@ test('心跳模式：start({heartbeat:true}) 后 tick 能真正读一段（不�
     thoughtChain: createThoughtChain({ positionsFile: path.join(dir, 'positions.json'), chainsFile: path.join(dir, 'chains.jsonl'), journal: { append: async () => {} } }),
     learningLogPath: log,
     statePath,
-    fetchImpl: makeFetchMock(),
-    now: () => new Date('2026-11-09T10:00:00+08:00').getTime(),
+    fetchImpl: makeFetchMock({ text: longBook }),
+    now: () => clock,
     gapMs: 0,
   })
   service.start({ heartbeat: true })
-  const tickResult = service.tick()
-  assert.equal(tickResult.ok, true, 'heartbeat tick 应该真正触发阅读')
-  await new Promise((resolve) => setTimeout(resolve, 60))
-  assert.ok(fs.existsSync(statePath), '心跳模式应写出阅读进度')
-  assert.ok(fs.existsSync(log), '心跳模式应写学习日志')
+  assert.equal(service.tick().ok, false, '没读完但刚读过时，不该被固定间隔强推')
+  assert.equal(service.tick().reason, 'waiting-self-drive')
+  // 她自处里选了读：手动/自驱触发一次
+  const first = await service.runOnce({ force: true })
+  assert.equal(first.ok, true)
+  assert.ok(fs.existsSync(statePath))
+  clock += 13 * 60 * 60 * 1000
+  assert.equal(service.tick().ok, true, '搁置超过 12h 应兜底续读')
+  await new Promise((resolve) => setTimeout(resolve, 80))
   service.dispose()
 })
 
