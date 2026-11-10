@@ -50,3 +50,10 @@ node scripts/eval/turing/score.mjs scripts/eval/turing/runs/<时间戳>
 
 - 聊天里出现“记得/上次/之前/昨天”等意图时，会检索 journal 原文注入 prompt；
 - 下一轮重跑记忆探针，预期 recalled/partial 比例上升，且不再出现“我日记里翻不出来”的元叙述。
+
+
+## 针对盲评意见的语言收紧（v3.17 续）
+
+- 去掉“我也……”式自我例子和解释性从句，只留动作/反应；
+- 记忆回答改为人类式表达，不再出现“日记/翻不出来/不敢编”；
+- 重启后重跑 `run-chat` + `judge`，对比 human 比例与一致率。

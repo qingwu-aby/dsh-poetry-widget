@@ -8,7 +8,7 @@ import {
   isRecallQuery,
   searchJournalEntries,
 } from '../../lib/domain/memory/memory-recall.mjs'
-import { createChatBridge } from '../../lib/domain/chat/chat-bridge.mjs'
+import { buildRecallLines, createChatBridge } from '../../lib/domain/chat/chat-bridge.mjs'
 import { makeMockLlm } from '../helpers/harness.mjs'
 
 function tmpDir(prefix = 'dshp-recall') {
@@ -61,6 +61,23 @@ test('聊天：回忆意图会带上原文检索结果；没有命中则要求�
   const result = await bridge.chat({ text: '你还记得我那盆绿萝送给谁了吗', peerId: 'recall-user' })
   assert.equal(result.ok, true)
   const prompt = llm.calls[0].messages[0].content[0].text
-  assert.match(prompt, /刚从自己日记里翻到的原文/)
+  assert.match(prompt, /你隐约想起一点/)
   assert.match(prompt, /绿萝送给.*隔壁阿姨/)
+  const recallSegment = prompt.slice(prompt.indexOf('你隐约想起一点'), prompt.indexOf('你隐约想起一点') + 400)
+  assert.ok(!recallSegment.includes('日记'))
+  assert.ok(!recallSegment.includes('翻不出来'))
+})
+
+
+test('回忆提示的人类式措辞：不出现日记/翻不出来/不敢编', () => {
+  const hit = buildRecallLines('你还记得那次吗', { searchJournal: () => [{ when: '3 天前', kind: 'thought', text: '把绿萝送给隔壁阿姨。' }] })
+  const miss = buildRecallLines('你还记得那次吗', { searchJournal: () => [] })
+  for (const lines of [hit, miss]) {
+    const text = lines.join('\n')
+    assert.ok(!text.includes('日记'))
+    assert.ok(!text.includes('翻不出来'))
+    assert.ok(!text.includes('不敢编'))
+  }
+  assert.match(hit[0], /我记得那阵子/)
+  assert.match(miss[0], /那阵子的事我记不清了/)
 })

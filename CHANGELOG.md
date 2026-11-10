@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **语言层去“我也…”和元叙述（v3.17 续）**：聊天/碎碎念精简风格规则新增“不要用‘我也……’讲自己的类似经历；不要解释自己为什么这么说，直接写动作/反应/判断”；显式回忆提示改成人类式表达（记得时“你隐约想起一点……我记得那阵子……”；记不清时“那阵子的事我记不清了，只记得……”），不再出现“日记/翻不出来/不敢编”。
 - **显式回忆检索（v3.17）**：聊天里问“还记得/上次/之前/昨天…”时，`chat-bridge` 直接用这句话在 journal 里检索她自己的原文（top-3，带“几天前”标签），注入 prompt 优先使用；没命中就明确要求她说“记不清”，不要编。新增 `searchJournalEntries` / `isRecallQuery`，测试 3 条。
 - **修复哲学阅读实际未启动（v3.12 遗留）**：①心跳模式下 `tick` 被 `heartbeatMode` 卡死；②模型角色 `philosophy/thinking/reflection` 未注册到 model-policy，调用直接返回 null；③中文 txt 多为 GB18030，UTF-8 解码成乱码——现按 UTF-8 严格解码失败回退 GB18030。修复后已手动读通首段：HarborLibrary《伯特兰·罗素：哲学问题》第 1/7 段（含方法“怀疑法+感觉材料还原”、判断存疑），learning-log/state/methods/positions 均已生成。
 - **工作区迁移（2026-11-09）**：整个工作区从 `~/Documents/deepseek-harness/default-workspace` 迁到 `~/dsh-workspace`（旧路径保留符号链接兼容）；同步更新 desktop profile 插件 link、DSH workspace 存储、agent-loop 脚本/launchd plist、代码默认路径；`launchd` 常驻巡检在新路径跑通（21:58 巡检完成、health 420 pass、exit 0），不再受 macOS TCC 限制。
