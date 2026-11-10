@@ -21593,18 +21593,40 @@
   }
 
   // client-src/tabs-graph.js
-  var TYPE_COLOR = { person: "#e0a458", institution: "#5fb3d4", event: "#d46a6a", place: "#7fcb8f", concept: "#a78bfa", work: "#d4a5e0" };
+  var TYPE_COLOR = {
+    person: "#e6b566",
+    institution: "#63b6d8",
+    event: "#d97373",
+    place: "#84cf93",
+    concept: "#a78bfa",
+    work: "#d7a8e8"
+  };
   var TYPE_LABEL = { person: "\u4EBA", institution: "\u5236\u5EA6", event: "\u4E8B\u4EF6", place: "\u5730\u65B9", concept: "\u6982\u5FF5", work: "\u4F5C\u54C1" };
+  var ALL_TYPES = ["person", "institution", "event", "place", "concept", "work"];
   var REL_LABEL = { causal: "\u5BFC\u81F4", temporal: "\u5148\u540E\u4E8E", contrast: "\u5BF9\u7167", part_of: "\u5C5E\u4E8E", example_of: "\u4F8B\u5982" };
-  var GRAPH_VIEW_HEIGHT = 340;
+  var REL_COLOR = {
+    causal: "rgba(230,181,102,0.42)",
+    temporal: "rgba(99,182,216,0.40)",
+    contrast: "rgba(217,115,115,0.40)",
+    part_of: "rgba(132,207,147,0.40)",
+    example_of: "rgba(167,139,250,0.40)"
+  };
+  var CONFIDENCE_LABEL = { high: "\u9AD8", medium: "\u4E2D", low: "\u4F4E" };
+  var GRAPH_VIEW_HEIGHT = 380;
   var LAYOUT_FORCE_MAX = 6e3;
   var sigmaModulePromise = null;
   function loadSigma() {
     if (sigmaModulePromise === null) sigmaModulePromise = Promise.resolve().then(() => (init_sigma_esm(), sigma_esm_exports));
     return sigmaModulePromise;
   }
-  function sizeOf(node) {
-    return node.type === "person" || node.type === "institution" ? 7 : 5.5;
+  function hexAlpha(hex, alpha) {
+    const value = typeof hex === "string" && /^#[0-9a-f]{6}$/i.test(hex) ? hex : "#8aa2b4";
+    const a2 = Math.max(0, Math.min(1, Number(alpha)));
+    return value + Math.round(a2 * 255).toString(16).padStart(2, "0");
+  }
+  function sizeOf(node, degree) {
+    const base = node.type === "person" || node.type === "institution" ? 6.5 : 5.2;
+    return Math.min(16, base + Math.sqrt(Math.max(0, degree)) * 1.6);
   }
   function ringLayout(nodes) {
     const byType = /* @__PURE__ */ new Map();
@@ -21640,13 +21662,19 @@
       const source = byName.get(edge.from);
       const target = byName.get(edge.to);
       if (!source || !target || source === target) continue;
-      links.push({ source: source.__id, target: target.__id, relation: edge.relation, note: edge.note, confidence: edge.confidence });
+      links.push({
+        source: source.__id,
+        target: target.__id,
+        relation: edge.relation,
+        note: edge.note,
+        confidence: edge.confidence
+      });
       if (links.length >= 4e4) break;
     }
     if (nodes.length <= LAYOUT_FORCE_MAX) {
       const simNodes = nodes.map((node) => ({ id: node.__id }));
       const simLinks = links.map((link2) => ({ source: link2.source, target: link2.target }));
-      const simulation2 = simulation(simNodes).force("link", link(simLinks).id((item) => item.id).distance(70).strength(0.15)).force("charge", manyBody().strength(-28).theta(0.9)).force("center", center(0, 0)).force("collide", collide().radius(6)).stop();
+      const simulation2 = simulation(simNodes).force("link", link(simLinks).id((item) => item.id).distance(64).strength(0.18)).force("charge", manyBody().strength(-30).theta(0.9)).force("center", center(0, 0)).force("collide", collide().radius(7)).stop();
       simulation2.tick(120);
       const positions = new Map(simNodes.map((item) => [item.id, item]));
       for (const node of nodes) {
@@ -21657,6 +21685,11 @@
     } else {
       ringLayout(nodes);
     }
+    const degree = /* @__PURE__ */ new Map();
+    for (const link2 of links) {
+      degree.set(link2.source, (degree.get(link2.source) || 0) + 1);
+      degree.set(link2.target, (degree.get(link2.target) || 0) + 1);
+    }
     const graph = new Graph({ multi: false });
     for (const node of nodes) {
       if (graph.hasNode(node.__id)) continue;
@@ -21664,17 +21697,25 @@
         label: node.name,
         x: node.x,
         y: node.y,
-        size: sizeOf(node),
+        size: sizeOf(node, degree.get(node.__id) || 0),
         color: TYPE_COLOR[node.type] || "#8aa2b4",
-        labelColor: "#dbe6f0",
+        labelColor: "#e7eef7",
+        labelSize: 11,
         __node: node
       });
     }
     for (const link2 of links) {
       if (graph.hasEdge(link2.source, link2.target)) continue;
-      graph.addEdge(link2.source, link2.target, { color: "rgba(140,170,190,0.30)", size: 0.6 });
+      const high = link2.confidence === "high";
+      graph.addEdge(link2.source, link2.target, {
+        color: REL_COLOR[link2.relation] || "rgba(140,170,190,0.30)",
+        size: high ? 1.1 : 0.65,
+        label: link2.relation,
+        __relation: link2.relation,
+        __note: link2.note
+      });
     }
-    return { graph, nodes, links, idSet: ids };
+    return { graph, nodes, links, idSet: ids, degree };
   }
   function createGraphTab(ctx = {}) {
     const h = ctx.h;
@@ -21683,10 +21724,14 @@
       const [data, setData] = React.useState(null);
       const [error, setError] = React.useState("");
       const [selected, setSelected] = React.useState(null);
+      const [hovered, setHovered] = React.useState(null);
+      const [query, setQuery] = React.useState("");
       const [reloadKey, setReloadKey] = React.useState(0);
       const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
       const containerRef = React.useRef(null);
       const rendererRef = React.useRef(null);
+      const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
+      viewRef.current = { selected, hovered, query };
       React.useEffect(() => {
         let alive = true;
         const load = () => {
@@ -21726,12 +21771,59 @@
               renderLabels: true,
               hideLabelsOnMove: true,
               hideEdgesOnMove: true,
-              labelDensity: 0.12,
-              labelRenderedSizeThreshold: 7,
+              labelDensity: 0.1,
+              labelGridCellSize: 80,
+              labelRenderedSizeThreshold: 6,
               minCameraRatio: 0.02,
               maxCameraRatio: 8,
               enableEdgeEvents: false,
-              allowInvalidContainer: true
+              allowInvalidContainer: true,
+              defaultEdgeType: "line",
+              nodeReducer: (node, dataAttributes) => {
+                const view = viewRef.current;
+                const attrs = { ...dataAttributes };
+                const baseSize = dataAttributes.size || 5;
+                if (view.selected === node) {
+                  attrs.size = baseSize * 2.1;
+                  attrs.color = "#ffe9b8";
+                  attrs.zIndex = 20;
+                  attrs.labelColor = "#fff3d1";
+                } else if (view.hovered === node) {
+                  attrs.size = baseSize * 1.45;
+                  attrs.zIndex = 10;
+                } else if (view.selected) {
+                  attrs.color = hexAlpha(attrs.color, 0.42);
+                  attrs.labelColor = "rgba(220,232,245,0.35)";
+                }
+                if (view.query.trim().length > 0) {
+                  const matched = String(dataAttributes.label || "").includes(view.query.trim());
+                  if (!matched) {
+                    attrs.color = hexAlpha(attrs.color, 0.18);
+                    attrs.labelColor = "rgba(220,232,245,0.18)";
+                    attrs.size = Math.max(2.5, baseSize * 0.7);
+                  } else if (view.selected !== node) {
+                    attrs.color = "#ffe9b8";
+                    attrs.zIndex = 12;
+                  }
+                }
+                return attrs;
+              },
+              edgeReducer: (edge, dataAttributes) => {
+                const view = viewRef.current;
+                const attrs = { ...dataAttributes };
+                if (view.selected) {
+                  let ends = [];
+                  try {
+                    ends = built.graph.extremities(edge);
+                  } catch {
+                    ends = [];
+                  }
+                  const connected = ends.includes(view.selected);
+                  attrs.color = connected ? "rgba(255,224,150,0.85)" : "rgba(150,170,190,0.10)";
+                  attrs.size = connected ? 1.8 : 0.4;
+                }
+                return attrs;
+              }
             });
             renderer.on("clickNode", ({ node }) => {
               try {
@@ -21741,6 +21833,14 @@
               }
             });
             renderer.on("clickStage", () => setSelected(null));
+            renderer.on("enterNode", ({ node }) => {
+              try {
+                const attributes = built.graph.getNodeAttributes(node);
+                if (attributes && attributes.__node) setHovered(attributes.__node.name);
+              } catch {
+              }
+            });
+            renderer.on("leaveNode", () => setHovered(null));
             rendererRef.current = renderer;
             cleanup = () => {
               try {
@@ -21762,6 +21862,12 @@
           cleanup();
         };
       }, [data, reloadKey]);
+      React.useEffect(() => {
+        try {
+          rendererRef.current && rendererRef.current.refresh();
+        } catch {
+        }
+      }, [selected, hovered, query]);
       const resetView = () => {
         try {
           rendererRef.current && rendererRef.current.getCamera().animatedReset();
@@ -21774,6 +21880,26 @@
         } catch {
         }
       };
+      const focusMatch = () => {
+        const needle = query.trim();
+        if (needle.length === 0) return;
+        const renderer = rendererRef.current;
+        if (!renderer) return;
+        try {
+          const sigmaGraph = renderer.getGraph();
+          let found = null;
+          sigmaGraph.forEachNode((node, attributes) => {
+            if (found === null && String(attributes.label || "").includes(needle)) found = { node, attributes };
+          });
+          if (found === null) return;
+          renderer.getCamera().animate(
+            { x: found.attributes.x, y: found.attributes.y, ratio: 0.45 },
+            { duration: 450 }
+          );
+          setSelected(found.attributes.__node ? found.attributes.__node.name : null);
+        } catch {
+        }
+      };
       const nodes = (Array.isArray(data && data.nodes) ? data.nodes : []).slice(0, 2e4);
       const edges = (Array.isArray(data && data.edges) ? data.edges : []).slice(0, 4e4);
       const selectedNode = selected ? nodes.find((node) => node.name === selected) : null;
@@ -21781,61 +21907,187 @@
       const selectedClaims = selectedNode && Array.isArray(data && data.claims) ? data.claims.filter((claim) => Array.isArray(claim.nodes) && claim.nodes.includes(selectedNode.name)) : [];
       const last = data && data.last ? data.last : null;
       const lastText = last ? last.ok === true ? `\u62BD\u53D6 +${last.addedNodes || 0} \u8282\u70B9` : `\u62BD\u53D6\u5931\u8D25\uFF1A${last.reason || "unknown"}` : "\u5C1A\u672A\u62BD\u53D6";
+      const typeCounts = {};
+      for (const node of nodes) {
+        const type = node.type || "concept";
+        typeCounts[type] = (typeCounts[type] || 0) + 1;
+      }
       const detail = selectedNode ? h(
         "div",
-        { style: { marginTop: 8, padding: "8px 10px", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, fontSize: 12, lineHeight: 1.65 } },
+        {
+          style: {
+            marginTop: 8,
+            padding: "10px 12px",
+            borderRadius: 10,
+            fontSize: 12,
+            lineHeight: 1.65,
+            background: "linear-gradient(135deg, rgba(255,233,184,0.10), rgba(120,160,200,0.06))",
+            border: "1px solid rgba(255,233,184,0.28)",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.18)"
+          }
+        },
         h(
           "div",
-          { style: { display: "flex", gap: 6, alignItems: "baseline" } },
-          h("strong", null, selectedNode.name),
-          h("span", { style: { color: TYPE_COLOR[selectedNode.type] || "#8aa2b4" } }, TYPE_LABEL[selectedNode.type] || selectedNode.type || "\u6761\u76EE")
+          { style: { display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4 } },
+          h("strong", { style: { fontSize: 14 } }, selectedNode.name),
+          h("span", {
+            style: {
+              fontSize: 10,
+              padding: "1px 7px",
+              borderRadius: 9,
+              color: "#0d1218",
+              background: TYPE_COLOR[selectedNode.type] || "#8aa2b4",
+              fontWeight: 600
+            }
+          }, TYPE_LABEL[selectedNode.type] || selectedNode.type || "\u6761\u76EE"),
+          h("span", { style: { opacity: 0.55, marginLeft: "auto" } }, "\u70B9\u7A7A\u767D\u5904\u5173\u95ED")
         ),
-        selectedNode.summary ? h("div", { style: { opacity: 0.8, marginTop: 3 } }, selectedNode.summary) : null,
+        selectedNode.summary ? h("div", { style: { opacity: 0.85, marginTop: 3 } }, selectedNode.summary) : null,
         selectedRels.length > 0 ? h(
           "div",
-          { style: { marginTop: 5, opacity: 0.85 } },
-          selectedRels.slice(0, 8).map((edge) => h(
+          { style: { marginTop: 8 } },
+          h("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5173\u7CFB"),
+          ...selectedRels.slice(0, 8).map((edge) => h(
             "div",
-            { key: edge.id || edge.from + edge.to + edge.relation },
-            edge.from === selectedNode.name ? `${REL_LABEL[edge.relation] || "\u5173\u8054"} ${edge.to}` : `${edge.from} ${REL_LABEL[edge.relation] || "\u5173\u8054"} \u5B83`,
-            edge.note ? `\uFF08${edge.note}\uFF09` : ""
+            { key: edge.id || edge.from + edge.to + edge.relation, style: { display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 } },
+            h("span", { style: { fontSize: 10, padding: "0 6px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)", opacity: 0.85 } }, REL_LABEL[edge.relation] || "\u5173\u8054"),
+            h("span", null, edge.from === selectedNode.name ? `\u2192 ${edge.to}` : `${edge.from} \u2192`),
+            edge.note ? h("span", { style: { opacity: 0.55 } }, `\uFF08${edge.note}\uFF09`) : null
           ))
         ) : null,
         selectedClaims.length > 0 ? h(
           "div",
-          { style: { marginTop: 5, opacity: 0.85 } },
-          selectedClaims.slice(0, 4).map((claim) => h("div", { key: claim.id || claim.text }, "\u5224\u65AD\uFF1A" + claim.text + " [" + (claim.confidence || "low") + "]"))
+          { style: { marginTop: 8 } },
+          h("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5224\u65AD"),
+          ...selectedClaims.slice(0, 4).map((claim) => h(
+            "div",
+            { key: claim.id || claim.text, style: { marginBottom: 2 } },
+            "\u201C" + claim.text + "\u201D",
+            h("span", { style: { marginLeft: 6, fontSize: 10, opacity: 0.6 } }, "[" + (CONFIDENCE_LABEL[claim.confidence] || claim.confidence || "?") + "]")
+          ))
         ) : null
       ) : null;
+      const legend = h(
+        "div",
+        { style: { display: "flex", flexWrap: "wrap", gap: "6px 12px", alignItems: "center", fontSize: 11, opacity: 0.8 } },
+        ...ALL_TYPES.filter((type) => typeCounts[type]).map((type) => h(
+          "span",
+          { key: "legend-" + type, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+          h("span", { style: { width: 8, height: 8, borderRadius: 4, background: TYPE_COLOR[type] } }),
+          TYPE_LABEL[type] + " " + typeCounts[type]
+        )),
+        h("span", { style: { marginLeft: "auto", opacity: 0.7 } }, "\u5173\u7CFB\uFF1A"),
+        ...Object.entries(REL_LABEL).map(([relation, label]) => h(
+          "span",
+          { key: "legend-rel-" + relation, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+          h("span", { style: { width: 14, height: 2, background: REL_COLOR[relation], borderRadius: 1 } }),
+          label
+        ))
+      );
+      const hoverTooltip = hovered && hovered !== selected ? (() => {
+        const node = nodes.find((item) => item.name === hovered);
+        if (!node) return null;
+        return h(
+          "div",
+          {
+            style: {
+              position: "absolute",
+              left: 10,
+              top: 10,
+              maxWidth: 260,
+              padding: "6px 9px",
+              borderRadius: 8,
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: "#eaf1f8",
+              background: "rgba(10,16,24,0.86)",
+              border: "1px solid " + (TYPE_COLOR[node.type] || "#8aa2b4"),
+              pointerEvents: "none",
+              zIndex: 5
+            }
+          },
+          h("div", { style: { fontWeight: 600, marginBottom: 2 } }, node.name),
+          node.summary ? h("div", { style: { opacity: 0.75 } }, String(node.summary).slice(0, 100)) : null
+        );
+      })() : null;
       const body = error ? h("div", { style: { fontSize: 12, color: "#e0a458" } }, "\u8BFB\u53D6/\u6E32\u67D3\u56FE\u8C31\u5931\u8D25\uFF1A" + error, h("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u8BD5")) : nodes.length === 0 ? h("div", { style: { fontSize: 12, lineHeight: 1.7, opacity: 0.85 } }, "\u56FE\u8C31\u8FD8\u5728\u957F\uFF1A\u540E\u53F0\u6BCF 2 \u5C0F\u65F6\u4ECE\u5B66\u4E60\u65E5\u5FD7\u91CC\u62BD\u4E00\u8F6E\u3002", h("br"), "\u5F53\u524D\u72B6\u6001\uFF1A" + lastText + "\u3002") : h(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 8 } },
-        h("div", { ref: containerRef, style: { position: "relative", width: "100%", height: GRAPH_VIEW_HEIGHT + "px", borderRadius: 10, overflow: "hidden", background: "rgba(10,16,22,0.55)", border: "1px solid rgba(255,255,255,0.08)" } }),
         h(
           "div",
-          { style: { position: "absolute", right: 8, bottom: 8, display: "flex", gap: 4 } },
+          {
+            ref: containerRef,
+            style: {
+              position: "relative",
+              width: "100%",
+              height: GRAPH_VIEW_HEIGHT + "px",
+              borderRadius: 12,
+              overflow: "hidden",
+              background: "radial-gradient(120% 100% at 18% 8%, rgba(72,110,140,0.30), rgba(8,12,18,0.94) 62%), radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0)",
+              backgroundSize: "auto, 22px 22px",
+              border: "1px solid rgba(140,180,210,0.22)",
+              boxShadow: "inset 0 0 40px rgba(0,0,0,0.30), 0 8px 24px rgba(0,0,0,0.18)"
+            }
+          },
+          hoverTooltip
+        ),
+        h(
+          "div",
+          { style: { position: "absolute", right: 10, bottom: 10, display: "flex", gap: 4 } },
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => zoomBy(1.4) }, "+"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => zoomBy(0.7) }, "\u2212"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D")
         ),
-        h("div", { style: { fontSize: 11, opacity: 0.55 } }, "WebGL \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u62D6\u52A8\u5E73\u79FB \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+        h(
+          "div",
+          { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
+          h("input", {
+            type: "search",
+            value: query,
+            placeholder: "\u641C\u7D22\u8282\u70B9\u2026",
+            "aria-label": "\u641C\u7D22\u56FE\u8C31\u8282\u70B9",
+            onChange: (event) => setQuery(String(event && event.target && event.target.value || "")),
+            onKeyDown: (event) => {
+              if (event && event.key === "Enter") focusMatch();
+            },
+            style: {
+              flex: "1 1 160px",
+              minWidth: 120,
+              padding: "5px 9px",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "inherit",
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              outline: "none"
+            }
+          }),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: focusMatch }, "\u5B9A\u4F4D"),
+          query.trim().length > 0 ? h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setQuery("") }, "\u6E05\u9664") : null
+        ),
         detail
       );
       return h(
         "div",
-        { style: { display: "flex", flexDirection: "column", gap: 8 } },
+        { style: { display: "flex", flexDirection: "column", gap: 9 } },
         h(
           "div",
           { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: 12 } },
-          h("strong", null, "\u8BA4\u77E5\u56FE\u8C31"),
-          h("span", { style: { opacity: 0.7 } }, stats.nodes + " \u8282\u70B9 / " + stats.edges + " \u5173\u7CFB / " + (data && data.claims ? data.claims.length : 0) + " \u5224\u65AD"),
-          h("span", { style: { opacity: 0.55 } }, lastText)
+          h("strong", { style: { fontSize: 15, letterSpacing: 1.5, background: "linear-gradient(90deg, #e6b566, #63b6d8)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" } }, "\u8BA4\u77E5\u56FE\u8C31"),
+          h("span", { style: { opacity: 0.75 } }, stats.nodes + " \u8282\u70B9 \xB7 " + stats.edges + " \u5173\u7CFB \xB7 " + (data && data.claims ? data.claims.length : 0) + " \u5224\u65AD"),
+          h("span", { style: { opacity: 0.5, marginLeft: "auto" } }, lastText)
         ),
         body,
+        legend,
         h(
           "div",
-          { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.6 } },
-          h("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : ""),
+          { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.55 } },
+          h("span", null, "WebGL \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u62D6\u52A8\u5E73\u79FB \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+          h("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
+        ),
+        h(
+          "div",
+          { style: { display: "flex", justifyContent: "flex-end" } },
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u65B0\u8F7D\u5165")
         )
       );
