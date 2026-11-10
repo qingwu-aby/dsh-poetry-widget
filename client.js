@@ -16274,6 +16274,7 @@
       const growthPhilosophy = growthData && growthData.philosophy && growthData.philosophy.current ? growthData.philosophy.current : null;
       const growthEmotions = growthData && Array.isArray(growthData.emotions) ? growthData.emotions : [];
       const growthAutobiography = growthData && typeof growthData.autobiography === "string" ? growthData.autobiography : "";
+      const growthReport = growthData && typeof growthData.report === "string" ? growthData.report : "";
       const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: "observe", items: [], pending: 0 };
       const pendingAttention = Array.isArray(attention.items) ? attention.items : [];
       const attentionMode = attention.mode === "auto" ? "auto" : "observe";
@@ -16491,6 +16492,12 @@
             { style: { marginTop: 10 } },
             h("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u5979\u5199\u4E0B\u7684\u6210\u957F\u53F2"),
             h("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthAutobiography.slice(0, 4e3))
+          ) : null,
+          growthReport.length > 0 ? h(
+            "details",
+            { style: { marginTop: 8 } },
+            h("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u8FD9\u5468\u7684\u6210\u957F\u62A5\u544A"),
+            h("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthReport.slice(0, 3600))
           ) : null
         ),
         h(

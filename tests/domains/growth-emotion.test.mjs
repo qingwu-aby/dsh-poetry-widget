@@ -153,3 +153,62 @@ test('聊天会观察用户语句并产生情绪事件', async () => {
   await bridge.chat({ text: '谢谢你记得我', peerId: 'growth-test' })
   assert.equal(observed.length, 1)
 })
+
+test('成长阶段：读完半本或完成 1 个项目即可进入「把经验变成自己」', () => {
+  const base = {
+    days: 16,
+    journalEntries: 400,
+    learningEntries: 80,
+    booksCompleted: 0,
+    booksCredits: 0.65,
+    projectsCompleted: 0,
+    methodsCount: 5,
+    positionsCount: 2,
+    worldviewVersion: 5,
+  }
+  assert.equal(computeGrowthStage(base).stage.id, 'making_it_mine')
+  assert.equal(computeGrowthStage({ ...base, booksCredits: 0.4, projectsCompleted: 1 }).stage.id, 'making_it_mine')
+  assert.equal(computeGrowthStage({ ...base, booksCredits: 0.3 }).stage.id, 'own_direction')
+})
+
+test('每周成长报告：对比上周、统计阅读选择与情绪多样性', async () => {
+  const { buildWeeklyReport } = await awaitImportGrowth()
+  const now = 10 * 24 * 3600 * 1000
+  const stats = { days: 16, journalEntries: 3300, learningEntries: 1320, booksCompleted: 0, booksCredits: 0.65, methodsCount: 5, positionsCount: 4, worldviewVersion: 16 }
+  const report = buildWeeklyReport({
+    stats,
+    previousStats: { days: 9, journalEntries: 3000, learningEntries: 1280, methodsCount: 3, positionsCount: 2 },
+    stageInfo: computeGrowthStage(stats),
+    now,
+    decisions: [
+      { at: now - 1000, type: 'action', kind: 'learn', doing: '接着读那本书' },
+      { at: now - 2000, type: 'idle' },
+      { at: now - 3000, type: 'action', kind: 'drink', doing: '喝水' },
+    ],
+    episodes: [
+      { at: now - 1000, family: '喜', label: '暖' },
+      { at: now - 2000, family: '哀', label: '闷' },
+      { at: now - 3000, family: '喜', label: '暖' },
+    ],
+  })
+  assert.match(report, /每周成长报告/)
+  assert.match(report, /接着读书.*\*\*1 次\*\*/)
+  assert.match(report, /覆盖 2 族/)
+  assert.match(report, /读书进度/)
+})
+
+async function awaitImportGrowth() {
+  return import('../../lib/domain/being/growth-arc.mjs')
+}
+
+test('关系记忆按 peer 隔离：不同人的偏好/约定不串', async () => {
+  const { formatRelationshipDigest, mergeRelationship, emptyRelationship } = await import('../../lib/domain/relationship/relationship-memory.mjs')
+  const gui = mergeRelationship(emptyRelationship(), [{ kind: 'preference', text: '他喜欢晚上做事', confidence: 'high' }], 1000, 'gui')
+  const other = mergeRelationship(gui.relationship, [{ kind: 'preference', text: '他喜欢早起跑步', confidence: 'high' }], 2000, 'friend-a')
+  const guiDigest = formatRelationshipDigest(other.relationship, '晚上', 'gui').join('\n')
+  const friendDigest = formatRelationshipDigest(other.relationship, '早起', 'friend-a').join('\n')
+  assert.match(guiDigest, /晚上做事/)
+  assert.ok(!guiDigest.includes('早起跑步'))
+  assert.match(friendDigest, /早起跑步/)
+  assert.ok(!friendDigest.includes('晚上做事'))
+})
