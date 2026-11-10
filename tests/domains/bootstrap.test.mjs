@@ -709,7 +709,7 @@ test('index.js：注册 session/event 监听、mood 路由可读、卸载时落�
     assert.equal(retired.length, 1, '旧 mood.json 改名为 .retired')
     assert.equal(fs.existsSync(path.join(dshHome, '.dsh-poetry', 'mood.json')), false)
 
-    assert.equal(routes.length, 29, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON 路由')
+    assert.equal(routes.length, 30, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON 路由')
     assert.ok(routes.some((route) => route.path === SELF_STATE_ROUTE), '注册了 self.json 内在状态路由')
     assert.ok(routes.some((route) => route.path === MEMORY_ROUTE), '注册了 memory.json 记忆中枢路由')
     assert.ok(routes.some((route) => route.path === MEMORY_BACKUP_ROUTE), '注册了 memory/backup.json 备份路由')

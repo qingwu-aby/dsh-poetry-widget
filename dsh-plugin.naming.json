@@ -84,6 +84,10 @@
       },
       {
         "kind": "exact",
+        "path": "/api/dsh-poetry/growth.json"
+      },
+      {
+        "kind": "exact",
         "path": "/api/dsh-poetry/self.json"
       },
       {
