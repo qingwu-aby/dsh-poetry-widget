@@ -21740,6 +21740,8 @@
       const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
       const containerRef = React.useRef(null);
       const rendererRef = React.useRef(null);
+      const fingerprintRef = React.useRef("");
+      const layoutRef = React.useRef(null);
       const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
       viewRef.current = { selected, hovered, query };
       React.useEffect(() => {
@@ -21750,6 +21752,12 @@
             return res.json();
           }).then((json) => {
             if (!alive) return;
+            const fingerprint = [json && json.updatedAt, json && Array.isArray(json.nodes) ? json.nodes.length : 0, json && Array.isArray(json.edges) ? json.edges.length : 0].join("|");
+            if (fingerprint === fingerprintRef.current) {
+              setError("");
+              return;
+            }
+            fingerprintRef.current = fingerprint;
             setData(json);
             setError("");
           }).catch((err) => {
@@ -21829,7 +21837,107 @@
             });
             renderer.on("leaveNode", () => setHovered(null));
             rendererRef.current = renderer;
+            const simNodes = [];
+            const simIndex = /* @__PURE__ */ new Map();
+            built.graph.forEachNode((id, attributes) => {
+              const item = { id, x: Number(attributes.x) || 0, y: Number(attributes.y) || 0 };
+              simNodes.push(item);
+              simIndex.set(id, item);
+            });
+            const simLinks = [];
+            built.graph.forEachEdge((edge, attributes, source, target) => simLinks.push({ source, target }));
+            const liveSim = simulation(simNodes).force("link", link(simLinks).id((item) => item.id).distance(46).strength(0.22)).force("charge", manyBody().strength(-20).distanceMax(320)).force("center", center(0, 0)).force("collide", collide((item) => (built.graph.getNodeAttributes(item.id).size || 5) + 1.5)).stop();
+            let tickCount = 0;
+            liveSim.on("tick", () => {
+              tickCount += 1;
+              if (tickCount % 2 !== 0) return;
+              for (const item of simNodes) {
+                try {
+                  built.graph.setNodeAttribute(item.id, "x", item.x);
+                  built.graph.setNodeAttribute(item.id, "y", item.y);
+                } catch {
+                }
+              }
+              try {
+                renderer.refresh();
+              } catch {
+              }
+            });
+            layoutRef.current = liveSim;
+            liveSim.alpha(0.12).restart();
+            let drag = null;
+            const toGraph = (clientX, clientY) => {
+              const rect = container.getBoundingClientRect();
+              return renderer.getCamera().viewportToFramedGraph({ x: clientX - rect.left, y: clientY - rect.top });
+            };
+            const onPointerMove = (event) => {
+              if (drag === null) return;
+              try {
+                const point = toGraph(event.clientX, event.clientY);
+                const item = simIndex.get(drag.id);
+                if (!item) return;
+                item.fx = point.x;
+                item.fy = point.y;
+                item.x = point.x;
+                item.y = point.y;
+                built.graph.setNodeAttribute(item.id, "x", point.x);
+                built.graph.setNodeAttribute(item.id, "y", point.y);
+                renderer.refresh();
+              } catch {
+              }
+            };
+            const onPointerUp = () => {
+              if (drag !== null) {
+                const item = simIndex.get(drag.id);
+                if (item) {
+                  item.fx = null;
+                  item.fy = null;
+                }
+              }
+              drag = null;
+              try {
+                liveSim.alpha(0.12).restart();
+              } catch {
+              }
+            };
+            renderer.on("downNode", (payload) => {
+              try {
+                const id = payload.node;
+                const item = simIndex.get(id);
+                if (!item) return;
+                drag = { id };
+                item.fx = item.x;
+                item.fy = item.y;
+                liveSim.alpha(0.35).restart();
+                if (typeof window !== "undefined") {
+                  window.addEventListener("pointermove", onPointerMove);
+                  window.addEventListener("pointerup", onPointerUp);
+                }
+              } catch {
+              }
+            });
+            const breatheTimer = setInterval(() => {
+              try {
+                if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+                if (drag !== null) return;
+                liveSim.alpha(0.03).restart();
+              } catch {
+              }
+            }, 14e3);
             cleanup = () => {
+              try {
+                liveSim.stop();
+              } catch {
+              }
+              try {
+                clearInterval(breatheTimer);
+              } catch {
+              }
+              if (typeof window !== "undefined") {
+                window.removeEventListener("pointermove", onPointerMove);
+                window.removeEventListener("pointerup", onPointerUp);
+              }
+              layoutRef.current = null;
               try {
                 renderer.kill();
               } catch {
@@ -22169,7 +22277,13 @@
           { style: { position: "absolute", right: 10, bottom: 10, display: "flex", gap: 4 } },
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => zoomBy(1.4) }, "+"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => zoomBy(0.7) }, "\u2212"),
-          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D")
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D"),
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u91CD\u65B0\u6392\u5E03", onClick: () => {
+            try {
+              layoutRef.current && layoutRef.current.alpha(0.35).restart();
+            } catch {
+            }
+          } }, "\u91CD\u6392")
         ),
         h(
           "div",
@@ -22216,7 +22330,7 @@
         h(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.55 } },
-          h("span", null, "WebGL \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u62D6\u52A8\u5E73\u79FB \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+          h("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
           h("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
         ),
         h(

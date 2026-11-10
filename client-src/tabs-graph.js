@@ -165,6 +165,8 @@ export function createGraphTab(ctx = {}) {
     const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false })
     const containerRef = React.useRef(null)
     const rendererRef = React.useRef(null)
+    const fingerprintRef = React.useRef('')
+    const layoutRef = React.useRef(null)
     const viewRef = React.useRef({ selected: null, hovered: null, query: '' })
     viewRef.current = { selected, hovered, query }
 
@@ -178,6 +180,12 @@ export function createGraphTab(ctx = {}) {
           })
           .then((json) => {
             if (!alive) return
+            const fingerprint = [json && json.updatedAt, json && Array.isArray(json.nodes) ? json.nodes.length : 0, json && Array.isArray(json.edges) ? json.edges.length : 0].join('|')
+            if (fingerprint === fingerprintRef.current) {
+              setError('')
+              return
+            }
+            fingerprintRef.current = fingerprint
             setData(json)
             setError('')
           })
@@ -262,7 +270,124 @@ export function createGraphTab(ctx = {}) {
             })
             renderer.on('leaveNode', () => setHovered(null))
             rendererRef.current = renderer
+
+            // 动态布局：持续柔和的力导向 + 可拖拽节点 + 闲置时轻微“呼吸”，不是一张静态图。
+            const simNodes = []
+            const simIndex = new Map()
+            built.graph.forEachNode((id, attributes) => {
+              const item = { id, x: Number(attributes.x) || 0, y: Number(attributes.y) || 0 }
+              simNodes.push(item)
+              simIndex.set(id, item)
+            })
+            const simLinks = []
+            built.graph.forEachEdge((edge, attributes, source, target) => simLinks.push({ source, target }))
+            const liveSim = forceSimulation(simNodes)
+              .force('link', forceLink(simLinks).id((item) => item.id).distance(46).strength(0.22))
+              .force('charge', forceManyBody().strength(-20).distanceMax(320))
+              .force('center', forceCenter(0, 0))
+              .force('collide', forceCollide((item) => (built.graph.getNodeAttributes(item.id).size || 5) + 1.5))
+              .stop()
+            let tickCount = 0
+            liveSim.on('tick', () => {
+              tickCount += 1
+              if (tickCount % 2 !== 0) return
+              for (const item of simNodes) {
+                try {
+                  built.graph.setNodeAttribute(item.id, 'x', item.x)
+                  built.graph.setNodeAttribute(item.id, 'y', item.y)
+                } catch {
+                  /* ignore */
+                }
+              }
+              try {
+                renderer.refresh()
+              } catch {
+                /* ignore */
+              }
+            })
+            layoutRef.current = liveSim
+            liveSim.alpha(0.12).restart()
+
+            let drag = null
+            const toGraph = (clientX, clientY) => {
+              const rect = container.getBoundingClientRect()
+              return renderer.getCamera().viewportToFramedGraph({ x: clientX - rect.left, y: clientY - rect.top })
+            }
+            const onPointerMove = (event) => {
+              if (drag === null) return
+              try {
+                const point = toGraph(event.clientX, event.clientY)
+                const item = simIndex.get(drag.id)
+                if (!item) return
+                item.fx = point.x
+                item.fy = point.y
+                item.x = point.x
+                item.y = point.y
+                built.graph.setNodeAttribute(item.id, 'x', point.x)
+                built.graph.setNodeAttribute(item.id, 'y', point.y)
+                renderer.refresh()
+              } catch {
+                /* ignore */
+              }
+            }
+            const onPointerUp = () => {
+              if (drag !== null) {
+                const item = simIndex.get(drag.id)
+                if (item) {
+                  item.fx = null
+                  item.fy = null
+                }
+              }
+              drag = null
+              try {
+                liveSim.alpha(0.12).restart()
+              } catch {
+                /* ignore */
+              }
+            }
+            renderer.on('downNode', (payload) => {
+              try {
+                const id = payload.node
+                const item = simIndex.get(id)
+                if (!item) return
+                drag = { id }
+                item.fx = item.x
+                item.fy = item.y
+                liveSim.alpha(0.35).restart()
+                if (typeof window !== 'undefined') {
+                  window.addEventListener('pointermove', onPointerMove)
+                  window.addEventListener('pointerup', onPointerUp)
+                }
+              } catch {
+                /* ignore */
+              }
+            })
+            const breatheTimer = setInterval(() => {
+              try {
+                if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+                if (drag !== null) return
+                liveSim.alpha(0.03).restart()
+              } catch {
+                /* ignore */
+              }
+            }, 14000)
+
             cleanup = () => {
+              try {
+                liveSim.stop()
+              } catch {
+                /* ignore */
+              }
+              try {
+                clearInterval(breatheTimer)
+              } catch {
+                /* ignore */
+              }
+              if (typeof window !== 'undefined') {
+                window.removeEventListener('pointermove', onPointerMove)
+                window.removeEventListener('pointerup', onPointerUp)
+              }
+              layoutRef.current = null
               try { renderer.kill() } catch { /* ignore */ }
               rendererRef.current = null
             }
@@ -610,7 +735,8 @@ export function createGraphTab(ctx = {}) {
           h('div', { style: { position: 'absolute', right: 10, bottom: 10, display: 'flex', gap: 4 } },
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '放大', onClick: () => zoomBy(1.4) }, '+'),
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '缩小', onClick: () => zoomBy(0.7) }, '−'),
-            h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '复位', onClick: resetView }, '复位')),
+            h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '复位', onClick: resetView }, '复位'),
+            h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '重新排布', onClick: () => { try { layoutRef.current && layoutRef.current.alpha(0.35).restart() } catch { /* ignore */ } } }, '重排')),
           h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
             h('input', {
               type: 'search',
@@ -644,7 +770,7 @@ export function createGraphTab(ctx = {}) {
       insightCards,
       legend,
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, opacity: 0.55 } },
-        h('span', null, 'WebGL · 滚轮缩放 · 拖动平移 · 点节点看详情' + (stats.big ? ' · 超大图已用简化布局' : '')),
+        h('span', null, '动态布局 · 可拖动节点 · 滚轮缩放 · 点节点看详情' + (stats.big ? ' · 超大图已用简化布局' : '')),
         h('span', null, data && data.updatedAt ? '更新：' + new Date(data.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '')),
       h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 6 } },
         h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: exportObservation }, '导出观察报告'),
