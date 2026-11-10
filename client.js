@@ -16265,6 +16265,15 @@
       const memoryLabels = { ok: "\u5065\u5EB7", warn: "\u6CE8\u610F", error: "\u5F02\u5E38" };
       const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : [];
       const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : [];
+      const growthData = api.growthRes && api.growthRes.status === "ready" && api.growthRes.data ? api.growthRes.data : null;
+      const growthArc = growthData && growthData.growth ? growthData.growth : null;
+      const growthStage = growthArc && growthArc.stage ? growthArc.stage : null;
+      const growthMilestones = growthArc && Array.isArray(growthArc.milestones) ? growthArc.milestones : [];
+      const growthDays = growthArc && growthArc.stats && Number.isFinite(growthArc.stats.days) ? growthArc.stats.days : null;
+      const growthNext = growthArc && growthArc.nextStage ? growthArc.nextStage : null;
+      const growthPhilosophy = growthData && growthData.philosophy && growthData.philosophy.current ? growthData.philosophy.current : null;
+      const growthEmotions = growthData && Array.isArray(growthData.emotions) ? growthData.emotions : [];
+      const growthAutobiography = growthData && typeof growthData.autobiography === "string" ? growthData.autobiography : "";
       const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: "observe", items: [], pending: 0 };
       const pendingAttention = Array.isArray(attention.items) ? attention.items : [];
       const attentionMode = attention.mode === "auto" ? "auto" : "observe";
@@ -16441,6 +16450,49 @@
             h("div", { className: "dshp-work-time" }, weatherUpdatedLabel(work.createdAt) || "--:--")
           ))
         ) : null,
+        h(
+          "div",
+          { className: "dshp-growth-section dshp-growth-journey" },
+          h("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u53F2"),
+          growthStage ? h(
+            "div",
+            { style: { marginBottom: 6 } },
+            h("div", { style: { fontWeight: 600, fontSize: 15, marginBottom: 2 } }, "\u300C" + String(growthStage.title || "") + "\u300D" + (growthDays === null ? "" : " \xB7 \u6709\u8BB0\u5FC6\u4EE5\u6765 " + growthDays + " \u5929")),
+            growthStage.desc ? h("div", { className: "dshp-growth-mood-note", style: { marginBottom: 8 } }, String(growthStage.desc)) : null,
+            growthNext ? h("div", { className: "dshp-growth-empty", style: { marginBottom: 8 } }, "\u4E0B\u4E00\u6B65\uFF1A\u300C" + String(growthNext.title || "") + "\u300D" + (growthNext.desc ? "\u2014\u2014" + String(growthNext.desc) : "")) : null,
+            ...growthMilestones.map((item, index2) => h(
+              "div",
+              { key: "growth-milestone-" + index2, style: { marginBottom: 6 } },
+              h(
+                "div",
+                { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 2 } },
+                h("span", null, String(item.label || "")),
+                h("span", { className: "dshp-growth-empty" }, String(item.have ?? 0) + " / " + String(item.need ?? 0))
+              ),
+              h(
+                "div",
+                { style: { height: 4, borderRadius: 2, background: "rgba(127,127,127,.18)", overflow: "hidden" } },
+                h("div", { style: { height: "100%", width: Math.round((Number(item.progress) || 0) * 100) + "%", background: "#b58a4a", borderRadius: 2 } })
+              )
+            )),
+            growthPhilosophy ? h("div", { className: "dshp-growth-empty", style: { marginTop: 6 } }, "\u6B63\u5728\u8BFB\u300A" + String(growthPhilosophy.title || "") + "\u300B \xB7 \u5DF2\u8BFB " + String(growthPhilosophy.cursor ?? 0) + "/" + String(growthPhilosophy.chunkCount ?? 0) + " \u6BB5") : null,
+            growthEmotions.length > 0 ? h(
+              "div",
+              { style: { marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 } },
+              ...growthEmotions.slice(0, 4).map((emotion, index2) => h(
+                "span",
+                { key: "growth-emotion-" + index2, style: { fontSize: 12, padding: "2px 7px", borderRadius: 10, background: "rgba(181,138,74,.14)", border: "1px solid rgba(181,138,74,.35)" } },
+                String(emotion.family || "") + "\xB7" + String(emotion.label || "")
+              ))
+            ) : null
+          ) : h("div", { className: "dshp-growth-empty" }, api.growthRes && api.growthRes.status === "error" ? "\u6210\u957F\u5FEB\u7167\u6682\u65F6\u8BFB\u4E0D\u5230" : "\u6B63\u5728\u6574\u7406\u5979\u7684\u6210\u957F\u2026"),
+          growthAutobiography.length > 0 ? h(
+            "details",
+            { style: { marginTop: 10 } },
+            h("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u5979\u5199\u4E0B\u7684\u6210\u957F\u53F2"),
+            h("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthAutobiography.slice(0, 4e3))
+          ) : null
+        ),
         h(
           "div",
           { className: "dshp-growth-section" },
@@ -23643,6 +23695,8 @@
       const PRESENCE_PATH = "presence.json";
       const PRESENCE_THROTTLE_MS = 60 * 1e3;
       const WORKS_POLL_MS = 60 * 1e3;
+      const GROWTH_PATH = "growth.json";
+      const GROWTH_POLL_MS = 5 * 60 * 1e3;
       const ATTENTION_POLL_MS = 30 * 1e3;
       const TWIN_POLL_MS = 60 * 1e3;
       const HEALTH_POLL_MS = 60 * 1e3;
@@ -25665,6 +25719,7 @@
         const [memoryStatus, setMemoryStatus] = React.useState(null);
         const [healthStatus, setHealthStatus] = React.useState(null);
         const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
+        const [growthRes, setGrowthRes] = React.useState({ status: "idle", data: null });
         const [attentionRes, setAttentionRes] = React.useState({ status: "idle", data: null });
         const [projectDetail, setProjectDetail] = React.useState(null);
         const [twinRes, setTwinRes] = React.useState({ status: "idle", data: null });
@@ -27782,6 +27837,28 @@
           };
         }, [panelOpen, panelTab, settings.hidden]);
         React.useEffect(() => {
+          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+            setGrowthRes({ status: "idle", data: null });
+            return void 0;
+          }
+          let alive = true;
+          const load = () => {
+            if (!alive) return;
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+            fetchJson(GROWTH_PATH).then((data) => {
+              if (alive) setGrowthRes({ status: "ready", data });
+            }).catch(() => {
+              if (alive) setGrowthRes({ status: "error", data: null });
+            });
+          };
+          load();
+          const timer2 = setInterval(load, GROWTH_POLL_MS);
+          return () => {
+            alive = false;
+            clearInterval(timer2);
+          };
+        }, [panelOpen, panelTab, settings.hidden]);
+        React.useEffect(() => {
           if (!panelOpen || settings.hidden) {
             setAttentionRes({ status: "idle", data: null });
             return void 0;
@@ -28107,6 +28184,7 @@
             memoryStatus,
             healthStatus,
             worksRes,
+            growthRes,
             attentionRes,
             attentionAction,
             projectAction,

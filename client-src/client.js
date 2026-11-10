@@ -184,6 +184,8 @@ window.__ModuleLoader__.load({
   const PRESENCE_PATH = 'presence.json'
   const PRESENCE_THROTTLE_MS = 60 * 1000
   const WORKS_POLL_MS = 60 * 1000
+  const GROWTH_PATH = 'growth.json'
+  const GROWTH_POLL_MS = 5 * 60 * 1000
   const ATTENTION_POLL_MS = 30 * 1000
   const TWIN_POLL_MS = 60 * 1000
   const HEALTH_POLL_MS = 60 * 1000
@@ -2344,6 +2346,7 @@ window.__ModuleLoader__.load({
   const [memoryStatus, setMemoryStatus] = React.useState(null)
   const [healthStatus, setHealthStatus] = React.useState(null)
   const [worksRes, setWorksRes] = React.useState({ status: 'idle', data: null })
+  const [growthRes, setGrowthRes] = React.useState({ status: 'idle', data: null })
   const [attentionRes, setAttentionRes] = React.useState({ status: 'idle', data: null })
   const [projectDetail, setProjectDetail] = React.useState(null)
   const [twinRes, setTwinRes] = React.useState({ status: 'idle', data: null })
@@ -4638,6 +4641,30 @@ window.__ModuleLoader__.load({
    }
   }, [panelOpen, panelTab, settings.hidden])
 
+  // 成长史（v3.18）：面板停在成长 tab 时轮询 growth.json，展示阶段/里程碑/自传。
+  React.useEffect(() => {
+   if (!panelOpen || panelTab !== 'growth' || settings.hidden) {
+    setGrowthRes({ status: 'idle', data: null })
+    return undefined
+   }
+   let alive = true
+   const load = () => {
+    if (!alive) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    fetchJson(GROWTH_PATH).then((data) => {
+     if (alive) setGrowthRes({ status: 'ready', data })
+    }).catch(() => {
+     if (alive) setGrowthRes({ status: 'error', data: null })
+    })
+   }
+   load()
+   const timer = setInterval(load, GROWTH_POLL_MS)
+   return () => {
+    alive = false
+    clearInterval(timer)
+   }
+  }, [panelOpen, panelTab, settings.hidden])
+
   // 注意力：面板打开时轮询 attention.json；只在有 pending 时展示，健康时安静。
   React.useEffect(() => {
    if (!panelOpen || settings.hidden) {
@@ -4983,6 +5010,7 @@ window.__ModuleLoader__.load({
     memoryStatus,
     healthStatus,
     worksRes,
+    growthRes,
     attentionRes,
     attentionAction,
     projectAction,

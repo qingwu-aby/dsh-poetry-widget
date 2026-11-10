@@ -24,6 +24,15 @@ function GrowthTab(props) {
  const memoryLabels = { ok: '健康', warn: '注意', error: '异常' }
  const recentActions = status && status.actions && Array.isArray(status.actions.recent) ? status.actions.recent.slice(0, 5) : []
  const works = api.worksRes && api.worksRes.data && Array.isArray(api.worksRes.data.works) ? api.worksRes.data.works.slice(0, 3) : []
+ const growthData = api.growthRes && api.growthRes.status === 'ready' && api.growthRes.data ? api.growthRes.data : null
+ const growthArc = growthData && growthData.growth ? growthData.growth : null
+ const growthStage = growthArc && growthArc.stage ? growthArc.stage : null
+ const growthMilestones = growthArc && Array.isArray(growthArc.milestones) ? growthArc.milestones : []
+ const growthDays = growthArc && growthArc.stats && Number.isFinite(growthArc.stats.days) ? growthArc.stats.days : null
+ const growthNext = growthArc && growthArc.nextStage ? growthArc.nextStage : null
+ const growthPhilosophy = growthData && growthData.philosophy && growthData.philosophy.current ? growthData.philosophy.current : null
+ const growthEmotions = growthData && Array.isArray(growthData.emotions) ? growthData.emotions : []
+ const growthAutobiography = growthData && typeof growthData.autobiography === 'string' ? growthData.autobiography : ''
  const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: 'observe', items: [], pending: 0 }
  const pendingAttention = Array.isArray(attention.items) ? attention.items : []
  const attentionMode = attention.mode === 'auto' ? 'auto' : 'observe'
@@ -210,6 +219,51 @@ function GrowthTab(props) {
     )),
    )
    : null,
+  h(
+   'div',
+   { className: 'dshp-growth-section dshp-growth-journey' },
+   h('div', { className: 'dshp-growth-section-head' }, '成长史'),
+   growthStage
+    ? h(
+     'div',
+     { style: { marginBottom: 6 } },
+     h('div', { style: { fontWeight: 600, fontSize: 15, marginBottom: 2 } }, '「' + String(growthStage.title || '') + '」' + (growthDays === null ? '' : ' · 有记忆以来 ' + growthDays + ' 天')),
+     growthStage.desc ? h('div', { className: 'dshp-growth-mood-note', style: { marginBottom: 8 } }, String(growthStage.desc)) : null,
+     growthNext ? h('div', { className: 'dshp-growth-empty', style: { marginBottom: 8 } }, '下一步：「' + String(growthNext.title || '') + '」' + (growthNext.desc ? '——' + String(growthNext.desc) : '')) : null,
+     ...growthMilestones.map((item, index) => h(
+      'div',
+      { key: 'growth-milestone-' + index, style: { marginBottom: 6 } },
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 } },
+       h('span', null, String(item.label || '')),
+       h('span', { className: 'dshp-growth-empty' }, String(item.have ?? 0) + ' / ' + String(item.need ?? 0))),
+      h('div', { style: { height: 4, borderRadius: 2, background: 'rgba(127,127,127,.18)', overflow: 'hidden' } },
+       h('div', { style: { height: '100%', width: Math.round((Number(item.progress) || 0) * 100) + '%', background: '#b58a4a', borderRadius: 2 } })),
+     )),
+     growthPhilosophy
+      ? h('div', { className: 'dshp-growth-empty', style: { marginTop: 6 } }, '正在读《' + String(growthPhilosophy.title || '') + '》 · 已读 ' + String(growthPhilosophy.cursor ?? 0) + '/' + String(growthPhilosophy.chunkCount ?? 0) + ' 段')
+      : null,
+     growthEmotions.length > 0
+      ? h(
+       'div',
+       { style: { marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 } },
+       ...growthEmotions.slice(0, 4).map((emotion, index) => h(
+        'span',
+        { key: 'growth-emotion-' + index, style: { fontSize: 12, padding: '2px 7px', borderRadius: 10, background: 'rgba(181,138,74,.14)', border: '1px solid rgba(181,138,74,.35)' } },
+        String(emotion.family || '') + '·' + String(emotion.label || ''),
+       )),
+      )
+      : null,
+    )
+    : h('div', { className: 'dshp-growth-empty' }, api.growthRes && api.growthRes.status === 'error' ? '成长快照暂时读不到' : '正在整理她的成长…'),
+   growthAutobiography.length > 0
+    ? h(
+     'details',
+     { style: { marginTop: 10 } },
+     h('summary', { style: { cursor: 'pointer', fontSize: 13, color: 'inherit', opacity: .8 } }, '她写下的成长史'),
+     h('div', { style: { maxHeight: 240, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: 'rgba(127,127,127,.08)' } }, growthAutobiography.slice(0, 4000)),
+    )
+    : null,
+  ),
   h(
    'div',
    { className: 'dshp-growth-section' },
