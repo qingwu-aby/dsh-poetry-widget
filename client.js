@@ -21736,12 +21736,15 @@
       const [selected, setSelected] = React.useState(null);
       const [hovered, setHovered] = React.useState(null);
       const [query, setQuery] = React.useState("");
+      const [rotateMode, setRotateMode] = React.useState(false);
       const [reloadKey, setReloadKey] = React.useState(0);
       const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
       const containerRef = React.useRef(null);
       const rendererRef = React.useRef(null);
       const fingerprintRef = React.useRef("");
       const layoutRef = React.useRef(null);
+      const rotateModeRef = React.useRef(false);
+      rotateModeRef.current = rotateMode;
       const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
       viewRef.current = { selected, hovered, query };
       React.useEffect(() => {
@@ -21902,6 +21905,7 @@
             };
             renderer.on("downNode", (payload) => {
               try {
+                if (rotateModeRef.current) return;
                 const id = payload.node;
                 const item = simIndex.get(id);
                 if (!item) return;
@@ -21924,6 +21928,93 @@
               } catch {
               }
             }, 14e3);
+            let rotation = null;
+            const rotateBy = (deltaAngle) => {
+              if (Math.abs(deltaAngle) < 1e-3) return;
+              let centerX = 0;
+              let centerY = 0;
+              let count = 0;
+              built.graph.forEachNode((_id, attributes) => {
+                centerX += Number(attributes.x) || 0;
+                centerY += Number(attributes.y) || 0;
+                count += 1;
+              });
+              if (count === 0) return;
+              centerX /= count;
+              centerY /= count;
+              const cos = Math.cos(deltaAngle);
+              const sin = Math.sin(deltaAngle);
+              built.graph.forEachNode((id, attributes) => {
+                const dx = (Number(attributes.x) || 0) - centerX;
+                const dy = (Number(attributes.y) || 0) - centerY;
+                const nextX = centerX + dx * cos - dy * sin;
+                const nextY = centerY + dx * sin + dy * cos;
+                built.graph.setNodeAttribute(id, "x", nextX);
+                built.graph.setNodeAttribute(id, "y", nextY);
+                const item = simIndex.get(id);
+                if (item) {
+                  item.x = nextX;
+                  item.y = nextY;
+                  item.fx = nextX;
+                  item.fy = nextY;
+                }
+              });
+              try {
+                renderer.refresh();
+              } catch {
+              }
+            };
+            const onRotatePointerMove = (event) => {
+              if (rotation === null) return;
+              const angle = Math.atan2(event.clientY - rotation.startY, event.clientX - rotation.startX);
+              const delta = angle - rotation.lastAngle;
+              rotation.lastAngle = angle;
+              rotateBy(delta);
+              rotation.moved = true;
+            };
+            const onRotatePointerUp = () => {
+              if (rotation !== null) {
+                built.graph.forEachNode((_id, _attributes) => {
+                  const item = simIndex.get(_id);
+                  if (item) {
+                    item.fx = null;
+                    item.fy = null;
+                  }
+                });
+              }
+              rotation = null;
+              if (typeof window !== "undefined") {
+                window.removeEventListener("pointermove", onRotatePointerMove);
+                window.removeEventListener("pointerup", onRotatePointerUp);
+              }
+              try {
+                liveSim.alpha(0.06).restart();
+              } catch {
+              }
+              container.style.cursor = "";
+            };
+            const onRotatePointerDown = (event) => {
+              if (!(event.shiftKey || rotateModeRef.current)) return;
+              if (drag !== null) return;
+              event.preventDefault();
+              event.stopPropagation();
+              try {
+                liveSim.stop();
+              } catch {
+              }
+              rotation = {
+                startX: event.clientX,
+                startY: event.clientY,
+                lastAngle: Math.atan2(0, 1),
+                moved: false
+              };
+              container.style.cursor = "grabbing";
+              if (typeof window !== "undefined") {
+                window.addEventListener("pointermove", onRotatePointerMove);
+                window.addEventListener("pointerup", onRotatePointerUp);
+              }
+            };
+            container.addEventListener("pointerdown", onRotatePointerDown, true);
             cleanup = () => {
               try {
                 liveSim.stop();
@@ -22278,6 +22369,13 @@
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => zoomBy(1.4) }, "+"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => zoomBy(0.7) }, "\u2212"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D"),
+          h("button", {
+            type: "button",
+            className: "dshp-btn dshp-btn-small",
+            title: "\u65CB\u8F6C\u6A21\u5F0F\uFF1A\u6253\u5F00\u540E\u76F4\u63A5\u62D6\u52A8\u7A7A\u767D\u5904\u65CB\u8F6C",
+            style: rotateMode ? { borderColor: "rgba(255,233,184,0.55)" } : void 0,
+            onClick: () => setRotateMode((value) => !value)
+          }, rotateMode ? "\u65CB\u8F6C\u4E2D" : "\u65CB\u8F6C"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u91CD\u65B0\u6392\u5E03", onClick: () => {
             try {
               layoutRef.current && layoutRef.current.alpha(0.35).restart();
@@ -22330,7 +22428,7 @@
         h(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.55 } },
-          h("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 \u6EDA\u8F6E\u7F29\u653E \xB7 \u70B9\u8282\u70B9\u770B\u8BE6\u60C5" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+          h("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 Shift+\u62D6\u52A8\u65CB\u8F6C\uFF08\u6216\u5F00\u201C\u65CB\u8F6C\u201D\u6A21\u5F0F\uFF09\xB7 \u6EDA\u8F6E\u7F29\u653E" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
           h("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
         ),
         h(

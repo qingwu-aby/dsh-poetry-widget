@@ -161,12 +161,15 @@ export function createGraphTab(ctx = {}) {
     const [selected, setSelected] = React.useState(null)
     const [hovered, setHovered] = React.useState(null)
     const [query, setQuery] = React.useState('')
+    const [rotateMode, setRotateMode] = React.useState(false)
     const [reloadKey, setReloadKey] = React.useState(0)
     const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false })
     const containerRef = React.useRef(null)
     const rendererRef = React.useRef(null)
     const fingerprintRef = React.useRef('')
     const layoutRef = React.useRef(null)
+    const rotateModeRef = React.useRef(false)
+    rotateModeRef.current = rotateMode
     const viewRef = React.useRef({ selected: null, hovered: null, query: '' })
     viewRef.current = { selected, hovered, query }
 
@@ -347,6 +350,7 @@ export function createGraphTab(ctx = {}) {
             }
             renderer.on('downNode', (payload) => {
               try {
+                if (rotateModeRef.current) return
                 const id = payload.node
                 const item = simIndex.get(id)
                 if (!item) return
@@ -371,6 +375,98 @@ export function createGraphTab(ctx = {}) {
                 /* ignore */
               }
             }, 14000)
+
+            // 拖动旋转：Shift + 拖动，或打开「旋转」模式后直接拖动画布；绕图中心整体转。
+            let rotation = null
+            const rotateBy = (deltaAngle) => {
+              if (Math.abs(deltaAngle) < 0.001) return
+              let centerX = 0
+              let centerY = 0
+              let count = 0
+              built.graph.forEachNode((_id, attributes) => {
+                centerX += Number(attributes.x) || 0
+                centerY += Number(attributes.y) || 0
+                count += 1
+              })
+              if (count === 0) return
+              centerX /= count
+              centerY /= count
+              const cos = Math.cos(deltaAngle)
+              const sin = Math.sin(deltaAngle)
+              built.graph.forEachNode((id, attributes) => {
+                const dx = (Number(attributes.x) || 0) - centerX
+                const dy = (Number(attributes.y) || 0) - centerY
+                const nextX = centerX + dx * cos - dy * sin
+                const nextY = centerY + dx * sin + dy * cos
+                built.graph.setNodeAttribute(id, 'x', nextX)
+                built.graph.setNodeAttribute(id, 'y', nextY)
+                const item = simIndex.get(id)
+                if (item) {
+                  item.x = nextX
+                  item.y = nextY
+                  item.fx = nextX
+                  item.fy = nextY
+                }
+              })
+              try {
+                renderer.refresh()
+              } catch {
+                /* ignore */
+              }
+            }
+            const onRotatePointerMove = (event) => {
+              if (rotation === null) return
+              const angle = Math.atan2(event.clientY - rotation.startY, event.clientX - rotation.startX)
+              const delta = angle - rotation.lastAngle
+              rotation.lastAngle = angle
+              rotateBy(delta)
+              rotation.moved = true
+            }
+            const onRotatePointerUp = () => {
+              if (rotation !== null) {
+                built.graph.forEachNode((_id, _attributes) => {
+                  const item = simIndex.get(_id)
+                  if (item) {
+                    item.fx = null
+                    item.fy = null
+                  }
+                })
+              }
+              rotation = null
+              if (typeof window !== 'undefined') {
+                window.removeEventListener('pointermove', onRotatePointerMove)
+                window.removeEventListener('pointerup', onRotatePointerUp)
+              }
+              try {
+                liveSim.alpha(0.06).restart()
+              } catch {
+                /* ignore */
+              }
+              container.style.cursor = ''
+            }
+            const onRotatePointerDown = (event) => {
+              if (!(event.shiftKey || rotateModeRef.current)) return
+              if (drag !== null) return
+              event.preventDefault()
+              event.stopPropagation()
+              try {
+                liveSim.stop()
+              } catch {
+                /* ignore */
+              }
+              rotation = {
+                startX: event.clientX,
+                startY: event.clientY,
+                lastAngle: Math.atan2(0, 1),
+                moved: false,
+              }
+              container.style.cursor = 'grabbing'
+              if (typeof window !== 'undefined') {
+                window.addEventListener('pointermove', onRotatePointerMove)
+                window.addEventListener('pointerup', onRotatePointerUp)
+              }
+            }
+            container.addEventListener('pointerdown', onRotatePointerDown, true)
 
             cleanup = () => {
               try {
@@ -736,6 +832,13 @@ export function createGraphTab(ctx = {}) {
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '放大', onClick: () => zoomBy(1.4) }, '+'),
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '缩小', onClick: () => zoomBy(0.7) }, '−'),
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '复位', onClick: resetView }, '复位'),
+            h('button', {
+              type: 'button',
+              className: 'dshp-btn dshp-btn-small',
+              title: '旋转模式：打开后直接拖动空白处旋转',
+              style: rotateMode ? { borderColor: 'rgba(255,233,184,0.55)' } : undefined,
+              onClick: () => setRotateMode((value) => !value),
+            }, rotateMode ? '旋转中' : '旋转'),
             h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', title: '重新排布', onClick: () => { try { layoutRef.current && layoutRef.current.alpha(0.35).restart() } catch { /* ignore */ } } }, '重排')),
           h('div', { style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' } },
             h('input', {
@@ -770,7 +873,7 @@ export function createGraphTab(ctx = {}) {
       insightCards,
       legend,
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, opacity: 0.55 } },
-        h('span', null, '动态布局 · 可拖动节点 · 滚轮缩放 · 点节点看详情' + (stats.big ? ' · 超大图已用简化布局' : '')),
+        h('span', null, '动态布局 · 可拖动节点 · Shift+拖动旋转（或开“旋转”模式）· 滚轮缩放' + (stats.big ? ' · 超大图已用简化布局' : '')),
         h('span', null, data && data.updatedAt ? '更新：' + new Date(data.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '')),
       h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 6 } },
         h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: exportObservation }, '导出观察报告'),
