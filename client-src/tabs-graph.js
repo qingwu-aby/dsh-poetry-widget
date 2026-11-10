@@ -124,6 +124,7 @@ function buildGraph(data) {
       x: node.x,
       y: node.y,
       size: sizeOf(node, degree.get(node.__id) || 0),
+      __baseSize: sizeOf(node, degree.get(node.__id) || 0),
       color: TYPE_COLOR[node.type] || '#8aa2b4',
       labelColor: '#e7eef7',
       labelSize: 11,
@@ -162,6 +163,7 @@ export function createGraphTab(ctx = {}) {
     const [hovered, setHovered] = React.useState(null)
     const [query, setQuery] = React.useState('')
     const [rotateMode, setRotateMode] = React.useState(false)
+    const [view3d, setView3d] = React.useState(false)
     const [reloadKey, setReloadKey] = React.useState(0)
     const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false })
     const containerRef = React.useRef(null)
@@ -170,6 +172,10 @@ export function createGraphTab(ctx = {}) {
     const layoutRef = React.useRef(null)
     const rotateModeRef = React.useRef(false)
     rotateModeRef.current = rotateMode
+    const view3dRef = React.useRef(false)
+    view3dRef.current = view3d
+    const applyCameraRef = React.useRef(null)
+    const cameraRef = React.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 })
     const viewRef = React.useRef({ selected: null, hovered: null, query: '' })
     viewRef.current = { selected, hovered, query }
 
@@ -284,6 +290,54 @@ export function createGraphTab(ctx = {}) {
             })
             const simLinks = []
             built.graph.forEachEdge((edge, attributes, source, target) => simLinks.push({ source, target }))
+            // 3D 相机：给节点一个按类型的“深度”，绕 X/Y 轴投影；标签始终正立，交互仍可用。
+            const basePos = new Map()
+            for (const item of simNodes) basePos.set(item.id, { x: item.x, y: item.y })
+            const typeDepth = { person: 0, institution: 18, event: -18, place: 26, concept: 0, work: -26 }
+            const depthOf = (id) => {
+              const node = built.graph.getNodeAttributes(id)
+              const type = node && node.__node ? node.__node.type : 'concept'
+              let hash = 0
+              const name = String((node && node.label) || id)
+              for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 1000
+              return (typeDepth[type] || 0) + (hash % 17) - 8
+            }
+            const applyCamera = () => {
+              const camera = cameraRef.current
+              const on = camera.on === true
+              const cosYaw = Math.cos(camera.yaw)
+              const sinYaw = Math.sin(camera.yaw)
+              const cosPitch = Math.cos(camera.pitch)
+              const sinPitch = Math.sin(camera.pitch)
+              for (const item of simNodes) {
+                const base = basePos.get(item.id)
+                if (!base) continue
+                const attributes = built.graph.getNodeAttributes(item.id)
+                const baseSize = Number(attributes.__baseSize || attributes.size || 5)
+                if (!on) {
+                  built.graph.setNodeAttribute(item.id, 'x', base.x)
+                  built.graph.setNodeAttribute(item.id, 'y', base.y)
+                  built.graph.setNodeAttribute(item.id, 'size', baseSize)
+                  continue
+                }
+                const z = depthOf(item.id)
+                const x1 = base.x * cosYaw - z * sinYaw
+                const z1 = base.x * sinYaw + z * cosYaw
+                const y2 = base.y * cosPitch - z1 * sinPitch
+                const z2 = base.y * sinPitch + z1 * cosPitch
+                const scale = camera.focal / Math.max(160, camera.focal + z2)
+                built.graph.setNodeAttribute(item.id, 'x', x1 * scale)
+                built.graph.setNodeAttribute(item.id, 'y', y2 * scale)
+                built.graph.setNodeAttribute(item.id, 'size', Math.max(2.2, baseSize * scale))
+              }
+              try {
+                renderer.refresh()
+              } catch {
+                /* ignore */
+              }
+            }
+            applyCameraRef.current = applyCamera
+
             const liveSim = forceSimulation(simNodes)
               .force('link', forceLink(simLinks).id((item) => item.id).distance(46).strength(0.22))
               .force('charge', forceManyBody().strength(-20).distanceMax(320))
@@ -295,18 +349,13 @@ export function createGraphTab(ctx = {}) {
               tickCount += 1
               if (tickCount % 2 !== 0) return
               for (const item of simNodes) {
-                try {
-                  built.graph.setNodeAttribute(item.id, 'x', item.x)
-                  built.graph.setNodeAttribute(item.id, 'y', item.y)
-                } catch {
-                  /* ignore */
+                const base = basePos.get(item.id)
+                if (base) {
+                  base.x = item.x
+                  base.y = item.y
                 }
               }
-              try {
-                renderer.refresh()
-              } catch {
-                /* ignore */
-              }
+              applyCamera()
             })
             layoutRef.current = liveSim
             liveSim.alpha(0.12).restart()
@@ -326,9 +375,12 @@ export function createGraphTab(ctx = {}) {
                 item.fy = point.y
                 item.x = point.x
                 item.y = point.y
-                built.graph.setNodeAttribute(item.id, 'x', point.x)
-                built.graph.setNodeAttribute(item.id, 'y', point.y)
-                renderer.refresh()
+                const base = basePos.get(item.id)
+                if (base) {
+                  base.x = point.x
+                  base.y = point.y
+                }
+                applyCamera()
               } catch {
                 /* ignore */
               }
@@ -350,7 +402,7 @@ export function createGraphTab(ctx = {}) {
             }
             renderer.on('downNode', (payload) => {
               try {
-                if (rotateModeRef.current) return
+                if (rotateModeRef.current || view3dRef.current) return
                 const id = payload.node
                 const item = simIndex.get(id)
                 if (!item) return
@@ -393,26 +445,21 @@ export function createGraphTab(ctx = {}) {
               centerY /= count
               const cos = Math.cos(deltaAngle)
               const sin = Math.sin(deltaAngle)
-              built.graph.forEachNode((id, attributes) => {
-                const dx = (Number(attributes.x) || 0) - centerX
-                const dy = (Number(attributes.y) || 0) - centerY
+              for (const item of simNodes) {
+                const base = basePos.get(item.id)
+                if (!base) continue
+                const dx = base.x - centerX
+                const dy = base.y - centerY
                 const nextX = centerX + dx * cos - dy * sin
                 const nextY = centerY + dx * sin + dy * cos
-                built.graph.setNodeAttribute(id, 'x', nextX)
-                built.graph.setNodeAttribute(id, 'y', nextY)
-                const item = simIndex.get(id)
-                if (item) {
-                  item.x = nextX
-                  item.y = nextY
-                  item.fx = nextX
-                  item.fy = nextY
-                }
-              })
-              try {
-                renderer.refresh()
-              } catch {
-                /* ignore */
+                base.x = nextX
+                base.y = nextY
+                item.x = nextX
+                item.y = nextY
+                item.fx = nextX
+                item.fy = nextY
               }
+              applyCamera()
             }
             const onRotatePointerMove = (event) => {
               if (rotation === null) return
@@ -445,6 +492,7 @@ export function createGraphTab(ctx = {}) {
               container.style.cursor = ''
             }
             const onRotatePointerDown = (event) => {
+              if (view3dRef.current) return
               if (!(event.shiftKey || rotateModeRef.current)) return
               if (drag !== null) return
               event.preventDefault()
@@ -467,6 +515,49 @@ export function createGraphTab(ctx = {}) {
               }
             }
             container.addEventListener('pointerdown', onRotatePointerDown, true)
+
+            // 3D 视角下：拖动画布旋转相机（yaw/pitch），不移动布局。
+            let cameraDrag = null
+            const onCameraPointerMove = (event) => {
+              if (cameraDrag === null) return
+              const dx = event.clientX - cameraDrag.x
+              const dy = event.clientY - cameraDrag.y
+              cameraDrag.x = event.clientX
+              cameraDrag.y = event.clientY
+              cameraRef.current.yaw += dx * 0.006
+              cameraRef.current.pitch = Math.max(-1.1, Math.min(1.1, cameraRef.current.pitch + dy * 0.006))
+              applyCamera()
+            }
+            const onCameraPointerUp = () => {
+              cameraDrag = null
+              if (typeof window !== 'undefined') {
+                window.removeEventListener('pointermove', onCameraPointerMove)
+                window.removeEventListener('pointerup', onCameraPointerUp)
+              }
+              container.style.cursor = ''
+              try {
+                liveSim.alpha(0.05).restart()
+              } catch {
+                /* ignore */
+              }
+            }
+            const onCameraPointerDown = (event) => {
+              if (!view3dRef.current) return
+              if (cameraDrag !== null) return
+              event.preventDefault()
+              event.stopPropagation()
+              cameraDrag = { x: event.clientX, y: event.clientY }
+              container.style.cursor = 'grabbing'
+              if (typeof window !== 'undefined') {
+                window.addEventListener('pointermove', onCameraPointerMove)
+                window.addEventListener('pointerup', onCameraPointerUp)
+              }
+            }
+            container.addEventListener('pointerdown', onCameraPointerDown, true)
+            if (view3dRef.current) {
+              cameraRef.current.on = true
+              applyCamera()
+            }
 
             cleanup = () => {
               try {
@@ -503,10 +594,34 @@ export function createGraphTab(ctx = {}) {
     }, [data, reloadKey])
 
     React.useEffect(() => {
+      const camera = cameraRef.current
+      camera.on = view3d
+      if (view3d) {
+        camera.pitch = 0.52
+        camera.yaw = -0.28
+      } else {
+        camera.pitch = 0
+        camera.yaw = 0
+      }
+      try {
+        if (applyCameraRef.current) applyCameraRef.current()
+        if (rendererRef.current) rendererRef.current.refresh()
+      } catch {
+        /* ignore */
+      }
+    }, [view3d])
+
+    React.useEffect(() => {
       try { rendererRef.current && rendererRef.current.refresh() } catch { /* ignore */ }
     }, [selected, hovered, query])
 
     const resetView = () => {
+      if (view3dRef.current) {
+        cameraRef.current.pitch = 0.52
+        cameraRef.current.yaw = -0.28
+        try { if (applyCameraRef.current) applyCameraRef.current() } catch { /* ignore */ }
+        return
+      }
       try { rendererRef.current && rendererRef.current.getCamera().animatedReset() } catch { /* ignore */ }
     }
     const zoomBy = (factor) => {
@@ -835,6 +950,13 @@ export function createGraphTab(ctx = {}) {
             h('button', {
               type: 'button',
               className: 'dshp-btn dshp-btn-small',
+              title: '3D 视角：拖动画布旋转相机，滚动缩放',
+              style: view3d ? { borderColor: 'rgba(150,200,240,0.55)' } : undefined,
+              onClick: () => setView3d((value) => !value),
+            }, view3d ? '3D 中' : '3D'),
+            h('button', {
+              type: 'button',
+              className: 'dshp-btn dshp-btn-small',
               title: '旋转模式：打开后直接拖动空白处旋转',
               style: rotateMode ? { borderColor: 'rgba(255,233,184,0.55)' } : undefined,
               onClick: () => setRotateMode((value) => !value),
@@ -873,7 +995,7 @@ export function createGraphTab(ctx = {}) {
       insightCards,
       legend,
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, opacity: 0.55 } },
-        h('span', null, '动态布局 · 可拖动节点 · Shift+拖动旋转（或开“旋转”模式）· 滚轮缩放' + (stats.big ? ' · 超大图已用简化布局' : '')),
+        h('span', null, '动态布局 · 可拖动节点 · 3D 视角下拖动画布转视角 · Shift+拖动旋转 · 滚轮缩放' + (stats.big ? ' · 超大图已用简化布局' : '')),
         h('span', null, data && data.updatedAt ? '更新：' + new Date(data.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '')),
       h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 6 } },
         h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: exportObservation }, '导出观察报告'),

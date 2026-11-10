@@ -21705,6 +21705,7 @@
         x: node.x,
         y: node.y,
         size: sizeOf(node, degree.get(node.__id) || 0),
+        __baseSize: sizeOf(node, degree.get(node.__id) || 0),
         color: TYPE_COLOR[node.type] || "#8aa2b4",
         labelColor: "#e7eef7",
         labelSize: 11,
@@ -21737,6 +21738,7 @@
       const [hovered, setHovered] = React.useState(null);
       const [query, setQuery] = React.useState("");
       const [rotateMode, setRotateMode] = React.useState(false);
+      const [view3d, setView3d] = React.useState(false);
       const [reloadKey, setReloadKey] = React.useState(0);
       const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
       const containerRef = React.useRef(null);
@@ -21745,6 +21747,10 @@
       const layoutRef = React.useRef(null);
       const rotateModeRef = React.useRef(false);
       rotateModeRef.current = rotateMode;
+      const view3dRef = React.useRef(false);
+      view3dRef.current = view3d;
+      const applyCameraRef = React.useRef(null);
+      const cameraRef = React.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 });
       const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
       viewRef.current = { selected, hovered, query };
       React.useEffect(() => {
@@ -21849,22 +21855,64 @@
             });
             const simLinks = [];
             built.graph.forEachEdge((edge, attributes, source, target) => simLinks.push({ source, target }));
+            const basePos = /* @__PURE__ */ new Map();
+            for (const item of simNodes) basePos.set(item.id, { x: item.x, y: item.y });
+            const typeDepth = { person: 0, institution: 18, event: -18, place: 26, concept: 0, work: -26 };
+            const depthOf = (id) => {
+              const node = built.graph.getNodeAttributes(id);
+              const type = node && node.__node ? node.__node.type : "concept";
+              let hash = 0;
+              const name = String(node && node.label || id);
+              for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 1e3;
+              return (typeDepth[type] || 0) + hash % 17 - 8;
+            };
+            const applyCamera = () => {
+              const camera = cameraRef.current;
+              const on = camera.on === true;
+              const cosYaw = Math.cos(camera.yaw);
+              const sinYaw = Math.sin(camera.yaw);
+              const cosPitch = Math.cos(camera.pitch);
+              const sinPitch = Math.sin(camera.pitch);
+              for (const item of simNodes) {
+                const base = basePos.get(item.id);
+                if (!base) continue;
+                const attributes = built.graph.getNodeAttributes(item.id);
+                const baseSize = Number(attributes.__baseSize || attributes.size || 5);
+                if (!on) {
+                  built.graph.setNodeAttribute(item.id, "x", base.x);
+                  built.graph.setNodeAttribute(item.id, "y", base.y);
+                  built.graph.setNodeAttribute(item.id, "size", baseSize);
+                  continue;
+                }
+                const z = depthOf(item.id);
+                const x1 = base.x * cosYaw - z * sinYaw;
+                const z1 = base.x * sinYaw + z * cosYaw;
+                const y2 = base.y * cosPitch - z1 * sinPitch;
+                const z2 = base.y * sinPitch + z1 * cosPitch;
+                const scale2 = camera.focal / Math.max(160, camera.focal + z2);
+                built.graph.setNodeAttribute(item.id, "x", x1 * scale2);
+                built.graph.setNodeAttribute(item.id, "y", y2 * scale2);
+                built.graph.setNodeAttribute(item.id, "size", Math.max(2.2, baseSize * scale2));
+              }
+              try {
+                renderer.refresh();
+              } catch {
+              }
+            };
+            applyCameraRef.current = applyCamera;
             const liveSim = simulation(simNodes).force("link", link(simLinks).id((item) => item.id).distance(46).strength(0.22)).force("charge", manyBody().strength(-20).distanceMax(320)).force("center", center(0, 0)).force("collide", collide((item) => (built.graph.getNodeAttributes(item.id).size || 5) + 1.5)).stop();
             let tickCount = 0;
             liveSim.on("tick", () => {
               tickCount += 1;
               if (tickCount % 2 !== 0) return;
               for (const item of simNodes) {
-                try {
-                  built.graph.setNodeAttribute(item.id, "x", item.x);
-                  built.graph.setNodeAttribute(item.id, "y", item.y);
-                } catch {
+                const base = basePos.get(item.id);
+                if (base) {
+                  base.x = item.x;
+                  base.y = item.y;
                 }
               }
-              try {
-                renderer.refresh();
-              } catch {
-              }
+              applyCamera();
             });
             layoutRef.current = liveSim;
             liveSim.alpha(0.12).restart();
@@ -21883,9 +21931,12 @@
                 item.fy = point.y;
                 item.x = point.x;
                 item.y = point.y;
-                built.graph.setNodeAttribute(item.id, "x", point.x);
-                built.graph.setNodeAttribute(item.id, "y", point.y);
-                renderer.refresh();
+                const base = basePos.get(item.id);
+                if (base) {
+                  base.x = point.x;
+                  base.y = point.y;
+                }
+                applyCamera();
               } catch {
               }
             };
@@ -21905,7 +21956,7 @@
             };
             renderer.on("downNode", (payload) => {
               try {
-                if (rotateModeRef.current) return;
+                if (rotateModeRef.current || view3dRef.current) return;
                 const id = payload.node;
                 const item = simIndex.get(id);
                 if (!item) return;
@@ -21944,25 +21995,21 @@
               centerY /= count;
               const cos = Math.cos(deltaAngle);
               const sin = Math.sin(deltaAngle);
-              built.graph.forEachNode((id, attributes) => {
-                const dx = (Number(attributes.x) || 0) - centerX;
-                const dy = (Number(attributes.y) || 0) - centerY;
+              for (const item of simNodes) {
+                const base = basePos.get(item.id);
+                if (!base) continue;
+                const dx = base.x - centerX;
+                const dy = base.y - centerY;
                 const nextX = centerX + dx * cos - dy * sin;
                 const nextY = centerY + dx * sin + dy * cos;
-                built.graph.setNodeAttribute(id, "x", nextX);
-                built.graph.setNodeAttribute(id, "y", nextY);
-                const item = simIndex.get(id);
-                if (item) {
-                  item.x = nextX;
-                  item.y = nextY;
-                  item.fx = nextX;
-                  item.fy = nextY;
-                }
-              });
-              try {
-                renderer.refresh();
-              } catch {
+                base.x = nextX;
+                base.y = nextY;
+                item.x = nextX;
+                item.y = nextY;
+                item.fx = nextX;
+                item.fy = nextY;
               }
+              applyCamera();
             };
             const onRotatePointerMove = (event) => {
               if (rotation === null) return;
@@ -21994,6 +22041,7 @@
               container.style.cursor = "";
             };
             const onRotatePointerDown = (event) => {
+              if (view3dRef.current) return;
               if (!(event.shiftKey || rotateModeRef.current)) return;
               if (drag !== null) return;
               event.preventDefault();
@@ -22015,6 +22063,46 @@
               }
             };
             container.addEventListener("pointerdown", onRotatePointerDown, true);
+            let cameraDrag = null;
+            const onCameraPointerMove = (event) => {
+              if (cameraDrag === null) return;
+              const dx = event.clientX - cameraDrag.x;
+              const dy = event.clientY - cameraDrag.y;
+              cameraDrag.x = event.clientX;
+              cameraDrag.y = event.clientY;
+              cameraRef.current.yaw += dx * 6e-3;
+              cameraRef.current.pitch = Math.max(-1.1, Math.min(1.1, cameraRef.current.pitch + dy * 6e-3));
+              applyCamera();
+            };
+            const onCameraPointerUp = () => {
+              cameraDrag = null;
+              if (typeof window !== "undefined") {
+                window.removeEventListener("pointermove", onCameraPointerMove);
+                window.removeEventListener("pointerup", onCameraPointerUp);
+              }
+              container.style.cursor = "";
+              try {
+                liveSim.alpha(0.05).restart();
+              } catch {
+              }
+            };
+            const onCameraPointerDown = (event) => {
+              if (!view3dRef.current) return;
+              if (cameraDrag !== null) return;
+              event.preventDefault();
+              event.stopPropagation();
+              cameraDrag = { x: event.clientX, y: event.clientY };
+              container.style.cursor = "grabbing";
+              if (typeof window !== "undefined") {
+                window.addEventListener("pointermove", onCameraPointerMove);
+                window.addEventListener("pointerup", onCameraPointerUp);
+              }
+            };
+            container.addEventListener("pointerdown", onCameraPointerDown, true);
+            if (view3dRef.current) {
+              cameraRef.current.on = true;
+              applyCamera();
+            }
             cleanup = () => {
               try {
                 liveSim.stop();
@@ -22049,12 +22137,37 @@
         };
       }, [data, reloadKey]);
       React.useEffect(() => {
+        const camera = cameraRef.current;
+        camera.on = view3d;
+        if (view3d) {
+          camera.pitch = 0.52;
+          camera.yaw = -0.28;
+        } else {
+          camera.pitch = 0;
+          camera.yaw = 0;
+        }
+        try {
+          if (applyCameraRef.current) applyCameraRef.current();
+          if (rendererRef.current) rendererRef.current.refresh();
+        } catch {
+        }
+      }, [view3d]);
+      React.useEffect(() => {
         try {
           rendererRef.current && rendererRef.current.refresh();
         } catch {
         }
       }, [selected, hovered, query]);
       const resetView = () => {
+        if (view3dRef.current) {
+          cameraRef.current.pitch = 0.52;
+          cameraRef.current.yaw = -0.28;
+          try {
+            if (applyCameraRef.current) applyCameraRef.current();
+          } catch {
+          }
+          return;
+        }
         try {
           rendererRef.current && rendererRef.current.getCamera().animatedReset();
         } catch {
@@ -22372,6 +22485,13 @@
           h("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
+            title: "3D \u89C6\u89D2\uFF1A\u62D6\u52A8\u753B\u5E03\u65CB\u8F6C\u76F8\u673A\uFF0C\u6EDA\u52A8\u7F29\u653E",
+            style: view3d ? { borderColor: "rgba(150,200,240,0.55)" } : void 0,
+            onClick: () => setView3d((value) => !value)
+          }, view3d ? "3D \u4E2D" : "3D"),
+          h("button", {
+            type: "button",
+            className: "dshp-btn dshp-btn-small",
             title: "\u65CB\u8F6C\u6A21\u5F0F\uFF1A\u6253\u5F00\u540E\u76F4\u63A5\u62D6\u52A8\u7A7A\u767D\u5904\u65CB\u8F6C",
             style: rotateMode ? { borderColor: "rgba(255,233,184,0.55)" } : void 0,
             onClick: () => setRotateMode((value) => !value)
@@ -22428,7 +22548,7 @@
         h(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.55 } },
-          h("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 Shift+\u62D6\u52A8\u65CB\u8F6C\uFF08\u6216\u5F00\u201C\u65CB\u8F6C\u201D\u6A21\u5F0F\uFF09\xB7 \u6EDA\u8F6E\u7F29\u653E" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+          h("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 3D \u89C6\u89D2\u4E0B\u62D6\u52A8\u753B\u5E03\u8F6C\u89C6\u89D2 \xB7 Shift+\u62D6\u52A8\u65CB\u8F6C \xB7 \u6EDA\u8F6E\u7F29\u653E" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
           h("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
         ),
         h(
