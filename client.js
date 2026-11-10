@@ -21612,6 +21612,12 @@
     example_of: "rgba(167,139,250,0.40)"
   };
   var CONFIDENCE_LABEL = { high: "\u9AD8", medium: "\u4E2D", low: "\u4F4E" };
+  var PROVENANCE_LABEL = { grounded: "\u8BFB\u5230", inferred: "\u63A8\u65AD", weak: "\u5F85\u5B9A" };
+  var PROVENANCE_COLOR = {
+    grounded: "rgba(150,190,220,0.45)",
+    inferred: "rgba(150,170,190,0.22)",
+    weak: "rgba(190,170,140,0.30)"
+  };
   var GRAPH_VIEW_HEIGHT = 380;
   var LAYOUT_FORCE_MAX = 6e3;
   var sigmaModulePromise = null;
@@ -21667,7 +21673,8 @@
         target: target.__id,
         relation: edge.relation,
         note: edge.note,
-        confidence: edge.confidence
+        confidence: edge.confidence,
+        sources: edge.sources
       });
       if (links.length >= 4e4) break;
     }
@@ -21707,12 +21714,15 @@
     for (const link2 of links) {
       if (graph.hasEdge(link2.source, link2.target)) continue;
       const high = link2.confidence === "high";
+      const sourceCount = Array.isArray(link2.sources) ? link2.sources.length : 0;
+      const provenance = sourceCount > 0 && (link2.confidence === "high" || link2.confidence === "medium") ? "grounded" : sourceCount > 0 ? "weak" : "inferred";
       graph.addEdge(link2.source, link2.target, {
-        color: REL_COLOR[link2.relation] || "rgba(140,170,190,0.30)",
-        size: high ? 1.1 : 0.65,
+        color: provenance === "grounded" ? REL_COLOR[link2.relation] || PROVENANCE_COLOR.grounded : PROVENANCE_COLOR[provenance],
+        size: provenance === "grounded" ? high ? 1.1 : 0.8 : 0.5,
         label: link2.relation,
         __relation: link2.relation,
-        __note: link2.note
+        __note: link2.note,
+        __provenance: provenance
       });
     }
     return { graph, nodes, links, idSet: ids, degree };
@@ -21927,6 +21937,58 @@
           why: (TYPE_LABEL[fromType] || fromType) + " \xD7 " + (TYPE_LABEL[toType] || toType) + (edge.note ? "\uFF1A" + String(edge.note).slice(0, 42) : "")
         };
       }).sort((a2, b) => b.score - a2.score).slice(0, 4);
+      const relationLabelOf = (relation) => REL_LABEL[relation] || "\u76F8\u5173";
+      const questions = [];
+      if (surprising.length > 0) {
+        const top = surprising[0];
+        questions.push("\u300C" + top.edge.from + "\u300D\u4E3A\u4EC0\u4E48\u4F1A" + relationLabelOf(top.edge.relation) + "\u300C" + top.edge.to + "\u300D\uFF1F");
+      }
+      if (surprising.length > 1) {
+        const second = surprising[1];
+        questions.push("\u300C" + second.edge.from + "\u300D\u548C\u300C" + second.edge.to + "\u300D\u4E4B\u95F4\u7684\u8FD9\u6761\u7EBF\uFF0C\u662F\u8BFB\u5230\u7684\u8FD8\u662F\u63A8\u51FA\u6765\u7684\uFF1F");
+      }
+      if (coreNodes.length > 0) {
+        questions.push("\u300C" + coreNodes[0].name + "\u300D\u628A\u8FD9\u4E9B\u7EBF\u4E32\u8D77\u6765\uFF0C\u5B83\u662F\u539F\u56E0\u3001\u7ED3\u679C\uFF0C\u8FD8\u662F\u53EA\u662F\u6700\u5E38\u88AB\u63D0\u5230\uFF1F");
+      }
+      const exportObservation = () => {
+        try {
+          const now2 = (/* @__PURE__ */ new Date()).toLocaleString("zh-CN", { hour12: false });
+          const typeLines = Object.entries(typeCounts).map(([type, count]) => "- " + (TYPE_LABEL[type] || type) + "\uFF1A" + count + " \u4E2A");
+          const coreLines = coreNodes.map((item) => "- " + item.name + "\uFF08" + (TYPE_LABEL[item.type] || item.type) + "\uFF0C" + item.degree + " \u6761\u5173\u7CFB\uFF09");
+          const surpriseLines = surprising.map((item) => "- " + item.edge.from + " \u2014 " + item.edge.to + "\uFF1A" + item.why);
+          const text = [
+            "# \u5C0F\u9CB8\u9C7C\u7684\u8BA4\u77E5\u56FE\u8C31\u89C2\u5BDF",
+            "",
+            "> \u751F\u6210\u65F6\u95F4\uFF1A" + now2 + "\uFF1B\u8282\u70B9 " + nodes.length + " \u4E2A\uFF0C\u5173\u7CFB " + edges.length + " \u6761\uFF0C\u5224\u65AD " + (data && data.claims ? data.claims.length : 0) + " \u6761\u3002",
+            "",
+            "## \u7C7B\u578B\u5206\u5E03",
+            "",
+            ...typeLines,
+            "",
+            "## \u6838\u5FC3\u8282\u70B9\uFF08\u6309\u8FDE\u63A5\u5EA6\uFF09",
+            "",
+            ...coreLines,
+            "",
+            "## \u610F\u5916\u8FDE\u63A5\uFF08\u8DE8\u7C7B\u578B\uFF0C\u6309\u7F6E\u4FE1\u5EA6/\u7A00\u6709\u5EA6\uFF09",
+            "",
+            ...surpriseLines.length > 0 ? surpriseLines : ["- \u6682\u65E0\u8DE8\u7C7B\u578B\u8FDE\u63A5"],
+            "",
+            "## \u53EF\u4EE5\u8FFD\u95EE",
+            "",
+            ...questions.map((question) => "- " + question),
+            ""
+          ].join("\n");
+          if (typeof window === "undefined" || typeof document === "undefined") return;
+          const blob = new window.Blob([text], { type: "text/markdown;charset=utf-8" });
+          const href = window.URL.createObjectURL(blob);
+          const link2 = document.createElement("a");
+          link2.href = href;
+          link2.download = "whale-graph-observation.md";
+          link2.click();
+          window.URL.revokeObjectURL(href);
+        } catch {
+        }
+      };
       const insightCards = nodes.length > 0 ? h(
         "div",
         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 } },
@@ -21964,6 +22026,16 @@
             h("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.edge.from + " \u2014 " + item.edge.to),
             h("div", { style: { opacity: 0.5, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.why)
           )) : h("div", { style: { fontSize: 12, opacity: 0.5 } }, "\u6682\u65F6\u6CA1\u6709\u8DE8\u7C7B\u578B\u8FDE\u63A5")
+        ),
+        h(
+          "div",
+          { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
+          h("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u53EF\u4EE5\u8FFD\u95EE"),
+          ...questions.map((question, index2) => h(
+            "div",
+            { key: "question-" + index2, style: { fontSize: 12, lineHeight: 1.5, padding: "3px 0", opacity: 0.85 } },
+            question
+          ))
         )
       ) : null;
       const detail = selectedNode ? h(
@@ -22005,6 +22077,7 @@
             "div",
             { key: edge.id || edge.from + edge.to + edge.relation, style: { display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 } },
             h("span", { style: { fontSize: 10, padding: "0 6px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)", opacity: 0.85 } }, REL_LABEL[edge.relation] || "\u5173\u8054"),
+            h("span", { style: { fontSize: 10, opacity: 0.5 } }, Array.isArray(edge.sources) && edge.sources.length > 0 ? "\u8BFB\u5230" : "\u63A8\u65AD"),
             h("span", null, edge.from === selectedNode.name ? `\u2192 ${edge.to}` : `${edge.from} \u2192`),
             edge.note ? h("span", { style: { opacity: 0.55 } }, `\uFF08${edge.note}\uFF09`) : null
           ))
@@ -22035,6 +22108,13 @@
           "span",
           { key: "legend-rel-" + relation, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
           h("span", { style: { width: 14, height: 2, background: REL_COLOR[relation], borderRadius: 1 } }),
+          label
+        )),
+        h("span", { style: { opacity: 0.7 } }, "\u7EBF\uFF1A"),
+        ...Object.entries(PROVENANCE_LABEL).map(([provenance, label]) => h(
+          "span",
+          { key: "legend-prov-" + provenance, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+          h("span", { style: { width: 14, height: 2, background: PROVENANCE_COLOR[provenance], borderRadius: 1 } }),
           label
         ))
       );
@@ -22141,7 +22221,8 @@
         ),
         h(
           "div",
-          { style: { display: "flex", justifyContent: "flex-end" } },
+          { style: { display: "flex", justifyContent: "flex-end", gap: 6 } },
+          h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: exportObservation }, "\u5BFC\u51FA\u89C2\u5BDF\u62A5\u544A"),
           h("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u65B0\u8F7D\u5165")
         )
       );

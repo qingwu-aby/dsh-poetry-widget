@@ -21,6 +21,12 @@ const REL_COLOR = {
   example_of: 'rgba(167,139,250,0.40)',
 }
 const CONFIDENCE_LABEL = { high: '高', medium: '中', low: '低' }
+const PROVENANCE_LABEL = { grounded: '读到', inferred: '推断', weak: '待定' }
+const PROVENANCE_COLOR = {
+  grounded: 'rgba(150,190,220,0.45)',
+  inferred: 'rgba(150,170,190,0.22)',
+  weak: 'rgba(190,170,140,0.30)',
+}
 const GRAPH_VIEW_HEIGHT = 380
 const LAYOUT_FORCE_MAX = 6000
 
@@ -82,6 +88,7 @@ function buildGraph(data) {
       relation: edge.relation,
       note: edge.note,
       confidence: edge.confidence,
+      sources: edge.sources,
     })
     if (links.length >= 40000) break
   }
@@ -126,12 +133,19 @@ function buildGraph(data) {
   for (const link of links) {
     if (graph.hasEdge(link.source, link.target)) continue
     const high = link.confidence === 'high'
+    const sourceCount = Array.isArray(link.sources) ? link.sources.length : 0
+    const provenance = sourceCount > 0 && (link.confidence === 'high' || link.confidence === 'medium')
+      ? 'grounded'
+      : sourceCount > 0
+        ? 'weak'
+        : 'inferred'
     graph.addEdge(link.source, link.target, {
-      color: REL_COLOR[link.relation] || 'rgba(140,170,190,0.30)',
-      size: high ? 1.1 : 0.65,
+      color: provenance === 'grounded' ? REL_COLOR[link.relation] || PROVENANCE_COLOR.grounded : PROVENANCE_COLOR[provenance],
+      size: provenance === 'grounded' ? (high ? 1.1 : 0.8) : 0.5,
       label: link.relation,
       __relation: link.relation,
       __note: link.note,
+      __provenance: provenance,
     })
   }
   return { graph, nodes, links, idSet: ids, degree }
@@ -360,6 +374,61 @@ export function createGraphTab(ctx = {}) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 4)
 
+    const relationLabelOf = (relation) => REL_LABEL[relation] || '相关'
+    const questions = []
+    if (surprising.length > 0) {
+      const top = surprising[0]
+      questions.push('「' + top.edge.from + '」为什么会' + relationLabelOf(top.edge.relation) + '「' + top.edge.to + '」？')
+    }
+    if (surprising.length > 1) {
+      const second = surprising[1]
+      questions.push('「' + second.edge.from + '」和「' + second.edge.to + '」之间的这条线，是读到的还是推出来的？')
+    }
+    if (coreNodes.length > 0) {
+      questions.push('「' + coreNodes[0].name + '」把这些线串起来，它是原因、结果，还是只是最常被提到？')
+    }
+
+    const exportObservation = () => {
+      try {
+        const now = new Date().toLocaleString('zh-CN', { hour12: false })
+        const typeLines = Object.entries(typeCounts).map(([type, count]) => '- ' + (TYPE_LABEL[type] || type) + '：' + count + ' 个')
+        const coreLines = coreNodes.map((item) => '- ' + item.name + '（' + (TYPE_LABEL[item.type] || item.type) + '，' + item.degree + ' 条关系）')
+        const surpriseLines = surprising.map((item) => '- ' + item.edge.from + ' — ' + item.edge.to + '：' + item.why)
+        const text = [
+          '# 小鲸鱼的认知图谱观察',
+          '',
+          '> 生成时间：' + now + '；节点 ' + nodes.length + ' 个，关系 ' + edges.length + ' 条，判断 ' + (data && data.claims ? data.claims.length : 0) + ' 条。',
+          '',
+          '## 类型分布',
+          '',
+          ...typeLines,
+          '',
+          '## 核心节点（按连接度）',
+          '',
+          ...coreLines,
+          '',
+          '## 意外连接（跨类型，按置信度/稀有度）',
+          '',
+          ...(surpriseLines.length > 0 ? surpriseLines : ['- 暂无跨类型连接']),
+          '',
+          '## 可以追问',
+          '',
+          ...questions.map((question) => '- ' + question),
+          '',
+        ].join('\n')
+        if (typeof window === 'undefined' || typeof document === 'undefined') return
+        const blob = new window.Blob([text], { type: 'text/markdown;charset=utf-8' })
+        const href = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = href
+        link.download = 'whale-graph-observation.md'
+        link.click()
+        window.URL.revokeObjectURL(href)
+      } catch {
+        /* ignore */
+      }
+    }
+
     const insightCards = nodes.length > 0
       ? h(
         'div',
@@ -401,6 +470,16 @@ export function createGraphTab(ctx = {}) {
             ))
             : h('div', { style: { fontSize: 12, opacity: 0.5 } }, '暂时没有跨类型连接'),
         ),
+        h(
+          'div',
+          { style: { padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.09)' } },
+          h('div', { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, '可以追问'),
+          ...questions.map((question, index) => h(
+            'div',
+            { key: 'question-' + index, style: { fontSize: 12, lineHeight: 1.5, padding: '3px 0', opacity: 0.85 } },
+            question,
+          )),
+        ),
       )
       : null
 
@@ -438,6 +517,7 @@ export function createGraphTab(ctx = {}) {
             h('div', { style: { opacity: 0.55, marginBottom: 4 } }, '关系'),
             ...selectedRels.slice(0, 8).map((edge) => h('div', { key: edge.id || edge.from + edge.to + edge.relation, style: { display: 'flex', gap: 6, alignItems: 'baseline', marginBottom: 2 } },
               h('span', { style: { fontSize: 10, padding: '0 6px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.18)', opacity: 0.85 } }, REL_LABEL[edge.relation] || '关联'),
+              h('span', { style: { fontSize: 10, opacity: 0.5 } }, (Array.isArray(edge.sources) && edge.sources.length > 0 ? '读到' : '推断')),
               h('span', null, edge.from === selectedNode.name ? `→ ${edge.to}` : `${edge.from} →`),
               edge.note ? h('span', { style: { opacity: 0.55 } }, `（${edge.note}）`) : null)))
           : null,
@@ -465,6 +545,13 @@ export function createGraphTab(ctx = {}) {
         'span',
         { key: 'legend-rel-' + relation, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
         h('span', { style: { width: 14, height: 2, background: REL_COLOR[relation], borderRadius: 1 } }),
+        label,
+      )),
+      h('span', { style: { opacity: 0.7 } }, '线：'),
+      ...Object.entries(PROVENANCE_LABEL).map(([provenance, label]) => h(
+        'span',
+        { key: 'legend-prov-' + provenance, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+        h('span', { style: { width: 14, height: 2, background: PROVENANCE_COLOR[provenance], borderRadius: 1 } }),
         label,
       )),
     )
@@ -559,7 +646,8 @@ export function createGraphTab(ctx = {}) {
       h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, opacity: 0.55 } },
         h('span', null, 'WebGL · 滚轮缩放 · 拖动平移 · 点节点看详情' + (stats.big ? ' · 超大图已用简化布局' : '')),
         h('span', null, data && data.updatedAt ? '更新：' + new Date(data.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '')),
-      h('div', { style: { display: 'flex', justifyContent: 'flex-end' } },
+      h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: 6 } },
+        h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: exportObservation }, '导出观察报告'),
         h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => setReloadKey((n) => n + 1) }, '重新载入')))
   }
   return GraphTab
