@@ -161,6 +161,10 @@ test('整本书分多次读完：进度推进到最后一段，合成总结合�
   assert.equal(second.completed, true)
   assert.equal(second.chunk, 2)
   assert.ok(second.synthesis && second.synthesis.changed.includes('矛盾'))
+  const persistedState = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  const persistedBook = Object.values(persistedState.books || {})[0]
+  assert.ok(persistedBook && persistedBook.synthesis, '总结合成要随完成状态一起落盘')
+  assert.ok(persistedBook.chainSaved !== undefined, '思维链保存标记要落盘')
   const logText = fs.readFileSync(log, 'utf8')
   assert.match(logText, /哲学·总/)
   assert.match(logText, /思维链/)
