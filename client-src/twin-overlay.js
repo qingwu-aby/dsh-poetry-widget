@@ -1,5 +1,6 @@
 // client-src/twin-overlay.js —— 镜像鲸鱼只读浮层（v0.2.0 从 dsh-little-whale-twin 并入）
 const ROUTE = '/api/dsh-poetry/twin-state.json'
+const SETTINGS_ROUTE = '/api/dsh-poetry/settings.json'
 const ASSET_BASE = '/api/dsh-poetry/assets?f='
 const POLL_MS = 60 * 1000
 const CACHE_KEY = 'dshp-twin.cache.v1'
@@ -29,6 +30,7 @@ export function createTwinOverlay(ctx = {}) {
       }
     })
     const [open, setOpen] = React.useState(false)
+    const [settings, setSettings] = React.useState(null)
     React.useEffect(() => {
       let alive = true
       const load = () => {
@@ -44,6 +46,13 @@ export function createTwinOverlay(ctx = {}) {
             }
           })
           .catch(() => {})
+        fetch(SETTINGS_ROUTE, { cache: 'no-store' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (!alive || !data || data.ok !== true) return
+            setSettings(data.settings || null)
+          })
+          .catch(() => {})
       }
       load()
       const timer = setInterval(load, POLL_MS)
@@ -53,6 +62,7 @@ export function createTwinOverlay(ctx = {}) {
       }
     }, [])
     if (state && state.enabled === false) return null
+    if (settings && settings.twinOverlay === false) return null
     const felt = state && state.state && typeof state.state.felt === 'string' ? state.state.felt : '另一个我还没说话'
     const project = state && state.project && typeof state.project === 'object' ? state.project : null
     const primaryProject =

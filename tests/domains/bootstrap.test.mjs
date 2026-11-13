@@ -617,6 +617,15 @@ test('v1.58：mood.json 会话统计接口已移除（路由表不再注册）',
 test('settings：mood/spontaneousPoem 默认值与校验', async () => {
   assert.equal(DEFAULT_SETTINGS.mood, true)
   assert.equal(DEFAULT_SETTINGS.spontaneousPoem, true)
+  assert.equal(DEFAULT_SETTINGS.qqBridge, true)
+  assert.equal(DEFAULT_SETTINGS.twinOverlay, true)
+  assert.equal(DEFAULT_SETTINGS.twinSystem, true)
+  assert.deepEqual(validateSettingsPatch({ qqBridge: false, twinOverlay: false, twinSystem: false }), {
+    ok: true,
+    patch: { qqBridge: false, twinOverlay: false, twinSystem: false },
+  })
+  assert.deepEqual(validateSettingsPatch({ qqBridge: 1 }).fields, ['qqBridge'])
+  assert.equal(normalizeSettings({ qqBridge: 'x' }).qqBridge, true, '非法值回退默认')
   assert.deepEqual(validateSettingsPatch({ mood: false, spontaneousPoem: false }), {
     ok: true,
     patch: { mood: false, spontaneousPoem: false },

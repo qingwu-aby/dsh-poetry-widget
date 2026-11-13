@@ -2448,12 +2448,21 @@ test('settings mood/spontaneousPoem：归一化与 PUT 序列化', () => {
   const { debug } = loadClient()
   assert.equal(debug.normalizeSettings({}).mood, true)
   assert.equal(debug.normalizeSettings({}).spontaneousPoem, true)
+  assert.equal(debug.normalizeSettings({}).qqBridge, true)
+  assert.equal(debug.normalizeSettings({}).twinOverlay, true)
+  assert.equal(debug.normalizeSettings({}).twinSystem, true)
+  assert.equal(debug.normalizeSettings({ twinOverlay: false }).twinOverlay, false)
   assert.equal(debug.normalizeSettings({ mood: false }).mood, false)
   assert.equal(debug.normalizeSettings({ spontaneousPoem: false }).spontaneousPoem, false)
   const patch = debug.settingsPatch({ mood: false, spontaneousPoem: true })
   assertDeep(patch, { mood: false, spontaneousPoem: true })
   const request = debug.buildSettingsRequest({ mood: false, spontaneousPoem: false })
   assertDeep(JSON.parse(request.init.body), { mood: false, spontaneousPoem: false })
+  assertDeep(debug.settingsPatch({ qqBridge: false, twinOverlay: false, twinSystem: false }), {
+    qqBridge: false,
+    twinOverlay: false,
+    twinSystem: false,
+  })
 })
 
 test('心情 UI：今日 chip 不变；设置不再含心情块；成长页有心情开关/刷新/失败文案', () => {

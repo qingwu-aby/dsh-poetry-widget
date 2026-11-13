@@ -15010,6 +15010,7 @@
 
   // client-src/twin-overlay.js
   var ROUTE = "/api/dsh-poetry/twin-state.json";
+  var SETTINGS_ROUTE = "/api/dsh-poetry/settings.json";
   var ASSET_BASE = "/api/dsh-poetry/assets?f=";
   var POLL_MS = 60 * 1e3;
   var CACHE_KEY = "dshp-twin.cache.v1";
@@ -15036,6 +15037,7 @@
         }
       });
       const [open, setOpen] = React.useState(false);
+      const [settings, setSettings] = React.useState(null);
       React.useEffect(() => {
         let alive = true;
         const load = () => {
@@ -15048,6 +15050,11 @@
             }
           }).catch(() => {
           });
+          fetch(SETTINGS_ROUTE, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
+            if (!alive || !data || data.ok !== true) return;
+            setSettings(data.settings || null);
+          }).catch(() => {
+          });
         };
         load();
         const timer2 = setInterval(load, POLL_MS);
@@ -15057,6 +15064,7 @@
         };
       }, []);
       if (state && state.enabled === false) return null;
+      if (settings && settings.twinOverlay === false) return null;
       const felt = state && state.state && typeof state.state.felt === "string" ? state.state.felt : "\u53E6\u4E00\u4E2A\u6211\u8FD8\u6CA1\u8BF4\u8BDD";
       const project = state && state.project && typeof state.project === "object" ? state.project : null;
       const primaryProject = state && state.primaryProject && typeof state.primaryProject === "object" ? state.primaryProject : null;
@@ -16299,6 +16307,25 @@
         ),
         renderSelfStatus(),
         renderHealthStatus(),
+        h("div", { className: "dshp-field-label", style: { marginTop: 4 } }, h("b", null, "\u5B50\u63D2\u4EF6"), h("small", null, "\u5408\u5E76\u8FDB\u4E3B\u5305\u7684\u53EF\u9009\u80FD\u529B\uFF1B\u5173\u95ED\u540E\u4E0D\u5F71\u54CD\u4E3B\u4F53")),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "QQ / \u5BF9\u8BDD\u4F20\u8BDD\u5DE5\u5177"), h("small", null, "little_whale_chat\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
+          switchNode(settings.qqBridge, () => update({ qqBridge: !settings.qqBridge }), "QQ \u4F20\u8BDD\u5F00\u5173")
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u955C\u50CF\u6D6E\u5C42"), h("small", null, "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C\uFF1B\u5373\u65F6\u751F\u6548")),
+          switchNode(settings.twinOverlay, () => update({ twinOverlay: !settings.twinOverlay }), "\u955C\u50CF\u6D6E\u5C42\u5F00\u5173")
+        ),
+        h(
+          "div",
+          { className: "dshp-field" },
+          h("div", { className: "dshp-field-label" }, h("b", null, "\u955C\u50CF\u4E3B\u4F53"), h("small", null, "\u5199\u4FE1/\u7814\u7A76/\u72EC\u7ACB\u72B6\u6001\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
+          switchNode(settings.twinSystem, () => update({ twinSystem: !settings.twinSystem }), "\u955C\u50CF\u4E3B\u4F53\u5F00\u5173")
+        ),
         h(
           "div",
           { className: "dshp-field" },
@@ -24704,6 +24731,9 @@
         "weatherPoem",
         "mood",
         "spontaneousPoem",
+        "qqBridge",
+        "twinOverlay",
+        "twinSystem",
         "lastPoemId",
         "tutorialSeen"
       ];
@@ -24721,6 +24751,9 @@
         weatherPoem: true,
         mood: true,
         spontaneousPoem: true,
+        qqBridge: true,
+        twinOverlay: true,
+        twinSystem: true,
         lastPoemId: null,
         tutorialSeen: false,
         updatedAt: 0
@@ -24859,6 +24892,9 @@
           weatherPoem: typeof src.weatherPoem === "boolean" ? src.weatherPoem : DEFAULT_SETTINGS2.weatherPoem,
           mood: typeof src.mood === "boolean" ? src.mood : DEFAULT_SETTINGS2.mood,
           spontaneousPoem: typeof src.spontaneousPoem === "boolean" ? src.spontaneousPoem : DEFAULT_SETTINGS2.spontaneousPoem,
+          qqBridge: typeof src.qqBridge === "boolean" ? src.qqBridge : DEFAULT_SETTINGS2.qqBridge,
+          twinOverlay: typeof src.twinOverlay === "boolean" ? src.twinOverlay : DEFAULT_SETTINGS2.twinOverlay,
+          twinSystem: typeof src.twinSystem === "boolean" ? src.twinSystem : DEFAULT_SETTINGS2.twinSystem,
           lastPoemId,
           tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS2.tutorialSeen,
           updatedAt: num(src.updatedAt, 0)

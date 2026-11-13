@@ -203,6 +203,25 @@ return h(
  ),
  renderSelfStatus(),
  renderHealthStatus(),
+ h('div', { className: 'dshp-field-label', style: { marginTop: 4 } }, h('b', null, '子插件'), h('small', null, '合并进主包的可选能力；关闭后不影响主体')),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, 'QQ / 对话传话工具'), h('small', null, 'little_whale_chat；改动后重启 DSH 生效')),
+  switchNode(settings.qqBridge, () => update({ qqBridge: !settings.qqBridge }), 'QQ 传话开关'),
+ ),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, '镜像浮层'), h('small', null, '左下角第二只鲸鱼；即时生效')),
+  switchNode(settings.twinOverlay, () => update({ twinOverlay: !settings.twinOverlay }), '镜像浮层开关'),
+ ),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, '镜像主体'), h('small', null, '写信/研究/独立状态；改动后重启 DSH 生效')),
+  switchNode(settings.twinSystem, () => update({ twinSystem: !settings.twinSystem }), '镜像主体开关'),
+ ),
  h(
   'div',
   { className: 'dshp-field' },

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.2.1 子插件开关**：设置页新增「子插件」区：QQ/对话传话工具、镜像浮层、镜像主体三个开关（`qqBridge`/`twinOverlay`/`twinSystem`）。镜像浮层即时生效；QQ 工具与镜像主体在启动时读取，改后重启 DSH 生效。
 - **v0.2.0 子插件合并**：`dsh-little-whale-qq` 与 `dsh-little-whale-twin` 并入主包（一个安装项）。
   - QQ 传话工具 `little_whale_chat` 与两个 preset（`little-whale-qq` / `little-whale-chat`）进入主包，工具名、preset id、peerId 不变；
   - 镜像只读状态路由并入为 `/api/dsh-poetry/twin-state.json`，镜像浮层并入主客户端（twin 关闭时自动隐藏）；

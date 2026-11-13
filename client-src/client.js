@@ -311,6 +311,7 @@ window.__ModuleLoader__.load({
   const WRITE_KEYS = [
   'scale', 'showTones', 'mode', 'autoplay', 'snap', 'script',
   'hidden', 'theme', 'weatherCity', 'weatherPoem', 'mood', 'spontaneousPoem',
+  'qqBridge', 'twinOverlay', 'twinSystem',
   'lastPoemId', 'tutorialSeen',
   ]
   const DEFAULT_SETTINGS = Object.freeze({
@@ -327,6 +328,9 @@ window.__ModuleLoader__.load({
   weatherPoem: true,
   mood: true,
   spontaneousPoem: true,
+  qqBridge: true,
+  twinOverlay: true,
+  twinSystem: true,
   lastPoemId: null,
   tutorialSeen: false,
   updatedAt: 0,
@@ -491,6 +495,9 @@ window.__ModuleLoader__.load({
    weatherPoem: typeof src.weatherPoem === 'boolean' ? src.weatherPoem : DEFAULT_SETTINGS.weatherPoem,
    mood: typeof src.mood === 'boolean' ? src.mood : DEFAULT_SETTINGS.mood,
    spontaneousPoem: typeof src.spontaneousPoem === 'boolean' ? src.spontaneousPoem : DEFAULT_SETTINGS.spontaneousPoem,
+   qqBridge: typeof src.qqBridge === 'boolean' ? src.qqBridge : DEFAULT_SETTINGS.qqBridge,
+   twinOverlay: typeof src.twinOverlay === 'boolean' ? src.twinOverlay : DEFAULT_SETTINGS.twinOverlay,
+   twinSystem: typeof src.twinSystem === 'boolean' ? src.twinSystem : DEFAULT_SETTINGS.twinSystem,
    lastPoemId,
    tutorialSeen: typeof src.tutorialSeen === 'boolean' ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
    updatedAt: num(src.updatedAt, 0),
