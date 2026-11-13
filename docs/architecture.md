@@ -101,3 +101,10 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - `memory-consolidator.mjs`：每日整合服务、consolidation prompt/parse、journal 计数/读取；
 - 原导出由 `memory-layers.mjs` re-export，外部行为不变。
 - 后续：`mood-ai-core`（751）→ `memory-recall`（717）。
+
+## mood-ai-core 拆分（v0.2.7）
+
+- `mood-ai-core.mjs` 751 → 319 行：保留 buildMoodPrompt / parseMoodResult / timeout/selection 小工具；
+- `mood-ai-shared.mjs`：常量、心情词库、时间/日期、图鉴解析与候选选择；
+- 原导出由 core re-export，`mood-ai.mjs` / 客户端 / 测试无需改 import。
+- 后续：`memory-recall`（717）→ 状态收敛 → facade 迁移。
