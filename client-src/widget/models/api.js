@@ -12,12 +12,9 @@ let bootstrapCache = null
   }
 
   
-  /** 合并 anthology + bank 为诗库条目（统一 categoryId 与 source）。 */
-  
-  /** 精选宋词（data/ci.json 283 首）→ 诗库条目；title 用「词牌·首句」。 */
   
   
-  /** 宋词全库的词牌分布（名 → 数量，降序），用于诗库「宋词全库」的词牌筛选。 */
+  
   
   
   

@@ -7,7 +7,6 @@ export function useWeather(deps) {
   const React = getReact()
   const { settingsRef, settings } = deps
   const { refs } = deps
-  const { } = refs
   const [weatherRes, setWeatherRes] = React.useState(() => {
    const cached = weatherCache
    if (cached && cached.data && cached.data.ok) {

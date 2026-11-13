@@ -1,499 +1,52 @@
-import { clamp, isVideoMoodFile, num, readWindowHeight, readWindowWidth } from './base.js'
-import { createHooks } from './hooks.js'
-import { createPanelTabRouter } from './panel-tabs.js'
-import { createTwinOverlay } from './twin-overlay.js'
-import { normalizeHealthStatus } from './health-model.js'
+// client-src/widget/container.js —— 挂件容器组件：组合 hooks / 状态 / effects / 事件，渲染视图。
+import { getReact, getRuntime } from './runtime.js'
 import {
-  DEFAULT_SETTINGS,
-  WRITE_KEYS,
-  normalizeSettings,
-  settingsPatch,
-  buildSettingsRequest,
-  createSettingsSaver,
-  selectNextPoemId,
-} from './settings-model.js'
-import {
-  TONE_QUATRAINS,
-  isPunctuation,
-  toneKindOf,
-  buildToneCells,
-  selectPoemText,
-  selectCiText,
-  poemRhymeLines,
-  buildPingshuiIndex,
-  annotatePoemLines,
-  patternForShape,
-  allowedRelation,
-  rhymeSetOf,
-  detectMetre,
-  detectPoem,
-  parsePoemInput,
-  detectPoemText,
-  formatDetectionReport,
-  detectionRhymeIndexes,
-} from './poetry-engine.js'
-import {
-  SELF_TALK_PATH,
-  SELF_TALK_RECENT_MAX,
-  SELF_TALK_TIMEOUT_MS,
-  SPONT_AUTO_CLOSE_MS,
-  SPONT_CLOSE_RECHECK_MS,
-  SPONT_EVENT_MAX_MS,
-  SPONT_EVENT_MIN_MS,
-  SPONT_KEY,
-  SPONT_MAX_SEEN,
-  SPONT_POLL_MAX_MS,
-  SPONT_POLL_MIN_MS,
-  SPONT_QUIET_MS,
-  SPONT_REPEAT_MS,
-  SPONT_RETRY_MS,
-  SPONT_SEEN_DAYS,
-  canShowSpontaneous,
-  countSpontHits,
-  nextSpontEventDelay,
-  nextSpontPollDelay,
-  normalizeSpontState,
-  parseSelfTalkResponse,
-  pickSentenceFromLines,
-  recordSpontShown,
-  selfTalkKindFor,
-  selfTalkNoveltySignature,
-  selfTalkQuery,
-  splitCompleteSentences,
-} from './self-talk-client.js'
-import {
-  MOOD_AI_DEBOUNCE_MAX_MS,
-  MOOD_AI_DEBOUNCE_MIN_MS,
-  MOOD_AI_KEEP_MS,
-  MOOD_AI_MAX_RETRIES,
-  MOOD_AI_MIN_GAP_MS,
-  MOOD_AI_PATH,
-  MOOD_AI_RECENT_IMAGES_MAX,
-  MOOD_AI_RECENT_MAX,
-  MOOD_AI_RETRY_MAX_MS,
-  MOOD_AI_RETRY_MIN_MS,
-  MOOD_AI_TIMEOUT_MS,
-  MOOD_IMAGES,
-  MOOD_LABELS,
-  MOOD_PANEL_PEEK_FILES,
-  MOOD_REFRESH_MS,
-  MOOD_STRONG,
-  MOOD_SWITCH_MIN_MS,
-  MOOD_TICK_MS,
-  SHANGHAI_OFFSET_MS,
-  computeMood,
-  emptyMoodStats,
-  isMoodAiSignificant,
-  moodAiEventDelay,
-  moodAiFailureLabel,
-  moodAiKeepDecision,
-  moodAiQuery,
-  moodAiSnapshot,
-  moodBasisText,
-  moodCatalogAllows,
-  moodTimeBucket,
-  nextMoodAiDebounceDelay,
-  nextMoodAiRetryDelay,
-  normalizeMoodAiFailure,
-  normalizeMoodCatalog,
-  normalizeMoodStats,
-  panelPeekFile,
-  parseMoodAiResponse,
-  shanghaiParts,
-  throttleMoodSwitch,
-} from './mood-engine.js'
-import { createPoetryTabs } from './tabs-poetry.js'
-import { createSettingsTab } from './tabs-settings.js'
-import { createGrowthTab } from './tabs-growth.js'
-import { createGraphTab } from './tabs-graph.js'
-import { createFeihuaTab } from './tabs-feihua.js'
-import { createLibraryTab } from './tabs-library.js'
-import {
-  FEIHUA_ATLAS_LIMIT,
-  FEIHUA_CANDIDATE_CHARS,
-  FEIHUA_CANDIDATE_LIMIT,
-  FEIHUA_MIN_ENTRIES,
-  buildFeihuaIndex,
-  completeSentencesFromLines,
-  feihuaBestUpdate,
-  feihuaLookup,
-  feihuaPickSystem,
-  feihuaPlainOf,
-  feihuaRandomIndex,
-  feihuaSampleUnique,
-  feihuaShuffle,
-  feihuaSourceOf,
-  feihuaStart,
-  feihuaSubmit,
-  finishFeihuaIndex,
-  mergeFeihuaFullEntries,
-  mergeFeihuaItems,
-  normalizeFeihuaBest,
-  registerFeihuaLookup,
-} from './feihua.js'
-import {
-  LIBRARY_CATEGORY_ALIASES,
-  LIBRARY_PAGE,
-  buildLibraryItems,
-  ciBankRhythmics,
-  ciSelectedLibraryItems,
-  ciSelectedRhythmics,
-  filterLibraryItems,
-  libraryCategoryOf,
-  libraryItemLabel,
-  libraryPage,
-} from './library.js'
-import { CSS } from './styles.js'
-import {
-  WANDER_FIRST_MAX_MS,
-  WANDER_FIRST_MIN_MS,
-  WANDER_INTERACTION_PAUSE_MS,
-  WANDER_MAX_INTERVAL_MS,
-  WANDER_MIN_DISTANCE,
-  WANDER_MIN_INTERVAL_MS,
-  WANDER_STATIC_FILE,
-  WANDER_TICK_MS,
-  WANDER_WALK_MS,
-  WINDOW_WANDER_ENABLED,
-  nextWanderTarget,
-  pickWanderMedia,
-} from './wander.js'
-import { clearFirstScreenCache, createFetchJson, fetchJsonUrl, getStorage, readFirstScreenCache, writeFirstScreenCache } from './data.js'
-import {
-  MASCOT_EGG_KEY,
-  POS_KEY,
-  normalizeMascotEggState,
-  readMascotEggState,
-  readStoredPosition,
-  recordMascotEgg,
-  writeMascotEggState,
-  writeStoredPosition,
-} from './local-state.js'
-import { RESOURCE_CACHE_KEYS, createResourceStore } from './resources.js'
-
-import {
- ROUTE,
- SELF_PATH,
- SELF_POLL_MS,
- ACTION_SEEN_KEY,
- MEMORY_PATH,
- HEALTH_PATH,
- WORKS_PATH,
- ATTENTION_PATH,
- PROJECT_ACTION_PATH,
- PROJECT_PATH,
- TWIN_PATH,
- PRESENCE_PATH,
- PRESENCE_THROTTLE_MS,
- WORKS_POLL_MS,
- GROWTH_PATH,
- GROWTH_POLL_MS,
- ATTENTION_POLL_MS,
- TWIN_POLL_MS,
- HEALTH_POLL_MS,
- MEMORY_BACKUP_PATH,
- MEMORY_POLL_MS,
- ASSET_BASE,
- WIDGET_ID,
- BASE_SIZE,
- Z_INDEX,
- SAVE_DEBOUNCE_MS,
- STEPS,
- POETRY_ENTRY_ENABLED,
- POETRY_TABS,
- FEIHUA_BEST_KEY,
- FEIHUA_ATLAS_PAGE,
- FEIHUA_FULL_PATH,
- FEIHUA_FULL_TIMEOUT_MS,
- FEIHUA_FULL_RETRY_MS,
- MASCOT_FILES,
- MASCOT_TRANSIENT_MS,
- WEATHER_REFRESH_MS,
- WEATHER_STALE_MS,
- WEATHER_POOL_LIMIT,
- PET_MEDIA_PATH,
- PET_MEDIA_CATALOG_FILE,
- PET_MEDIA_TIMEOUT_MS,
- MOTION_ROTATION_KEY,
- MOTION_MIN_DELAY_MS,
- MOTION_MAX_DELAY_MS,
- MOTION_PLAY_MIN_MS,
- MOTION_PLAY_MAX_MS,
- MOTION_FIRST_MIN_DELAY_MS,
- MOTION_FIRST_MAX_DELAY_MS,
- DIZZY_MIN_MS,
- DIZZY_MAX_MS,
- DIZZY_FAST_PX_PER_SEC,
- DIZZY_FAST_DISTANCE_PX,
- DIZZY_FAST_WINDOW_MS,
- MEAL_KEY,
- MEAL_PLAY_MIN_MS,
- MEAL_PLAY_MAX_MS,
- ASSET_DATA_FILES,
- LIBRARY_CATEGORIES,
- MASCOT_EXPRESSION_MS,
- MASCOT_IDLE_MIN_MS,
- MASCOT_IDLE_USER_MS,
- MASCOT_IDLE_POLL_MS,
- MASCOT_EXPRESSION_FILES,
- RESOURCE_PATHS,
-} from "./widget/models/constants.js"
-import {
- cx,
- hasOwn,
- hashString,
- formatDateLabel,
- clampPosition,
- anchorPosition,
- describeDataError,
-} from "./widget/models/utils.js"
-import {
- clearFeihuaFullCache,
- readFeihuaFullCache,
- abortFeihuaFull,
- requestFeihuaFull,
- getFeihuaIndex,
- clearFeihuaIndexCache,
- pickDefaultFeihuaChar,
- readFeihuaBest,
- writeFeihuaBest,
-} from "./widget/models/feihua-model.js"
-import {
- weatherCache,
- weatherPoemTags,
- countWeatherTagHits,
- buildWeatherPoemPool,
- selectWeatherPoemEntry,
- weatherChipText,
- weatherExplainText,
- weatherUpdatedLabel,
- requestWeather,
-} from "./widget/models/weather-model.js"
-import {
- mascotStateFor,
- mascotFileFor,
- mascotUrl,
- mascotImageFor,
- mascotVideoShouldPause,
- detectFastDrag,
- nextDizzyDuration,
- nextMealDuration,
- mealMomentFor,
- normalizeMealState,
- readMealState,
- writeMealState,
- markMealDone,
- mealTriggerFor,
- pickDizzyMedia,
- pickMealMedia,
- mascotFilePriority,
- petMediaUrl,
- normalizePetMediaCatalog,
- mergePetMediaIntoCatalog,
- clearPetMediaCache,
- requestPetMediaCatalog,
- readMotionRotation,
- writeMotionRotation,
- nextMotionEntry,
- nextMotionDelay,
- nextMotionFirstDelay,
- nextMotionScheduleDelay,
- nextMotionDuration,
- shouldShowDailyGreet,
- canShowIdlePose,
- pickMascotExpression,
-} from "./widget/models/mascot-model.js"
-import {
- moodCache,
- requestMoodAi,
-} from "./widget/models/mood-model.js"
-import {
- normalizeSelfStatus,
- normalizeSelfAction,
- readSeenActionId,
- writeSeenActionId,
- selfStatusSummary,
- normalizeMemoryStatus,
- normalizeWorks,
- normalizeAttention,
- normalizeTwinState,
-} from "./widget/models/self-model.js"
-import {
- readSpontState,
- writeSpontState,
- requestSelfTalk,
-} from "./widget/models/spont-model.js"
-import {
- assetUrlFor,
- fetchJson,
- putSettings,
-} from "./widget/models/api.js"
-import { setRuntime } from './widget/runtime.js'
-import {
-  AnalysisBody,
-  CiBody,
-  EmptyState,
-  KnowledgeCardView,
-  LoadingState,
-  PoemBody,
-  ToneLine,
-  growthMetricsTree,
-  switchNode,
-} from './widget/view/primitives.js'
-import { BubbleView } from './widget/view/bubble-view.js'
-import { MascotView } from './widget/view/mascot-view.js'
-import { MealTipView } from './widget/view/meal-tip.js'
-import { PanelView } from './widget/view/panel-view.js'
-import { RestoreHotspotView } from './widget/view/restore-hotspot.js'
-import { SpontView } from './widget/view/spont-view.js'
-import { ToastView } from './widget/view/toast-view.js'
-import { WidgetRoot } from './widget/view/widget-root.js'
-import { StepContent } from './widget/view/steps/index.js'
-import { useToast } from './widget/hooks/use-toast.js'
-import { useSettings } from './widget/hooks/use-settings.js'
-import { usePanel } from './widget/hooks/use-panel.js'
-import { useWeather } from './widget/hooks/use-weather.js'
-import { useData } from './widget/hooks/use-data.js'
-import { useSpont } from './widget/hooks/use-spont.js'
-import { useSelfStatus } from './widget/hooks/use-self-status.js'
-import { useMood } from './widget/hooks/use-mood.js'
-import { useMascot } from './widget/hooks/use-mascot.js'
-
-/**
- * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
- *
- * 形态：官方 Client 插件（`dsh.client`）→ `window.__ModuleLoader__.load({ id, factory })`
-
-window.__ModuleLoader__.load({ id, factory })`
- *       → `ctx.slots.inject('shell.overlay')` 注册 order=80 的浮层挂件。
- *       纯 React.createElement，无 JSX、无构建步骤；样式通过组件内 <style> 注入。
- *
- * 数据：只读宿主路由 `/api/dsh-poetry/*`（契约见 docs/contract.md），模块级缓存 +
- *       localStorage 仅用于「首屏缓存」（按 dataVersion 失效）。任何请求失败都渲染
- *       友好空态 + 重试按钮，不抛出到 React 树之外（另有 ErrorBoundary 兜底）。
- *
- * 交互：形象悬浮/拖拽/吸附/缩放（按天气与对局状态切换 92 张立绘）；点击推进 6 步气泡
- *       （诗 → 解析 → 知识 → 韵部 → 词牌 → 飞花令 → 收起）；主面板 2 tab（成长/设置），
- *       诗词模块与它的配置降权到「成长 → 诗词」二级菜单；设置 PUT 防抖持久化；隐藏后长按角落热区或
- *       双击空白处恢复；心情换装（按当日会话统计/天气/时段，≥20min 限频）与 8–15min「自言自语」模型随想
- *       （每日 ≤3 次、7 天不重句，localStorage 记录）。全部圆点/文案中文，主题只用宿主 `--dsw-alias-*` 变量（含 fallback）。
- */
-
-window.__ModuleLoader__.load({
- id: 'dsh-little-whale',
- factory: (require) => {
-  'use strict'
-
-  const React = require('react')
-  if (!React || typeof React.createElement !== 'function') {
-  throw new Error('dsh-little-whale: React 运行时不可用')
-  }
-  const h = React.createElement
-  setRuntime({ React, h })
-
-  const resourceStore = createResourceStore({
-    fetchJsonUrl,
-    route: ROUTE,
-    assetDataFiles: ASSET_DATA_FILES,
-    resourcePaths: RESOURCE_PATHS,
-    assetUrlFor,
-    clearFeihuaIndexCache,
-    clearFeihuaFullCache,
-    clearPetMediaCache,
-  })
-  const { useViewportSize, useResource } = createHooks({ React, resourceStore })
-  const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab })
-  const DEBUG = {
-  ROUTE,
-  ASSET_BASE,
-  WIDGET_ID,
-  STEPS,
-  PANEL_TABS: panelTabs.tabs, POETRY_TABS,
-  DEFAULT_SETTINGS,
-  buildToneCells,
-  selectPoemText,
-  selectCiText,
-  poemRhymeLines,
-  normalizeSettings,
-  settingsPatch,
-  buildSettingsRequest,
-  createSettingsSaver,
-  selectNextPoemId,
-  clampPosition,
-  anchorPosition,
-  describeDataError,
-  formatDateLabel,
-  hashString,
-  fetchJson,
-  loadResource: resourceStore.load,
-  clearResourceCache: resourceStore.clear,
-  readFirstScreenCache,
-  writeFirstScreenCache,
-  clearFirstScreenCache,
-  putSettings,
-  FEIHUA_BEST_KEY,
-  FEIHUA_CANDIDATE_CHARS,
-  FEIHUA_MIN_ENTRIES,
-
-  FEIHUA_ATLAS_LIMIT,
-  FEIHUA_ATLAS_PAGE,
-  buildFeihuaIndex,
-  getFeihuaIndex,
-  clearFeihuaIndexCache,
-  pickDefaultFeihuaChar,
-  feihuaStart,
-  feihuaSubmit, feihuaLookup, feihuaPlainOf, mergeFeihuaFullEntries, requestFeihuaFull, abortFeihuaFull, clearFeihuaFullCache, readFeihuaFullCache, FEIHUA_FULL_PATH, FEIHUA_FULL_TIMEOUT_MS, FEIHUA_FULL_RETRY_MS,
-  PET_MEDIA_PATH, PET_MEDIA_CATALOG_FILE, PET_MEDIA_TIMEOUT_MS, isVideoMoodFile, petMediaUrl, mascotVideoShouldPause, mascotFilePriority,
-  DIZZY_MIN_MS, DIZZY_MAX_MS, mealTriggerFor, DIZZY_FAST_PX_PER_SEC, DIZZY_FAST_DISTANCE_PX, DIZZY_FAST_WINDOW_MS, MEAL_KEY, MEAL_PLAY_MIN_MS, MEAL_PLAY_MAX_MS, detectFastDrag, nextDizzyDuration, nextMealDuration, mealMomentFor, normalizeMealState, readMealState, writeMealState, markMealDone, pickDizzyMedia, pickMealMedia, normalizePetMediaCatalog, mergePetMediaIntoCatalog, requestPetMediaCatalog, clearPetMediaCache,
-  MOTION_ROTATION_KEY, MOTION_MIN_DELAY_MS, MOTION_MAX_DELAY_MS, MOTION_PLAY_MIN_MS, MOTION_PLAY_MAX_MS, MOTION_FIRST_MIN_DELAY_MS, MOTION_FIRST_MAX_DELAY_MS, nextMotionFirstDelay, nextMotionScheduleDelay, readMotionRotation, writeMotionRotation, nextMotionEntry, nextMotionDelay, nextMotionDuration,
-  normalizeFeihuaBest,
-  feihuaBestUpdate,
-  readFeihuaBest,
-  writeFeihuaBest,
-  MASCOT_FILES,
-  mascotStateFor,
-  mascotFileFor,
-  mascotUrl,
-  weatherPoemTags,
-  countWeatherTagHits,
-  buildWeatherPoemPool,
-  selectWeatherPoemEntry,
-  weatherChipText,
-  weatherExplainText,
-  weatherUpdatedLabel,
-  requestWeather,
-  SELF_PATH, SELF_POLL_MS, ACTION_SEEN_KEY, readSeenActionId, writeSeenActionId, normalizeSelfAction, MEMORY_PATH, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, normalizeMemoryStatus, normalizeSelfStatus, selfStatusSummary,
-  MOOD_LABELS, MOOD_IMAGES, MOOD_SWITCH_MIN_MS, MOOD_STRONG, MOOD_AI_PATH, MOOD_AI_TIMEOUT_MS, MOOD_AI_DEBOUNCE_MIN_MS, MOOD_AI_DEBOUNCE_MAX_MS, MOOD_AI_MIN_GAP_MS, MOOD_AI_RETRY_MIN_MS, MOOD_AI_RETRY_MAX_MS, MOOD_AI_KEEP_MS, MOOD_AI_MAX_RETRIES, nextMoodAiRetryDelay, moodAiKeepDecision, normalizeMoodAiFailure, moodAiFailureLabel, moodAiEventDelay, MOOD_AI_RECENT_MAX, MOOD_AI_RECENT_IMAGES_MAX, MOOD_PANEL_PEEK_FILES,
-  SPONT_KEY, SPONT_POLL_MIN_MS, SPONT_POLL_MAX_MS, SPONT_RETRY_MS, SPONT_EVENT_MIN_MS, SPONT_EVENT_MAX_MS, SPONT_CLOSE_RECHECK_MS, SPONT_QUIET_MS, SPONT_REPEAT_MS, SPONT_AUTO_CLOSE_MS, SPONT_SEEN_DAYS, SPONT_MAX_SEEN,
-  selfTalkQuery, parseSelfTalkResponse, requestSelfTalk, selfTalkKindFor, selfTalkNoveltySignature, SELF_TALK_PATH, SELF_TALK_TIMEOUT_MS, SELF_TALK_RECENT_MAX,
-  WINDOW_WANDER_ENABLED, WANDER_TICK_MS, WANDER_WALK_MS, WANDER_MIN_DISTANCE, nextWanderTarget, pickWanderMedia, WANDER_STATIC_FILE,
-  shanghaiParts, normalizeMoodStats, computeMood, throttleMoodSwitch, mascotImageFor, moodBasisText, normalizeMoodCatalog, panelPeekFile, moodCatalogAllows, moodAiQuery, parseMoodAiResponse, requestMoodAi, nextMoodAiDebounceDelay, moodAiSnapshot, moodTimeBucket, isMoodAiSignificant, moodImageFor: (key) => (MOOD_IMAGES[key] || MOOD_IMAGES.calm)[0],
-  normalizeSpontState, readSpontState, writeSpontState, recordSpontShown, canShowSpontaneous, nextSpontPollDelay, nextSpontEventDelay, countSpontHits, splitCompleteSentences, pickSentenceFromLines,
-  LIBRARY_CATEGORIES, LIBRARY_CATEGORY_ALIASES, LIBRARY_PAGE, ASSET_DATA_FILES,
-  TONE_QUATRAINS, MASCOT_EGG_KEY, MASCOT_EXPRESSION_FILES, MASCOT_EXPRESSION_MS, MASCOT_IDLE_MIN_MS, MASCOT_IDLE_USER_MS,
-  assetUrlFor, buildLibraryItems, filterLibraryItems, libraryPage, libraryItemLabel, ciBankRhythmics, ciSelectedLibraryItems, ciSelectedRhythmics, mergeFeihuaItems, finishFeihuaIndex, feihuaSourceOf, completeSentencesFromLines,
-  buildPingshuiIndex, annotatePoemLines, detectMetre, detectPoem, detectPoemText, parsePoemInput, formatDetectionReport, detectionRhymeIndexes, patternForShape,
-  setAssetDataVersion: resourceStore.setAssetDataVersion, normalizeMascotEggState, readMascotEggState, writeMascotEggState, recordMascotEgg, shouldShowDailyGreet, canShowIdlePose, pickMascotExpression,
-  LibraryTab,
-  GrowthTab,
-  PoetryWidget,
-  TodayTab,
   ClassTab,
-  YunTab,
   CiTab,
   FeihuaTab,
-  SettingsTab,
+  GrowthTab,
+  LibraryTab,
   PoetrySettingsTab,
-  normalizeHealthStatus,
-  }
-  try {
-  if (typeof globalThis !== 'undefined') globalThis.__dshPoetryDebug = DEBUG
-  } catch (error) {
-  }
-  /**
+  TodayTab,
+  YunTab,
+} from './tabs.js'
+import { num } from '../base.js'
+import { normalizeHealthStatus } from '../health-model.js'
+import { normalizeSettings, selectNextPoemId } from '../settings-model.js'
+import { nextSpontEventDelay } from '../self-talk-client.js'
+import { buildFeihuaIndex, finishFeihuaIndex, mergeFeihuaItems } from '../feihua.js'
+import { CSS } from '../styles.js'
+import { clearFirstScreenCache, fetchJsonUrl, readFirstScreenCache, writeFirstScreenCache } from '../data.js'
+import { ROUTE, SELF_PATH, MEMORY_PATH, HEALTH_PATH, WORKS_PATH, ATTENTION_PATH, PROJECT_ACTION_PATH, PROJECT_PATH, TWIN_PATH, PRESENCE_PATH, PRESENCE_THROTTLE_MS, WORKS_POLL_MS, GROWTH_PATH, GROWTH_POLL_MS, ATTENTION_POLL_MS, TWIN_POLL_MS, HEALTH_POLL_MS, MEMORY_BACKUP_PATH, MEMORY_POLL_MS, STEPS, POETRY_ENTRY_ENABLED, MASCOT_FILES, WEATHER_POOL_LIMIT } from './models/constants.js'
+import { formatDateLabel } from './models/utils.js'
+import { getFeihuaIndex } from './models/feihua-model.js'
+import { weatherPoemTags, buildWeatherPoemPool, selectWeatherPoemEntry, weatherChipText, weatherExplainText } from './models/weather-model.js'
+import { mascotUrl, pickMascotExpression } from './models/mascot-model.js'
+import { normalizeSelfStatus, normalizeMemoryStatus, normalizeWorks, normalizeAttention, normalizeTwinState } from './models/self-model.js'
+import { fetchJson } from './models/api.js'
+import { BubbleView } from './view/bubble-view.js'
+import { MascotView } from './view/mascot-view.js'
+import { MealTipView } from './view/meal-tip.js'
+import { PanelView } from './view/panel-view.js'
+import { RestoreHotspotView } from './view/restore-hotspot.js'
+import { SpontView } from './view/spont-view.js'
+import { ToastView } from './view/toast-view.js'
+import { WidgetRoot } from './view/widget-root.js'
+import { StepContent } from './view/steps/index.js'
+import { useToast } from './hooks/use-toast.js'
+import { useSettings } from './hooks/use-settings.js'
+import { usePanel } from './hooks/use-panel.js'
+import { useWeather } from './hooks/use-weather.js'
+import { useData } from './hooks/use-data.js'
+import { useSpont } from './hooks/use-spont.js'
+import { useSelfStatus } from './hooks/use-self-status.js'
+import { useMood } from './hooks/use-mood.js'
+import { useMascot } from './hooks/use-mascot.js'
 
-  */
-  function PoetryWidget(props) {
+export function PoetryWidget(props) {
+  const React = getReact()
+  const h = getRuntime().h
+  const { resourceStore, useViewportSize, useResource, panelTabs } = getRuntime()
   const ctx = props && props.ctx
   const cacheRef = React.useRef(null)
   const cacheLoadedRef = React.useRef(false)
@@ -556,13 +109,13 @@ window.__ModuleLoader__.load({
   // 顺序：toast → settings → panel → weather → data → spont → selfStatus → mood → mascot。
   const { toast, showToast, toastTimer } = useToast({ refs })
   const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs })
-  const { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs })
+  const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs })
   const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings })
-  const { viewport, mascotSize, ciBankWanted, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, reloadMoodCatalog, ciBankRes, reloadCiBank, libraryActive, feihuaOpen, ciTabActive, extraPoolActive } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs })
-  const { spontPoem, setSpontPoem, spontPreview, setSpontPreview, wakeSpontaneous, startSpontaneousCard, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction })
+  const { viewport, mascotSize, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, ciBankRes, feihuaOpen } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs })
+  const { spontPoem, spontPreview, wakeSpontaneous, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction })
   const { selfStatus, setSelfStatus } = useSelfStatus({ showSpontCard, refs })
   const { moodRes, moodView, moodSource, moodAiFallback, moodAiStale, moodAiFailure, moodAiFailureCode, petMediaRes, moodCatalog, moodChip, moodChipTitle, moodBasis, refreshMoodNow, scheduleMoodAiRefresh } = useMood({ settings, settingsRef, weather, moodCatalogRes, panelOpen, panelTab, poetryTab, spontPoem, refs, boot, moodWakeSigRef, wakeSpontaneous })
-  const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotTap, handleMascotKeyDown, triggerDizzy, maybeTriggerMeal, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget })
+  const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotKeyDown, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget })
 
 
   posRef.current = pos
@@ -580,9 +133,7 @@ window.__ModuleLoader__.load({
   }, [])
 
 
-  /** 飞花令/交互反馈：临时切换立绘 2.5s 后回落到天气/默认状态。 */
 
-  /** 拉取天气（失败静默：仅更新状态，不弹 toast；保留上次结果）。 */
 
 
 
@@ -917,7 +468,6 @@ window.__ModuleLoader__.load({
   const dateSeed = (boot.data && boot.data.today && boot.data.today.date) || ''
   const dateLabel = formatDateLabel(dateSeed)
 
-  /** 气泡第 6 张卡：飞花令入口（今日令字 + 句数 + 历史最佳 + 来一局）。 */
 
 
 
@@ -1402,179 +952,3 @@ window.__ModuleLoader__.load({
   }
   return WidgetRoot({ settings, pos, walking, mascotSize, nodes })
   }
-
-  // v1.85：诗词基础 tab 已移到 tabs-poetry.js；这里用惰性包装保持 DEBUG/渲染引用不变。
-  let poetryTabs = null
-  function ensurePoetryTabs() {
-   if (poetryTabs === null) {
-    poetryTabs = createPoetryTabs({
-     React,
-     h,
-     EmptyState,
-     LoadingState,
-     PoemBody,
-     AnalysisBody,
-     KnowledgeCardView,
-     describeDataError,
-     normalizeSettings,
-     cx,
-     switchNode,
-     num,
-    })
-   }
-   return poetryTabs
-  }
-  function TodayTab(props) { return ensurePoetryTabs().TodayTab(props) }
-  function ClassTab(props) { return ensurePoetryTabs().ClassTab(props) }
-  function YunTab(props) { return ensurePoetryTabs().YunTab(props) }
-  function CiTab(props) { return ensurePoetryTabs().CiTab(props) }
-  function PoetrySettingsTab(props) { return ensurePoetryTabs().PoetrySettingsTab(props) }
-
-  // v2.4：设置面板已移到 tabs-settings.js；惰性包装保持 DEBUG/渲染引用不变。
-  let settingsTabFactory = null
-  function ensureSettingsTab() {
-   if (settingsTabFactory === null) {
-    settingsTabFactory = createSettingsTab({
-     React,
-     h,
-     cx,
-     normalizeSettings,
-     num,
-     switchNode,
-     growthMetricsTree,
-     weatherChipText,
-     weatherUpdatedLabel,
-     moodBasisText,
-     moodAiFailureLabel,
-    })
-   }
-   return settingsTabFactory
-  }
-  function SettingsTab(props) { return ensureSettingsTab()(props) }
-
-  // v2.4：成长主页已移到 tabs-growth.js。
-  let growthTabFactory = null
-  function ensureGrowthTab() {
-   if (growthTabFactory === null) {
-    growthTabFactory = createGrowthTab({
-     h,
-     cx,
-     switchNode,
-     growthMetricsTree,
-     moodAiFailureLabel,
-     selfStatusSummary,
-     weatherUpdatedLabel,
-    })
-   }
-   return growthTabFactory
-  }
-  function GrowthTab(props) { return ensureGrowthTab()(props) }
-
-  // v2.94：认知图谱面板（面板内直接画图，不依赖单独路由）。
-  let graphTabFactory = null
-  function ensureGraphTab() {
-   if (graphTabFactory === null) {
-    graphTabFactory = createGraphTab({ React, h })
-   }
-   return graphTabFactory
-  }
-  function GraphTab(props) { return ensureGraphTab()(props) }
-
-  // v2.4：飞花令面板已移到 tabs-feihua.js。
-  let feihuaTabFactory = null
-  function ensureFeihuaTab() {
-   if (feihuaTabFactory === null) {
-    feihuaTabFactory = createFeihuaTab({
-     React,
-     h,
-     cx,
-     EmptyState,
-     LoadingState,
-     ToneLine,
-     detectionRhymeIndexes,
-     formatDetectionReport,
-     describeDataError,
-     getFeihuaIndex,
-     pickDefaultFeihuaChar,
-     feihuaSourceOf,
-     mergeFeihuaItems,
-     finishFeihuaIndex,
-     mergeFeihuaFullEntries,
-     requestFeihuaFull,
-     abortFeihuaFull,
-     readFeihuaFullCache,
-     readFeihuaBest,
-     writeFeihuaBest,
-     FEIHUA_ATLAS_PAGE,
-     FEIHUA_FULL_RETRY_MS,
-    })
-   }
-   return feihuaTabFactory
-  }
-  function FeihuaTab(props) { return ensureFeihuaTab().FeihuaTab(props) }
-  function DetectionView(props) { return ensureFeihuaTab().DetectionView(props) }
-
-  // v2.4：诗库面板已移到 tabs-library.js。
-  let libraryTabFactory = null
-  function ensureLibraryTab() {
-   if (libraryTabFactory === null) {
-    libraryTabFactory = createLibraryTab({
-     React,
-     LIBRARY_CATEGORIES,
-     h,
-     cx,
-     EmptyState,
-     LoadingState,
-     DetectionView,
-     ToneLine,
-     describeDataError,
-     Z_INDEX,
-     WIDGET_ID,
-     MASCOT_FILES,
-     mascotUrl,
-     detectPoem,
-     detectPoemText,
-     parsePoemInput,
-     buildPingshuiIndex,
-    })
-   }
-   return libraryTabFactory
-  }
-  function LibraryTab(props) { return ensureLibraryTab().LibraryTab(props) }
-  // WidgetBoundary 是 class 组件，不能直接当函数调用；用函数包装成正常 React 组件。
-  function WidgetBoundary(props) {
-   const Boundary = ensureLibraryTab().WidgetBoundary
-   return h(Boundary, null, props && props.children)
-  }
-
-  function apply(ctx) {
-  const host = (props) => h(WidgetBoundary, null, h(PoetryWidget, Object.assign({}, props || {}, { ctx })))
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
-   { name: 'shell.overlay', id: WIDGET_ID, order: 80 },
-   host,
-  ))
-  // v0.2.0：镜像副浮层从独立子插件并入（只读，twin 关闭时自动隐藏）。
-  try {
-   const TwinOverlay = createTwinOverlay({ h, React })
-   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
-    { name: 'shell.overlay', id: 'dsh-little-whale-twin', order: 81 },
-    TwinOverlay,
-   ))
-  } catch (error) {
-   try { ctx.logger && ctx.logger.warn && ctx.logger.warn('dsh-little-whale: 镜像浮层注册失败：' + String((error && error.message) || error)) } catch (_error) {}
-  }
-  try {
-   if (ctx.logger && typeof ctx.logger.info === 'function') {
-    ctx.logger.info('dsh-little-whale: 已注册 shell.overlay 挂件')
-   }
-  } catch (error) {
-  }
-  }
-
-  return {
-  inject: ['slots'],
-  apply,
-  }
- },
-})
-

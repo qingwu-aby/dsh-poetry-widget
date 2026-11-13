@@ -3,9 +3,7 @@ import { getReact } from '../runtime.js'
 
 export function useToast(deps) {
   const React = getReact()
-  const { } = deps
   const { refs } = deps
-  const { } = refs
   const [toast, setToast] = React.useState(null)
   const toastTimer = React.useRef(null)
   const showToast = React.useCallback((text, kind) => {

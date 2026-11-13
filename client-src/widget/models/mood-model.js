@@ -8,12 +8,9 @@ import { ROUTE } from './constants.js'
 
 
 
-  /** 心情引擎：天气 + 时间 + 本地小信号 → {key,label,image,reason,strong}；不读任何对话数据（v1.58）。 */
 
-  /** 心情立绘限频：同 key 只更新文案；换 key 需 ≥20min，strong 变化/force 可破例。 */
 
   /** 天气 + 心情合成立绘：恶劣天气（rain/snow/thunder/cold/night）优先，其次心情，最后默认。 */
-  /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤20)，不含会话内容。 */
 
 
   /** 请求 host 模型心情；25s 超时（宿主 20s，客户端留余量）；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */

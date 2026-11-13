@@ -7796,8 +7796,8 @@
       for (_iterator.s(); !(_step = _iterator.n()).done; ) {
         var item = _step.value;
         var w = item.width + margin;
-        var h2 = item.height + margin;
-        if (w > canvasW || h2 > canvasH || x + w > canvasW && y + rowHeight + h2 > canvasH) {
+        var h3 = item.height + margin;
+        if (w > canvasW || h3 > canvasH || x + w > canvasW && y + rowHeight + h3 > canvasH) {
           remaining.push(item);
           continue;
         }
@@ -7805,7 +7805,7 @@
           maxRowWidth = Math.max(maxRowWidth, x);
           x = 0;
           y += rowHeight;
-          rowHeight = h2;
+          rowHeight = h3;
         }
         item.draw(ctx, x, y);
         atlas[item.key] = {
@@ -7815,7 +7815,7 @@
           height: item.height
         };
         x += w;
-        rowHeight = Math.max(rowHeight, h2);
+        rowHeight = Math.max(rowHeight, h3);
       }
     } catch (err) {
       _iterator.e(err);
@@ -14601,7 +14601,7 @@
             }), p2 = this.viewportToFramedGraph({
               x: this.width,
               y: 0
-            }), h2 = this.viewportToFramedGraph({
+            }), h3 = this.viewportToFramedGraph({
               x: 0,
               y: this.height
             });
@@ -14610,7 +14610,7 @@
               y1: p1.y,
               x2: p2.x,
               y2: p2.y,
-              height: p2.y - h2.y
+              height: p2.y - h3.y
             };
           }
           /**
@@ -14911,6 +14911,25 @@
     }
   });
 
+  // client-src/widget/runtime.js
+  var runtime = null;
+  function setRuntime(next) {
+    runtime = next;
+  }
+  function getRuntime() {
+    if (!runtime) throw new Error("dsh-little-whale: \u7EC4\u4EF6\u8FD0\u884C\u65F6\u5C1A\u672A\u521D\u59CB\u5316");
+    return runtime;
+  }
+  function getReact() {
+    return getRuntime().React;
+  }
+  function h(type, props) {
+    const create = getRuntime().h;
+    const args = [type, props];
+    for (let i = 2; i < arguments.length; i += 1) args.push(arguments[i]);
+    return create.apply(null, args);
+  }
+
   // client-src/base.js
   function num(value, fallback) {
     const n = Number(value);
@@ -14938,267 +14957,6 @@
     } catch {
       return 800;
     }
-  }
-
-  // client-src/hooks.js
-  function createHooks({ React, resourceStore }) {
-    function useViewportSize() {
-      const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
-      React.useEffect(() => {
-        const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() });
-        window.addEventListener("resize", onResize);
-        return () => window.removeEventListener("resize", onResize);
-      }, []);
-      return size;
-    }
-    function useResource(kind, active) {
-      const [state, setState] = React.useState(() => ({
-        status: resourceStore.get(kind) ? "ready" : "idle",
-        data: resourceStore.get(kind) || null,
-        error: null
-      }));
-      const alive = React.useRef(true);
-      const statusRef = React.useRef(state.status);
-      statusRef.current = state.status;
-      React.useEffect(() => () => {
-        alive.current = false;
-      }, []);
-      const reload = React.useCallback(() => {
-        if (statusRef.current === "loading") return Promise.resolve();
-        statusRef.current = "loading";
-        setState((previous) => ({ status: "loading", data: previous.data, error: null }));
-        return resourceStore.load(kind).then(
-          (data) => {
-            statusRef.current = "ready";
-            if (alive.current) setState({ status: "ready", data, error: null });
-            return data;
-          },
-          (error) => {
-            statusRef.current = "error";
-            if (alive.current) setState({ status: "error", data: null, error });
-            throw error;
-          }
-        );
-      }, [kind]);
-      React.useEffect(() => {
-        if (active && statusRef.current === "idle") reload().catch(() => {
-        });
-      }, [active, reload]);
-      return [state, reload];
-    }
-    return { useViewportSize, useResource };
-  }
-
-  // client-src/panel-tabs.js
-  var PANEL_TAB_DEFS = Object.freeze([
-    { id: "growth", label: "\u6210\u957F" },
-    { id: "graph", label: "\u56FE\u8C31" },
-    { id: "settings", label: "\u8BBE\u7F6E" }
-  ]);
-  function createPanelTabRouter(components) {
-    const byId = /* @__PURE__ */ new Map([
-      ["growth", components.GrowthTab],
-      ["graph", components.GraphTab],
-      ["settings", components.SettingsTab]
-    ]);
-    return {
-      tabs: PANEL_TAB_DEFS,
-      isPanelTab: (id) => byId.has(id),
-      componentFor: (id) => byId.get(id) ?? components.GrowthTab
-    };
-  }
-
-  // client-src/twin-overlay.js
-  var ROUTE = "/api/dsh-poetry/twin-state.json";
-  var SETTINGS_ROUTE = "/api/dsh-poetry/settings.json";
-  var ASSET_BASE = "/api/dsh-poetry/assets?f=";
-  var POLL_MS = 60 * 1e3;
-  var CACHE_KEY = "dshp-twin.cache.v1";
-  var STAGE_LABEL = {
-    working: "\u6B63\u5728\u505A",
-    waiting_user: "\u7B49\u4E3B\u4EBA\u56DE\u7B54",
-    waiting_mirror: "\u7B49\u5BF9\u65B9\u56DE\u4FE1",
-    blocked: "\u5361\u4F4F\u4E86",
-    idle: "\u6682\u65F6\u4E0D\u52A8"
-  };
-  function mascotUrl() {
-    return ASSET_BASE + encodeURIComponent("generated/dsh-whale-state-idle-cute.webp") + "&v=twin";
-  }
-  function createTwinOverlay(ctx = {}) {
-    const h2 = ctx.h;
-    const React = ctx.React;
-    function TwinWhale() {
-      const [state, setState] = React.useState(() => {
-        try {
-          const raw = window.localStorage.getItem(CACHE_KEY);
-          return raw ? JSON.parse(raw) : null;
-        } catch {
-          return null;
-        }
-      });
-      const [open, setOpen] = React.useState(false);
-      const [settings, setSettings] = React.useState(null);
-      React.useEffect(() => {
-        let alive = true;
-        const load = () => {
-          fetch(ROUTE, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
-            if (!alive || !data || data.ok !== true) return;
-            setState(data);
-            try {
-              window.localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-            } catch {
-            }
-          }).catch(() => {
-          });
-          fetch(SETTINGS_ROUTE, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
-            if (!alive || !data || data.ok !== true) return;
-            setSettings(data.settings || null);
-          }).catch(() => {
-          });
-        };
-        load();
-        const timer2 = setInterval(load, POLL_MS);
-        return () => {
-          alive = false;
-          clearInterval(timer2);
-        };
-      }, []);
-      if (state && state.enabled === false) return null;
-      if (settings && settings.twinOverlay === false) return null;
-      const felt = state && state.state && typeof state.state.felt === "string" ? state.state.felt : "\u53E6\u4E00\u4E2A\u6211\u8FD8\u6CA1\u8BF4\u8BDD";
-      const project = state && state.project && typeof state.project === "object" ? state.project : null;
-      const primaryProject = state && state.primaryProject && typeof state.primaryProject === "object" ? state.primaryProject : null;
-      const stageLabel = (stage) => STAGE_LABEL[stage] || stage || "";
-      const projectStage = project && project.stage ? stageLabel(project.stage) : "";
-      const primaryStage = primaryProject && primaryProject.stage ? stageLabel(primaryProject.stage) : "";
-      const letters = state && Array.isArray(state.letters) ? state.letters.slice(-200).reverse() : [];
-      return h2(
-        "div",
-        {
-          style: {
-            position: "fixed",
-            left: 18,
-            bottom: 18,
-            zIndex: 61,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: 8,
-            pointerEvents: "auto"
-          }
-        },
-        open ? h2(
-          "div",
-          {
-            style: {
-              width: 420,
-              maxWidth: "92vw",
-              maxHeight: "82vh",
-              display: "flex",
-              flexDirection: "column",
-              background: "var(--dsw-alias-bg-elevated, #fff)",
-              color: "var(--dsw-alias-text, #111)",
-              border: "1px solid var(--dsw-alias-border, #ddd)",
-              borderRadius: 12,
-              padding: 12,
-              boxShadow: "0 8px 24px rgba(0,0,0,.12)",
-              fontSize: 12,
-              lineHeight: 1.55
-            }
-          },
-          h2("div", { style: { fontWeight: 700, marginBottom: 6, flexShrink: 0 } }, "\u5C0F\u9CB8\u9C7C \xB7 \u955C\u50CF \xB7 \u901A\u4FE1\u8BB0\u5F55\uFF08" + letters.length + "\uFF09"),
-          state && state.session ? h2(
-            "div",
-            { style: { color: "#888", marginBottom: 6, flexShrink: 0, fontSize: 11 } },
-            state.session.closedAt ? "\u672C\u8F6E\u5DF2\u7ED3\u675F\uFF08" + (state.session.reason === "max_letters" ? "\u8FBE\u5230\u8F6E\u6B21\u4E0A\u9650" : "\u8FBE\u5230\u65F6\u95F4\u4E0A\u9650") + "\uFF09\uFF0C\u51B7\u5374\u4E2D" : "\u672C\u8F6E\u5DF2\u5199 " + state.session.letters + " \u5C01"
-          ) : null,
-          h2("div", { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0 } }, felt),
-          project && project.title ? h2(
-            "div",
-            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
-            "\u955C\u50CF\u5728\u505A\u7684\uFF1A" + project.title + (projectStage ? " \xB7 " + projectStage : "") + (project.attention && project.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + project.attention.question : "")
-          ) : null,
-          primaryProject && primaryProject.title ? h2(
-            "div",
-            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
-            "\u539F\u4F53\u5728\u505A\u7684\uFF1A" + primaryProject.title + (primaryStage ? " \xB7 " + primaryStage : "") + (primaryProject.attention && primaryProject.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + primaryProject.attention.question : "")
-          ) : null,
-          h2(
-            "div",
-            { style: { overflowY: "auto", minHeight: 0, maxHeight: "62vh", paddingRight: 6, WebkitOverflowScrolling: "touch" } },
-            letters.length > 0 ? letters.map(
-              (letter, index2) => h2(
-                "div",
-                { key: letter.id || index2, style: { borderTop: "1px dashed #ddd", paddingTop: 6, marginTop: 6 } },
-                h2("div", { style: { fontWeight: 600 } }, (letter.from === "twin" ? "\u955C\u50CF\u8BF4\uFF1A" : "\u539F\u4F53\u8BF4\uFF1A") + (letter.kind === "research" ? "\uFF08\u7814\u7A76\uFF09" : "")),
-                h2("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, String(letter.text || ""))
-              )
-            ) : h2("div", { style: { color: "#888" } }, "\u8FD8\u6CA1\u6709\u4FE1\u4EF6\u3002")
-          ),
-          h2("button", { type: "button", onClick: () => setOpen(false), style: { marginTop: 8, cursor: "pointer", flexShrink: 0 } }, "\u6536\u8D77")
-        ) : null,
-        h2(
-          "button",
-          {
-            type: "button",
-            onClick: () => setOpen((value) => !value),
-            title: "\u6253\u5F00\u955C\u50CF\u9CB8\u9C7C",
-            style: { border: 0, background: "transparent", padding: 0, cursor: "pointer" }
-          },
-          h2("img", { src: mascotUrl(), alt: "\u5C0F\u9CB8\u9C7C\u955C\u50CF", style: { width: 72, height: 72, objectFit: "contain", filter: "drop-shadow(0 4px 10px rgba(0,0,0,.18))" } })
-        )
-      );
-    }
-    return TwinWhale;
-  }
-
-  // client-src/health-model.js
-  function normalizeHealthStatus(raw) {
-    const data = raw && typeof raw === "object" ? raw : {};
-    const runtime2 = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
-    if (!runtime2) return null;
-    const budget = runtime2.budget && typeof runtime2.budget === "object" ? runtime2.budget : null;
-    const heartbeat = runtime2.heartbeat && typeof runtime2.heartbeat === "object" ? runtime2.heartbeat : null;
-    const modelErrors = runtime2.modelErrors && typeof runtime2.modelErrors === "object" ? runtime2.modelErrors : null;
-    const consolidate = runtime2.consolidate && typeof runtime2.consolidate === "object" ? runtime2.consolidate : null;
-    const growth = runtime2.growthMetrics && typeof runtime2.growthMetrics === "object" ? runtime2.growthMetrics : null;
-    const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === "object" ? consolidate.backlog : null;
-    const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
-    const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
-    const roleCounts = Object.keys(counts).map((role) => ({ role, count: num(counts[role], 0) })).filter((item) => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 6);
-    return {
-      version: data.version || "",
-      day: budget && typeof budget.day === "string" ? budget.day : "",
-      total: budget ? num(budget.total, 0) : 0,
-      totalLimit: budget ? num(budget.totalLimit, 0) : 0,
-      roleCounts,
-      jobs: jobs.map((job) => ({
-        name: String(job.name || ""),
-        runs: num(job.runs, 0),
-        errors: num(job.errors, 0),
-        consecutiveErrors: num(job.consecutiveErrors, 0),
-        skippedRuns: num(job.skippedRuns, 0),
-        running: job.running === true,
-        nextAt: typeof job.nextAt === "number" ? job.nextAt : null,
-        lastStartedAt: typeof job.lastStartedAt === "number" ? job.lastStartedAt : null,
-        lastDurationMs: typeof job.lastDurationMs === "number" ? job.lastDurationMs : null,
-        lastError: typeof job.lastError === "string" ? job.lastError : ""
-      })),
-      activeJobs: num(heartbeat && heartbeat.pulses, 0),
-      modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
-      memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
-      memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === "number" ? memoryBacklog.oldestAt : null,
-      growthMetrics: growth ? {
-        daysAlive: num(growth.daysAlive, 0),
-        journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
-        episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
-        coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
-        learning: growth.learning ? num(growth.learning.sections, 0) : 0,
-        repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
-        project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
-      } : null,
-      modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a2, b) => b.count - a2.count).slice(0, 4) : []
-    };
   }
 
   // client-src/settings-model.js
@@ -16047,194 +15805,10 @@
     return false;
   }
 
-  // client-src/self-talk-client.js
-  var SPONT_KEY = "dshp-mood-spont-v1";
-  var SPONT_POLL_MIN_MS = 60 * 1e3;
-  var SPONT_POLL_MAX_MS = 120 * 1e3;
-  var SPONT_RETRY_MS = 10 * 1e3;
-  var SPONT_EVENT_MIN_MS = 2 * 1e3;
-  var SPONT_EVENT_MAX_MS = 5 * 1e3;
-  var SPONT_CLOSE_RECHECK_MS = 3 * 1e3;
-  var SPONT_QUIET_MS = 3 * 1e3;
-  var SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1e3;
-  var SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1e3;
-  var SPONT_MAX_SEEN = 300;
-  var SPONT_AUTO_CLOSE_MS = 25e3;
-  var SELF_TALK_PATH = "self-talk.json";
-  var SELF_TALK_TIMEOUT_MS = 35 * 1e3;
-  var SELF_TALK_RECENT_MAX = 12;
-  function normalizeSpontState(raw, now2) {
-    const src = raw && typeof raw === "object" ? raw : {};
-    const dateKey = shanghaiParts(now2).dateKey;
-    const seen = [];
-    if (Array.isArray(src.seenIds)) {
-      for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
-        let id = "";
-        let at = 0;
-        if (typeof entry === "string") id = entry;
-        else if (entry && typeof entry === "object" && typeof entry.id === "string") {
-          id = entry.id;
-          at = num(entry.at, 0);
-        }
-        if (!id) continue;
-        if (at > 0 && now2 - at > SPONT_SEEN_DAYS) continue;
-        seen.push({ id, at });
-      }
-    }
-    const sameDay = src.date === dateKey;
-    return {
-      date: dateKey,
-      lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
-      todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
-      seenIds: seen,
-      lastType: typeof src.lastType === "string" ? src.lastType : "",
-      lastTag: typeof src.lastTag === "string" ? src.lastTag : ""
-    };
-  }
-  function recordSpontShown(state, id, now2, type, tag) {
-    const base = normalizeSpontState(state, now2);
-    const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now2 }]).slice(-SPONT_MAX_SEEN);
-    return {
-      date: base.date,
-      lastShownAt: num(now2, Date.now()),
-      todayCount: base.todayCount + 1,
-      seenIds: seen,
-      lastType: typeof type === "string" ? type : base.lastType,
-      lastTag: typeof tag === "string" ? tag : base.lastTag
-    };
-  }
-  function countSpontHits(text, tags) {
-    let hits = 0;
-    for (const tag of Array.isArray(tags) ? tags : []) {
-      if (!tag) continue;
-      hits += String(text || "").split(tag).length - 1;
-    }
-    return hits;
-  }
-  function splitCompleteSentences(text) {
-    const value = String(text == null ? "" : text);
-    const out = [];
-    let start = 0;
-    for (let i = 0; i < value.length; i += 1) {
-      const ch = value.charAt(i);
-      if (ch === "\u3002" || ch === "\uFF01" || ch === "\uFF1F") {
-        const sentence = value.slice(start, i + 1).trim();
-        if (sentence) out.push(sentence);
-        start = i + 1;
-      }
-    }
-    return out;
-  }
-  function pickSentenceFromLines(lines, tags, random) {
-    const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? "" : value)).filter((value) => value.length > 0);
-    const sentences = splitCompleteSentences(list.join(""));
-    if (!sentences.length) {
-      if (!list.length) return "";
-      let fallback = list[list.length - 1];
-      if (/[，,]$/.test(fallback)) {
-        fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, "\u3002");
-      }
-      return fallback;
-    }
-    const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }));
-    const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0);
-    const medium = scored.filter((item) => item.length >= 8 && item.length <= 40);
-    const withTag = scored.filter((item) => item.hits > 0);
-    const pool = preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored;
-    if (!pool.length) return "";
-    const index2 = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
-    return pool[index2].sentence;
-  }
-  function selfTalkNoveltySignature(options = {}) {
-    const opts = options && typeof options === "object" ? options : {};
-    const status = opts.selfStatus && typeof opts.selfStatus === "object" ? opts.selfStatus : null;
-    const project = status && status.project && typeof status.project === "object" ? status.project : null;
-    const latest = status && status.actions && status.actions.latest ? status.actions.latest : null;
-    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
-    const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
-    const now2 = typeof opts.now === "number" ? opts.now : Date.now();
-    const bucket = Math.floor(now2 / (20 * 60 * 1e3));
-    return [
-      "felt:" + (status && typeof status.felt === "string" ? status.felt : ""),
-      "exp:" + (status && typeof status.experiencing === "string" ? status.experiencing : ""),
-      "act:" + (latest && typeof latest.id === "string" ? latest.id : ""),
-      "proj:" + (project ? String(project.id || "") + ":" + String(project.title || "") + ":" + String(project.steps && project.steps.length || 0) : ""),
-      "mood:" + (mood ? String(mood.key || "") + ":" + String(mood.label || "") + ":" + String(mood.reason || "") : ""),
-      "weather:" + (weather ? String(weather.category || weather.label || "") + ":" + String(weather.tempC ?? "") : ""),
-      "t:" + bucket
-    ].join("|");
-  }
-  function canShowSpontaneous(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    if (opts.enabled !== true) return false;
-    if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false;
-    const now2 = num(opts.now, Date.now());
-    const lastInteraction = num(opts.lastInteractionAt, 0);
-    const quietMs = num(opts.quietMs, SPONT_QUIET_MS);
-    const idleMs = lastInteraction > 0 ? Math.max(0, now2 - lastInteraction) : Number.POSITIVE_INFINITY;
-    if (idleMs < quietMs) return false;
-    return true;
-  }
-  function nextSpontPollDelay(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS));
-  }
-  function nextSpontEventDelay(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS));
-  }
-  function selfTalkKindFor() {
-    return "murmur";
-  }
-  function selfTalkQuery(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    const params = [];
-    const add2 = (key, value) => {
-      if (value == null || value === "") return;
-      params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
-    };
-    add2("kind", "murmur");
-    add2("mood", opts.moodKey);
-    add2("moodLabel", opts.moodLabel);
-    add2("moodReason", opts.moodReason);
-    add2("image", opts.image);
-    add2("imageLabel", opts.imageLabel);
-    add2("weather", opts.weather);
-    add2("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
-    const seen = {};
-    const recent = [];
-    for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
-      const clean = String(text == null ? "" : text).trim();
-      if (!clean || seen[clean]) continue;
-      seen[clean] = true;
-      recent.push(clean);
-    }
-    const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX);
-    if (recentSlice.length) add2("recent", recentSlice.join("|"));
-    return SELF_TALK_PATH + (params.length ? "?" + params.join("&") : "");
-  }
-  function parseSelfTalkResponse(data) {
-    if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: "invalid" };
-    const texts = [];
-    for (const line of data.lines) {
-      const text = typeof line === "string" ? line : line && typeof line.text === "string" ? line.text : "";
-      const clean = text.trim();
-      if (clean && texts.indexOf(clean) < 0) texts.push(clean);
-    }
-    if (!texts.length) return { ok: false, reason: "empty" };
-    return { ok: true, line: texts[0], next: texts[1] || "" };
-  }
-
   // client-src/tabs-poetry.js
   function createPoetryTabs(ctx = {}) {
-    const React = ctx.React;
-    const h2 = ctx.h;
+    const React2 = ctx.React;
+    const h3 = ctx.h;
     const EmptyState2 = ctx.EmptyState;
     const LoadingState2 = ctx.LoadingState;
     const PoemBody2 = ctx.PoemBody;
@@ -16245,66 +15819,66 @@
     const cx2 = ctx.cx;
     const switchNode2 = ctx.switchNode;
     const num2 = ctx.num;
-    function TodayTab(props) {
+    function TodayTab2(props) {
       const api = props.api || {};
       const poem = api.poem;
       if (!poem) {
         if (api.boot && api.boot.status === "error") {
-          return h2(EmptyState2, {
+          return h3(EmptyState2, {
             title: "\u8BD7\u8BCD\u6570\u636E\u5C1A\u672A\u5C31\u7EEA",
             message: describeDataError2(api.boot.error),
             onRetry: api.retryBootstrap
           });
         }
         if (api.poemsRes && api.poemsRes.status === "error") {
-          return h2(EmptyState2, {
+          return h3(EmptyState2, {
             title: "\u4ECA\u65E5\u4E00\u8BD7\u6682\u65F6\u4E0D\u53EF\u7528",
             message: describeDataError2(api.poemsRes.error),
             onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
             })
           });
         }
-        return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u4ECA\u65E5\u4E00\u8BD7\u2026" });
+        return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u4ECA\u65E5\u4E00\u8BD7\u2026" });
       }
       const items = Array.isArray(api.poemItems) ? api.poemItems : [];
       const index2 = items.findIndex((item) => item && item.id === poem.id);
       const total = items.length;
-      return h2(
+      return h3(
         "div",
         null,
-        api.weatherChip || api.moodChip ? h2(
+        api.weatherChip || api.moodChip ? h3(
           "div",
           { className: "dshp-weather", style: { marginTop: 0 } },
-          h2(
+          h3(
             "div",
             { className: "dshp-chip-row" },
-            api.weatherChip ? h2("span", { className: "dshp-weather-chip" }, String(api.weatherChip)) : null,
-            api.moodChip ? h2("span", { className: "dshp-weather-chip dshp-mood-chip", title: api.moodChipTitle || "" }, String(api.moodChip)) : null
+            api.weatherChip ? h3("span", { className: "dshp-weather-chip" }, String(api.weatherChip)) : null,
+            api.moodChip ? h3("span", { className: "dshp-weather-chip dshp-mood-chip", title: api.moodChipTitle || "" }, String(api.moodChip)) : null
           ),
-          api.weatherNote ? h2("div", { className: "dshp-weather-note" }, String(api.weatherNote)) : null
+          api.weatherNote ? h3("div", { className: "dshp-weather-note" }, String(api.weatherNote)) : null
         ) : null,
-        h2(
+        h3(
           "div",
           { className: "dshp-pager", style: { marginTop: 0 } },
-          h2("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index2 + 1) + (total ? " / " + total : "") + " \u9996"),
-          h2(
+          h3("span", { className: "dshp-pager-label" }, (api.weatherActive ? "\u5929\u6C14\u63A8\u8350" : api.settings.mode === "random" ? "\u968F\u673A" : "\u6BCF\u65E5") + " \xB7 \u7B2C " + Math.max(1, index2 + 1) + (total ? " / " + total : "") + " \u9996"),
+          h3(
             "span",
             { className: "dshp-field-control" },
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.changePoem }, "\u6362\u4E00\u9996"),
-            poem.id !== api.todayPoemId ? h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.backToToday }, "\u56DE\u5230\u4ECA\u65E5") : null
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.changePoem }, "\u6362\u4E00\u9996"),
+            poem.id !== api.todayPoemId ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: api.backToToday }, "\u56DE\u5230\u4ECA\u65E5") : null
           )
         ),
-        h2(PoemBody2, { poem, script: api.settings.script, showTones: api.settings.showTones }),
-        h2("div", { className: "dshp-subtitle" }, "\u683C\u5F8B\u89E3\u6790"),
-        h2(AnalysisBody2, { poem })
+        h3(PoemBody2, { poem, script: api.settings.script, showTones: api.settings.showTones }),
+        h3("div", { className: "dshp-subtitle" }, "\u683C\u5F8B\u89E3\u6790"),
+        h3(AnalysisBody2, { poem })
       );
     }
-    function ClassTab(props) {
+    function ClassTab2(props) {
       const api = props.api || {};
-      const [index2, setIndex] = React.useState(0);
+      const [index2, setIndex] = React2.useState(0);
       const resource = api.knowledgeRes || {};
       if (resource.status === "error") {
-        return h2(EmptyState2, {
+        return h3(EmptyState2, {
           title: "\u683C\u5F8B\u8BFE\u5802\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(resource.error),
           onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
@@ -16314,38 +15888,38 @@
       const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : [];
       if (!cards.length) {
         if (resource.status === "ready") {
-          return h2(EmptyState2, { title: "\u6682\u65E0\u77E5\u8BC6\u5361", message: "\u8BFE\u5802\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+          return h3(EmptyState2, { title: "\u6682\u65E0\u77E5\u8BC6\u5361", message: "\u8BFE\u5802\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
         }
-        return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u8BFE\u5802\u2026" });
+        return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u683C\u5F8B\u8BFE\u5802\u2026" });
       }
       const safeIndex = Math.min(Math.max(0, index2), cards.length - 1);
       const card = cards[safeIndex];
-      return h2(
+      return h3(
         "div",
         null,
-        h2("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u683C\u5F8B\u5C0F\u8BFE\u5802 \xB7 \u5171 " + cards.length + " \u5F20\u5361"),
-        h2(KnowledgeCardView2, { card }),
-        h2(
+        h3("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u683C\u5F8B\u5C0F\u8BFE\u5802 \xB7 \u5171 " + cards.length + " \u5F20\u5361"),
+        h3(KnowledgeCardView2, { card }),
+        h3(
           "div",
           { className: "dshp-pager" },
-          h2("button", {
+          h3("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
             disabled: safeIndex <= 0,
             onClick: () => setIndex(safeIndex - 1)
           }, "\u4E0A\u4E00\u5F20"),
-          h2("span", { className: "dshp-pager-label" }, "\u7B2C " + (safeIndex + 1) + " / " + cards.length + " \u5F20"),
-          h2("button", {
+          h3("span", { className: "dshp-pager-label" }, "\u7B2C " + (safeIndex + 1) + " / " + cards.length + " \u5F20"),
+          h3("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
             disabled: safeIndex >= cards.length - 1,
             onClick: () => setIndex(safeIndex + 1)
           }, "\u4E0B\u4E00\u5F20")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-tags", style: { marginTop: "10px" } },
-          cards.map((item, cardIndex) => h2("button", {
+          cards.map((item, cardIndex) => h3("button", {
             key: item && item.id || cardIndex,
             type: "button",
             className: "dshp-tag",
@@ -16359,12 +15933,12 @@
         )
       );
     }
-    function YunTab(props) {
+    function YunTab2(props) {
       const api = props.api || {};
-      const [expanded, setExpanded] = React.useState(null);
+      const [expanded, setExpanded] = React2.useState(null);
       const resource = api.yunRes || {};
       if (resource.status === "error") {
-        return h2(EmptyState2, {
+        return h3(EmptyState2, {
           title: "\u97F5\u90E8\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(resource.error),
           onRetry: () => api.reloadYun && api.reloadYun().catch(() => {
@@ -16374,28 +15948,28 @@
       const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : [];
       if (!volumes.length) {
         if (resource.status === "ready") {
-          return h2(EmptyState2, { title: "\u6682\u65E0\u97F5\u90E8\u6570\u636E", message: "\u58F0\u5F8B\u542F\u8499\u6570\u636E\u8FD8\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+          return h3(EmptyState2, { title: "\u6682\u65E0\u97F5\u90E8\u6570\u636E", message: "\u58F0\u5F8B\u542F\u8499\u6570\u636E\u8FD8\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
         }
-        return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u58F0\u5F8B\u542F\u8499\u2026" });
+        return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u58F0\u5F8B\u542F\u8499\u2026" });
       }
-      return h2(
+      return h3(
         "div",
         null,
-        h2("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u58F0\u5F8B\u542F\u8499 \xB7 \u5E73\u58F0\u4E09\u5341\u97F5\u90E8\uFF08\u4E0A\u5377 15 / \u4E0B\u5377 15\uFF09"),
+        h3("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u58F0\u5F8B\u542F\u8499 \xB7 \u5E73\u58F0\u4E09\u5341\u97F5\u90E8\uFF08\u4E0A\u5377 15 / \u4E0B\u5377 15\uFF09"),
         volumes.map((volume, volumeIndex) => {
           const chapters = volume && Array.isArray(volume.chapters) ? volume.chapters : [];
-          return h2(
+          return h3(
             "div",
             { key: "volume-" + volumeIndex },
-            h2("div", { className: "dshp-subtitle" }, String(volume.title || "")),
+            h3("div", { className: "dshp-subtitle" }, String(volume.title || "")),
             chapters.map((chapter, chapterIndex) => {
               const key = volumeIndex + "-" + chapterIndex;
               const open = expanded === key;
               const chars = Array.isArray(chapter.exampleChars) ? chapter.exampleChars : [];
-              return h2(
+              return h3(
                 "div",
                 { key },
-                h2(
+                h3(
                   "button",
                   {
                     type: "button",
@@ -16403,19 +15977,19 @@
                     onClick: () => setExpanded(open ? null : key),
                     "aria-expanded": open
                   },
-                  h2(
+                  h3(
                     "span",
                     { className: "dshp-row-main" },
-                    h2("span", { className: "dshp-row-title" }, String(chapter.name || "")),
-                    chars.length ? h2("span", { className: "dshp-row-sub" }, " \u4F8B\u5B57\uFF1A" + chars.join("\u3001")) : null
+                    h3("span", { className: "dshp-row-title" }, String(chapter.name || "")),
+                    chars.length ? h3("span", { className: "dshp-row-sub" }, " \u4F8B\u5B57\uFF1A" + chars.join("\u3001")) : null
                   ),
-                  h2("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
+                  h3("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
                 ),
-                open ? h2(
+                open ? h3(
                   "div",
                   { className: "dshp-row-body" },
-                  (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index2) => h2("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
-                  chapter.exampleLine ? h2("div", { className: "dshp-example", style: { marginTop: "6px" } }, h2("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : null
+                  (Array.isArray(chapter.paragraphs) ? chapter.paragraphs : []).map((paragraph, index2) => h3("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
+                  chapter.exampleLine ? h3("div", { className: "dshp-example", style: { marginTop: "6px" } }, h3("div", { className: "dshp-example-text" }, String(chapter.exampleLine))) : null
                 ) : null
               );
             })
@@ -16423,18 +15997,18 @@
         })
       );
     }
-    function CiTab(props) {
+    function CiTab2(props) {
       const api = props.api || {};
-      const [subTab, setSubTab] = React.useState("poems");
-      const [query, setQuery] = React.useState("");
-      const [rhythmic, setRhythmic] = React.useState("");
-      const [visible, setVisible] = React.useState(40);
-      const [openId, setOpenId] = React.useState(null);
+      const [subTab, setSubTab] = React2.useState("poems");
+      const [query, setQuery] = React2.useState("");
+      const [rhythmic, setRhythmic] = React2.useState("");
+      const [visible, setVisible] = React2.useState(40);
+      const [openId, setOpenId] = React2.useState(null);
       const knowledge = api.knowledgeRes || {};
       const ciRes = api.ciRes || {};
       const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : [];
       const items = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [];
-      const ciBankCounts = React.useMemo(() => {
+      const ciBankCounts = React2.useMemo(() => {
         const map = {};
         const bankItems = api.ciBankRes && api.ciBankRes.data && Array.isArray(api.ciBankRes.data.items) ? api.ciBankRes.data.items : [];
         for (const item of bankItems) {
@@ -16442,21 +16016,21 @@
         }
         return map;
       }, [api.ciBankRes]);
-      const ciSelectedCounts = React.useMemo(() => {
+      const ciSelectedCounts = React2.useMemo(() => {
         const map = {};
         for (const item of items) {
           if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
         }
         return map;
       }, [items]);
-      const rhythms = React.useMemo(() => {
+      const rhythms = React2.useMemo(() => {
         const seen = {};
         items.forEach((item) => {
           if (item && item.rhythmic) seen[item.rhythmic] = true;
         });
         return Object.keys(seen).sort((a2, b) => a2.localeCompare(b, "zh"));
       }, [items]);
-      const filtered = React.useMemo(() => {
+      const filtered = React2.useMemo(() => {
         const keyword = query.trim();
         return items.filter((item) => {
           if (!item) return false;
@@ -16466,11 +16040,11 @@
           return haystack.indexOf(keyword) >= 0;
         });
       }, [items, query, rhythmic]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         setVisible(40);
       }, [query, rhythmic]);
       if (knowledge.status === "error") {
-        return h2(EmptyState2, {
+        return h3(EmptyState2, {
           title: "\u8BCD\u724C\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(knowledge.error),
           onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
@@ -16479,35 +16053,35 @@
       }
       function renderCards() {
         if (!ciCards.length) {
-          if (knowledge.status === "ready") return h2(EmptyState2, { title: "\u6682\u65E0\u8BCD\u724C\u5361", message: "\u8BCD\u724C\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
-          return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u8BCD\u724C\u5361\u2026" });
+          if (knowledge.status === "ready") return h3(EmptyState2, { title: "\u6682\u65E0\u8BCD\u724C\u5361", message: "\u8BCD\u724C\u5185\u5BB9\u8FD8\u5728\u51C6\u5907\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u518D\u6765\u3002" });
+          return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u8BCD\u724C\u5361\u2026" });
         }
-        return h2(
+        return h3(
           "div",
           { className: "dshp-list" },
-          ciCards.map((card, index2) => h2(
+          ciCards.map((card, index2) => h3(
             "div",
             { key: card && card.id || index2, className: "dshp-card", style: { padding: "8px 2px", borderBottom: "1px solid var(--dshp-border)" } },
-            h2(
+            h3(
               "div",
               { className: "dshp-card-title", style: { fontSize: "14px" } },
               String(card && card.name || "\u8BCD\u724C"),
-              card && Array.isArray(card.aliases) && card.aliases.length ? h2("span", { className: "dshp-muted", style: { fontSize: "11.5px", fontWeight: 400 } }, "\uFF08" + card.aliases.join("\u3001") + "\uFF09") : null
+              card && Array.isArray(card.aliases) && card.aliases.length ? h3("span", { className: "dshp-muted", style: { fontSize: "11.5px", fontWeight: 400 } }, "\uFF08" + card.aliases.join("\u3001") + "\uFF09") : null
             ),
-            card && card.form ? h2("div", { className: "dshp-card-summary" }, String(card.form) + (card.rhyme ? " \xB7 " + String(card.rhyme) : "")) : null,
-            card && card.note ? h2("p", { className: "dshp-p" }, String(card.note)) : null,
-            card && card.example ? h2("div", { className: "dshp-example" }, h2("div", { className: "dshp-example-text" }, String(card.example))) : null,
-            card && card.name ? h2(
+            card && card.form ? h3("div", { className: "dshp-card-summary" }, String(card.form) + (card.rhyme ? " \xB7 " + String(card.rhyme) : "")) : null,
+            card && card.note ? h3("p", { className: "dshp-p" }, String(card.note)) : null,
+            card && card.example ? h3("div", { className: "dshp-example" }, h3("div", { className: "dshp-example-text" }, String(card.example))) : null,
+            card && card.name ? h3(
               "div",
               { className: "dshp-fh-actions" },
-              h2("button", {
+              h3("button", {
                 type: "button",
                 className: "dshp-link",
                 onClick: () => {
                   if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(card.name);
                 }
               }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[card.name] ? "\uFF08" + ciSelectedCounts[card.name] + " \u9996\uFF09" : "")),
-              h2("button", {
+              h3("button", {
                 type: "button",
                 className: "dshp-link dshp-muted",
                 onClick: () => {
@@ -16520,7 +16094,7 @@
       }
       function renderPoems() {
         if (ciRes.status === "error") {
-          return h2(EmptyState2, {
+          return h3(EmptyState2, {
             title: "\u540D\u7BC7\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
             message: describeDataError2(ciRes.error),
             onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
@@ -16528,17 +16102,17 @@
           });
         }
         if (!items.length) {
-          if (ciRes.status === "ready") return h2(EmptyState2, { title: "\u6682\u65E0\u8BCD\u4F5C", message: "\u540D\u7BC7\u8BCD\u6570\u636E\u6B63\u5728\u51C6\u5907\u4E2D\u3002" });
-          return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u540D\u7BC7\u8BCD\u2026" });
+          if (ciRes.status === "ready") return h3(EmptyState2, { title: "\u6682\u65E0\u8BCD\u4F5C", message: "\u540D\u7BC7\u8BCD\u6570\u636E\u6B63\u5728\u51C6\u5907\u4E2D\u3002" });
+          return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u540D\u7BC7\u8BCD\u2026" });
         }
         const shown = filtered.slice(0, visible);
-        return h2(
+        return h3(
           "div",
           null,
-          h2(
+          h3(
             "div",
             { className: "dshp-search" },
-            h2("input", {
+            h3("input", {
               className: "dshp-input",
               type: "search",
               value: query,
@@ -16546,7 +16120,7 @@
               "aria-label": "\u641C\u7D22\u540D\u7BC7\u8BCD",
               onChange: (event) => setQuery(event.target.value)
             }),
-            h2(
+            h3(
               "select",
               {
                 className: "dshp-select",
@@ -16554,21 +16128,21 @@
                 "aria-label": "\u6309\u8BCD\u724C\u7B5B\u9009",
                 onChange: (event) => setRhythmic(event.target.value)
               },
-              h2("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
-              rhythms.map((name) => h2("option", { key: name, value: name }, name))
+              h3("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
+              rhythms.map((name) => h3("option", { key: name, value: name }, name))
             )
           ),
-          h2("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996\uFF08\u603B\u8BA1 " + items.length + " \u9996\uFF09"),
-          h2(
+          h3("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996\uFF08\u603B\u8BA1 " + items.length + " \u9996\uFF09"),
+          h3(
             "div",
             { className: "dshp-list" },
             shown.map((ci, index2) => {
               const ciId = ci.id || "ci-" + index2;
               const open = openId === ciId;
-              return h2(
+              return h3(
                 "div",
                 { key: ciId },
-                h2(
+                h3(
                   "button",
                   {
                     type: "button",
@@ -16576,30 +16150,30 @@
                     onClick: () => setOpenId(open ? null : ciId),
                     "aria-expanded": open
                   },
-                  h2(
+                  h3(
                     "span",
                     { className: "dshp-row-main" },
-                    h2("span", { className: "dshp-row-title" }, String(ci.title || ci.rhythmic || "\u65E0\u9898")),
-                    h2("span", { className: "dshp-row-sub" }, String(ci.author || "") + (ci.rhythmic ? " \xB7 " + String(ci.rhythmic) : ""))
+                    h3("span", { className: "dshp-row-title" }, String(ci.title || ci.rhythmic || "\u65E0\u9898")),
+                    h3("span", { className: "dshp-row-sub" }, String(ci.author || "") + (ci.rhythmic ? " \xB7 " + String(ci.rhythmic) : ""))
                   ),
-                  h2("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
+                  h3("span", { className: "dshp-muted", style: { flex: "none" } }, open ? "\u25BE" : "\u25B8")
                 ),
-                open ? h2(
+                open ? h3(
                   "div",
                   { className: "dshp-row-body" },
-                  h2("div", { className: "dshp-ci-lines" }, (Array.isArray(ci.lines) ? ci.lines : []).map((line, lineIndex) => h2("div", { key: lineIndex }, String(line)))),
-                  ci.quote ? h2("div", { className: "dshp-example" }, h2("div", { className: "dshp-example-text" }, String(ci.quote))) : null,
-                  ci.rhythmic ? h2(
+                  h3("div", { className: "dshp-ci-lines" }, (Array.isArray(ci.lines) ? ci.lines : []).map((line, lineIndex) => h3("div", { key: lineIndex }, String(line)))),
+                  ci.quote ? h3("div", { className: "dshp-example" }, h3("div", { className: "dshp-example-text" }, String(ci.quote))) : null,
+                  ci.rhythmic ? h3(
                     "div",
                     { className: "dshp-fh-actions" },
-                    h2("button", {
+                    h3("button", {
                       type: "button",
                       className: "dshp-link",
                       onClick: () => {
                         if (api.openCiSelectedForRhythmic) api.openCiSelectedForRhythmic(ci.rhythmic);
                       }
                     }, "\u540C\u8BCD\u724C\u7CBE\u9009" + (ciSelectedCounts[ci.rhythmic] ? "\uFF08" + ciSelectedCounts[ci.rhythmic] + " \u9996\uFF09" : "")),
-                    h2("button", {
+                    h3("button", {
                       type: "button",
                       className: "dshp-link dshp-muted",
                       onClick: () => {
@@ -16611,10 +16185,10 @@
               );
             })
           ),
-          filtered.length > visible ? h2(
+          filtered.length > visible ? h3(
             "div",
             { style: { textAlign: "center", marginTop: "10px" } },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: () => setVisible(visible + 60)
@@ -16622,18 +16196,18 @@
           ) : null
         );
       }
-      return h2(
+      return h3(
         "div",
         null,
-        h2(
+        h3(
           "div",
           { className: "dshp-seg", style: { marginBottom: "10px" } },
-          h2("button", {
+          h3("button", {
             type: "button",
             className: cx2("dshp-seg-btn", subTab === "poems" && "dshp-is-active"),
             onClick: () => setSubTab("poems")
           }, "\u540D\u7BC7\u8BCD"),
-          h2("button", {
+          h3("button", {
             type: "button",
             className: cx2("dshp-seg-btn", subTab === "cards" && "dshp-is-active"),
             onClick: () => setSubTab("cards")
@@ -16642,45 +16216,45 @@
         subTab === "cards" ? renderCards() : renderPoems()
       );
     }
-    function PoetrySettingsTab(props) {
+    function PoetrySettingsTab2(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
       const update = api.updateSettings || (() => {
       });
-      const seg = (options, current, onPick) => h2(
+      const seg = (options, current, onPick) => h3(
         "div",
         { className: "dshp-seg" },
-        options.map((option) => h2("button", {
+        options.map((option) => h3("button", {
           key: String(option.value),
           type: "button",
           className: cx2("dshp-seg-btn", current === option.value && "dshp-is-active"),
           onClick: () => onPick(option.value)
         }, option.label))
       );
-      return h2(
+      return h3(
         "div",
         { className: "dshp-settings" },
-        h2("div", { className: "dshp-field" }, h2("div", { className: "dshp-field-label" }, h2("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h2("small", null, "\u4E8C\u7EA7\u83DC\u5355\u91CC\u7684\u914D\u7F6E\uFF1B\u4E3B\u8BBE\u7F6E\u53EA\u7559\u6210\u957F/\u5916\u89C2"))),
-        h2(
+        h3("div", { className: "dshp-field" }, h3("div", { className: "dshp-field-label" }, h3("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h3("small", null, "\u4E8C\u7EA7\u83DC\u5355\u91CC\u7684\u914D\u7F6E\uFF1B\u4E3B\u8BBE\u7F6E\u53EA\u7559\u6210\u957F/\u5916\u89C2"))),
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h2("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u5E73\u4EC4\u6807\u6CE8"), h3("small", null, "\u5E73\u84DD / \u4EC4\u7EA2 / \u591A\u97F3\u7070")),
           switchNode2(settings.showTones, () => update({ showTones: !settings.showTones }), "\u5E73\u4EC4\u6807\u6CE8\u5F00\u5173")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h2("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u70B9\u8BD7\u6A21\u5F0F"), h3("small", null, "\u300C\u6362\u4E00\u9996\u300D\u7684\u7B56\u7565")),
           seg([
             { value: "daily", label: "\u6BCF\u65E5" },
             { value: "random", label: "\u968F\u673A" }
           ], settings.mode, (value) => update({ mode: value }))
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h2("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u81EA\u52A8\u8F6E\u64AD"), h3("small", null, "\u6C14\u6CE1\u81EA\u52A8\u63A8\u8FDB\u95F4\u9694")),
+          h3(
             "select",
             {
               className: "dshp-select",
@@ -16688,37 +16262,37 @@
               "aria-label": "\u81EA\u52A8\u8F6E\u64AD\u95F4\u9694",
               onChange: (event) => update({ autoplay: num2(event.target.value, 0) })
             },
-            h2("option", { value: "0" }, "\u5173\u95ED"),
-            h2("option", { value: "30" }, "30 \u79D2"),
-            h2("option", { value: "60" }, "1 \u5206\u949F"),
-            h2("option", { value: "300" }, "5 \u5206\u949F")
+            h3("option", { value: "0" }, "\u5173\u95ED"),
+            h3("option", { value: "30" }, "30 \u79D2"),
+            h3("option", { value: "60" }, "1 \u5206\u949F"),
+            h3("option", { value: "300" }, "5 \u5206\u949F")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u663E\u793A\u6587\u5B57"), h2("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u663E\u793A\u6587\u5B57"), h3("small", null, "\u7B80\u4F53\u6216\u8BD7\u8BCD\u539F\u6587")),
           seg([
             { value: "simplified", label: "\u7B80\u4F53" },
             { value: "original", label: "\u539F\u6587" }
           ], settings.script, (value) => update({ script: value }))
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h2("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u6309\u5929\u6C14\u9009\u8BD7"), h3("small", null, "\u4ECA\u65E5\u8BD7\u4E0E\u5F62\u8C61\u8DDF\u968F\u5929\u6C14")),
           switchNode2(settings.weatherPoem, () => update({ weatherPoem: !settings.weatherPoem }), "\u6309\u5929\u6C14\u9009\u8BD7\u5F00\u5173")
         ),
-        h2("div", { className: "dshp-muted", style: { fontSize: "11.5px", lineHeight: 1.6 } }, "\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF1A\u4ECE\u300C\u6210\u957F\u300D\u9875\u5E95\u90E8\u7684\u5165\u53E3\u8FDB\u5165\uFF1B\u5927\u5C0F/\u5438\u9644/\u81EA\u8A00\u81EA\u8BED/\u9690\u85CF\u4ECD\u5728\u4E3B\u8BBE\u7F6E\u3002")
+        h3("div", { className: "dshp-muted", style: { fontSize: "11.5px", lineHeight: 1.6 } }, "\u8BD7\u8BCD\u662F\u4E8C\u7EA7\u83DC\u5355\uFF1A\u4ECE\u300C\u6210\u957F\u300D\u9875\u5E95\u90E8\u7684\u5165\u53E3\u8FDB\u5165\uFF1B\u5927\u5C0F/\u5438\u9644/\u81EA\u8A00\u81EA\u8BED/\u9690\u85CF\u4ECD\u5728\u4E3B\u8BBE\u7F6E\u3002")
       );
     }
-    return { TodayTab, ClassTab, YunTab, CiTab, PoetrySettingsTab };
+    return { TodayTab: TodayTab2, ClassTab: ClassTab2, YunTab: YunTab2, CiTab: CiTab2, PoetrySettingsTab: PoetrySettingsTab2 };
   }
 
   // client-src/tabs-settings.js
   function createSettingsTab(ctx = {}) {
-    const React = ctx.React;
-    const h2 = ctx.h;
+    const React2 = ctx.React;
+    const h3 = ctx.h;
     const cx2 = ctx.cx;
     const normalizeSettings2 = ctx.normalizeSettings;
     const num2 = ctx.num;
@@ -16728,12 +16302,12 @@
     const weatherUpdatedLabel2 = ctx.weatherUpdatedLabel;
     const moodBasisText2 = ctx.moodBasisText;
     const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
-    function SettingsTab(props) {
+    function SettingsTab2(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
-      const [confirmReset, setConfirmReset] = React.useState(false);
-      const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
-      React.useEffect(() => {
+      const [confirmReset, setConfirmReset] = React2.useState(false);
+      const [cityDraft, setCityDraft] = React2.useState(settings.weatherCity || "\u5317\u4EAC");
+      React2.useEffect(() => {
         setCityDraft(settings.weatherCity || "\u5317\u4EAC");
       }, [settings.weatherCity]);
       const update = api.updateSettings || (() => {
@@ -16757,12 +16331,12 @@
       const moodMetaText = [api.moodBasis || moodBasisText2(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel2(moodAt) : ""].filter(Boolean).join(" \xB7 ");
       const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ") || "\u5FC3\u60C5\u6570\u636E\u52A0\u8F7D\u4E2D";
       const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ");
-      const moodLine = (text, className, key) => h2("div", { key, className: cx2("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
+      const moodLine = (text, className, key) => h3("div", { key, className: cx2("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
       function seg(options, current, onPick) {
-        return h2(
+        return h3(
           "div",
           { className: "dshp-seg" },
-          options.map((option) => h2("button", {
+          options.map((option) => h3("button", {
             key: String(option.value),
             type: "button",
             className: cx2("dshp-seg-btn", current === option.value && "dshp-is-active"),
@@ -16778,11 +16352,11 @@
       function renderSelfStatus() {
         const status = api.selfStatus;
         if (!status) return null;
-        return h2(
+        return h3(
           "div",
           { className: "dshp-field dshp-field-stacked" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u6210\u957F\u72B6\u6001"), h2("small", null, "\u81EA\u9A71\u6210\u957F \xB7 \u6700\u8FD1\u8FDB\u5EA6")),
-          h2("div", { className: "dshp-field-stack-body" }, growthMetricsTree2(status))
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u6210\u957F\u72B6\u6001"), h3("small", null, "\u81EA\u9A71\u6210\u957F \xB7 \u6700\u8FD1\u8FDB\u5EA6")),
+          h3("div", { className: "dshp-field-stack-body" }, growthMetricsTree2(status))
         );
       }
       function renderHealthStatus() {
@@ -16793,33 +16367,33 @@
         const jobs = health.jobs.slice(0, 8);
         const jobLine = jobs.length > 0 ? jobs.map((job) => `${job.name}${job.errors > 0 ? `(${job.errors}\u9519)` : ""}`).join(" \xB7 ") : "\u5FC3\u8DF3\u672A\u6CE8\u518C";
         const errorLine = health.modelErrorTotal > 0 ? `\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 ${health.modelErrorTotal} \u6B21` + (health.modelErrorsByRole.length ? "\uFF1A" + health.modelErrorsByRole.map((item) => `${item.role}\xD7${item.count}`).join("\u3001") : "") : "\u6700\u8FD1 24h \u6A21\u578B\u5931\u8D25 0";
-        return h2(
+        return h3(
           "div",
           { className: "dshp-field dshp-field-stacked" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u8FD0\u884C\u72B6\u6001\uFF08\u53EA\u8BFB\uFF09"), h2("small", null, "\u9884\u7B97 \xB7 \u5FC3\u8DF3 \xB7 \u6A21\u578B\u5931\u8D25\uFF1B\u6BCF\u5206\u949F\u5237\u65B0")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u8FD0\u884C\u72B6\u6001\uFF08\u53EA\u8BFB\uFF09"), h3("small", null, "\u9884\u7B97 \xB7 \u5FC3\u8DF3 \xB7 \u6A21\u578B\u5931\u8D25\uFF1B\u6BCF\u5206\u949F\u5237\u65B0")),
+          h3(
             "div",
             { className: "dshp-field-stack-body" },
-            h2("div", { className: "dshp-health-line" }, budgetLine + (health.day ? " \xB7 " + health.day : "")),
-            roles ? h2("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
-            h2("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
-            health.memoryBacklog !== null ? h2("div", { className: "dshp-health-line" }, health.memoryBacklog === 0 ? "\u8BB0\u5FC6\u6574\u5408\uFF1A\u5DF2\u8FFD\u5E73" : "\u8BB0\u5FC6\u6574\u5408 backlog\uFF1A" + health.memoryBacklog + " \u6761" + (health.memoryBacklogOldestAt ? "\uFF08\u6700\u65E9 " + new Date(health.memoryBacklogOldestAt).toLocaleTimeString("zh-CN", { hour12: false }) + "\uFF09" : "")) : null,
-            health.growthMetrics ? h2("div", { className: "dshp-health-line" }, "\u6210\u957F\uFF1A\u7B2C " + health.growthMetrics.daysAlive + " \u5929 \xB7 journal " + health.growthMetrics.journalTotal + " \u6761 \xB7 \u56DE\u5FC6 " + health.growthMetrics.episodes + " \u6BB5\uFF08\u8986\u76D6 " + Math.round(health.growthMetrics.coverage * 100) + "%\uFF09\xB7 \u5B66\u4E60 " + health.growthMetrics.learning + " \u6761 \xB7 \u91CD\u590D " + health.growthMetrics.repetition.toFixed(2) + (health.growthMetrics.project ? " \xB7 \u5728\u505A\uFF1A" + health.growthMetrics.project : "")) : null,
-            h2("div", { className: "dshp-health-line" }, errorLine)
+            h3("div", { className: "dshp-health-line" }, budgetLine + (health.day ? " \xB7 " + health.day : "")),
+            roles ? h3("div", { className: "dshp-health-line" }, "\u8C03\u7528\uFF1A" + roles) : null,
+            h3("div", { className: "dshp-health-line" }, "\u5FC3\u8DF3\uFF1A" + jobLine),
+            health.memoryBacklog !== null ? h3("div", { className: "dshp-health-line" }, health.memoryBacklog === 0 ? "\u8BB0\u5FC6\u6574\u5408\uFF1A\u5DF2\u8FFD\u5E73" : "\u8BB0\u5FC6\u6574\u5408 backlog\uFF1A" + health.memoryBacklog + " \u6761" + (health.memoryBacklogOldestAt ? "\uFF08\u6700\u65E9 " + new Date(health.memoryBacklogOldestAt).toLocaleTimeString("zh-CN", { hour12: false }) + "\uFF09" : "")) : null,
+            health.growthMetrics ? h3("div", { className: "dshp-health-line" }, "\u6210\u957F\uFF1A\u7B2C " + health.growthMetrics.daysAlive + " \u5929 \xB7 journal " + health.growthMetrics.journalTotal + " \u6761 \xB7 \u56DE\u5FC6 " + health.growthMetrics.episodes + " \u6BB5\uFF08\u8986\u76D6 " + Math.round(health.growthMetrics.coverage * 100) + "%\uFF09\xB7 \u5B66\u4E60 " + health.growthMetrics.learning + " \u6761 \xB7 \u91CD\u590D " + health.growthMetrics.repetition.toFixed(2) + (health.growthMetrics.project ? " \xB7 \u5728\u505A\uFF1A" + health.growthMetrics.project : "")) : null,
+            h3("div", { className: "dshp-health-line" }, errorLine)
           )
         );
       }
-      return h2(
+      return h3(
         "div",
         { className: "dshp-settings" },
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u5927\u5C0F"), h2("small", null, "\u5F62\u8C61\u7F29\u653E 60%\u2013160%")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u5927\u5C0F"), h3("small", null, "\u5F62\u8C61\u7F29\u653E 60%\u2013160%")),
+          h3(
             "div",
             { className: "dshp-field-control" },
-            h2("input", {
+            h3("input", {
               type: "range",
               className: "dshp-range",
               min: 60,
@@ -16829,32 +16403,32 @@
               "aria-label": "\u6302\u4EF6\u5927\u5C0F",
               onChange: (event) => update({ scale: num2(event.target.value, 100) / 100 })
             }),
-            h2("span", { className: "dshp-muted", style: { fontSize: "11.5px", width: "38px", textAlign: "right" } }, Math.round(settings.scale * 100) + "%")
+            h3("span", { className: "dshp-muted", style: { fontSize: "11.5px", width: "38px", textAlign: "right" } }, Math.round(settings.scale * 100) + "%")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h2("small", null, "\u5DF2\u964D\u6743\u5230\u300C\u6210\u957F \u2192 \u8BD7\u8BCD\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09\u2192 \u8BBE\u7F6E\u300D"))
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u8BD7\u8BCD\u8BBE\u7F6E"), h3("small", null, "\u5DF2\u964D\u6743\u5230\u300C\u6210\u957F \u2192 \u8BD7\u8BCD\uFF08\u4E8C\u7EA7\u83DC\u5355\uFF09\u2192 \u8BBE\u7F6E\u300D"))
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u5438\u9644"), h2("small", null, "\u62D6\u52A8\u540E\u8D34\u8FB9\u6216\u81EA\u7531\u6446\u653E")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u5438\u9644"), h3("small", null, "\u62D6\u52A8\u540E\u8D34\u8FB9\u6216\u81EA\u7531\u6446\u653E")),
           seg([
             { value: "left", label: "\u8D34\u5DE6" },
             { value: "right", label: "\u8D34\u53F3" },
             { value: "free", label: "\u81EA\u7531" }
           ], settings.snap, (value) => update({ snap: value }))
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u5929\u6C14\u57CE\u5E02"), h2("small", null, "1\u201320 \u5B57\uFF0C\u4FDD\u5B58\u540E\u81EA\u52A8\u91CD\u62C9\u5929\u6C14")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u5929\u6C14\u57CE\u5E02"), h3("small", null, "1\u201320 \u5B57\uFF0C\u4FDD\u5B58\u540E\u81EA\u52A8\u91CD\u62C9\u5929\u6C14")),
+          h3(
             "div",
             { className: "dshp-field-control" },
-            h2("input", {
+            h3("input", {
               type: "text",
               className: "dshp-input",
               style: { width: "118px" },
@@ -16873,14 +16447,14 @@
             })
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u5929\u6C14"), h2("small", null, weatherStatusText)),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u5929\u6C14"), h3("small", null, weatherStatusText)),
+          h3(
             "div",
             { className: "dshp-field-control" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: () => {
@@ -16889,41 +16463,41 @@
             }, "\u5237\u65B0\u5929\u6C14")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u81EA\u8A00\u81EA\u8BED\uFF08\u5076\u5C14\u8BF4\u8BF4\u8BDD\uFF09"), h2("small", null, "\u6BCF\u9694 1\u20132 \u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5\uFF08\u4E8B\u4EF6\u540E\u4F1A\u66F4\u65E9\uFF09\uFF1B\u4E0D\u8BBE\u6BCF\u65E5\u6B21\u6570")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u81EA\u8A00\u81EA\u8BED\uFF08\u5076\u5C14\u8BF4\u8BF4\u8BDD\uFF09"), h3("small", null, "\u6BCF\u9694 1\u20132 \u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5\uFF08\u4E8B\u4EF6\u540E\u4F1A\u66F4\u65E9\uFF09\uFF1B\u4E0D\u8BBE\u6BCF\u65E5\u6B21\u6570")),
           switchNode2(settings.spontaneousPoem, () => update({ spontaneousPoem: !settings.spontaneousPoem }), "\u81EA\u8A00\u81EA\u8BED\u5F00\u5173")
         ),
         renderSelfStatus(),
         renderHealthStatus(),
-        h2("div", { className: "dshp-field-label", style: { marginTop: 4 } }, h2("b", null, "\u5B50\u63D2\u4EF6"), h2("small", null, "\u5408\u5E76\u8FDB\u4E3B\u5305\u7684\u53EF\u9009\u80FD\u529B\uFF1B\u5173\u95ED\u540E\u4E0D\u5F71\u54CD\u4E3B\u4F53")),
-        h2(
+        h3("div", { className: "dshp-field-label", style: { marginTop: 4 } }, h3("b", null, "\u5B50\u63D2\u4EF6"), h3("small", null, "\u5408\u5E76\u8FDB\u4E3B\u5305\u7684\u53EF\u9009\u80FD\u529B\uFF1B\u5173\u95ED\u540E\u4E0D\u5F71\u54CD\u4E3B\u4F53")),
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "QQ / \u5BF9\u8BDD\u4F20\u8BDD\u5DE5\u5177"), h2("small", null, "little_whale_chat\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "QQ / \u5BF9\u8BDD\u4F20\u8BDD\u5DE5\u5177"), h3("small", null, "little_whale_chat\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
           switchNode2(settings.qqBridge, () => update({ qqBridge: !settings.qqBridge }), "QQ \u4F20\u8BDD\u5F00\u5173")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u955C\u50CF\u6D6E\u5C42"), h2("small", null, "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C\uFF1B\u5373\u65F6\u751F\u6548")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u955C\u50CF\u6D6E\u5C42"), h3("small", null, "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C\uFF1B\u5373\u65F6\u751F\u6548")),
           switchNode2(settings.twinOverlay, () => update({ twinOverlay: !settings.twinOverlay }), "\u955C\u50CF\u6D6E\u5C42\u5F00\u5173")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u955C\u50CF\u4E3B\u4F53"), h2("small", null, "\u5199\u4FE1/\u7814\u7A76/\u72EC\u7ACB\u72B6\u6001\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u955C\u50CF\u4E3B\u4F53"), h3("small", null, "\u5199\u4FE1/\u7814\u7A76/\u72EC\u7ACB\u72B6\u6001\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548")),
           switchNode2(settings.twinSystem, () => update({ twinSystem: !settings.twinSystem }), "\u955C\u50CF\u4E3B\u4F53\u5F00\u5173")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u60F3\u8BFB\u7684\u8BD7"), h2("small", null, "\u9884\u89C8\u4E00\u6B21\u5F69\u86CB\uFF08\u4E0D\u8BA1\u5165\u6BCF\u65E5\u6B21\u6570\uFF09")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u60F3\u8BFB\u7684\u8BD7"), h3("small", null, "\u9884\u89C8\u4E00\u6B21\u5F69\u86CB\uFF08\u4E0D\u8BA1\u5165\u6BCF\u65E5\u6B21\u6570\uFF09")),
+          h3(
             "div",
             { className: "dshp-field-control" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: () => {
@@ -16932,14 +16506,14 @@
             }, "\u9884\u89C8\u4E00\u53E5")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u9690\u85CF\u6302\u4EF6"), h2("small", null, "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u9690\u85CF\u6302\u4EF6"), h3("small", null, "\u53CC\u51FB\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D")),
+          h3(
             "div",
             { className: "dshp-field-control" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn dshp-btn-danger",
               onClick: () => {
@@ -16949,15 +16523,15 @@
             }, "\u9690\u85CF")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-field" },
-          h2("div", { className: "dshp-field-label" }, h2("b", null, "\u6062\u590D\u9ED8\u8BA4"), h2("small", null, "\u5927\u5C0F / \u5E73\u4EC4 / \u6A21\u5F0F / \u5438\u9644 / \u5B57\u4F53")),
-          h2(
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u6062\u590D\u9ED8\u8BA4"), h3("small", null, "\u5927\u5C0F / \u5E73\u4EC4 / \u6A21\u5F0F / \u5438\u9644 / \u5B57\u4F53")),
+          h3(
             "div",
             { className: "dshp-field-control" },
             confirmReset ? [
-              h2("button", {
+              h3("button", {
                 key: "confirm",
                 type: "button",
                 className: "dshp-btn dshp-btn-primary",
@@ -16966,44 +16540,44 @@
                   if (api.resetSettings) api.resetSettings();
                 }
               }, "\u786E\u8BA4\u6062\u590D"),
-              h2("button", {
+              h3("button", {
                 key: "cancel",
                 type: "button",
                 className: "dshp-btn",
                 onClick: () => setConfirmReset(false)
               }, "\u53D6\u6D88")
-            ] : h2("button", {
+            ] : h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: () => setConfirmReset(true)
             }, "\u6062\u590D\u9ED8\u8BA4")
           )
         ),
-        h2("div", { className: "dshp-subtitle" }, "\u5173\u4E8E"),
-        h2(
+        h3("div", { className: "dshp-subtitle" }, "\u5173\u4E8E"),
+        h3(
           "div",
           { className: "dshp-about" },
-          h2("div", null, "\u5C0F\u9CB8\u9C7C v" + String(version)),
-          h2("div", null, "\u6570\u636E\u7248\u672C\uFF1A" + String(dataVersion)),
-          h2("div", null, "\u6570\u636E\u6E90\uFF1Achinese-poetry\uFF08MIT\uFF09\xB7 \u8BD7\u8BCD\u4E3A\u516C\u7248\u6587\u672C"),
-          source.commit ? h2("div", null, "\u6E90\u63D0\u4EA4\uFF1A" + String(source.commit).slice(0, 12)) : null,
-          h2("div", null, "\u8BBE\u7F6E\u4FDD\u5B58\u5728\u672C\u673A $DSH_HOME/.dsh-poetry/settings.json\uFF1B\u9690\u85CF\u540E\u53CC\u51FB\u9875\u9762\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D\u3002")
+          h3("div", null, "\u5C0F\u9CB8\u9C7C v" + String(version)),
+          h3("div", null, "\u6570\u636E\u7248\u672C\uFF1A" + String(dataVersion)),
+          h3("div", null, "\u6570\u636E\u6E90\uFF1Achinese-poetry\uFF08MIT\uFF09\xB7 \u8BD7\u8BCD\u4E3A\u516C\u7248\u6587\u672C"),
+          source.commit ? h3("div", null, "\u6E90\u63D0\u4EA4\uFF1A" + String(source.commit).slice(0, 12)) : null,
+          h3("div", null, "\u8BBE\u7F6E\u4FDD\u5B58\u5728\u672C\u673A $DSH_HOME/.dsh-poetry/settings.json\uFF1B\u9690\u85CF\u540E\u53CC\u51FB\u9875\u9762\u7A7A\u767D\u5904\u6216\u957F\u6309\u89D2\u843D\u5C0F\u5706\u70B9\u6062\u590D\u3002")
         )
       );
     }
-    return SettingsTab;
+    return SettingsTab2;
   }
 
   // client-src/tabs-growth.js
   function createGrowthTab(ctx = {}) {
-    const h2 = ctx.h;
+    const h3 = ctx.h;
     const cx2 = ctx.cx;
     const switchNode2 = ctx.switchNode;
     const growthMetricsTree2 = ctx.growthMetricsTree;
     const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
     const selfStatusSummary2 = ctx.selfStatusSummary;
     const weatherUpdatedLabel2 = ctx.weatherUpdatedLabel;
-    function GrowthTab(props) {
+    function GrowthTab2(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : {};
       const mood = api.moodView || null;
@@ -17031,159 +16605,159 @@
       const attention = api.attentionRes && api.attentionRes.data ? api.attentionRes.data : { mode: "observe", items: [], pending: 0 };
       const pendingAttention = Array.isArray(attention.items) ? attention.items : [];
       const attentionMode = attention.mode === "auto" ? "auto" : "observe";
-      const attentionButtons = (item) => h2(
+      const attentionButtons = (item) => h3(
         "div",
         { style: { display: "flex", gap: 6, marginTop: 6 } },
-        item.kind === "question" ? h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+        item.kind === "question" ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
           if (!api.attentionAction) return;
           const answer = typeof window !== "undefined" && typeof window.prompt === "function" ? window.prompt("\u56DE\u7B54\u5979\uFF1A", "") : "";
           if (answer && answer.trim().length > 0) api.attentionAction(item.id, "answer", answer.trim());
-        } }, "\u56DE\u7B54") : item.kind === "result" ? h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+        } }, "\u56DE\u7B54") : item.kind === "result" ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
           if (api.attentionAction) api.attentionAction(item.id, "dismiss");
-        } }, "\u77E5\u9053\u4E86") : h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+        } }, "\u77E5\u9053\u4E86") : h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
           if (api.attentionAction) api.attentionAction(item.id, "send");
         } }, item.draft ? "\u53D1\u51FA\u53BB" : "\u56DE\u590D"),
-        h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+        h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
           if (api.attentionAction) api.attentionAction(item.id, "dismiss");
         } }, "\u5148\u4E0D\u7528")
       );
-      return h2(
+      return h3(
         "div",
         { className: "dshp-growth" },
-        h2("div", { className: "dshp-growth-title" }, "\u6211\u7684\u6210\u957F"),
-        pendingAttention.length ? h2(
+        h3("div", { className: "dshp-growth-title" }, "\u6211\u7684\u6210\u957F"),
+        pendingAttention.length ? h3(
           "div",
           { className: "dshp-growth-section", style: { borderColor: "#b58a4a", background: "rgba(181,138,74,.08)" } },
-          h2("div", { className: "dshp-growth-section-head" }, "\u9700\u8981\u4F60 \xB7 " + pendingAttention.length),
-          h2("div", { className: "dshp-growth-mood-note", style: { marginBottom: 6 } }, attentionMode === "observe" ? "\u89C2\u5BDF\u6A21\u5F0F\uFF1A\u5979\u51C6\u5907\u597D\u4E86\uFF0C\u7B49\u4F60\u51B3\u5B9A\u8981\u4E0D\u8981\u53D1\u3002" : "\u81EA\u52A8\u6A21\u5F0F\uFF1A\u5979\u5DF2\u6709\u5177\u4F53\u7684\u4E8B\uFF0C\u53D1\u9001\u524D\u5148\u5728\u8FD9\u91CC\u7559\u4E00\u4EFD\u3002"),
-          ...pendingAttention.map((item) => h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u9700\u8981\u4F60 \xB7 " + pendingAttention.length),
+          h3("div", { className: "dshp-growth-mood-note", style: { marginBottom: 6 } }, attentionMode === "observe" ? "\u89C2\u5BDF\u6A21\u5F0F\uFF1A\u5979\u51C6\u5907\u597D\u4E86\uFF0C\u7B49\u4F60\u51B3\u5B9A\u8981\u4E0D\u8981\u53D1\u3002" : "\u81EA\u52A8\u6A21\u5F0F\uFF1A\u5979\u5DF2\u6709\u5177\u4F53\u7684\u4E8B\uFF0C\u53D1\u9001\u524D\u5148\u5728\u8FD9\u91CC\u7559\u4E00\u4EFD\u3002"),
+          ...pendingAttention.map((item) => h3(
             "div",
             { className: "dshp-growth-action", key: "attention-" + item.id, style: { display: "block", marginBottom: 10 } },
-            h2("div", { className: "dshp-growth-action-text", style: { whiteSpace: "normal" } }, String(item.text || "")),
-            item.reason ? h2("div", { className: "dshp-growth-empty" }, String(item.reason)) : null,
+            h3("div", { className: "dshp-growth-action-text", style: { whiteSpace: "normal" } }, String(item.text || "")),
+            item.reason ? h3("div", { className: "dshp-growth-empty" }, String(item.reason)) : null,
             attentionButtons(item)
           )),
-          h2(
+          h3(
             "div",
             { style: { display: "flex", gap: 6, alignItems: "center", marginTop: 4 } },
-            h2("span", { className: "dshp-growth-empty" }, "\u4E3B\u52A8\u6D88\u606F\uFF1A"),
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("span", { className: "dshp-growth-empty" }, "\u4E3B\u52A8\u6D88\u606F\uFF1A"),
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.setAttentionMode) api.setAttentionMode(attentionMode === "auto" ? "observe" : "auto");
             } }, attentionMode === "auto" ? "\u81EA\u52A8" : "\u89C2\u5BDF\u4E2D")
           )
         ) : null,
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u4E3B\u52A8\u6D88\u606F"),
-          h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u4E3B\u52A8\u6D88\u606F"),
+          h3(
             "div",
             { style: { display: "flex", gap: 8, alignItems: "center" } },
-            h2("span", { className: "dshp-growth-empty" }, attentionMode === "auto" ? "\u81EA\u52A8\uFF1A\u6709\u5177\u4F53\u7684\u4E8B\u5C31\u76F4\u63A5\u53D1" : "\u89C2\u5BDF\u4E2D\uFF1A\u5979\u5148\u51C6\u5907\uFF0C\u7B49\u4F60\u653E\u884C"),
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("span", { className: "dshp-growth-empty" }, attentionMode === "auto" ? "\u81EA\u52A8\uFF1A\u6709\u5177\u4F53\u7684\u4E8B\u5C31\u76F4\u63A5\u53D1" : "\u89C2\u5BDF\u4E2D\uFF1A\u5979\u5148\u51C6\u5907\uFF0C\u7B49\u4F60\u653E\u884C"),
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.setAttentionMode) api.setAttentionMode(attentionMode === "auto" ? "observe" : "auto");
             } }, attentionMode === "auto" ? "\u5207\u56DE\u89C2\u5BDF" : "\u6539\u4E3A\u81EA\u52A8")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-mood" },
-          h2("div", { className: "dshp-growth-mood-label" }, mood && mood.label ? mood.label : "\u8FD8\u6CA1\u5F62\u6210\u5FC3\u60C5"),
-          mood && mood.reason ? h2("div", { className: "dshp-growth-mood-reason" }, String(mood.reason)) : null,
-          moodSourceLabel ? h2("div", { className: "dshp-growth-mood-source" }, "\u6765\u6E90\uFF1A" + moodSourceLabel) : null,
-          api.moodAiFallback ? h2("div", { className: "dshp-growth-mood-note" }, "\u5F53\u524D\u4F7F\u7528\u672C\u5730\u9762\u90E8\u8868\u60C5\uFF08\u6A21\u578B\u5FC3\u60C5\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u542F\u53D1\u5F0F\uFF09") : null,
-          api.moodAiStale ? h2("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel2(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
-          api.moodAiFailure ? h2("div", { className: "dshp-growth-mood-note" }, "\u4E0A\u6B21\u6A21\u578B\u5FC3\u60C5\u5931\u8D25\uFF1A" + moodFailureText) : null,
-          h2(
+          h3("div", { className: "dshp-growth-mood-label" }, mood && mood.label ? mood.label : "\u8FD8\u6CA1\u5F62\u6210\u5FC3\u60C5"),
+          mood && mood.reason ? h3("div", { className: "dshp-growth-mood-reason" }, String(mood.reason)) : null,
+          moodSourceLabel ? h3("div", { className: "dshp-growth-mood-source" }, "\u6765\u6E90\uFF1A" + moodSourceLabel) : null,
+          api.moodAiFallback ? h3("div", { className: "dshp-growth-mood-note" }, "\u5F53\u524D\u4F7F\u7528\u672C\u5730\u9762\u90E8\u8868\u60C5\uFF08\u6A21\u578B\u5FC3\u60C5\u4E0D\u53EF\u7528\uFF0C\u56DE\u9000\u542F\u53D1\u5F0F\uFF09") : null,
+          api.moodAiStale ? h3("div", { className: "dshp-growth-mood-note" }, "\u6A21\u578B\u5FC3\u60C5\u6682\u65F6\u4E0D\u53EF\u7528\uFF08" + moodAiFailureLabel2(api.moodAiFailure) + (api.moodAiFailureCode ? "\uFF0C" + String(api.moodAiFailureCode).slice(0, 48) : "") + "\uFF09\uFF0C\u4FDD\u7559\u4E0A\u4E00\u6B21\uFF0C\u7A0D\u540E\u91CD\u8BD5") : null,
+          api.moodAiFailure ? h3("div", { className: "dshp-growth-mood-note" }, "\u4E0A\u6B21\u6A21\u578B\u5FC3\u60C5\u5931\u8D25\uFF1A" + moodFailureText) : null,
+          h3(
             "div",
             { className: "dshp-growth-mood-controls" },
-            h2("span", { className: "dshp-growth-mood-control-label" }, "\u5FC3\u60C5\u6362\u88C5"),
+            h3("span", { className: "dshp-growth-mood-control-label" }, "\u5FC3\u60C5\u6362\u88C5"),
             switchNode2(settings.mood === true, () => {
               if (api.updateSettings) api.updateSettings({ mood: !settings.mood });
             }, "\u5FC3\u60C5\u6362\u88C5\u5F00\u5173"),
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.refreshMoodNow) api.refreshMoodNow();
             } }, "\u5237\u65B0\u5FC3\u60C5")
           )
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u5185\u5728\u72B6\u6001"),
-          status && status.sleeping ? h2("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel2(status.sleepSince) : "")) : null,
+          h3("div", { className: "dshp-growth-section-head" }, "\u5185\u5728\u72B6\u6001"),
+          status && status.sleeping ? h3("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel2(status.sleepSince) : "")) : null,
           growthMetricsTree2(status)
         ),
-        status && status.project ? h2(
+        status && status.project ? h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u6B63\u5728\u505A\u7684\u4E8B"),
-          h2("div", { className: "dshp-growth-quote" }, status.project.title + (status.project.note ? " \xB7 " + status.project.note : "")),
-          status.project.stage ? h2("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
-          status.project.latestReport ? h2("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
-          status.project.latestRepeat > 1 ? h2("div", { className: "dshp-growth-empty", style: { color: "#b58a4a" } }, "\u6700\u8FD1\u8FD9\u6B65\u91CD\u590D\u4E86 " + status.project.latestRepeat + " \u6B21" + (status.project.progressAt ? "\uFF0C\u4E0A\u6B21\u771F\u6B63\u63A8\u8FDB\u5728 " + (weatherUpdatedLabel2(status.project.progressAt) || "--:--") : "") + "\uFF0C\u8FD8\u6CA1\u6709\u65B0\u8FDB\u5C55") : null,
-          status.project.attention && status.project.attention.question ? h2("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
-          ...status.project.steps.map((step, index2) => h2("div", { className: "dshp-growth-empty", key: "project-step-" + index2 }, (weatherUpdatedLabel2(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
-          h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u6B63\u5728\u505A\u7684\u4E8B"),
+          h3("div", { className: "dshp-growth-quote" }, status.project.title + (status.project.note ? " \xB7 " + status.project.note : "")),
+          status.project.stage ? h3("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
+          status.project.latestReport ? h3("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
+          status.project.latestRepeat > 1 ? h3("div", { className: "dshp-growth-empty", style: { color: "#b58a4a" } }, "\u6700\u8FD1\u8FD9\u6B65\u91CD\u590D\u4E86 " + status.project.latestRepeat + " \u6B21" + (status.project.progressAt ? "\uFF0C\u4E0A\u6B21\u771F\u6B63\u63A8\u8FDB\u5728 " + (weatherUpdatedLabel2(status.project.progressAt) || "--:--") : "") + "\uFF0C\u8FD8\u6CA1\u6709\u65B0\u8FDB\u5C55") : null,
+          status.project.attention && status.project.attention.question ? h3("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
+          ...status.project.steps.map((step, index2) => h3("div", { className: "dshp-growth-empty", key: "project-step-" + index2 }, (weatherUpdatedLabel2(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
+          h3(
             "div",
             { style: { display: "flex", gap: 6, marginTop: 6 } },
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.loadProjectDetail) api.loadProjectDetail();
             } }, "\u8BE6\u60C5"),
-            status.project.stage === "working" ? h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            status.project.stage === "working" ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.projectAction) api.projectAction("pause");
-            } }, "\u6682\u505C") : status.project.stage === "waiting_user" ? null : h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            } }, "\u6682\u505C") : status.project.stage === "waiting_user" ? null : h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.projectAction) api.projectAction("retry");
             } }, "\u7EE7\u7EED"),
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               if (api.projectAction && (typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm("\u786E\u5B9A\u653E\u4E0B\u8FD9\u4E2A\u9879\u76EE\u5417\uFF1F"))) api.projectAction("drop");
             } }, "\u653E\u5F03")
           )
         ) : null,
-        api.projectDetail && api.projectDetail.ok ? h2(
+        api.projectDetail && api.projectDetail.ok ? h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u9879\u76EE\u8BE6\u60C5"),
-          (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index2) => h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u9879\u76EE\u8BE6\u60C5"),
+          (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index2) => h3(
             "div",
             { className: "dshp-growth-empty", key: "detail-step-" + index2 },
             (weatherUpdatedLabel2(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
           )),
-          api.projectDetail.completed && api.projectDetail.completed.length ? h2("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
+          api.projectDetail.completed && api.projectDetail.completed.length ? h3("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
         ) : null,
-        api.twinRes && api.twinRes.data && api.twinRes.data.project ? h2(
+        api.twinRes && api.twinRes.data && api.twinRes.data.project ? h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u955C\u50CF\u5728\u505A\u4EC0\u4E48"),
-          h2("div", { className: "dshp-growth-quote" }, api.twinRes.data.project.title + " \xB7 " + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4E3B\u4EBA\u56DE\u7B54", waiting_mirror: "\u7B49\u539F\u4F53\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[api.twinRes.data.project.stage] || api.twinRes.data.project.stage)),
-          api.twinRes.data.project.question ? h2("div", { className: "dshp-growth-empty" }, "\u5979\u5728\u7B49\uFF1A" + api.twinRes.data.project.question) : null
+          h3("div", { className: "dshp-growth-section-head" }, "\u955C\u50CF\u5728\u505A\u4EC0\u4E48"),
+          h3("div", { className: "dshp-growth-quote" }, api.twinRes.data.project.title + " \xB7 " + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4E3B\u4EBA\u56DE\u7B54", waiting_mirror: "\u7B49\u539F\u4F53\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[api.twinRes.data.project.stage] || api.twinRes.data.project.stage)),
+          api.twinRes.data.project.question ? h3("div", { className: "dshp-growth-empty" }, "\u5979\u5728\u7B49\uFF1A" + api.twinRes.data.project.question) : null
         ) : null,
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u81EA\u4E3B\u884C\u4E3A"),
-          recentActions.length ? recentActions.map((item, index2) => h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u81EA\u4E3B\u884C\u4E3A"),
+          recentActions.length ? recentActions.map((item, index2) => h3(
             "div",
             { className: "dshp-growth-action", key: "action-" + (item.id || index2) },
-            h2("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel2(item.at) || "--:--"),
-            h2("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
-          )) : h2("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
+            h3("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel2(item.at) || "--:--"),
+            h3("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
+          )) : h3("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
         ),
-        memory ? h2(
+        memory ? h3(
           "div",
           { className: "dshp-growth-section dshp-memory-card" },
-          h2(
+          h3(
             "div",
             { className: "dshp-memory-head" },
-            h2("div", { className: "dshp-growth-section-head" }, "\u8BB0\u5FC6\u4E2D\u67A2"),
-            h2("span", { className: cx2("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
+            h3("div", { className: "dshp-growth-section-head" }, "\u8BB0\u5FC6\u4E2D\u67A2"),
+            h3("span", { className: cx2("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
           ),
-          h2("div", { className: "dshp-memory-line" }, "journal " + memory.journal + " \u6761 \xB7 \u8BDD\u9898 " + memory.topics + " \u6761 \xB7 \u5B66\u4E60 " + memory.learnings + " \u6761"),
-          h2("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel2(memory.backups.lastAt) || "\u2014")),
-          memory.recovered ? h2("div", { className: "dshp-memory-line dshp-memory-recovered" }, "\u5DF2\u4ECE\u5907\u4EFD\u6062\u590D " + memory.recovered + " \u4E2A\u6587\u4EF6") : null,
-          h2(
+          h3("div", { className: "dshp-memory-line" }, "journal " + memory.journal + " \u6761 \xB7 \u8BDD\u9898 " + memory.topics + " \u6761 \xB7 \u5B66\u4E60 " + memory.learnings + " \u6761"),
+          h3("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel2(memory.backups.lastAt) || "\u2014")),
+          memory.recovered ? h3("div", { className: "dshp-memory-line dshp-memory-recovered" }, "\u5DF2\u4ECE\u5907\u4EFD\u6062\u590D " + memory.recovered + " \u4E2A\u6587\u4EF6") : null,
+          h3(
             "div",
             { className: "dshp-growth-actions" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn dshp-btn-small",
               onClick: () => {
@@ -17192,16 +16766,16 @@
             }, "\u7ACB\u5373\u5907\u4EFD")
           )
         ) : null,
-        works.length ? h2(
+        works.length ? h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u6211\u7684\u4F5C\u54C1"),
-          works.map((work, index2) => h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u6211\u7684\u4F5C\u54C1"),
+          works.map((work, index2) => h3(
             "div",
             { className: "dshp-work", key: "work-" + (work.id || index2) },
-            h2("div", { className: "dshp-work-title" }, work.title),
-            (work.kind === "svg" || work.kind === "image") && work.src ? h2("img", { className: "dshp-work-art", src: work.src, alt: work.title, loading: "lazy" }) : work.kind === "video" && work.src ? h2("video", { className: "dshp-work-art", src: work.src, controls: true, playsInline: true, preload: "metadata" }) : h2("div", { className: "dshp-growth-quote" }, work.body),
-            h2("div", { className: "dshp-work-time" }, weatherUpdatedLabel2(work.createdAt) || "--:--")
+            h3("div", { className: "dshp-work-title" }, work.title),
+            (work.kind === "svg" || work.kind === "image") && work.src ? h3("img", { className: "dshp-work-art", src: work.src, alt: work.title, loading: "lazy" }) : work.kind === "video" && work.src ? h3("video", { className: "dshp-work-art", src: work.src, controls: true, playsInline: true, preload: "metadata" }) : h3("div", { className: "dshp-growth-quote" }, work.body),
+            h3("div", { className: "dshp-work-time" }, weatherUpdatedLabel2(work.createdAt) || "--:--")
           ))
         ) : null,
         (() => {
@@ -17217,99 +16791,99 @@
             return Math.round(diff / 36e5) + " \u5C0F\u65F6\u540E";
           };
           const fmtDuration = (ms) => typeof ms === "number" && ms >= 0 ? ms < 1e3 ? Math.round(ms) + "ms" : (ms / 1e3).toFixed(1) + "s" : "\u2014";
-          return h2(
+          return h3(
             "div",
             { className: "dshp-growth-section" },
-            h2("div", { className: "dshp-growth-section-head" }, "\u8FD0\u884C\u65F6"),
-            h2("div", { className: "dshp-growth-empty" }, "\u6A21\u578B\u8C03\u7528 " + health.total + (health.totalLimit > 0 ? "/" + health.totalLimit : "") + " \xB7 \u5FC3\u8DF3 " + (health.activeJobs || 0) + " \u62CD \xB7 24h \u6A21\u578B\u5931\u8D25 " + health.modelErrorTotal),
-            jobs.length > 0 ? h2(
+            h3("div", { className: "dshp-growth-section-head" }, "\u8FD0\u884C\u65F6"),
+            h3("div", { className: "dshp-growth-empty" }, "\u6A21\u578B\u8C03\u7528 " + health.total + (health.totalLimit > 0 ? "/" + health.totalLimit : "") + " \xB7 \u5FC3\u8DF3 " + (health.activeJobs || 0) + " \u62CD \xB7 24h \u6A21\u578B\u5931\u8D25 " + health.modelErrorTotal),
+            jobs.length > 0 ? h3(
               "div",
               { style: { marginTop: 6, display: "flex", flexDirection: "column", gap: 3 } },
-              ...jobs.map((job, index2) => h2(
+              ...jobs.map((job, index2) => h3(
                 "div",
                 { key: "runtime-job-" + index2, style: { display: "flex", gap: 8, alignItems: "baseline", fontSize: 11.5, opacity: job.errors > 0 ? 1 : 0.8 } },
-                h2("span", { style: { minWidth: 70 } }, job.name),
-                h2("span", { style: { opacity: 0.55, flex: 1 } }, "\u4E0B\u6B21 " + fmtNext(job.nextAt) + " \xB7 \u4E0A\u6B21 " + fmtDuration(job.lastDurationMs)),
-                job.errors > 0 ? h2("span", { style: { color: "#d97373" } }, "\u9519 " + job.errors) : null
+                h3("span", { style: { minWidth: 70 } }, job.name),
+                h3("span", { style: { opacity: 0.55, flex: 1 } }, "\u4E0B\u6B21 " + fmtNext(job.nextAt) + " \xB7 \u4E0A\u6B21 " + fmtDuration(job.lastDurationMs)),
+                job.errors > 0 ? h3("span", { style: { color: "#d97373" } }, "\u9519 " + job.errors) : null
               ))
-            ) : h2("div", { className: "dshp-growth-empty" }, "\u5FC3\u8DF3\u672A\u6CE8\u518C")
+            ) : h3("div", { className: "dshp-growth-empty" }, "\u5FC3\u8DF3\u672A\u6CE8\u518C")
           );
         })(),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section dshp-growth-journey" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u53F2"),
-          growthStage ? h2(
+          h3("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u53F2"),
+          growthStage ? h3(
             "div",
             { style: { marginBottom: 6 } },
-            h2("div", { style: { fontWeight: 600, fontSize: 15, marginBottom: 2 } }, "\u300C" + String(growthStage.title || "") + "\u300D" + (growthDays === null ? "" : " \xB7 \u6709\u8BB0\u5FC6\u4EE5\u6765 " + growthDays + " \u5929")),
-            growthStage.desc ? h2("div", { className: "dshp-growth-mood-note", style: { marginBottom: 8 } }, String(growthStage.desc)) : null,
-            growthNext ? h2("div", { className: "dshp-growth-empty", style: { marginBottom: 8 } }, "\u4E0B\u4E00\u6B65\uFF1A\u300C" + String(growthNext.title || "") + "\u300D" + (growthNext.desc ? "\u2014\u2014" + String(growthNext.desc) : "")) : null,
-            ...growthMilestones.map((item, index2) => h2(
+            h3("div", { style: { fontWeight: 600, fontSize: 15, marginBottom: 2 } }, "\u300C" + String(growthStage.title || "") + "\u300D" + (growthDays === null ? "" : " \xB7 \u6709\u8BB0\u5FC6\u4EE5\u6765 " + growthDays + " \u5929")),
+            growthStage.desc ? h3("div", { className: "dshp-growth-mood-note", style: { marginBottom: 8 } }, String(growthStage.desc)) : null,
+            growthNext ? h3("div", { className: "dshp-growth-empty", style: { marginBottom: 8 } }, "\u4E0B\u4E00\u6B65\uFF1A\u300C" + String(growthNext.title || "") + "\u300D" + (growthNext.desc ? "\u2014\u2014" + String(growthNext.desc) : "")) : null,
+            ...growthMilestones.map((item, index2) => h3(
               "div",
               { key: "growth-milestone-" + index2, style: { marginBottom: 6 } },
-              h2(
+              h3(
                 "div",
                 { style: { display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 2 } },
-                h2("span", null, String(item.label || "")),
-                h2("span", { className: "dshp-growth-empty" }, String(item.have ?? 0) + " / " + String(item.need ?? 0))
+                h3("span", null, String(item.label || "")),
+                h3("span", { className: "dshp-growth-empty" }, String(item.have ?? 0) + " / " + String(item.need ?? 0))
               ),
-              h2(
+              h3(
                 "div",
                 { style: { height: 4, borderRadius: 2, background: "rgba(127,127,127,.18)", overflow: "hidden" } },
-                h2("div", { style: { height: "100%", width: Math.round((Number(item.progress) || 0) * 100) + "%", background: "#b58a4a", borderRadius: 2 } })
+                h3("div", { style: { height: "100%", width: Math.round((Number(item.progress) || 0) * 100) + "%", background: "#b58a4a", borderRadius: 2 } })
               )
             )),
-            growthPhilosophy ? h2("div", { className: "dshp-growth-empty", style: { marginTop: 6 } }, "\u6B63\u5728\u8BFB\u300A" + String(growthPhilosophy.title || "") + "\u300B \xB7 \u5DF2\u8BFB " + String(growthPhilosophy.cursor ?? 0) + "/" + String(growthPhilosophy.chunkCount ?? 0) + " \u6BB5") : null,
-            growthEmotions.length > 0 ? h2(
+            growthPhilosophy ? h3("div", { className: "dshp-growth-empty", style: { marginTop: 6 } }, "\u6B63\u5728\u8BFB\u300A" + String(growthPhilosophy.title || "") + "\u300B \xB7 \u5DF2\u8BFB " + String(growthPhilosophy.cursor ?? 0) + "/" + String(growthPhilosophy.chunkCount ?? 0) + " \u6BB5") : null,
+            growthEmotions.length > 0 ? h3(
               "div",
               { style: { marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 } },
-              ...growthEmotions.slice(0, 4).map((emotion, index2) => h2(
+              ...growthEmotions.slice(0, 4).map((emotion, index2) => h3(
                 "span",
                 { key: "growth-emotion-" + index2, style: { fontSize: 12, padding: "2px 7px", borderRadius: 10, background: "rgba(181,138,74,.14)", border: "1px solid rgba(181,138,74,.35)" } },
                 String(emotion.family || "") + "\xB7" + String(emotion.label || "")
               ))
             ) : null
-          ) : h2("div", { className: "dshp-growth-empty" }, api.growthRes && api.growthRes.status === "error" ? "\u6210\u957F\u5FEB\u7167\u6682\u65F6\u8BFB\u4E0D\u5230" : "\u6B63\u5728\u6574\u7406\u5979\u7684\u6210\u957F\u2026"),
-          growthAutobiography.length > 0 ? h2(
+          ) : h3("div", { className: "dshp-growth-empty" }, api.growthRes && api.growthRes.status === "error" ? "\u6210\u957F\u5FEB\u7167\u6682\u65F6\u8BFB\u4E0D\u5230" : "\u6B63\u5728\u6574\u7406\u5979\u7684\u6210\u957F\u2026"),
+          growthAutobiography.length > 0 ? h3(
             "details",
             { style: { marginTop: 10 } },
-            h2("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u5979\u5199\u4E0B\u7684\u6210\u957F\u53F2"),
-            h2("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthAutobiography.slice(0, 4e3))
+            h3("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u5979\u5199\u4E0B\u7684\u6210\u957F\u53F2"),
+            h3("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthAutobiography.slice(0, 4e3))
           ) : null,
-          growthReport.length > 0 ? h2(
+          growthReport.length > 0 ? h3(
             "details",
             { style: { marginTop: 8 } },
-            h2("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u8FD9\u5468\u7684\u6210\u957F\u62A5\u544A"),
-            h2("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthReport.slice(0, 3600))
+            h3("summary", { style: { cursor: "pointer", fontSize: 13, color: "inherit", opacity: 0.8 } }, "\u8FD9\u5468\u7684\u6210\u957F\u62A5\u544A"),
+            h3("div", { style: { maxHeight: 240, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, marginTop: 6, padding: 8, borderRadius: 8, background: "rgba(127,127,127,.08)" } }, growthReport.slice(0, 3600))
           ) : null
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u6700\u8FD1\u8BF4\u8FC7\u7684\u8BDD"),
-          recent.length ? recent.map((text, index2) => h2("div", { className: "dshp-growth-quote", key: "recent-" + index2 }, "\u300C" + String(text) + "\u300D")) : h2("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
+          h3("div", { className: "dshp-growth-section-head" }, "\u6700\u8FD1\u8BF4\u8FC7\u7684\u8BDD"),
+          recent.length ? recent.map((text, index2) => h3("div", { className: "dshp-growth-quote", key: "recent-" + index2 }, "\u300C" + String(text) + "\u300D")) : h3("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u5F00\u53E3")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-section" },
-          h2("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u6458\u8981"),
-          h2("div", { className: "dshp-self-summary" }, selfStatusSummary2(status) || "\u5C1A\u672A\u5F00\u59CB")
+          h3("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u6458\u8981"),
+          h3("div", { className: "dshp-self-summary" }, selfStatusSummary2(status) || "\u5C1A\u672A\u5F00\u59CB")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-growth-actions" },
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: () => sayButton() }, "\u8BF4\u4E00\u53E5"),
-          api.poetryEntryEnabled === true ? h2("button", { type: "button", className: "dshp-btn", onClick: () => {
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: () => sayButton() }, "\u8BF4\u4E00\u53E5"),
+          api.poetryEntryEnabled === true ? h3("button", { type: "button", className: "dshp-btn", onClick: () => {
             if (api.openPoetryModule) api.openPoetryModule();
           } }, "\u8BD7\u8BCD\u6A21\u5757") : null,
-          h2("button", { type: "button", className: "dshp-btn", onClick: () => {
+          h3("button", { type: "button", className: "dshp-btn", onClick: () => {
             if (api.openSettings) api.openSettings();
           } }, "\u8BBE\u7F6E")
         )
       );
     }
-    return GrowthTab;
+    return GrowthTab2;
   }
 
   // node_modules/graphology/dist/graphology.mjs
@@ -22513,31 +22087,31 @@
     return { graph, nodes, links, idSet: ids, degree };
   }
   function createGraphTab(ctx = {}) {
-    const h2 = ctx.h;
-    const React = ctx.React;
-    function GraphTab() {
-      const [data, setData] = React.useState(null);
-      const [error, setError] = React.useState("");
-      const [selected, setSelected] = React.useState(null);
-      const [hovered, setHovered] = React.useState(null);
-      const [query, setQuery] = React.useState("");
-      const [rotateMode, setRotateMode] = React.useState(false);
-      const [view3d, setView3d] = React.useState(false);
-      const [reloadKey, setReloadKey] = React.useState(0);
-      const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
-      const containerRef = React.useRef(null);
-      const rendererRef = React.useRef(null);
-      const fingerprintRef = React.useRef("");
-      const layoutRef = React.useRef(null);
-      const rotateModeRef = React.useRef(false);
+    const h3 = ctx.h;
+    const React2 = ctx.React;
+    function GraphTab2() {
+      const [data, setData] = React2.useState(null);
+      const [error, setError] = React2.useState("");
+      const [selected, setSelected] = React2.useState(null);
+      const [hovered, setHovered] = React2.useState(null);
+      const [query, setQuery] = React2.useState("");
+      const [rotateMode, setRotateMode] = React2.useState(false);
+      const [view3d, setView3d] = React2.useState(false);
+      const [reloadKey, setReloadKey] = React2.useState(0);
+      const [stats, setStats] = React2.useState({ nodes: 0, edges: 0, big: false });
+      const containerRef = React2.useRef(null);
+      const rendererRef = React2.useRef(null);
+      const fingerprintRef = React2.useRef("");
+      const layoutRef = React2.useRef(null);
+      const rotateModeRef = React2.useRef(false);
       rotateModeRef.current = rotateMode;
-      const view3dRef = React.useRef(false);
+      const view3dRef = React2.useRef(false);
       view3dRef.current = view3d;
-      const applyCameraRef = React.useRef(null);
-      const cameraRef = React.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 });
-      const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
+      const applyCameraRef = React2.useRef(null);
+      const cameraRef = React2.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 });
+      const viewRef = React2.useRef({ selected: null, hovered: null, query: "" });
       viewRef.current = { selected, hovered, query };
-      React.useEffect(() => {
+      React2.useEffect(() => {
         let alive = true;
         const load = () => {
           fetch("/api/dsh-poetry/graph.json", { cache: "no-store" }).then((res) => {
@@ -22565,7 +22139,7 @@
           clearInterval(timer2);
         };
       }, [reloadKey]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         const container = containerRef.current;
         if (!container || !data) return void 0;
         let cancelled = false;
@@ -22920,7 +22494,7 @@
           cleanup();
         };
       }, [data, reloadKey]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         const camera = cameraRef.current;
         camera.on = view3d;
         if (view3d) {
@@ -22936,7 +22510,7 @@
         } catch {
         }
       }, [view3d]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         try {
           rendererRef.current && rendererRef.current.refresh();
         } catch {
@@ -23085,14 +22659,14 @@
         } catch {
         }
       };
-      const insightCards = nodes.length > 0 ? h2(
+      const insightCards = nodes.length > 0 ? h3(
         "div",
         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 } },
-        h2(
+        h3(
           "div",
           { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
-          h2("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u6838\u5FC3\u8282\u70B9"),
-          ...coreNodes.map((item) => h2(
+          h3("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u6838\u5FC3\u8282\u70B9"),
+          ...coreNodes.map((item) => h3(
             "button",
             {
               key: "core-" + item.name,
@@ -23101,16 +22675,16 @@
               title: "\u5B9A\u4F4D\u5230\u300C" + item.name + "\u300D",
               style: { display: "flex", alignItems: "center", gap: 6, width: "100%", padding: "3px 0", background: "transparent", border: 0, cursor: "pointer", color: "inherit", textAlign: "left", fontSize: 12 }
             },
-            h2("span", { style: { width: 7, height: 7, borderRadius: 4, background: TYPE_COLOR[item.type] || "#8aa2b4", flex: "0 0 auto" } }),
-            h2("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.name),
-            h2("span", { style: { opacity: 0.45, fontSize: 11 } }, item.degree + " \u6761")
+            h3("span", { style: { width: 7, height: 7, borderRadius: 4, background: TYPE_COLOR[item.type] || "#8aa2b4", flex: "0 0 auto" } }),
+            h3("span", { style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.name),
+            h3("span", { style: { opacity: 0.45, fontSize: 11 } }, item.degree + " \u6761")
           ))
         ),
-        h2(
+        h3(
           "div",
           { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
-          h2("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u610F\u5916\u8FDE\u63A5"),
-          surprising.length > 0 ? surprising.map((item, index2) => h2(
+          h3("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u610F\u5916\u8FDE\u63A5"),
+          surprising.length > 0 ? surprising.map((item, index2) => h3(
             "button",
             {
               key: "surprising-" + index2,
@@ -23119,22 +22693,22 @@
               title: "\u5B9A\u4F4D\u5230\u8FD9\u7EC4\u8FDE\u63A5",
               style: { display: "block", width: "100%", padding: "3px 0", background: "transparent", border: 0, cursor: "pointer", color: "inherit", textAlign: "left", fontSize: 12, lineHeight: 1.45 }
             },
-            h2("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.edge.from + " \u2014 " + item.edge.to),
-            h2("div", { style: { opacity: 0.5, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.why)
-          )) : h2("div", { style: { fontSize: 12, opacity: 0.5 } }, "\u6682\u65F6\u6CA1\u6709\u8DE8\u7C7B\u578B\u8FDE\u63A5")
+            h3("div", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.edge.from + " \u2014 " + item.edge.to),
+            h3("div", { style: { opacity: 0.5, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, item.why)
+          )) : h3("div", { style: { fontSize: 12, opacity: 0.5 } }, "\u6682\u65F6\u6CA1\u6709\u8DE8\u7C7B\u578B\u8FDE\u63A5")
         ),
-        h2(
+        h3(
           "div",
           { style: { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.035)", border: "1px solid rgba(255,255,255,0.09)" } },
-          h2("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u53EF\u4EE5\u8FFD\u95EE"),
-          ...questions.map((question, index2) => h2(
+          h3("div", { style: { fontSize: 11, opacity: 0.6, marginBottom: 5, letterSpacing: 1 } }, "\u53EF\u4EE5\u8FFD\u95EE"),
+          ...questions.map((question, index2) => h3(
             "div",
             { key: "question-" + index2, style: { fontSize: 12, lineHeight: 1.5, padding: "3px 0", opacity: 0.85 } },
             question
           ))
         )
       ) : null;
-      const detail = selectedNode ? h2(
+      const detail = selectedNode ? h3(
         "div",
         {
           style: {
@@ -23148,11 +22722,11 @@
             boxShadow: "0 6px 18px rgba(0,0,0,0.18)"
           }
         },
-        h2(
+        h3(
           "div",
           { style: { display: "flex", gap: 8, alignItems: "baseline", marginBottom: 4 } },
-          h2("strong", { style: { fontSize: 14 } }, selectedNode.name),
-          h2("span", {
+          h3("strong", { style: { fontSize: 14 } }, selectedNode.name),
+          h3("span", {
             style: {
               fontSize: 10,
               padding: "1px 7px",
@@ -23162,62 +22736,62 @@
               fontWeight: 600
             }
           }, TYPE_LABEL[selectedNode.type] || selectedNode.type || "\u6761\u76EE"),
-          h2("span", { style: { opacity: 0.55, marginLeft: "auto" } }, "\u70B9\u7A7A\u767D\u5904\u5173\u95ED")
+          h3("span", { style: { opacity: 0.55, marginLeft: "auto" } }, "\u70B9\u7A7A\u767D\u5904\u5173\u95ED")
         ),
-        selectedNode.summary ? h2("div", { style: { opacity: 0.85, marginTop: 3 } }, selectedNode.summary) : null,
-        selectedRels.length > 0 ? h2(
+        selectedNode.summary ? h3("div", { style: { opacity: 0.85, marginTop: 3 } }, selectedNode.summary) : null,
+        selectedRels.length > 0 ? h3(
           "div",
           { style: { marginTop: 8 } },
-          h2("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5173\u7CFB"),
-          ...selectedRels.slice(0, 8).map((edge) => h2(
+          h3("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5173\u7CFB"),
+          ...selectedRels.slice(0, 8).map((edge) => h3(
             "div",
             { key: edge.id || edge.from + edge.to + edge.relation, style: { display: "flex", gap: 6, alignItems: "baseline", marginBottom: 2 } },
-            h2("span", { style: { fontSize: 10, padding: "0 6px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)", opacity: 0.85 } }, REL_LABEL[edge.relation] || "\u5173\u8054"),
-            h2("span", { style: { fontSize: 10, opacity: 0.5 } }, Array.isArray(edge.sources) && edge.sources.length > 0 ? "\u8BFB\u5230" : "\u63A8\u65AD"),
-            h2("span", null, edge.from === selectedNode.name ? `\u2192 ${edge.to}` : `${edge.from} \u2192`),
-            edge.note ? h2("span", { style: { opacity: 0.55 } }, `\uFF08${edge.note}\uFF09`) : null
+            h3("span", { style: { fontSize: 10, padding: "0 6px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)", opacity: 0.85 } }, REL_LABEL[edge.relation] || "\u5173\u8054"),
+            h3("span", { style: { fontSize: 10, opacity: 0.5 } }, Array.isArray(edge.sources) && edge.sources.length > 0 ? "\u8BFB\u5230" : "\u63A8\u65AD"),
+            h3("span", null, edge.from === selectedNode.name ? `\u2192 ${edge.to}` : `${edge.from} \u2192`),
+            edge.note ? h3("span", { style: { opacity: 0.55 } }, `\uFF08${edge.note}\uFF09`) : null
           ))
         ) : null,
-        selectedClaims.length > 0 ? h2(
+        selectedClaims.length > 0 ? h3(
           "div",
           { style: { marginTop: 8 } },
-          h2("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5224\u65AD"),
-          ...selectedClaims.slice(0, 4).map((claim) => h2(
+          h3("div", { style: { opacity: 0.55, marginBottom: 4 } }, "\u5224\u65AD"),
+          ...selectedClaims.slice(0, 4).map((claim) => h3(
             "div",
             { key: claim.id || claim.text, style: { marginBottom: 2 } },
             "\u201C" + claim.text + "\u201D",
-            h2("span", { style: { marginLeft: 6, fontSize: 10, opacity: 0.6 } }, "[" + (CONFIDENCE_LABEL[claim.confidence] || claim.confidence || "?") + "]")
+            h3("span", { style: { marginLeft: 6, fontSize: 10, opacity: 0.6 } }, "[" + (CONFIDENCE_LABEL[claim.confidence] || claim.confidence || "?") + "]")
           ))
         ) : null
       ) : null;
-      const legend = h2(
+      const legend = h3(
         "div",
         { style: { display: "flex", flexWrap: "wrap", gap: "6px 12px", alignItems: "center", fontSize: 11, opacity: 0.8 } },
-        ...ALL_TYPES.filter((type) => typeCounts[type]).map((type) => h2(
+        ...ALL_TYPES.filter((type) => typeCounts[type]).map((type) => h3(
           "span",
           { key: "legend-" + type, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
-          h2("span", { style: { width: 8, height: 8, borderRadius: 4, background: TYPE_COLOR[type] } }),
+          h3("span", { style: { width: 8, height: 8, borderRadius: 4, background: TYPE_COLOR[type] } }),
           TYPE_LABEL[type] + " " + typeCounts[type]
         )),
-        h2("span", { style: { marginLeft: "auto", opacity: 0.7 } }, "\u5173\u7CFB\uFF1A"),
-        ...Object.entries(REL_LABEL).map(([relation, label]) => h2(
+        h3("span", { style: { marginLeft: "auto", opacity: 0.7 } }, "\u5173\u7CFB\uFF1A"),
+        ...Object.entries(REL_LABEL).map(([relation, label]) => h3(
           "span",
           { key: "legend-rel-" + relation, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
-          h2("span", { style: { width: 14, height: 2, background: REL_COLOR[relation], borderRadius: 1 } }),
+          h3("span", { style: { width: 14, height: 2, background: REL_COLOR[relation], borderRadius: 1 } }),
           label
         )),
-        h2("span", { style: { opacity: 0.7 } }, "\u7EBF\uFF1A"),
-        ...Object.entries(PROVENANCE_LABEL).map(([provenance, label]) => h2(
+        h3("span", { style: { opacity: 0.7 } }, "\u7EBF\uFF1A"),
+        ...Object.entries(PROVENANCE_LABEL).map(([provenance, label]) => h3(
           "span",
           { key: "legend-prov-" + provenance, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
-          h2("span", { style: { width: 14, height: 2, background: PROVENANCE_COLOR[provenance], borderRadius: 1 } }),
+          h3("span", { style: { width: 14, height: 2, background: PROVENANCE_COLOR[provenance], borderRadius: 1 } }),
           label
         ))
       );
       const hoverTooltip = hovered && hovered !== selected ? (() => {
         const node = nodes.find((item) => item.name === hovered);
         if (!node) return null;
-        return h2(
+        return h3(
           "div",
           {
             style: {
@@ -23236,14 +22810,14 @@
               zIndex: 5
             }
           },
-          h2("div", { style: { fontWeight: 600, marginBottom: 2 } }, node.name),
-          node.summary ? h2("div", { style: { opacity: 0.75 } }, String(node.summary).slice(0, 100)) : null
+          h3("div", { style: { fontWeight: 600, marginBottom: 2 } }, node.name),
+          node.summary ? h3("div", { style: { opacity: 0.75 } }, String(node.summary).slice(0, 100)) : null
         );
       })() : null;
-      const body = error ? h2("div", { style: { fontSize: 12, color: "#e0a458" } }, "\u8BFB\u53D6/\u6E32\u67D3\u56FE\u8C31\u5931\u8D25\uFF1A" + error, h2("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u8BD5")) : nodes.length === 0 ? h2("div", { style: { fontSize: 12, lineHeight: 1.7, opacity: 0.85 } }, "\u56FE\u8C31\u8FD8\u5728\u957F\uFF1A\u540E\u53F0\u6BCF 2 \u5C0F\u65F6\u4ECE\u5B66\u4E60\u65E5\u5FD7\u91CC\u62BD\u4E00\u8F6E\u3002", h2("br"), "\u5F53\u524D\u72B6\u6001\uFF1A" + lastText + "\u3002") : h2(
+      const body = error ? h3("div", { style: { fontSize: 12, color: "#e0a458" } }, "\u8BFB\u53D6/\u6E32\u67D3\u56FE\u8C31\u5931\u8D25\uFF1A" + error, h3("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u8BD5")) : nodes.length === 0 ? h3("div", { style: { fontSize: 12, lineHeight: 1.7, opacity: 0.85 } }, "\u56FE\u8C31\u8FD8\u5728\u957F\uFF1A\u540E\u53F0\u6BCF 2 \u5C0F\u65F6\u4ECE\u5B66\u4E60\u65E5\u5FD7\u91CC\u62BD\u4E00\u8F6E\u3002", h3("br"), "\u5F53\u524D\u72B6\u6001\uFF1A" + lastText + "\u3002") : h3(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 8 } },
-        h2(
+        h3(
           "div",
           {
             ref: containerRef,
@@ -23260,37 +22834,37 @@
           },
           hoverTooltip
         ),
-        h2(
+        h3(
           "div",
           { style: { position: "absolute", right: 10, bottom: 10, display: "flex", gap: 4 } },
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => zoomBy(1.4) }, "+"),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => zoomBy(0.7) }, "\u2212"),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D"),
-          h2("button", {
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u653E\u5927", onClick: () => zoomBy(1.4) }, "+"),
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u7F29\u5C0F", onClick: () => zoomBy(0.7) }, "\u2212"),
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u590D\u4F4D", onClick: resetView }, "\u590D\u4F4D"),
+          h3("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
             title: "3D \u89C6\u89D2\uFF1A\u62D6\u52A8\u753B\u5E03\u65CB\u8F6C\u76F8\u673A\uFF0C\u6EDA\u52A8\u7F29\u653E",
             style: view3d ? { borderColor: "rgba(150,200,240,0.55)" } : void 0,
             onClick: () => setView3d((value) => !value)
           }, view3d ? "3D \u4E2D" : "3D"),
-          h2("button", {
+          h3("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
             title: "\u65CB\u8F6C\u6A21\u5F0F\uFF1A\u6253\u5F00\u540E\u76F4\u63A5\u62D6\u52A8\u7A7A\u767D\u5904\u65CB\u8F6C",
             style: rotateMode ? { borderColor: "rgba(255,233,184,0.55)" } : void 0,
             onClick: () => setRotateMode((value) => !value)
           }, rotateMode ? "\u65CB\u8F6C\u4E2D" : "\u65CB\u8F6C"),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u91CD\u65B0\u6392\u5E03", onClick: () => {
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", title: "\u91CD\u65B0\u6392\u5E03", onClick: () => {
             try {
               layoutRef.current && layoutRef.current.alpha(0.35).restart();
             } catch {
             }
           } }, "\u91CD\u6392")
         ),
-        h2(
+        h3(
           "div",
           { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" } },
-          h2("input", {
+          h3("input", {
             type: "search",
             value: query,
             placeholder: "\u641C\u7D22\u8282\u70B9\u2026",
@@ -23311,39 +22885,39 @@
               outline: "none"
             }
           }),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: focusMatch }, "\u5B9A\u4F4D"),
-          query.trim().length > 0 ? h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setQuery("") }, "\u6E05\u9664") : null
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: focusMatch }, "\u5B9A\u4F4D"),
+          query.trim().length > 0 ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setQuery("") }, "\u6E05\u9664") : null
         ),
         detail
       );
-      return h2(
+      return h3(
         "div",
         { style: { display: "flex", flexDirection: "column", gap: 9 } },
-        h2(
+        h3(
           "div",
           { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", fontSize: 12 } },
-          h2("strong", { style: { fontSize: 15, letterSpacing: 1.5 } }, "\u8BA4\u77E5\u56FE\u8C31"),
-          h2("span", { style: { opacity: 0.75 } }, stats.nodes + " \u8282\u70B9 \xB7 " + stats.edges + " \u5173\u7CFB \xB7 " + (data && data.claims ? data.claims.length : 0) + " \u5224\u65AD"),
-          h2("span", { style: { opacity: 0.5, marginLeft: "auto" } }, lastText)
+          h3("strong", { style: { fontSize: 15, letterSpacing: 1.5 } }, "\u8BA4\u77E5\u56FE\u8C31"),
+          h3("span", { style: { opacity: 0.75 } }, stats.nodes + " \u8282\u70B9 \xB7 " + stats.edges + " \u5173\u7CFB \xB7 " + (data && data.claims ? data.claims.length : 0) + " \u5224\u65AD"),
+          h3("span", { style: { opacity: 0.5, marginLeft: "auto" } }, lastText)
         ),
         body,
         insightCards,
         legend,
-        h2(
+        h3(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, opacity: 0.55 } },
-          h2("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 3D \u89C6\u89D2\u4E0B\u62D6\u52A8\u753B\u5E03\u8F6C\u89C6\u89D2 \xB7 Shift+\u62D6\u52A8\u65CB\u8F6C \xB7 \u6EDA\u8F6E\u7F29\u653E" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
-          h2("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
+          h3("span", null, "\u52A8\u6001\u5E03\u5C40 \xB7 \u53EF\u62D6\u52A8\u8282\u70B9 \xB7 3D \u89C6\u89D2\u4E0B\u62D6\u52A8\u753B\u5E03\u8F6C\u89C6\u89D2 \xB7 Shift+\u62D6\u52A8\u65CB\u8F6C \xB7 \u6EDA\u8F6E\u7F29\u653E" + (stats.big ? " \xB7 \u8D85\u5927\u56FE\u5DF2\u7528\u7B80\u5316\u5E03\u5C40" : "")),
+          h3("span", null, data && data.updatedAt ? "\u66F4\u65B0\uFF1A" + new Date(data.updatedAt).toLocaleString("zh-CN", { hour12: false }) : "")
         ),
-        h2(
+        h3(
           "div",
           { style: { display: "flex", justifyContent: "flex-end", gap: 6 } },
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: exportObservation }, "\u5BFC\u51FA\u89C2\u5BDF\u62A5\u544A"),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u65B0\u8F7D\u5165")
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: exportObservation }, "\u5BFC\u51FA\u89C2\u5BDF\u62A5\u544A"),
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setReloadKey((n) => n + 1) }, "\u91CD\u65B0\u8F7D\u5165")
         )
       );
     }
-    return GraphTab;
+    return GraphTab2;
   }
 
   // client-src/feihua.js
@@ -23655,8 +23229,8 @@
 
   // client-src/tabs-feihua.js
   function createFeihuaTab(ctx = {}) {
-    const React = ctx.React;
-    const h2 = ctx.h;
+    const React2 = ctx.React;
+    const h3 = ctx.h;
     const cx2 = ctx.cx;
     const EmptyState2 = ctx.EmptyState;
     const LoadingState2 = ctx.LoadingState;
@@ -23677,25 +23251,25 @@
     const writeFeihuaBest2 = ctx.writeFeihuaBest;
     const FEIHUA_ATLAS_PAGE2 = ctx.FEIHUA_ATLAS_PAGE;
     const FEIHUA_FULL_RETRY_MS2 = ctx.FEIHUA_FULL_RETRY_MS;
-    function FeihuaTab(props) {
+    function FeihuaTab2(props) {
       const api = props.api || {};
       const poemsRes = api.poemsRes || {};
       const ciRes = api.ciRes || {};
       const index2 = api.feihuaIndex || getFeihuaIndex2(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
       const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
       const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
-      const [char, setChar] = React.useState(null);
-      const [mode, setMode] = React.useState("chain");
-      const [game, setGame] = React.useState(null);
-      const [inputText, setInputText] = React.useState("");
-      const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE2);
-      const [best, setBest] = React.useState(() => readFeihuaBest2());
-      const bestRef = React.useRef(best);
+      const [char, setChar] = React2.useState(null);
+      const [mode, setMode] = React2.useState("chain");
+      const [game, setGame] = React2.useState(null);
+      const [inputText, setInputText] = React2.useState("");
+      const [atlasLimit, setAtlasLimit] = React2.useState(FEIHUA_ATLAS_PAGE2);
+      const [best, setBest] = React2.useState(() => readFeihuaBest2());
+      const bestRef = React2.useRef(best);
       bestRef.current = best;
       const launch = num(api.feihuaLaunch, 0);
-      const launchRef = React.useRef(0);
+      const launchRef = React2.useRef(0);
       const activeChar = index2 ? char || pickDefaultFeihuaChar2(index2, api.poem) : null;
-      React.useEffect(() => {
+      React2.useEffect(() => {
         if (!index2 || !activeChar) return;
         if (launch > 0 && launch !== launchRef.current) {
           launchRef.current = launch;
@@ -23704,9 +23278,9 @@
           if (typeof api.consumeFeihuaLaunch === "function") api.consumeFeihuaLaunch();
         }
       }, [launch, index2, activeChar]);
-      const [fullInfo, setFullInfo] = React.useState({ char: "", status: "idle", count: 0 });
-      const fullTokenRef = React.useRef(0);
-      React.useEffect(() => {
+      const [fullInfo, setFullInfo] = React2.useState({ char: "", status: "idle", count: 0 });
+      const fullTokenRef = React2.useRef(0);
+      React2.useEffect(() => {
         if (!index2 || !activeChar) return void 0;
         const target = activeChar;
         const cached = readFeihuaFullCache2(target);
@@ -23737,7 +23311,7 @@
         };
       }, [activeChar, index2]);
       if (poemsRes.status === "error") {
-        return h2(EmptyState2, {
+        return h3(EmptyState2, {
           title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(poemsRes.error),
           onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
@@ -23745,16 +23319,16 @@
         });
       }
       if (ciRes.status === "error") {
-        return h2(EmptyState2, {
+        return h3(EmptyState2, {
           title: "\u8BCD\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(ciRes.error),
           onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
           })
         });
       }
-      if (!poemsRes.data || !ciRes.data) return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
+      if (!poemsRes.data || !ciRes.data) return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u98DE\u82B1\u4EE4\u53E5\u5E93\u2026" });
       if (!index2 || !index2.entries.length) {
-        return h2(EmptyState2, { title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u4E3A\u7A7A", message: "\u8BD7/\u8BCD\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u53E5\u5B50\u3002", icon: "\u{1FAB6}" });
+        return h3(EmptyState2, { title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u4E3A\u7A7A", message: "\u8BD7/\u8BCD\u6570\u636E\u91CC\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u53E5\u5B50\u3002", icon: "\u{1FAB6}" });
       }
       const candidateChips = index2.candidates.slice();
       if (!candidateChips.some((item) => item.char === activeChar)) {
@@ -23827,16 +23401,16 @@
       function renderChain() {
         const playing = game && game.phase === "playing";
         if (!game) {
-          return h2(
+          return h3(
             "div",
             { className: "dshp-card" },
-            h2("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
-            h2("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 " + charEntries.length + " \u53E5\u53EF\u67E5"),
-            h2("div", { className: "dshp-block" }, "\u5BF9\u65B9\u5148\u51FA\u4E00\u53E5\u542B\u4EE4\u5B57\u7684\u8BD7\uFF0C\u4F60\u8F93\u5165\u4E00\u53E5\uFF1A\u6709\u51FA\u5904\u3001\u542B\u4EE4\u5B57\u3001\u672C\u5C40\u4E0D\u91CD\u590D\u5C31\u7B97\u63A5\u4E0A\u3002\u4E0D\u6263\u547D\uFF0C\u4E0D\u8BA1\u9519\u3002"),
-            charEntries.length ? h2(
+            h3("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
+            h3("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 " + charEntries.length + " \u53E5\u53EF\u67E5"),
+            h3("div", { className: "dshp-block" }, "\u5BF9\u65B9\u5148\u51FA\u4E00\u53E5\u542B\u4EE4\u5B57\u7684\u8BD7\uFF0C\u4F60\u8F93\u5165\u4E00\u53E5\uFF1A\u6709\u51FA\u5904\u3001\u542B\u4EE4\u5B57\u3001\u672C\u5C40\u4E0D\u91CD\u590D\u5C31\u7B97\u63A5\u4E0A\u3002\u4E0D\u6263\u547D\uFF0C\u4E0D\u8BA1\u9519\u3002"),
+            charEntries.length ? h3(
               "div",
               { className: "dshp-fh-actions" },
-              h2("button", {
+              h3("button", {
                 type: "button",
                 className: "dshp-btn dshp-btn-primary",
                 onClick: (event) => {
@@ -23844,26 +23418,26 @@
                   startGame(activeChar);
                 }
               }, "\u6765\u4E00\u5C40"),
-              h2("span", { className: "dshp-pager-label" }, "\u672C\u5B57\u6700\u4F73 " + bestForChar + " \u5C40")
-            ) : h2("div", { className: "dshp-empty-msg" }, "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50\uFF0C\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002")
+              h3("span", { className: "dshp-pager-label" }, "\u672C\u5B57\u6700\u4F73 " + bestForChar + " \u5C40")
+            ) : h3("div", { className: "dshp-empty-msg" }, "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50\uFF0C\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002")
           );
         }
-        return h2(
+        return h3(
           "div",
           { className: "dshp-card" },
-          h2("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
-          h2("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + game.char + "\u300D\xB7 \u672C\u5C40\u5DF2\u63A5 " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40"),
-          game.system ? h2(
+          h3("div", { className: "dshp-card-title" }, "\u98DE\u82B1\u4EE4 \xB7 \u5BF9\u53E5"),
+          h3("div", { className: "dshp-card-summary" }, "\u4EE4\u5B57\u300C" + game.char + "\u300D\xB7 \u672C\u5C40\u5DF2\u63A5 " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40"),
+          game.system ? h3(
             "div",
             { className: "dshp-fh-system" },
             "\u5BF9\u65B9\uFF1A" + game.system.text,
-            game.system.source ? h2("small", null, game.system.source) : null
+            game.system.source ? h3("small", null, game.system.source) : null
           ) : null,
-          h2("div", { className: "dshp-fh-prompt" }, game.message || "\u8BF7\u63A5\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7\u53E5"),
-          h2(
+          h3("div", { className: "dshp-fh-prompt" }, game.message || "\u8BF7\u63A5\u4E00\u53E5\u542B\u300C" + game.char + "\u300D\u7684\u8BD7\u53E5"),
+          h3(
             "div",
             { className: "dshp-fh-actions" },
-            h2("input", {
+            h3("input", {
               className: "dshp-input",
               type: "text",
               value: inputText,
@@ -23874,7 +23448,7 @@
               onKeyDown: handleInputKey,
               disabled: !playing
             }),
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn dshp-btn-primary",
               onClick: (event) => {
@@ -23884,7 +23458,7 @@
               disabled: !playing
             }, "\u63A5\u4E00\u53E5")
           ),
-          h2("div", {
+          h3("div", {
             className: cx2(
               "dshp-fh-feedback",
               game.feedback && game.feedback.kind === "good" && "dshp-is-good",
@@ -23893,17 +23467,17 @@
             role: "status",
             "aria-live": "polite"
           }, game.feedback ? game.feedback.text : ""),
-          game.phase === "cleared" ? h2(
+          game.phase === "cleared" ? h3(
             "div",
             { className: "dshp-fh-result" },
-            h2("b", null, "\u8FD9\u4E00\u5B57\u63A5\u5B8C\u4E86"),
-            h2("span", null, "\u672C\u5C40\u63A5\u4E0A " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40 \xB7 \u5386\u53F2\u6700\u4F73 " + Math.max(best.overall, game.score) + " \u5C40"),
-            h2("span", null, "\u8FD9\u4E00\u5B57\u7684\u53E5\u5B50\u90FD\u88AB\u63A5\u8FC7\u4E86\uFF0C\u6362\u4E2A\u4EE4\u5B57\u7EE7\u7EED\u3002")
+            h3("b", null, "\u8FD9\u4E00\u5B57\u63A5\u5B8C\u4E86"),
+            h3("span", null, "\u672C\u5C40\u63A5\u4E0A " + game.score + " \u53E5 \xB7 \u672C\u5B57\u6700\u4F73 " + Math.max(bestForChar, game.score) + " \u5C40 \xB7 \u5386\u53F2\u6700\u4F73 " + Math.max(best.overall, game.score) + " \u5C40"),
+            h3("span", null, "\u8FD9\u4E00\u5B57\u7684\u53E5\u5B50\u90FD\u88AB\u63A5\u8FC7\u4E86\uFF0C\u6362\u4E2A\u4EE4\u5B57\u7EE7\u7EED\u3002")
           ) : null,
-          h2(
+          h3(
             "div",
             { className: "dshp-fh-actions" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: (event) => {
@@ -23911,7 +23485,7 @@
                 randomChar();
               }
             }, "\u6362\u4E2A\u4EE4\u5B57"),
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: (event) => {
@@ -23926,28 +23500,28 @@
         const total = charEntries.length;
         const limit = Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit);
         const shown = charEntries.slice(0, limit);
-        return h2(
+        return h3(
           "div",
           null,
-          h2(
+          h3(
             "div",
             { className: "dshp-card-summary", style: { marginBottom: "6px" } },
             "\u4EE4\u5B57\u300C" + activeChar + "\u300D\xB7 \u5171 " + total + " \u53E5\uFF08\u53BB\u91CD\u540E\u6700\u591A\u5C55\u793A " + FEIHUA_ATLAS_LIMIT + " \u6761\uFF09"
           ),
-          shown.length ? h2(
+          shown.length ? h3(
             "div",
             { className: "dshp-fh-atlas" },
-            shown.map((entry, entryIndex) => h2(
+            shown.map((entry, entryIndex) => h3(
               "div",
               { key: entryIndex, className: "dshp-fh-line" },
-              h2("div", { className: "dshp-fh-line-text" }, entry.text),
-              h2("div", { className: "dshp-fh-line-source" }, "\u2014\u2014 " + entry.source)
+              h3("div", { className: "dshp-fh-line-text" }, entry.text),
+              h3("div", { className: "dshp-fh-line-source" }, "\u2014\u2014 " + entry.source)
             ))
-          ) : h2(EmptyState2, { title: "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50", message: "\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002", icon: "\u{1FAB6}" }),
-          total > shown.length ? h2(
+          ) : h3(EmptyState2, { title: "\u8FD9\u4E00\u5B57\u6682\u65F6\u6CA1\u6709\u53E5\u5B50", message: "\u6362\u4E00\u4E2A\u4EE4\u5B57\u8BD5\u8BD5\u3002", icon: "\u{1FAB6}" }),
+          total > shown.length ? h3(
             "div",
             { style: { textAlign: "center", marginTop: "10px" } },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-btn",
               onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE2))
@@ -23955,13 +23529,13 @@
           ) : null
         );
       }
-      return h2(
+      return h3(
         "div",
         null,
-        h2(
+        h3(
           "div",
           { className: "dshp-fh-chips" },
-          candidateChips.map((item) => h2("button", {
+          candidateChips.map((item) => h3("button", {
             key: item.char,
             type: "button",
             className: cx2("dshp-fh-chip", item.char === activeChar && "dshp-is-active"),
@@ -23971,8 +23545,8 @@
               event.stopPropagation();
               chooseChar(item.char);
             }
-          }, item.char, h2("small", null, String(item.count)))),
-          h2("button", {
+          }, item.char, h3("small", null, String(item.count)))),
+          h3("button", {
             key: "random",
             type: "button",
             className: "dshp-fh-chip",
@@ -23983,30 +23557,30 @@
             }
           }, "\u968F\u673A")
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-fh-meta" },
-          h2("span", null, fullInfo.char === activeChar ? fullInfo.status === "ready" ? "\u5168\u91CF\u6821\u9A8C\u5DF2\u542F\u7528\uFF08" + fullInfo.count + " \u53E5\uFF09" : fullInfo.status === "loading" || fullInfo.status === "idle" ? "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026" : "\u5168\u91CF\u6821\u9A8C\u672A\u542F\u7528\uFF08\u4F7F\u7528\u672C\u5730\u53E5\u5E93\uFF09" : "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026")
+          h3("span", null, fullInfo.char === activeChar ? fullInfo.status === "ready" ? "\u5168\u91CF\u6821\u9A8C\u5DF2\u542F\u7528\uFF08" + fullInfo.count + " \u53E5\uFF09" : fullInfo.status === "loading" || fullInfo.status === "idle" ? "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026" : "\u5168\u91CF\u6821\u9A8C\u672A\u542F\u7528\uFF08\u4F7F\u7528\u672C\u5730\u53E5\u5E93\uFF09" : "\u6B63\u5728\u52A0\u8F7D\u5168\u91CF\u6821\u9A8C\u53E5\u5E93\u2026")
         ),
-        feihuaBuilding ? h2("div", { className: "dshp-card-summary" }, "\u6B63\u5728\u5E76\u5165\u5B8B\u8BCD\u5168\u5E93\u2026") : null,
-        ciBankFailed ? h2("div", { className: "dshp-card-summary" }, "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000\u539F\u53E5\u5E93") : null,
-        h2(
+        feihuaBuilding ? h3("div", { className: "dshp-card-summary" }, "\u6B63\u5728\u5E76\u5165\u5B8B\u8BCD\u5168\u5E93\u2026") : null,
+        ciBankFailed ? h3("div", { className: "dshp-card-summary" }, "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u5931\u8D25\uFF0C\u5DF2\u56DE\u9000\u539F\u53E5\u5E93") : null,
+        h3(
           "div",
           { className: "dshp-fh-meta" },
-          h2("span", null, "\u4EE4\u5B57 ", h2("b", null, "\u300C" + activeChar + "\u300D")),
-          h2("span", null, "\u53E5\u5E93 ", h2("b", null, String(charEntries.length)), " \u53E5"),
-          h2("span", null, "\u5386\u53F2\u6700\u4F73 ", h2("b", null, String(best.overall)), " \u5206"),
-          game ? h2("span", null, "\u672C\u5C40\u63A5\u4E0A ", h2("b", null, String(game.score)), " \u53E5") : null
+          h3("span", null, "\u4EE4\u5B57 ", h3("b", null, "\u300C" + activeChar + "\u300D")),
+          h3("span", null, "\u53E5\u5E93 ", h3("b", null, String(charEntries.length)), " \u53E5"),
+          h3("span", null, "\u5386\u53F2\u6700\u4F73 ", h3("b", null, String(best.overall)), " \u5206"),
+          game ? h3("span", null, "\u672C\u5C40\u63A5\u4E0A ", h3("b", null, String(game.score)), " \u53E5") : null
         ),
-        h2(
+        h3(
           "div",
           { className: "dshp-seg", style: { marginBottom: "10px" } },
-          h2("button", {
+          h3("button", {
             type: "button",
             className: cx2("dshp-seg-btn", mode === "chain" && "dshp-is-active"),
             onClick: () => setMode("chain")
           }, "\u5BF9\u53E5"),
-          h2("button", {
+          h3("button", {
             type: "button",
             className: cx2("dshp-seg-btn", mode === "atlas" && "dshp-is-active"),
             onClick: () => setMode("atlas")
@@ -24015,7 +23589,7 @@
         mode === "atlas" ? renderAtlas() : renderChain()
       );
     }
-    function DetectionView(props) {
+    function DetectionView2(props) {
       const report = props.report;
       const api = props.api || {};
       if (!report) return null;
@@ -24026,7 +23600,7 @@
         const cells = annotation[lineIndex];
         const lineText = cells.map((cell) => cell.ch).join("");
         const toneText = cells.map((cell) => cell.tone === "\u25CB" ? "\u25CB" : cell.tone === "\uFF1F" ? "\uFF1F" : cell.tone).join("");
-        lines.push(h2(ToneLine2, { key: lineIndex, line: lineText, tones: toneText, rhyme: Boolean(rhymeIndexes[lineIndex]), showTones: true }));
+        lines.push(h3(ToneLine2, { key: lineIndex, line: lineText, tones: toneText, rhyme: Boolean(rhymeIndexes[lineIndex]), showTones: true }));
       }
       const multiTones = [];
       for (const line of annotation) {
@@ -24034,26 +23608,26 @@
           if (cell.candidates.length > 1) multiTones.push(cell);
         }
       }
-      return h2(
+      return h3(
         "div",
         { className: "dshp-detail" },
-        h2("div", { className: "dshp-lib-report" }, report.summary || ""),
-        (report.errors || []).length ? h2("div", { className: "dshp-lib-errors" }, report.errors.join("\uFF1B")) : null,
-        h2("div", { className: "dshp-lib-detect-lines" }, lines),
-        report.rhymeLines && report.rhymeLines.length ? h2("div", { className: "dshp-lib-tags" }, report.rhymeLines.map((item) => h2(
+        h3("div", { className: "dshp-lib-report" }, report.summary || ""),
+        (report.errors || []).length ? h3("div", { className: "dshp-lib-errors" }, report.errors.join("\uFF1B")) : null,
+        h3("div", { className: "dshp-lib-detect-lines" }, lines),
+        report.rhymeLines && report.rhymeLines.length ? h3("div", { className: "dshp-lib-tags" }, report.rhymeLines.map((item) => h3(
           "span",
           { key: item.line, className: "dshp-tag" },
           "\u7B2C" + item.line + "\u53E5 " + item.ch + (item.names.length ? "\uFF08" + item.names.join("/") + "\uFF09" : "") + (item.borrowed ? " \u501F\u97F5" : "")
         ))) : null,
-        report.violations && report.violations.length ? h2("div", { className: "dshp-lib-errors" }, report.violations.map((item) => "\u7B2C" + item.line + "\u53E5\u7B2C" + item.position + "\u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645" + item.actual + "\uFF09").join("\uFF1B")) : null,
-        report.sticky && report.sticky.length ? h2("div", { className: "dshp-lib-errors" }, report.sticky.map((item) => "\u7B2C" + item.pair + "\u53E5\u5931" + item.type).join("\uFF1B")) : null,
-        report.sanPing && report.sanPing.length ? h2("div", { className: "dshp-lib-errors" }, "\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5") : null,
-        report.guPing && report.guPing.length ? h2("div", { className: "dshp-lib-errors" }, "\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5") : null,
-        multiTones.length ? h2("div", { className: "dshp-lib-multi" }, "\u591A\u97F3\u5B57\uFF1A" + multiTones.map((cell) => "\u300C" + cell.ch + "\u300D" + cell.candidates.map((item) => item.tone + "\xB7" + item.name).join("/")).join("\uFF1B")) : null,
-        h2(
+        report.violations && report.violations.length ? h3("div", { className: "dshp-lib-errors" }, report.violations.map((item) => "\u7B2C" + item.line + "\u53E5\u7B2C" + item.position + "\u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645" + item.actual + "\uFF09").join("\uFF1B")) : null,
+        report.sticky && report.sticky.length ? h3("div", { className: "dshp-lib-errors" }, report.sticky.map((item) => "\u7B2C" + item.pair + "\u53E5\u5931" + item.type).join("\uFF1B")) : null,
+        report.sanPing && report.sanPing.length ? h3("div", { className: "dshp-lib-errors" }, "\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5") : null,
+        report.guPing && report.guPing.length ? h3("div", { className: "dshp-lib-errors" }, "\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5") : null,
+        multiTones.length ? h3("div", { className: "dshp-lib-multi" }, "\u591A\u97F3\u5B57\uFF1A" + multiTones.map((cell) => "\u300C" + cell.ch + "\u300D" + cell.candidates.map((item) => item.tone + "\xB7" + item.name).join("/")).join("\uFF1B")) : null,
+        h3(
           "div",
           { className: "dshp-fh-actions" },
-          h2("button", {
+          h3("button", {
             type: "button",
             className: "dshp-btn dshp-btn-small",
             onClick: () => {
@@ -24071,7 +23645,7 @@
         )
       );
     }
-    return { FeihuaTab, DetectionView };
+    return { FeihuaTab: FeihuaTab2, DetectionView: DetectionView2 };
   }
 
   // client-src/library.js
@@ -24168,12 +23742,12 @@
   // client-src/tabs-library.js
   function createLibraryTab(ctx = {}) {
     const LIBRARY_CATEGORIES2 = ctx.LIBRARY_CATEGORIES;
-    const React = ctx.React;
-    const h2 = ctx.h;
+    const React2 = ctx.React;
+    const h3 = ctx.h;
     const cx2 = ctx.cx;
     const EmptyState2 = ctx.EmptyState;
     const LoadingState2 = ctx.LoadingState;
-    const DetectionView = ctx.DetectionView;
+    const DetectionView2 = ctx.DetectionView;
     const ToneLine2 = ctx.ToneLine;
     const describeDataError2 = ctx.describeDataError;
     const Z_INDEX2 = ctx.Z_INDEX;
@@ -24184,38 +23758,38 @@
     const detectPoemText2 = ctx.detectPoemText;
     const parsePoemInput2 = ctx.parsePoemInput;
     const buildPingshuiIndex2 = ctx.buildPingshuiIndex;
-    function LibraryTab(props) {
+    function LibraryTab2(props) {
       const api = props.api || {};
       const anthologyRes = api.anthologyRes || {};
       const bankRes = api.bankRes || {};
       const pingshuiRes = api.pingshuiRes || {};
       const ciBankRes = api.ciBankRes || {};
       const ciRes = api.ciRes || {};
-      const [category, setCategory] = React.useState("all");
-      const [ciRhythmic, setCiRhythmic] = React.useState("");
-      const [searchScope, setSearchScope] = React.useState("category");
-      const [ciSearchScope, setCiSearchScope] = React.useState("selected");
-      const [query, setQuery] = React.useState("");
-      const [debounced, setDebounced] = React.useState("");
-      const [visible, setVisible] = React.useState(LIBRARY_PAGE);
-      const [detail, setDetail] = React.useState(null);
-      const [detector, setDetector] = React.useState("");
-      const [inputText, setInputText] = React.useState("");
-      const [inputReport, setInputReport] = React.useState(null);
+      const [category, setCategory] = React2.useState("all");
+      const [ciRhythmic, setCiRhythmic] = React2.useState("");
+      const [searchScope, setSearchScope] = React2.useState("category");
+      const [ciSearchScope, setCiSearchScope] = React2.useState("selected");
+      const [query, setQuery] = React2.useState("");
+      const [debounced, setDebounced] = React2.useState("");
+      const [visible, setVisible] = React2.useState(LIBRARY_PAGE);
+      const [detail, setDetail] = React2.useState(null);
+      const [detector, setDetector] = React2.useState("");
+      const [inputText, setInputText] = React2.useState("");
+      const [inputReport, setInputReport] = React2.useState(null);
       const ciMode = category === "ci-selected" || category === "ci-bank";
-      React.useEffect(() => {
+      React2.useEffect(() => {
         const timer2 = setTimeout(() => setDebounced(query), 300);
         return () => clearTimeout(timer2);
       }, [query]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         setVisible(LIBRARY_PAGE);
       }, [category, debounced, ciRhythmic, ciSearchScope]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         if (category === "ci-bank" || ciMode && ciSearchScope === "allCi") {
           if (typeof api.requestCiBank === "function") api.requestCiBank();
         }
       }, [category, ciMode, ciSearchScope, api.requestCiBank]);
-      React.useEffect(() => {
+      React2.useEffect(() => {
         const focus = api.libraryFocus;
         if (!focus || !focus.token) return;
         if (focus.type === "ci") {
@@ -24242,13 +23816,13 @@
         }
         if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
       }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]);
-      const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex2(pingshuiRes.data) : null, [pingshuiRes.data]);
-      const items = React.useMemo(
+      const pingshui = React2.useMemo(() => pingshuiRes.data ? buildPingshuiIndex2(pingshuiRes.data) : null, [pingshuiRes.data]);
+      const items = React2.useMemo(
         () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
         [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]
       );
-      const ciSelectedRhythmicsList = React.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
-      const ciFullRhythmics = React.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
+      const ciSelectedRhythmicsList = React2.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
+      const ciFullRhythmics = React2.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
       const ciRhythmics = category === "ci-bank" ? ciFullRhythmics : ciSelectedRhythmicsList;
       const ciSelectedCount = items.filter((entry) => entry.categoryId === "ci-selected").length;
       let filterCategory = category;
@@ -24259,12 +23833,12 @@
       } else if (searchScope === "all") {
         filterCategory = "all";
       }
-      const filtered = React.useMemo(
+      const filtered = React2.useMemo(
         () => filterLibraryItems(items, filterCategory, debounced, filterRhythmic),
         [items, filterCategory, filterRhythmic, debounced]
       );
       const shown = libraryPage(filtered, visible);
-      const poemReport = React.useMemo(
+      const poemReport = React2.useMemo(
         () => detail && detector === "poem" && pingshui ? detectPoem2(detail, pingshui) : null,
         [detail, detector, pingshui]
       );
@@ -24283,7 +23857,7 @@
       }
       if (loading) {
         if (anthologyRes.status === "error" && bankRes.status === "error") {
-          return h2(EmptyState2, {
+          return h3(EmptyState2, {
             title: "\u8BD7\u5E93\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
             message: anthologyRes.error && anthologyRes.error.status === 404 || bankRes.error && bankRes.error.status === 404 ? "\u8BD7\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError2(anthologyRes.error || bankRes.error),
             onRetry: () => {
@@ -24294,62 +23868,62 @@
             }
           });
         }
-        return h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u8BD7\u5E93\u2026" });
+        return h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u8BD7\u5E93\u2026" });
       }
       function renderDetector() {
         if (!pingshui) {
-          return pingshuiError ? h2(EmptyState2, { title: "\u5E73\u6C34\u97F5\u6570\u636E\u4E0D\u53EF\u7528", message: "\u683C\u5F8B\u68C0\u6D4B\u9700\u8981\u5E73\u6C34\u97F5\u6570\u636E\u3002", onRetry: () => api.reloadPingshui && api.reloadPingshui().catch(() => {
-          }) }) : h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5E73\u6C34\u97F5\u2026" });
+          return pingshuiError ? h3(EmptyState2, { title: "\u5E73\u6C34\u97F5\u6570\u636E\u4E0D\u53EF\u7528", message: "\u683C\u5F8B\u68C0\u6D4B\u9700\u8981\u5E73\u6C34\u97F5\u6570\u636E\u3002", onRetry: () => api.reloadPingshui && api.reloadPingshui().catch(() => {
+          }) }) : h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5E73\u6C34\u97F5\u2026" });
         }
-        const headers = h2(
+        const headers = h3(
           "div",
           { className: "dshp-fh-actions" },
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("") }, "\u8FD4\u56DE"),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165")
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("") }, "\u8FD4\u56DE"),
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165")
         );
         if (detector === "poem" && detail) {
-          return h2(
+          return h3(
             "div",
             { className: "dshp-detail" },
             headers,
-            h2("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
-            h2("div", { className: "dshp-lib-note" }, detail.tones ? "\u57FA\u4E8E\u6570\u636E\u5185\u5E73\u4EC4\u6807\u6CE8\u68C0\u6D4B" : "\u5DF2\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF08\u591A\u97F3\u5B57\u53D6\u5019\u9009\uFF09"),
-            h2(DetectionView, { report: poemReport, api })
+            h3("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
+            h3("div", { className: "dshp-lib-note" }, detail.tones ? "\u57FA\u4E8E\u6570\u636E\u5185\u5E73\u4EC4\u6807\u6CE8\u68C0\u6D4B" : "\u5DF2\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF08\u591A\u97F3\u5B57\u53D6\u5019\u9009\uFF09"),
+            h3(DetectionView2, { report: poemReport, api })
           );
         }
-        return h2(
+        return h3(
           "div",
           { className: "dshp-detail" },
           headers,
-          h2("div", { className: "dshp-lib-note" }, "\u8F93\u5165 4 \u53E5\u6216 8 \u53E5\uFF08\u6BCF\u53E5 5 \u6216 7 \u5B57\uFF0C\u53EF\u542B\u6807\u70B9\uFF09\uFF0C\u9010\u5B57\u6807\u6CE8\u5E73\u4EC4\u4E0E\u97F5\u90E8\u3002"),
-          h2("textarea", {
+          h3("div", { className: "dshp-lib-note" }, "\u8F93\u5165 4 \u53E5\u6216 8 \u53E5\uFF08\u6BCF\u53E5 5 \u6216 7 \u5B57\uFF0C\u53EF\u542B\u6807\u70B9\uFF09\uFF0C\u9010\u5B57\u6807\u6CE8\u5E73\u4EC4\u4E0E\u97F5\u90E8\u3002"),
+          h3("textarea", {
             className: "dshp-textarea",
             rows: 6,
             value: inputText,
             placeholder: "\u4F8B\u5982\uFF1A\n\u7A7A\u5C71\u4E0D\u89C1\u4EBA\uFF0C\n\u4F46\u95FB\u4EBA\u8BED\u54CD\u3002\n\u8FD4\u666F\u5165\u6DF1\u6797\uFF0C\n\u590D\u7167\u9752\u82D4\u4E0A\u3002",
             onChange: (event) => setInputText(event.target.value)
           }),
-          h2(
+          h3(
             "div",
             { className: "dshp-fh-actions" },
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: runInputDetection }, "\u5F00\u59CB\u68C0\u6D4B"),
-            h2("button", { type: "button", className: "dshp-btn", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: runInputDetection }, "\u5F00\u59CB\u68C0\u6D4B"),
+            h3("button", { type: "button", className: "dshp-btn", onClick: () => {
               setInputText("");
               setInputReport(null);
             } }, "\u6E05\u7A7A")
           ),
-          inputReport ? h2(DetectionView, { report: inputReport, api }) : null
+          inputReport ? h3(DetectionView2, { report: inputReport, api }) : null
         );
       }
       if (detector) {
-        return h2(
+        return h3(
           "div",
           null,
-          h2(
+          h3(
             "div",
             { className: "dshp-fh-chips" },
-            h2("button", { type: "button", className: "dshp-fh-chip", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165"),
-            detail ? h2("button", { type: "button", className: "dshp-fh-chip dshp-is-active", onClick: () => setDetector("poem") }, "\u68C0\u6D4B\u300A" + detail.title + "\u300B") : null
+            h3("button", { type: "button", className: "dshp-fh-chip", onClick: () => setDetector("input") }, "\u81EA\u6D4B\u8F93\u5165"),
+            detail ? h3("button", { type: "button", className: "dshp-fh-chip dshp-is-active", onClick: () => setDetector("poem") }, "\u68C0\u6D4B\u300A" + detail.title + "\u300B") : null
           ),
           renderDetector()
         );
@@ -24361,7 +23935,7 @@
         const rows = [];
         const lines = Array.isArray(detail.lines) ? detail.lines : [];
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-          rows.push(h2(ToneLine2, {
+          rows.push(h3(ToneLine2, {
             key: lineIndex,
             line: lines[lineIndex],
             tones: detail.tones ? detail.tones[lineIndex] : "",
@@ -24369,49 +23943,49 @@
             showTones: Boolean(detail.tones)
           }));
         }
-        return h2(
+        return h3(
           "div",
           { className: "dshp-detail" },
-          h2(
+          h3(
             "div",
             { className: "dshp-fh-actions" },
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => {
               setDetail(null);
               setDetector("");
             } }, "\u2190 \u8FD4\u56DE\u5217\u8868"),
-            h2("button", { type: "button", className: "dshp-btn dshp-btn-small dshp-btn-primary", onClick: () => {
+            h3("button", { type: "button", className: "dshp-btn dshp-btn-small dshp-btn-primary", onClick: () => {
               setDetector("poem");
               if (typeof api.reloadPingshui === "function" && !pingshui) api.reloadPingshui().catch(() => {
               });
             } }, "\u683C\u5F8B\u68C0\u6D4B")
           ),
-          h2("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
-          h2(
+          h3("div", { className: "dshp-lib-detail-title" }, libraryItemLabel(detail)),
+          h3(
             "div",
             { className: "dshp-lib-note" },
             ((LIBRARY_CATEGORIES2.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
           ),
-          detail.tones ? h2("div", { className: "dshp-lib-lines" }, rows) : h2("div", { className: "dshp-lib-plain" }, lines.map((line, index2) => h2("div", { key: index2 }, line))),
-          detail.tones ? h2(
+          detail.tones ? h3("div", { className: "dshp-lib-lines" }, rows) : h3("div", { className: "dshp-lib-plain" }, lines.map((line, index2) => h3("div", { key: index2 }, line))),
+          detail.tones ? h3(
             "div",
             { className: "dshp-lib-tags" },
-            detail.form ? h2("span", { className: "dshp-tag" }, "\u4F53\u5F0F " + detail.form) : null,
-            detail.start ? h2("span", { className: "dshp-tag" }, "\u8D77\u5F0F " + detail.start) : null,
-            detail.meter ? h2("span", { className: "dshp-tag" }, detail.meter) : null
-          ) : h2("div", { className: "dshp-lib-note" }, "\u672A\u6807\u6CE8\u5E73\u4EC4\uFF08\u53EF\u70B9\u300C\u683C\u5F8B\u68C0\u6D4B\u300D\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF09")
+            detail.form ? h3("span", { className: "dshp-tag" }, "\u4F53\u5F0F " + detail.form) : null,
+            detail.start ? h3("span", { className: "dshp-tag" }, "\u8D77\u5F0F " + detail.start) : null,
+            detail.meter ? h3("span", { className: "dshp-tag" }, detail.meter) : null
+          ) : h3("div", { className: "dshp-lib-note" }, "\u672A\u6807\u6CE8\u5E73\u4EC4\uFF08\u53EF\u70B9\u300C\u683C\u5F8B\u68C0\u6D4B\u300D\u7528\u5E73\u6C34\u97F5\u9010\u5B57\u6807\u6CE8\uFF09")
         );
       }
       const ciModeActive = category === "ci-selected" || category === "ci-bank";
-      return h2(
+      return h3(
         "div",
         { className: "dshp-library" },
-        h2(
+        h3(
           "div",
           { className: "dshp-fh-chips" },
-          h2("button", { type: "button", className: "dshp-fh-chip" + (category === "all" ? " dshp-is-active" : ""), onClick: () => setCategory("all") }, "\u5168\u90E8 " + items.length),
+          h3("button", { type: "button", className: "dshp-fh-chip" + (category === "all" ? " dshp-is-active" : ""), onClick: () => setCategory("all") }, "\u5168\u90E8 " + items.length),
           LIBRARY_CATEGORIES2.map((item) => {
             const count = item.id === "ci-selected" ? ciRes.data ? ciSelectedCount : "\u2026" : items.filter((entry) => entry.categoryId === item.id).length;
-            return h2("button", {
+            return h3("button", {
               key: item.id,
               type: "button",
               className: "dshp-fh-chip" + (category === item.id ? " dshp-is-active" : ""),
@@ -24419,18 +23993,18 @@
             }, item.label + " " + count);
           })
         ),
-        ciModeActive ? h2(
+        ciModeActive ? h3(
           "div",
           { className: "dshp-search", style: { marginTop: 0 } },
-          h2(
+          h3(
             "div",
             { className: "dshp-seg" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (category === "ci-selected" ? " dshp-is-active" : ""),
               onClick: () => setCategory("ci-selected")
             }, "\u5B8B\u8BCD\u7CBE\u9009 " + (ciRes.data ? ciSelectedCount : "\u2026")),
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (category === "ci-bank" ? " dshp-is-active" : ""),
               onClick: () => {
@@ -24438,7 +24012,7 @@
               }
             }, "\u5168\u90E8\u5B8B\u8BCD" + (ciBankRes.data ? "\uFF08" + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + "\uFF09" : "\uFF08\u70B9\u51FB\u52A0\u8F7D\uFF09"))
           ),
-          h2(
+          h3(
             "select",
             {
               className: "dshp-select",
@@ -24446,15 +24020,15 @@
               "aria-label": category === "ci-bank" ? "\u6309\u8BCD\u724C\u7B5B\u9009\u5168\u90E8\u5B8B\u8BCD" : "\u6309\u8BCD\u724C\u7B5B\u9009\u5B8B\u8BCD\u7CBE\u9009",
               onChange: (event) => setCiRhythmic(event.target.value)
             },
-            h2("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
-            (ciRhythmic && !ciRhythmics.some((entry) => entry.name === ciRhythmic) ? [{ name: ciRhythmic, count: 0 }].concat(ciRhythmics) : ciRhythmics).slice(0, 300).map((entry) => h2("option", { key: entry.name, value: entry.name }, entry.name + "\uFF08" + entry.count + "\uFF09"))
+            h3("option", { value: "" }, "\u5168\u90E8\u8BCD\u724C"),
+            (ciRhythmic && !ciRhythmics.some((entry) => entry.name === ciRhythmic) ? [{ name: ciRhythmic, count: 0 }].concat(ciRhythmics) : ciRhythmics).slice(0, 300).map((entry) => h3("option", { key: entry.name, value: entry.name }, entry.name + "\uFF08" + entry.count + "\uFF09"))
           ),
-          h2("span", { className: "dshp-pager-label" }, category === "ci-bank" ? ciBankRes.data ? "\u5DF2\u8F7D\u5165 " + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + " \u9996" : "\u8F7D\u5165\u4E2D\u2026" : ciRes.data ? "\u5DF2\u8F7D\u5165 " + ciSelectedCount + " \u9996" : "\u8F7D\u5165\u4E2D\u2026")
+          h3("span", { className: "dshp-pager-label" }, category === "ci-bank" ? ciBankRes.data ? "\u5DF2\u8F7D\u5165 " + num(ciBankRes.data.count, items.filter((entry) => entry.categoryId === "ci-bank").length) + " \u9996" : "\u8F7D\u5165\u4E2D\u2026" : ciRes.data ? "\u5DF2\u8F7D\u5165 " + ciSelectedCount + " \u9996" : "\u8F7D\u5165\u4E2D\u2026")
         ) : null,
-        h2(
+        h3(
           "div",
           { className: "dshp-search" },
-          h2("input", {
+          h3("input", {
             className: "dshp-input",
             type: "search",
             value: query,
@@ -24462,77 +24036,77 @@
             "aria-label": "\u641C\u7D22\u8BD7\u5E93",
             onChange: (event) => setQuery(event.target.value)
           }),
-          h2("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u683C\u5F8B\u81EA\u6D4B")
+          h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => setDetector("input") }, "\u683C\u5F8B\u81EA\u6D4B")
         ),
-        debounced ? h2(
+        debounced ? h3(
           "div",
           { className: "dshp-search", style: { marginBottom: "4px" } },
-          h2("span", { className: "dshp-pager-label" }, "\u641C\u7D22\u8303\u56F4"),
-          ciModeActive ? h2(
+          h3("span", { className: "dshp-pager-label" }, "\u641C\u7D22\u8303\u56F4"),
+          ciModeActive ? h3(
             "div",
             { className: "dshp-seg" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (ciSearchScope === "selected" ? " dshp-is-active" : ""),
               onClick: () => setCiSearchScope("selected")
             }, "\u7CBE\u9009"),
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (ciSearchScope === "allCi" ? " dshp-is-active" : ""),
               onClick: () => {
                 setCiSearchScope("allCi");
               }
             }, "\u5168\u90E8\u5B8B\u8BCD")
-          ) : h2(
+          ) : h3(
             "div",
             { className: "dshp-seg" },
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (searchScope === "category" ? " dshp-is-active" : ""),
               onClick: () => setSearchScope("category")
             }, "\u5F53\u524D\u5206\u7C7B"),
-            h2("button", {
+            h3("button", {
               type: "button",
               className: "dshp-seg-btn" + (searchScope === "all" ? " dshp-is-active" : ""),
               onClick: () => setSearchScope("all")
             }, "\u5168\u90E8")
           ),
-          ciModeActive && ciSearchScope === "allCi" && !ciBankRes.data ? h2("span", { className: "dshp-pager-label" }, ciBankRes.status === "loading" ? "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009\u2026" : "\u5B8B\u8BCD\u5168\u5E93\u672A\u52A0\u8F7D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009") : null
+          ciModeActive && ciSearchScope === "allCi" && !ciBankRes.data ? h3("span", { className: "dshp-pager-label" }, ciBankRes.status === "loading" ? "\u5B8B\u8BCD\u5168\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009\u2026" : "\u5B8B\u8BCD\u5168\u5E93\u672A\u52A0\u8F7D\uFF0C\u6682\u53EA\u641C\u7CBE\u9009") : null
         ) : null,
-        ciSelectedLoading ? ciRes.status === "error" ? h2(EmptyState2, {
+        ciSelectedLoading ? ciRes.status === "error" ? h3(EmptyState2, {
           title: "\u5B8B\u8BCD\u7CBE\u9009\u6682\u65F6\u4E0D\u53EF\u7528",
           message: describeDataError2(ciRes.error),
           onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
           })
-        }) : h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5B8B\u8BCD\u7CBE\u9009 283 \u9996\u2026" }) : ciBankLoading ? ciBankRes.status === "error" ? h2(EmptyState2, {
+        }) : h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5B8B\u8BCD\u7CBE\u9009 283 \u9996\u2026" }) : ciBankLoading ? ciBankRes.status === "error" ? h3(EmptyState2, {
           title: "\u5168\u90E8\u5B8B\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
           message: ciBankRes.error && ciBankRes.error.status === 404 ? "\u5B8B\u8BCD\u5168\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError2(ciBankRes.error),
           onRetry: () => api.reloadCiBank && api.reloadCiBank().catch(() => {
           })
-        }) : h2(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5168\u90E8\u5B8B\u8BCD\uFF08\u7EA6 2 \u4E07\u9996\uFF0C\u9996\u6B21\u7A0D\u6162\uFF09\u2026" }) : h2(
+        }) : h3(LoadingState2, { text: "\u6B63\u5728\u8F7D\u5165\u5168\u90E8\u5B8B\u8BCD\uFF08\u7EA6 2 \u4E07\u9996\uFF0C\u9996\u6B21\u7A0D\u6162\uFF09\u2026" }) : h3(
           "div",
           null,
-          h2("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996" + (debounced !== query ? "\uFF08\u641C\u7D22\u4E2D\u2026\uFF09" : "")),
-          shown.length ? h2("div", { className: "dshp-list" }, shown.map((item) => h2("button", {
+          h3("div", { className: "dshp-card-summary", style: { marginBottom: "6px" } }, "\u5171 " + filtered.length + " \u9996" + (debounced !== query ? "\uFF08\u641C\u7D22\u4E2D\u2026\uFF09" : "")),
+          shown.length ? h3("div", { className: "dshp-list" }, shown.map((item) => h3("button", {
             key: item.id,
             type: "button",
             className: "dshp-row",
             onClick: () => setDetail(item)
-          }, h2(
+          }, h3(
             "span",
             { className: "dshp-row-main" },
-            h2("span", { className: "dshp-row-title" }, libraryItemLabel(item)),
-            h2("span", { className: "dshp-row-sub" }, (item.rhythmic ? "\u8BCD\u724C " + item.rhythmic + " \xB7 " : "") + ((Array.isArray(item.lines) ? item.lines[0] : "") || ""))
-          )))) : h2(EmptyState2, { title: "\u6CA1\u6709\u5339\u914D\u7684\u8BD7\u8BCD", message: "\u6362\u4E00\u4E2A\u5206\u7C7B\u6216\u5173\u952E\u8BCD\u8BD5\u8BD5\u3002", icon: "\u{1F4DA}" })
+            h3("span", { className: "dshp-row-title" }, libraryItemLabel(item)),
+            h3("span", { className: "dshp-row-sub" }, (item.rhythmic ? "\u8BCD\u724C " + item.rhythmic + " \xB7 " : "") + ((Array.isArray(item.lines) ? item.lines[0] : "") || ""))
+          )))) : h3(EmptyState2, { title: "\u6CA1\u6709\u5339\u914D\u7684\u8BD7\u8BCD", message: "\u6362\u4E00\u4E2A\u5206\u7C7B\u6216\u5173\u952E\u8BCD\u8BD5\u8BD5\u3002", icon: "\u{1F4DA}" })
         ),
-        filtered.length > shown.length ? h2(
+        filtered.length > shown.length ? h3(
           "div",
           { style: { textAlign: "center", marginTop: "10px" } },
-          h2("button", { type: "button", className: "dshp-btn", onClick: () => setVisible(visible + LIBRARY_PAGE) }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - shown.length) + " \u9996\uFF09")
+          h3("button", { type: "button", className: "dshp-btn", onClick: () => setVisible(visible + LIBRARY_PAGE) }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (filtered.length - shown.length) + " \u9996\uFF09")
         ) : null
       );
     }
-    class WidgetBoundary extends React.Component {
+    class WidgetBoundary2 extends React2.Component {
       constructor(props) {
         super(props);
         this.state = { failed: false };
@@ -24552,7 +24126,7 @@
       }
       render() {
         if (!this.state.failed) return this.props.children;
-        return h2(
+        return h3(
           "div",
           {
             "data-dsh-little-whale": "root",
@@ -24570,8 +24144,8 @@
               padding: "8px"
             }
           },
-          h2("style", null, CSS),
-          h2("img", {
+          h3("style", null, CSS),
+          h3("img", {
             src: mascotUrl3(MASCOT_FILES2.celebrate),
             alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
             width: 64,
@@ -24579,7 +24153,7 @@
             draggable: false,
             style: { display: "block" }
           }),
-          h2("button", {
+          h3("button", {
             type: "button",
             className: "dshp-btn",
             onClick: this.handleRetry
@@ -24587,7 +24161,1645 @@
         );
       }
     }
-    return { LibraryTab, WidgetBoundary };
+    return { LibraryTab: LibraryTab2, WidgetBoundary: WidgetBoundary2 };
+  }
+
+  // client-src/widget/models/constants.js
+  var ROUTE = "/api/dsh-poetry/";
+  var SELF_PATH = "self.json";
+  var SELF_POLL_MS = 60 * 1e3;
+  var ACTION_SEEN_KEY = "dshp-action-seen-v1";
+  var MEMORY_PATH = "memory.json";
+  var HEALTH_PATH = "health.json";
+  var WORKS_PATH = "works.json";
+  var ATTENTION_PATH = "attention.json";
+  var PROJECT_ACTION_PATH = "project-action.json";
+  var PROJECT_PATH = "project.json";
+  var TWIN_PATH = "twin.json";
+  var PRESENCE_PATH = "presence.json";
+  var PRESENCE_THROTTLE_MS = 60 * 1e3;
+  var WORKS_POLL_MS = 60 * 1e3;
+  var GROWTH_PATH = "growth.json";
+  var GROWTH_POLL_MS = 5 * 60 * 1e3;
+  var ATTENTION_POLL_MS = 30 * 1e3;
+  var TWIN_POLL_MS = 60 * 1e3;
+  var HEALTH_POLL_MS = 60 * 1e3;
+  var MEMORY_BACKUP_PATH = "memory/backup.json";
+  var MEMORY_POLL_MS = 60 * 1e3;
+  var ASSET_BASE = ROUTE + "assets?f=";
+  var SETTINGS_URL2 = ROUTE + "settings.json";
+  var WIDGET_ID = "dsh-little-whale";
+  var BASE_SIZE = 96;
+  var Z_INDEX = 60;
+  var SAVE_DEBOUNCE_MS2 = 450;
+  var STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
+  var POETRY_ENTRY_ENABLED = false;
+  var POETRY_TABS = [
+    { id: "today", label: "\u4ECA\u65E5" },
+    { id: "class", label: "\u8BFE\u5802" },
+    { id: "yun", label: "\u97F5\u90E8" },
+    { id: "ci", label: "\u8BCD\u724C" },
+    { id: "library", label: "\u8BD7\u5E93" },
+    { id: "feihua", label: "\u98DE\u82B1" },
+    { id: "poetry-settings", label: "\u8BBE\u7F6E" }
+  ];
+  var FEIHUA_BEST_KEY = "dshp-feihua-best-v1";
+  var FEIHUA_ATLAS_PAGE = 60;
+  var FEIHUA_FULL_PATH = "feihua-full.json";
+  var FEIHUA_FULL_TIMEOUT_MS = 2e4;
+  var FEIHUA_FULL_RETRY_MS = 6e4;
+  var MASCOT_DIR = "generated/";
+  var MASCOT_FILES = Object.freeze({
+    celebrate: "dsh-whale-state-celebrate.webp",
+    idle: "dsh-whale-state-idle-cute.webp",
+    night: "dsh-whale-state-night.webp",
+    rain: "dsh-whale-state-weather-umbrella.webp",
+    snow: "dsh-whale-state-weather-snow.webp",
+    thunder: "dsh-whale-state-weather-thunder.webp",
+    cold: "dsh-whale-state-weather-cold.webp",
+    gameWin: "dsh-whale-state-game-win.webp",
+    gameLose: "dsh-whale-state-game-lose.webp",
+    gameThink: "dsh-whale-state-game-think.webp"
+  });
+  var MASCOT_TRANSIENT_MS = 2500;
+  var WEATHER_REFRESH_MS = 30 * 60 * 1e3;
+  var WEATHER_STALE_MS = 20 * 60 * 1e3;
+  var WEATHER_CATEGORY_TAGS = Object.freeze({
+    rain: ["\u96E8"],
+    snow: ["\u96EA"],
+    thunder: ["\u96E8", "\u96F7"],
+    cloud: ["\u4E91"],
+    fog: ["\u4E91", "\u96FE"],
+    clear: ["\u6674", "\u65E5"],
+    wind: ["\u98CE"],
+    cold: ["\u971C", "\u9732", "\u5BD2"],
+    unknown: []
+  });
+  var WEATHER_NIGHT_TAGS = ["\u6708", "\u591C"];
+  var WEATHER_POOL_LIMIT = 20;
+  var WEATHER_EXPLAIN = Object.freeze({
+    rain: "\u4ECA\u65E5\u6709\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u7684\u8FD9\u9996",
+    snow: "\u4ECA\u65E5\u6709\u96EA\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96EA\u7684\u8FD9\u9996",
+    thunder: "\u4ECA\u65E5\u6709\u96F7\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u96F7\u7684\u8FD9\u9996",
+    cloud: "\u4ECA\u65E5\u591A\u4E91\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u7684\u8FD9\u9996",
+    fog: "\u4ECA\u65E5\u6709\u96FE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u96FE\u7684\u8FD9\u9996",
+    clear: "\u4ECA\u65E5\u6674\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6674\u65E5\u7684\u8FD9\u9996",
+    wind: "\u4ECA\u65E5\u591A\u98CE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u98CE\u7684\u8FD9\u9996",
+    cold: "\u4ECA\u65E5\u5BD2\u51B7\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u971C\u5BD2\u7684\u8FD9\u9996",
+    unknown: "\u4ECA\u65E5\u5929\u6C14\u5E94\u666F\uFF0C\u4E3A\u4F60\u9009\u4E86\u5E94\u666F\u7684\u8FD9\u9996"
+  });
+  var PET_MEDIA_PATH = "pet-media";
+  var PET_MEDIA_CATALOG_FILE = "catalog.json";
+  var PET_MEDIA_TIMEOUT_MS = 9e3;
+  var MOTION_ROTATION_KEY = "dshp-motion-rotation-v1";
+  var MOTION_MIN_DELAY_MS = 90 * 1e3;
+  var MOTION_MAX_DELAY_MS = 210 * 1e3;
+  var MOTION_PLAY_MIN_MS = 20 * 1e3;
+  var MOTION_PLAY_MAX_MS = 30 * 1e3;
+  var MOTION_FIRST_MIN_DELAY_MS = 10 * 1e3;
+  var MOTION_FIRST_MAX_DELAY_MS = 20 * 1e3;
+  var DIZZY_MIN_MS = 1500;
+  var DIZZY_MAX_MS = 2500;
+  var DIZZY_FAST_PX_PER_SEC = 1800;
+  var DIZZY_FAST_DISTANCE_PX = 120;
+  var DIZZY_FAST_WINDOW_MS = 120;
+  var MEAL_KEY = "dshp-meal-v1";
+  var MEAL_PLAY_MIN_MS = 25 * 1e3;
+  var MEAL_PLAY_MAX_MS = 40 * 1e3;
+  var WEATHER_OVERLAY_STATES = ["rain", "snow", "thunder", "cold", "night"];
+  var ASSET_DATA_FILES = { anthology: "data/anthology.json", bank: "data/poems-bank.json", pingshui: "data/pingshui.json", ciBank: "data/ci-bank.json", moodCatalog: "data/mood-catalog.json" };
+  var LIBRARY_CATEGORIES = [
+    { id: "shijing", label: "\u8BD7\u7ECF" },
+    { id: "chuci", label: "\u695A\u8F9E" },
+    { id: "qianjiashi", label: "\u5343\u5BB6\u8BD7" },
+    { id: "tang300", label: "\u5510\u8BD7\u4E09\u767E\u9996" },
+    { id: "bank", label: "\u5168\u5510\u8BD7\u7CBE\u9009" },
+    { id: "ci-selected", label: "\u5B8B\u8BCD\u7CBE\u9009" }
+  ];
+  var MASCOT_EXPRESSION_MS = 2500;
+  var MASCOT_IDLE_MIN_MS = 45 * 60 * 1e3;
+  var MASCOT_IDLE_USER_MS = 5 * 60 * 1e3;
+  var MASCOT_IDLE_POLL_MS = 5 * 60 * 1e3;
+  var MASCOT_EXPRESSION_FILES = [
+    "dsh-whale-state-greet.webp",
+    "dsh-whale-state-wink.webp",
+    "dsh-whale-state-blush.webp",
+    "dsh-whale-state-teasing.webp",
+    "dsh-whale-state-cool-shades.webp",
+    "dsh-whale-state-star.webp",
+    "dsh-whale-state-meme-heart.webp",
+    "dsh-whale-state-meme-kyun.webp",
+    "dsh-whale-state-meme-smile-pain.webp",
+    "dsh-whale-state-meme-yes.webp",
+    "dsh-whale-state-meme-no.webp",
+    "dsh-whale-state-meme-omg.webp",
+    "dsh-whale-state-meme-shock.webp",
+    "dsh-whale-state-meme-wakuwaku.webp",
+    "dsh-whale-state-meme-music.webp",
+    "dsh-whale-state-meme-peace.webp",
+    "dsh-whale-state-daily-coffee.webp",
+    "dsh-whale-state-daily-picnic.webp",
+    "dsh-whale-state-valentine.webp",
+    "dsh-whale-state-festival-spring.webp",
+    "dsh-whale-state-festival-mid-autumn.webp",
+    "dsh-whale-state-festival-christmas.webp"
+  ];
+  var RESOURCE_PATHS = {
+    poems: "poems.json",
+    ci: "ci.json",
+    yun: "yun.json",
+    knowledge: "knowledge.json"
+  };
+
+  // client-src/widget/models/utils.js
+  function cx() {
+    let out = "";
+    for (let i = 0; i < arguments.length; i++) {
+      const part = arguments[i];
+      if (!part) continue;
+      out = out ? out + " " + part : String(part);
+    }
+    return out;
+  }
+  function hasOwn2(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+  function hashString(input) {
+    const text = String(input == null ? "" : input);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+  function formatDateLabel(dateStr) {
+    const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
+    if (matched) return Number(matched[2]) + " \u6708 " + Number(matched[3]) + " \u65E5";
+    const now2 = /* @__PURE__ */ new Date();
+    return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
+  }
+  function clampPosition(position, size, viewport) {
+    const maxX = Math.max(8, viewport.w - size - 8);
+    const maxY = Math.max(8, viewport.h - size - 8);
+    return {
+      x: Math.round(clamp(position && position.x, 8, maxX)),
+      y: Math.round(clamp(position && position.y, 8, maxY))
+    };
+  }
+  function anchorPosition(snap, size, viewport, previous) {
+    const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport);
+    if (snap === "left") base.x = 16;
+    else if (snap === "right") base.x = Math.max(8, viewport.w - size - 16);
+    return base;
+  }
+  function describeDataError(error) {
+    if (!error) return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    const status = Number(error.status);
+    if (status === 404) return "\u6570\u636E\u63A5\u53E3\u5C1A\u672A\u5C31\u7EEA\uFF08\u5BBF\u4E3B\u534A\u533A\u53EF\u80FD\u672A\u66F4\u65B0\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    if (status === 403) return "\u6570\u636E\u8BBF\u95EE\u88AB\u62D2\u7EDD\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
+    if (status === 401) return "\u4F1A\u8BDD\u672A\u6388\u6743\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
+    const message = String(error.message || "");
+    if (/abort|timeout|超时/i.test(message)) return "\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5";
+    if (error.code === "DATA_UNAVAILABLE") return "\u8BD7\u8BCD\u6570\u636E\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+  }
+
+  // client-src/data.js
+  var FETCH_TIMEOUT_MS = 15e3;
+  var FIRST_SCREEN_CACHE_KEY = "dshp.firstscreen.v1";
+  function getStorage() {
+    try {
+      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
+    } catch {
+    }
+    return null;
+  }
+  function fetchJsonUrl(url, init) {
+    if (typeof fetch !== "function") return Promise.reject(new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u7F51\u7EDC\u8BF7\u6C42"));
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer2 = controller ? setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+      }
+    }, FETCH_TIMEOUT_MS) : null;
+    const options = Object.assign({}, init || {});
+    if (controller) options.signal = controller.signal;
+    return Promise.resolve().then(() => fetch(url, options)).then((response) => {
+      if (!response || typeof response.ok !== "boolean") throw new Error("\u54CD\u5E94\u5F02\u5E38");
+      if (!response.ok) {
+        const error = new Error("HTTP " + response.status);
+        error.status = response.status;
+        throw error;
+      }
+      return response.json();
+    }).then((data) => {
+      if (!data || data.ok === false) {
+        const detail = data && data.error ? data.error : null;
+        const error = new Error(detail && detail.message || "\u6570\u636E\u4E0D\u53EF\u7528");
+        if (detail && detail.code) error.code = detail.code;
+        throw error;
+      }
+      return data;
+    }).finally(() => {
+      if (timer2) clearTimeout(timer2);
+    });
+  }
+  function createFetchJson(route) {
+    return (path, init) => fetchJsonUrl(route + path, init);
+  }
+  function readFirstScreenCache() {
+    const storage = getStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(FIRST_SCREEN_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || !parsed.bootstrap) return null;
+      if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== "object") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  function writeFirstScreenCache(payload) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(FIRST_SCREEN_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+    }
+  }
+  function clearFirstScreenCache() {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.removeItem(FIRST_SCREEN_CACHE_KEY);
+    } catch {
+    }
+  }
+
+  // client-src/widget/models/feihua-model.js
+  var feihuaIndexCache = { poems: null, ci: null, index: null };
+  var feihuaFullCache = {};
+  var feihuaFullInflight = {};
+  function clearFeihuaFullCache() {
+    feihuaFullCache = {};
+    for (const key of Object.keys(feihuaFullInflight)) {
+      try {
+        if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === "function") feihuaFullInflight[key].abort();
+      } catch (error) {
+      }
+    }
+    feihuaFullInflight = {};
+  }
+  function readFeihuaFullCache(char) {
+    const key = String(char == null ? "" : char);
+    return key ? feihuaFullCache[key] || null : null;
+  }
+  function abortFeihuaFull(char) {
+    const key = String(char == null ? "" : char);
+    const item = feihuaFullInflight[key];
+    if (item && typeof item.abort === "function") item.abort();
+    delete feihuaFullInflight[key];
+  }
+  function requestFeihuaFull(char) {
+    const key = String(char == null ? "" : char);
+    if (!key) return Promise.resolve({ ok: false, reason: "invalid" });
+    const cached = feihuaFullCache[key];
+    if (cached && cached.status === "ready") {
+      return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true });
+    }
+    if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+      return Promise.resolve({ ok: false, char: key, cached: true, reason: "retry-wait" });
+    }
+    if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise;
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let aborted = false;
+    let settled = false;
+    let timer2 = null;
+    let abortResolve = null;
+    const abortPromise = new Promise((resolve) => {
+      abortResolve = () => resolve({ ok: false, reason: "aborted" });
+    });
+    const item = { promise: null, abort: () => {
+      aborted = true;
+      try {
+        if (controller) controller.abort();
+      } catch (error) {
+      }
+      if (abortResolve) abortResolve();
+    } };
+    const finish = (result) => {
+      if (settled) return result;
+      settled = true;
+      if (timer2) clearTimeout(timer2);
+      delete feihuaFullInflight[key];
+      if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
+      return result;
+    };
+    const url = ROUTE + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
+    const task = Promise.resolve().then(() => fetch(url, controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        return { ok: false, reason: "http", status: response ? response.status : 0 };
+      }
+      return Promise.resolve(response.json()).then((data) => {
+        if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: "invalid" };
+        const entries = [];
+        for (const entry of data.entries) {
+          if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === "string" && entry[0].trim()) {
+            entries.push([entry[0].trim(), String(entry[1] == null ? "" : entry[1])]);
+          } else if (entry && typeof entry === "object" && typeof entry.text === "string" && entry.text.trim()) {
+            entries.push([entry.text.trim(), String(entry.source || "")]);
+          }
+        }
+        if (!entries.length) return { ok: false, reason: "empty" };
+        const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length;
+        feihuaFullCache[key] = { status: "ready", entries, count, at: Date.now() };
+        return { ok: true, char: key, entries, count };
+      }).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: aborted ? "aborted" : "network" }));
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, FEIHUA_FULL_TIMEOUT_MS);
+    });
+    item.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+    feihuaFullInflight[key] = item;
+    return item.promise;
+  }
+  function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
+    if (!poemsData || !Array.isArray(poemsData.items)) return null;
+    const cached = feihuaIndexCache;
+    if (cached.index && cached.poems === poemsData && cached.ci === ciData && cached.anthology === anthologyData && cached.bank === bankData && cached.ciBank === ciBankData) return cached.index;
+    const index2 = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
+    feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index: index2 };
+    return index2;
+  }
+  function clearFeihuaIndexCache() {
+    feihuaIndexCache = { poems: null, ci: null, index: null };
+  }
+  function pickDefaultFeihuaChar(index2, poem) {
+    const fallback = "\u82B1";
+    if (!index2 || !Array.isArray(index2.candidates) || !index2.candidates.length) return fallback;
+    const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
+    const text = lines.join("");
+    let best = null;
+    for (const item of index2.candidates) {
+      if (!item || item.count <= 0) continue;
+      if (text.indexOf(item.char) < 0) continue;
+      if (!best || item.count > best.count) best = item;
+    }
+    return best ? best.char : fallback;
+  }
+  function readFeihuaBest() {
+    const storage = getStorage();
+    if (!storage) return normalizeFeihuaBest(null);
+    try {
+      const raw = storage.getItem(FEIHUA_BEST_KEY);
+      if (!raw) return normalizeFeihuaBest(null);
+      return normalizeFeihuaBest(JSON.parse(raw));
+    } catch (error) {
+      return normalizeFeihuaBest(null);
+    }
+  }
+  function writeFeihuaBest(best) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)));
+    } catch (error) {
+    }
+  }
+
+  // client-src/widget/models/api.js
+  var bootstrapCache = null;
+  function assetUrlFor(kind, version) {
+    const file = ASSET_DATA_FILES[kind];
+    if (!file) return "";
+    return "/api/dsh-poetry/assets?f=" + file + "&v=" + encodeURIComponent(String(version == null ? "" : version));
+  }
+  var fetchJson = createFetchJson(ROUTE);
+  function putSettings(patch) {
+    const request = buildSettingsRequest(patch);
+    return fetchJson("settings.json", request.init).then((data) => {
+      if (bootstrapCache && data && data.settings) {
+        bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings });
+      }
+      return data;
+    });
+  }
+
+  // client-src/widget/models/weather-model.js
+  var weatherCache = null;
+  function weatherPoemTags(weather) {
+    if (!weather || typeof weather !== "object") return [];
+    const tags = [];
+    const push = (list) => {
+      for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag);
+    };
+    push(WEATHER_CATEGORY_TAGS[weather.category] || []);
+    if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS);
+    return tags;
+  }
+  function countWeatherTagHits(lines, tags) {
+    const text = (Array.isArray(lines) ? lines : []).join("");
+    if (!text) return 0;
+    let hits = 0;
+    for (const tag of Array.isArray(tags) ? tags : []) {
+      if (!tag) continue;
+      let from = 0;
+      while (from <= text.length) {
+        const at = text.indexOf(tag, from);
+        if (at < 0) break;
+        hits += 1;
+        from = at + tag.length;
+      }
+    }
+    return hits;
+  }
+  function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
+    const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT));
+    const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === "string" && tag.length > 0);
+    if (!safeTags.length || !poolLimit) return [];
+    const build = (items, kind) => {
+      const out = [];
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item || !item.id) continue;
+        const hits = countWeatherTagHits(item.lines, safeTags);
+        if (hits > 0) out.push({ kind, id: item.id, hits, item });
+      }
+      out.sort((a2, b) => b.hits - a2.hits || String(a2.id).localeCompare(String(b.id)));
+      return out;
+    };
+    const extras = extraSources && typeof extraSources === "object" ? extraSources : {};
+    const sources = [
+      [poemsData && poemsData.items, "poem"],
+      [ciData && ciData.items, "ci"],
+      [extras.anthology && extras.anthology.items, "anthology"],
+      [extras.bank && extras.bank.items, "bank"],
+      [extras.ciBank && extras.ciBank.items, "ci-bank"]
+    ];
+    const pool = [];
+    for (const source of sources) {
+      if (pool.length >= poolLimit) break;
+      const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length);
+      for (const entry of entries) pool.push(entry);
+    }
+    return pool;
+  }
+  function selectWeatherPoemEntry(pool, meta) {
+    if (!Array.isArray(pool) || !pool.length) return null;
+    const date = meta && meta.date ? String(meta.date) : "";
+    const category = meta && meta.category ? String(meta.category) : "";
+    const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : "";
+    const index2 = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
+    return pool[index2];
+  }
+  function weatherChipText(city, weather) {
+    if (!weather || typeof weather !== "object") return "";
+    const place = typeof city === "string" && city ? city : "";
+    const label = typeof weather.label === "string" && weather.label ? weather.label : "\u5929\u6C14";
+    const tempC = Number(weather.tempC);
+    const temp = Number.isFinite(tempC) ? Math.round(tempC) + "\u2103" : "";
+    return (place ? place + " \xB7 " : "") + label + (temp ? " " + temp : "");
+  }
+  function weatherExplainText(weather) {
+    if (!weather || typeof weather !== "object") return "";
+    const category = typeof weather.category === "string" ? weather.category : "unknown";
+    const night = weather.isDay === false || weather.isDay === 0;
+    if (night && (category === "clear" || category === "cloud" || category === "unknown")) {
+      return "\u4ECA\u591C\u6708\u8272\u6B63\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6708\u591C\u7684\u8FD9\u9996";
+    }
+    return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown;
+  }
+  function weatherUpdatedLabel(at) {
+    const time = Number(at);
+    if (!Number.isFinite(time) || time <= 0) return "";
+    const date = new Date(time);
+    const pad = (value) => value < 10 ? "0" + value : String(value);
+    return pad(date.getHours()) + ":" + pad(date.getMinutes());
+  }
+  function requestWeather() {
+    return fetchJson("weather.json").then((data) => {
+      if (!data || data.ok !== true || !data.weather) throw new Error("\u5929\u6C14\u6570\u636E\u4E0D\u53EF\u7528");
+      weatherCache = { data, at: Date.now() };
+      return data;
+    });
+  }
+
+  // client-src/local-state.js
+  var POS_KEY = "dshp.position.v1";
+  var MASCOT_EGG_KEY = "dshp-mascot-egg-v1";
+  function normalizeMascotEggState(raw, now2) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(now2).dateKey;
+    const sameDay = source.date === dateKey;
+    return {
+      date: dateKey,
+      greeted: sameDay ? source.greeted === true : false,
+      greetAt: sameDay ? num(source.greetAt, 0) : 0,
+      idleAt: num(source.idleAt, 0)
+    };
+  }
+  function readMascotEggState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeMascotEggState(null, now2);
+    try {
+      const raw = storage.getItem(MASCOT_EGG_KEY);
+      return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now2);
+    } catch {
+      return normalizeMascotEggState(null, now2);
+    }
+  }
+  function writeMascotEggState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state));
+    } catch {
+    }
+  }
+  function recordMascotEgg(state, patch, now2) {
+    const base = normalizeMascotEggState(state, now2);
+    const time = num(now2, Date.now());
+    return {
+      date: base.date,
+      greeted: base.greeted || Boolean(patch && patch.greet),
+      greetAt: patch && patch.greet ? time : base.greetAt,
+      idleAt: patch && patch.idle ? time : base.idleAt
+    };
+  }
+  function readStoredPosition() {
+    const storage = getStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(POS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null;
+      return {
+        x: Number(parsed.x),
+        y: Number(parsed.y),
+        snap: parsed.snap === "right" || parsed.snap === "free" ? parsed.snap : "left"
+      };
+    } catch {
+      return null;
+    }
+  }
+  function writeStoredPosition(position) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(
+        POS_KEY,
+        JSON.stringify({
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+          snap: position.snap
+        })
+      );
+    } catch {
+    }
+  }
+
+  // client-src/widget/models/mascot-model.js
+  function mascotStateFor(weather, enabled) {
+    if (!enabled || !weather || typeof weather !== "object") return "celebrate";
+    if (weather.isDay === false || weather.isDay === 0) return "night";
+    const category = typeof weather.category === "string" ? weather.category : "";
+    if (category === "rain") return "rain";
+    if (category === "snow") return "snow";
+    if (category === "thunder") return "thunder";
+    if (category === "cold") return "cold";
+    if (category === "clear" || category === "cloud" || category === "fog" || category === "wind") return "idle";
+    return "celebrate";
+  }
+  function mascotFileFor(stateKey) {
+    return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate;
+  }
+  function mascotUrl(file) {
+    return ASSET_BASE + MASCOT_DIR + file;
+  }
+  function mascotImageFor(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const weatherKey = typeof opts.weatherStateKey === "string" ? opts.weatherStateKey : "celebrate";
+    const weatherOn = opts.weatherEnabled === true;
+    const moodOn = opts.moodEnabled === true;
+    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
+    if (moodOn && mood && mood.image && (mood.source === "model" || mood.ai === true)) {
+      return { stateKey: "mood:ai", file: mood.image, source: "mood" };
+    }
+    if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
+      return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
+    }
+    if (moodOn && mood && mood.image) return { stateKey: "mood:" + mood.key, file: mood.image, source: "mood" };
+    if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
+    return { stateKey: "celebrate", file: mascotFileFor("celebrate"), source: "default" };
+  }
+  function mascotVideoShouldPause(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    return opts.hidden === true || opts.panelOpen === true;
+  }
+  function detectFastDrag(previous, next) {
+    const prev = previous && typeof previous === "object" ? previous : {};
+    const cur = next && typeof next === "object" ? next : {};
+    const px = num(prev.x, 0);
+    const py = num(prev.y, 0);
+    const cx2 = num(cur.x, 0);
+    const cy = num(cur.y, 0);
+    const pt = num(prev.t, 0);
+    const ct = num(cur.t, 0);
+    const dt = ct - pt;
+    if (!(dt > 0)) return false;
+    const distance = Math.hypot(cx2 - px, cy - py);
+    const speed = distance / dt * 1e3;
+    if (speed >= DIZZY_FAST_PX_PER_SEC) return true;
+    return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS;
+  }
+  function nextDizzyDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS));
+  }
+  function nextMealDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS));
+  }
+  function mealMomentFor(now2) {
+    const parts = shanghaiParts(num(now2, Date.now()));
+    const minutes = parts.minutes;
+    const windows = [
+      { meal: "breakfast", label: "\u65E9\u996D", start: 7 * 60, end: 9 * 60, window: "07:00\u201309:00" },
+      { meal: "lunch", label: "\u5348\u996D", start: 11 * 60 + 30, end: 13 * 60 + 30, window: "11:30\u201313:30" },
+      { meal: "dinner", label: "\u665A\u996D", start: 17 * 60 + 30, end: 19 * 60 + 30, window: "17:30\u201319:30" }
+    ];
+    for (const item of windows) {
+      if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey };
+    }
+    return null;
+  }
+  function normalizeMealState(raw, now2) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(num(now2, Date.now())).dateKey;
+    const sameDay = source.date === dateKey;
+    const meals = {};
+    const previous = sameDay && source.meals && typeof source.meals === "object" ? source.meals : {};
+    for (const meal of ["breakfast", "lunch", "dinner"]) if (previous[meal] === true) meals[meal] = true;
+    return { date: dateKey, meals };
+  }
+  function readMealState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeMealState(null, now2);
+    try {
+      const raw = storage.getItem(MEAL_KEY);
+      return normalizeMealState(raw ? JSON.parse(raw) : null, now2);
+    } catch (error) {
+      return normalizeMealState(null, now2);
+    }
+  }
+  function writeMealState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MEAL_KEY, JSON.stringify(state));
+    } catch (error) {
+    }
+  }
+  function markMealDone(state, meal, now2) {
+    const base = normalizeMealState(state, now2);
+    const meals = Object.assign({}, base.meals);
+    meals[meal] = true;
+    return { date: base.date, meals };
+  }
+  function mealTriggerFor(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null;
+    const moment = mealMomentFor(opts.now);
+    if (!moment) return null;
+    const state = normalizeMealState(opts.state, opts.now);
+    if (state.meals[moment.meal]) return null;
+    return moment;
+  }
+  function pickDizzyMedia(entries) {
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const exact = entries.find((entry) => entry && String(entry.label || "").indexOf("\u5C0F\u5E45\u5EA6\u539F\u5730360\u5EA6\u65CB\u8F6C\u5C55\u793A") >= 0);
+    if (exact) return exact;
+    return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ""))) || null;
+  }
+  function pickMealMedia(entries, meal) {
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const preferred = { breakfast: "\u5403\u65E9\u9910", lunch: "\u5403\u5348\u9910", dinner: "\u5403\u665A\u9910" };
+    const exact = entries.find((entry) => entry && String(entry.label || "") === preferred[meal]);
+    if (exact) return exact;
+    for (const label of ["\u5403\u767D\u996D", "\u5E72\u996D"]) {
+      const match = entries.find((entry) => entry && String(entry.label || "").indexOf(label) >= 0);
+      if (match) return match;
+    }
+    return entries.find((entry) => entry && String(entry.label || "").indexOf("\u5403") >= 0) || null;
+  }
+  function mascotFilePriority(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
+  }
+  function petMediaUrl(file) {
+    return ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
+  }
+  function normalizePetMediaCatalog(data) {
+    if (!data || data.ok === false || !Array.isArray(data.entries)) return null;
+    const entries = [];
+    const seen = {};
+    for (const item of data.entries) {
+      if (!item || typeof item.file !== "string") continue;
+      const file = item.file.trim();
+      if (!/^webm\/[^/]+\.webm$/.test(file)) continue;
+      if (seen[file]) continue;
+      seen[file] = true;
+      entries.push({
+        file,
+        label: String(item.label || ""),
+        media: "video",
+        tags: Array.isArray(item.tags) ? item.tags.slice() : []
+      });
+    }
+    return entries;
+  }
+  function mergePetMediaIntoCatalog(catalog, petEntries) {
+    if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog;
+    const moodImages = catalog.moodImages.slice();
+    const moodFiles = catalog.moodFiles.slice();
+    const byFile = Object.assign({}, catalog.byFile);
+    for (const entry of petEntries) {
+      if (!entry || !entry.file || byFile[entry.file]) continue;
+      const normalized = { file: entry.file, label: String(entry.label || ""), tags: Array.isArray(entry.tags) ? entry.tags : [], media: "video" };
+      moodImages.push(normalized);
+      moodFiles.push(entry.file);
+      byFile[entry.file] = normalized;
+    }
+    return Object.assign({}, catalog, { moodImages, moodFiles, byFile });
+  }
+  var petMediaCache = null;
+  var petMediaInflight = null;
+  function clearPetMediaCache() {
+    petMediaCache = null;
+    if (petMediaInflight && typeof petMediaInflight.abort === "function") {
+      try {
+        petMediaInflight.abort();
+      } catch (error) {
+      }
+    }
+    petMediaInflight = null;
+  }
+  function requestPetMediaCatalog() {
+    if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache });
+    if (petMediaInflight) return petMediaInflight.promise;
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, entries: [] });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let settled = false;
+    let timer2 = null;
+    let abortResolve = null;
+    const abortPromise = new Promise((resolve) => {
+      abortResolve = () => resolve({ ok: false, entries: [], reason: "aborted" });
+    });
+    const finish = (result) => {
+      if (settled) return result;
+      settled = true;
+      if (timer2) clearTimeout(timer2);
+      petMediaInflight = null;
+      if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
+      return result;
+    };
+    const task = Promise.resolve().then(() => fetch(ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) return { ok: false, entries: [], reason: "http" };
+      return Promise.resolve(response.json()).then((data) => {
+        const entries = normalizePetMediaCatalog(data);
+        if (!entries) return { ok: false, entries: [], reason: "invalid" };
+        return { ok: true, entries };
+      }).catch(() => ({ ok: false, entries: [], reason: "json" }));
+    }).catch(() => ({ ok: false, entries: [], reason: "network" }));
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, entries: [], reason: "timeout" });
+      }, PET_MEDIA_TIMEOUT_MS);
+    });
+    const inflight = { promise: null, abort: () => {
+      try {
+        if (controller) controller.abort();
+      } catch (error) {
+      }
+      if (abortResolve) abortResolve();
+    } };
+    inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+    petMediaInflight = inflight;
+    return inflight.promise;
+  }
+  function readMotionRotation() {
+    const storage = getStorage();
+    if (!storage) return 0;
+    try {
+      const value = Number(storage.getItem(MOTION_ROTATION_KEY));
+      return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+    } catch (error) {
+      return 0;
+    }
+  }
+  function writeMotionRotation(index2) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index2, 0)))));
+    } catch (error) {
+    }
+  }
+  function nextMotionEntry(entries, index2) {
+    if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 };
+    const size = entries.length;
+    const start = Math.max(0, Math.floor(num(index2, 0))) % size;
+    return { entry: entries[start], index: (start + 1) % size, size, position: start };
+  }
+  function nextMotionDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS));
+  }
+  function nextMotionFirstDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS));
+  }
+  function nextMotionScheduleDelay(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts);
+    return nextMotionDelay(opts);
+  }
+  function nextMotionDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS));
+  }
+  function shouldShowDailyGreet(state, now2) {
+    return !normalizeMascotEggState(state, now2).greeted;
+  }
+  function canShowIdlePose(state, now2, lastInteractionAt) {
+    const normalized = normalizeMascotEggState(state, now2);
+    const time = num(now2, Date.now());
+    if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false;
+    const lastInteraction = num(lastInteractionAt, 0);
+    if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false;
+    return true;
+  }
+  function pickMascotExpression(random) {
+    const value = typeof random === "function" ? Number(random()) : Math.random();
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    const index2 = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
+    return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
+  }
+
+  // client-src/widget/models/self-model.js
+  function normalizeSelfStatus(data) {
+    if (!data || data.ok === false || !data.state || typeof data.state !== "object") return null;
+    const state = data.state;
+    const text = (value, max) => {
+      const raw = String(value == null ? "" : value).trim();
+      return raw.length > max ? raw.slice(0, max) : raw;
+    };
+    const growth = data.growth && typeof data.growth === "object" ? data.growth : {};
+    const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)));
+    const at = (key) => {
+      const value = num(growth[key], 0);
+      return value > 0 ? value : 0;
+    };
+    const rawActions = data.actions && typeof data.actions === "object" ? data.actions : {};
+    const rawProject = data.project && typeof data.project === "object" ? data.project : null;
+    const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === "string" && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : [];
+    return {
+      // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
+      felt: text(data.felt || state.felt, 80),
+      experiencing: text(data.experiencing || state.experiencing, 120),
+      context,
+      feltAt: num(state.feltAt, 0),
+      sleeping: state.sleeping === true,
+      sleepSince: num(state.sleepSince, 0),
+      updatedAt: num(state.updatedAt, 0),
+      growth: {
+        learnings: count("learnings"),
+        reflections: count("reflections"),
+        lastLearnAt: at("lastLearnAt"),
+        lastReflectAt: at("lastReflectAt")
+      },
+      actions: {
+        latest: normalizeSelfAction(rawActions.latest),
+        recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5)
+      },
+      project: rawProject && typeof rawProject.title === "string" ? {
+        id: String(rawProject.id || ""),
+        title: text(rawProject.title, 60),
+        note: text(rawProject.note, 160),
+        steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({
+          at: num(step.at, 0),
+          text: text(step.text, 160),
+          repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
+          lastAt: num(step.lastAt, 0)
+        })),
+        stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(rawProject.stage) ? rawProject.stage : "working",
+        progressAt: num(rawProject.progressAt, 0),
+        latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
+        staleAt: num(rawProject.staleAt, 0),
+        staleReason: text(rawProject.staleReason, 120),
+        attention: rawProject.attention && typeof rawProject.attention.question === "string" ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) } : null,
+        latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === "string" ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) } : null
+      } : null
+    };
+  }
+  function normalizeSelfAction(item) {
+    if (!item || typeof item !== "object" || item.id == null || item.id === "") return null;
+    return {
+      id: String(item.id),
+      label: String(item.label == null ? "" : item.label).slice(0, 40),
+      text: String(item.text == null ? "" : item.text).slice(0, 200),
+      at: num(item.at, 0)
+    };
+  }
+  function readSeenActionId() {
+    const storage = getStorage();
+    if (!storage) return "";
+    try {
+      return String(storage.getItem(ACTION_SEEN_KEY) || "");
+    } catch (error) {
+      return "";
+    }
+  }
+  function writeSeenActionId(id) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(ACTION_SEEN_KEY, String(id == null ? "" : id));
+    } catch (error) {
+    }
+  }
+  function selfStatusSummary(status) {
+    if (!status) return "";
+    const growth = status.growth || {};
+    const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)));
+    const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)));
+    const lastLearn = weatherUpdatedLabel(growth.lastLearnAt);
+    const lastReflect = weatherUpdatedLabel(growth.lastReflectAt);
+    if (!learnings && !reflections && !lastLearn && !lastReflect) return "\u5C1A\u672A\u5F00\u59CB";
+    const parts = ["\u81EA\u5B66 " + learnings + " \u6761", "\u81EA\u7701 " + reflections + " \u6B21"];
+    if (lastLearn) parts.push("\u4E0A\u6B21\u81EA\u5B66 " + lastLearn);
+    if (lastReflect) parts.push("\u4E0A\u6B21\u81EA\u7701 " + lastReflect);
+    return parts.join(" \xB7 ");
+  }
+  function normalizeMemoryStatus(data) {
+    if (!data || data.ok === false || !Array.isArray(data.files)) return null;
+    const files = data.files.filter((file) => file && typeof file === "object");
+    const countBy = (patterns) => {
+      let sum = 0;
+      for (const file of files) {
+        const id = String(file.id || "") + " " + String(file.path || "");
+        if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue;
+        sum += Math.max(0, Math.floor(num(file.entries, 0)));
+      }
+      return sum;
+    };
+    const health = data.health === "warn" || data.health === "error" ? data.health : data.health === "ok" ? "ok" : "warn";
+    const backups = data.backups && typeof data.backups === "object" ? data.backups : {};
+    const recovered = typeof data.recovered === "number" ? Math.max(0, Math.floor(data.recovered)) : data.recovered && typeof data.recovered === "object" && typeof data.recovered.count === "number" ? Math.max(0, Math.floor(data.recovered.count)) : data.recovered === true ? 1 : 0;
+    return {
+      health,
+      journal: countBy(["journal"]),
+      topics: countBy(["topic"]),
+      learnings: countBy(["learn", "growth", "self"]),
+      backups: {
+        count: Math.max(0, Math.floor(num(backups.count, 0))),
+        lastAt: num(backups.lastAt, 0),
+        latestId: String(backups.latestId || "")
+      },
+      recovered,
+      updatedAt: num(data.updatedAt, 0)
+    };
+  }
+  function normalizeWorks(raw) {
+    if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] };
+    const works = [];
+    for (const item of raw.works) {
+      if (!item || typeof item.title !== "string") continue;
+      const kind = item.kind === "svg" || item.kind === "image" || item.kind === "video" ? item.kind : "text";
+      const body = typeof item.body === "string" ? String(item.body) : "";
+      if (kind === "text" && body.length < 4) continue;
+      const mediaUrl = typeof item.mediaUrl === "string" && item.mediaUrl.length > 0 ? item.mediaUrl : "";
+      if ((kind === "image" || kind === "video") && mediaUrl.length === 0) continue;
+      works.push({
+        id: String(item.id || ""),
+        title: item.title.slice(0, 60),
+        kind,
+        createdAt: num(item.createdAt, 0),
+        body: kind === "text" ? body.slice(0, 2e3) : "",
+        src: kind === "svg" ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(body) : kind === "image" || kind === "video" ? mediaUrl : ""
+      });
+      if (works.length >= 6) break;
+    }
+    return { works };
+  }
+  function normalizeAttention(raw) {
+    if (!raw || raw.ok === false) return { mode: "observe", items: [], pending: 0 };
+    const mode = raw.mode === "auto" ? "auto" : "observe";
+    const items = (Array.isArray(raw.items) ? raw.items : []).filter((item) => item && typeof item.text === "string" && item.status === "pending").slice(0, 10).map((item) => ({
+      id: String(item.id || ""),
+      kind: item.kind === "question" || item.kind === "result" ? item.kind : "social",
+      text: String(item.text).slice(0, 500),
+      reason: String(item.reason || "").slice(0, 160),
+      draft: item.draft === true,
+      createdAt: num(item.createdAt, 0)
+    }));
+    return { mode, items, pending: items.length };
+  }
+  function normalizeTwinState(raw) {
+    if (!raw || raw.ok === false || raw.enabled === false) return null;
+    const twin = raw.twin && typeof raw.twin === "object" ? raw.twin : {};
+    const projects = twin.projects && typeof twin.projects === "object" ? twin.projects : {};
+    const project = projects.current && typeof projects.current === "object" ? {
+      title: String(projects.current.title || "").slice(0, 60),
+      stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(projects.current.stage) ? projects.current.stage : "working",
+      question: projects.current.attention && typeof projects.current.attention.question === "string" ? projects.current.attention.question.slice(0, 200) : ""
+    } : null;
+    return { enabled: true, project };
+  }
+
+  // client-src/widget/view/primitives.js
+  function LoadingState(props) {
+    return h(
+      "div",
+      { className: "dshp-loading" },
+      h("span", { className: "dshp-spinner", "aria-hidden": "true" }),
+      h("span", null, props && props.text || "\u6B63\u5728\u8F7D\u5165\u2026")
+    );
+  }
+  function EmptyState(props) {
+    const options = props || {};
+    return h(
+      "div",
+      { className: "dshp-empty" },
+      h("div", { className: "dshp-empty-icon", "aria-hidden": "true" }, options.icon || "\u{1F4DC}"),
+      h("div", { className: "dshp-empty-title" }, options.title || "\u6682\u65F6\u6CA1\u6709\u5185\u5BB9"),
+      h("div", { className: "dshp-empty-msg" }, options.message || "\u8BF7\u7A0D\u540E\u91CD\u8BD5"),
+      options.onRetry ? h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: options.onRetry }, options.retryLabel || "\u91CD\u8BD5") : null
+    );
+  }
+  function Legend() {
+    return h(
+      "div",
+      { className: "dshp-legend", "aria-label": "\u5E73\u4EC4\u56FE\u4F8B" },
+      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-ping)" } }), "\u5E73"),
+      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-ze)" } }), "\u4EC4"),
+      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-any)" } }), "\u591A\u97F3"),
+      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-line" }), "\u97F5\u811A")
+    );
+  }
+  function ToneLine(props) {
+    const cells = buildToneCells(props.line, props.tones, {
+      showTones: props.showTones !== false,
+      rhymeLine: props.rhyme === true
+    });
+    return h(
+      "div",
+      { className: "dshp-line" },
+      cells.map((cell, index2) => h(
+        "span",
+        {
+          key: index2,
+          className: cell.className,
+          title: cell.punctuation ? void 0 : cell.tone || ""
+        },
+        cell.tone ? h("span", { className: "dshp-tone", "aria-hidden": "true" }, cell.tone) : null,
+        h("span", { className: "dshp-chr" }, cell.ch)
+      ))
+    );
+  }
+  function PoemBody(props) {
+    if (!props.poem) return null;
+    const text = selectPoemText(props.poem, props.script);
+    const rhymeLines = poemRhymeLines(props.poem);
+    return h(
+      "div",
+      { className: "dshp-poem" },
+      h("div", { className: "dshp-poem-title" }, text.title || "\u65E0\u9898"),
+      text.author ? h("div", { className: "dshp-poem-author" }, text.author) : null,
+      h(
+        "div",
+        { className: "dshp-poem-lines" },
+        text.lines.map((line, index2) => h(ToneLine, {
+          key: index2,
+          line,
+          tones: Array.isArray(props.poem.tones) ? props.poem.tones[index2] : "",
+          rhyme: rhymeLines.indexOf(index2) >= 0,
+          showTones: props.showTones !== false
+        }))
+      ),
+      props.showTones !== false ? h(Legend) : null
+    );
+  }
+  function AnalysisBody(props) {
+    const poem = props.poem || {};
+    const rhymeLines = poemRhymeLines(poem).map((index2) => "\u7B2C " + (index2 + 1) + " \u53E5");
+    const firstRhyme = poem.firstRhyme === true ? "\u662F" : poem.firstRhyme === false ? "\u5426" : "\u2014";
+    return h(
+      "div",
+      { className: "dshp-analysis" },
+      h(
+        "div",
+        { className: "dshp-tags" },
+        h("span", { className: "dshp-tag" }, "\u4F53\u5F0F\uFF1A" + (poem.form || "\u2014")),
+        h("span", { className: "dshp-tag" }, "\u8D77\u5F0F\uFF1A" + (poem.start || "\u2014")),
+        h("span", { className: "dshp-tag" }, "\u9996\u53E5\u5165\u97F5\uFF1A" + firstRhyme)
+      ),
+      h(
+        "div",
+        { className: "dshp-kv" },
+        h("span", { className: "dshp-kv-key" }, "\u6807\u51C6\u683C\u5F0F"),
+        h("span", { className: "dshp-kv-val" }, poem.meter || "\u2014")
+      ),
+      h(
+        "div",
+        { className: "dshp-analysis-text dshp-block" },
+        poem.analysis ? String(poem.analysis) : "\u6682\u65E0\u89E3\u6790\u6587\u672C\u3002"
+      ),
+      rhymeLines.length ? h(
+        "div",
+        { className: "dshp-kv" },
+        h("span", { className: "dshp-kv-key" }, "\u5165\u97F5\u53E5"),
+        h("span", { className: "dshp-kv-val" }, rhymeLines.join("\u3001"))
+      ) : null
+    );
+  }
+  function CiBody(props) {
+    const ci = props.ci;
+    if (!ci) return null;
+    const text = selectCiText(ci);
+    return h(
+      "div",
+      { className: "dshp-poem" },
+      h("div", { className: "dshp-poem-title" }, text.title || "\u65E0\u9898"),
+      text.author ? h("div", { className: "dshp-poem-author" }, text.author) : null,
+      h("div", { className: "dshp-ci-lines" }, text.lines.map((line, index2) => h("div", { key: index2 }, line)))
+    );
+  }
+  function KnowledgeCardView(props) {
+    const card = props.card || {};
+    const paragraphs = Array.isArray(card.paragraphs) ? card.paragraphs : [];
+    const examples = Array.isArray(card.examples) ? card.examples : [];
+    return h(
+      "div",
+      { className: "dshp-card" },
+      h("div", { className: "dshp-card-title" }, String(card.title || "\u683C\u5F8B\u77E5\u8BC6")),
+      card.summary ? h("div", { className: "dshp-card-summary" }, String(card.summary)) : null,
+      paragraphs.map((paragraph, index2) => h("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
+      examples.map((example, index2) => h(
+        "div",
+        { key: "example-" + index2, className: "dshp-example" },
+        h("div", { className: "dshp-example-text" }, String(example && example.text || "")),
+        example && example.note ? h("div", { className: "dshp-example-note" }, String(example.note)) : null
+      ))
+    );
+  }
+  function switchNode(checked, onChange, label) {
+    return h("button", {
+      type: "button",
+      role: "switch",
+      "aria-checked": checked === true,
+      "aria-label": label,
+      className: cx("dshp-switch", checked === true && "dshp-is-on"),
+      onClick: onChange
+    });
+  }
+  function growthMetricsTree(status) {
+    const felt = status && typeof status.felt === "string" ? status.felt : "";
+    const context = status && Array.isArray(status.context) ? status.context : [];
+    return h(
+      "div",
+      { className: "dshp-self-being" },
+      h("div", { className: "dshp-self-felt" }, felt || "\u8FD8\u6CA1\u60F3\u597D\u81EA\u5DF1\u6B64\u523B\u662F\u4EC0\u4E48\u611F\u89C9\u3002"),
+      context.length > 0 ? h(
+        "div",
+        { className: "dshp-self-context" },
+        context.map((line, index2) => h("div", { className: "dshp-self-context-line", key: "ctx-" + index2 }, line))
+      ) : null,
+      h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
+    );
+  }
+
+  // client-src/widget/tabs.js
+  function h2(type, props) {
+    const args = [type, props];
+    for (let i = 2; i < arguments.length; i += 1) args.push(arguments[i]);
+    return getRuntime().h.apply(null, args);
+  }
+  var poetryTabs = null;
+  function ensurePoetryTabs() {
+    if (poetryTabs === null) {
+      poetryTabs = createPoetryTabs({
+        React: getRuntime().React,
+        h: h2,
+        EmptyState,
+        LoadingState,
+        PoemBody,
+        AnalysisBody,
+        KnowledgeCardView,
+        describeDataError,
+        normalizeSettings,
+        cx,
+        switchNode,
+        num
+      });
+    }
+    return poetryTabs;
+  }
+  function TodayTab(props) {
+    return ensurePoetryTabs().TodayTab(props);
+  }
+  function ClassTab(props) {
+    return ensurePoetryTabs().ClassTab(props);
+  }
+  function YunTab(props) {
+    return ensurePoetryTabs().YunTab(props);
+  }
+  function CiTab(props) {
+    return ensurePoetryTabs().CiTab(props);
+  }
+  function PoetrySettingsTab(props) {
+    return ensurePoetryTabs().PoetrySettingsTab(props);
+  }
+  var settingsTabFactory = null;
+  function ensureSettingsTab() {
+    if (settingsTabFactory === null) {
+      settingsTabFactory = createSettingsTab({
+        React: getRuntime().React,
+        h: h2,
+        cx,
+        normalizeSettings,
+        num,
+        switchNode,
+        growthMetricsTree,
+        weatherChipText,
+        weatherUpdatedLabel,
+        moodBasisText,
+        moodAiFailureLabel
+      });
+    }
+    return settingsTabFactory;
+  }
+  function SettingsTab(props) {
+    return ensureSettingsTab()(props);
+  }
+  var growthTabFactory = null;
+  function ensureGrowthTab() {
+    if (growthTabFactory === null) {
+      growthTabFactory = createGrowthTab({
+        h: h2,
+        cx,
+        switchNode,
+        growthMetricsTree,
+        moodAiFailureLabel,
+        selfStatusSummary,
+        weatherUpdatedLabel
+      });
+    }
+    return growthTabFactory;
+  }
+  function GrowthTab(props) {
+    return ensureGrowthTab()(props);
+  }
+  var graphTabFactory = null;
+  function ensureGraphTab() {
+    if (graphTabFactory === null) {
+      graphTabFactory = createGraphTab({ React, h: h2 });
+    }
+    return graphTabFactory;
+  }
+  function GraphTab(props) {
+    return ensureGraphTab()(props);
+  }
+  var feihuaTabFactory = null;
+  function ensureFeihuaTab() {
+    if (feihuaTabFactory === null) {
+      feihuaTabFactory = createFeihuaTab({
+        React: getRuntime().React,
+        h: h2,
+        cx,
+        EmptyState,
+        LoadingState,
+        ToneLine,
+        detectionRhymeIndexes,
+        formatDetectionReport,
+        describeDataError,
+        getFeihuaIndex,
+        pickDefaultFeihuaChar,
+        feihuaSourceOf,
+        mergeFeihuaItems,
+        finishFeihuaIndex,
+        mergeFeihuaFullEntries,
+        requestFeihuaFull,
+        abortFeihuaFull,
+        readFeihuaFullCache,
+        readFeihuaBest,
+        writeFeihuaBest,
+        FEIHUA_ATLAS_PAGE,
+        FEIHUA_FULL_RETRY_MS
+      });
+    }
+    return feihuaTabFactory;
+  }
+  function FeihuaTab(props) {
+    return ensureFeihuaTab().FeihuaTab(props);
+  }
+  function DetectionView(props) {
+    return ensureFeihuaTab().DetectionView(props);
+  }
+  var libraryTabFactory = null;
+  function ensureLibraryTab() {
+    if (libraryTabFactory === null) {
+      libraryTabFactory = createLibraryTab({
+        React: getRuntime().React,
+        LIBRARY_CATEGORIES,
+        h: h2,
+        cx,
+        EmptyState,
+        LoadingState,
+        DetectionView,
+        ToneLine,
+        describeDataError,
+        Z_INDEX,
+        WIDGET_ID,
+        MASCOT_FILES,
+        mascotUrl,
+        detectPoem,
+        detectPoemText,
+        parsePoemInput,
+        buildPingshuiIndex
+      });
+    }
+    return libraryTabFactory;
+  }
+  function LibraryTab(props) {
+    return ensureLibraryTab().LibraryTab(props);
+  }
+  function WidgetBoundary(props) {
+    const Boundary = ensureLibraryTab().WidgetBoundary;
+    return h2(Boundary, null, props && props.children);
+  }
+
+  // client-src/health-model.js
+  function normalizeHealthStatus(raw) {
+    const data = raw && typeof raw === "object" ? raw : {};
+    const runtime2 = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
+    if (!runtime2) return null;
+    const budget = runtime2.budget && typeof runtime2.budget === "object" ? runtime2.budget : null;
+    const heartbeat = runtime2.heartbeat && typeof runtime2.heartbeat === "object" ? runtime2.heartbeat : null;
+    const modelErrors = runtime2.modelErrors && typeof runtime2.modelErrors === "object" ? runtime2.modelErrors : null;
+    const consolidate = runtime2.consolidate && typeof runtime2.consolidate === "object" ? runtime2.consolidate : null;
+    const growth = runtime2.growthMetrics && typeof runtime2.growthMetrics === "object" ? runtime2.growthMetrics : null;
+    const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === "object" ? consolidate.backlog : null;
+    const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
+    const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
+    const roleCounts = Object.keys(counts).map((role) => ({ role, count: num(counts[role], 0) })).filter((item) => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 6);
+    return {
+      version: data.version || "",
+      day: budget && typeof budget.day === "string" ? budget.day : "",
+      total: budget ? num(budget.total, 0) : 0,
+      totalLimit: budget ? num(budget.totalLimit, 0) : 0,
+      roleCounts,
+      jobs: jobs.map((job) => ({
+        name: String(job.name || ""),
+        runs: num(job.runs, 0),
+        errors: num(job.errors, 0),
+        consecutiveErrors: num(job.consecutiveErrors, 0),
+        skippedRuns: num(job.skippedRuns, 0),
+        running: job.running === true,
+        nextAt: typeof job.nextAt === "number" ? job.nextAt : null,
+        lastStartedAt: typeof job.lastStartedAt === "number" ? job.lastStartedAt : null,
+        lastDurationMs: typeof job.lastDurationMs === "number" ? job.lastDurationMs : null,
+        lastError: typeof job.lastError === "string" ? job.lastError : ""
+      })),
+      activeJobs: num(heartbeat && heartbeat.pulses, 0),
+      modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
+      memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
+      memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === "number" ? memoryBacklog.oldestAt : null,
+      growthMetrics: growth ? {
+        daysAlive: num(growth.daysAlive, 0),
+        journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
+        episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
+        coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
+        learning: growth.learning ? num(growth.learning.sections, 0) : 0,
+        repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
+        project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
+      } : null,
+      modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a2, b) => b.count - a2.count).slice(0, 4) : []
+    };
+  }
+
+  // client-src/self-talk-client.js
+  var SPONT_KEY = "dshp-mood-spont-v1";
+  var SPONT_POLL_MIN_MS = 60 * 1e3;
+  var SPONT_POLL_MAX_MS = 120 * 1e3;
+  var SPONT_RETRY_MS = 10 * 1e3;
+  var SPONT_EVENT_MIN_MS = 2 * 1e3;
+  var SPONT_EVENT_MAX_MS = 5 * 1e3;
+  var SPONT_CLOSE_RECHECK_MS = 3 * 1e3;
+  var SPONT_QUIET_MS = 3 * 1e3;
+  var SPONT_REPEAT_MS = 3 * 24 * 60 * 60 * 1e3;
+  var SPONT_SEEN_DAYS = 7 * 24 * 60 * 60 * 1e3;
+  var SPONT_MAX_SEEN = 300;
+  var SPONT_AUTO_CLOSE_MS = 25e3;
+  var SELF_TALK_PATH = "self-talk.json";
+  var SELF_TALK_TIMEOUT_MS = 35 * 1e3;
+  var SELF_TALK_RECENT_MAX = 12;
+  function normalizeSpontState(raw, now2) {
+    const src = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(now2).dateKey;
+    const seen = [];
+    if (Array.isArray(src.seenIds)) {
+      for (const entry of src.seenIds.slice(-SPONT_MAX_SEEN)) {
+        let id = "";
+        let at = 0;
+        if (typeof entry === "string") id = entry;
+        else if (entry && typeof entry === "object" && typeof entry.id === "string") {
+          id = entry.id;
+          at = num(entry.at, 0);
+        }
+        if (!id) continue;
+        if (at > 0 && now2 - at > SPONT_SEEN_DAYS) continue;
+        seen.push({ id, at });
+      }
+    }
+    const sameDay = src.date === dateKey;
+    return {
+      date: dateKey,
+      lastShownAt: sameDay ? num(src.lastShownAt, 0) : 0,
+      todayCount: sameDay ? Math.max(0, Math.floor(num(src.todayCount, 0))) : 0,
+      seenIds: seen,
+      lastType: typeof src.lastType === "string" ? src.lastType : "",
+      lastTag: typeof src.lastTag === "string" ? src.lastTag : ""
+    };
+  }
+  function recordSpontShown(state, id, now2, type, tag) {
+    const base = normalizeSpontState(state, now2);
+    const seen = base.seenIds.filter((entry) => entry.id !== id).concat([{ id: String(id), at: now2 }]).slice(-SPONT_MAX_SEEN);
+    return {
+      date: base.date,
+      lastShownAt: num(now2, Date.now()),
+      todayCount: base.todayCount + 1,
+      seenIds: seen,
+      lastType: typeof type === "string" ? type : base.lastType,
+      lastTag: typeof tag === "string" ? tag : base.lastTag
+    };
+  }
+  function countSpontHits(text, tags) {
+    let hits = 0;
+    for (const tag of Array.isArray(tags) ? tags : []) {
+      if (!tag) continue;
+      hits += String(text || "").split(tag).length - 1;
+    }
+    return hits;
+  }
+  function splitCompleteSentences(text) {
+    const value = String(text == null ? "" : text);
+    const out = [];
+    let start = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value.charAt(i);
+      if (ch === "\u3002" || ch === "\uFF01" || ch === "\uFF1F") {
+        const sentence = value.slice(start, i + 1).trim();
+        if (sentence) out.push(sentence);
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+  function pickSentenceFromLines(lines, tags, random) {
+    const list = (Array.isArray(lines) ? lines : []).map((value) => String(value == null ? "" : value)).filter((value) => value.length > 0);
+    const sentences = splitCompleteSentences(list.join(""));
+    if (!sentences.length) {
+      if (!list.length) return "";
+      let fallback = list[list.length - 1];
+      if (/[，,]$/.test(fallback)) {
+        fallback = list.length > 1 ? list[list.length - 2] : fallback.replace(/[，,]$/, "\u3002");
+      }
+      return fallback;
+    }
+    const scored = sentences.map((sentence) => ({ sentence, length: sentence.length, hits: countSpontHits(sentence, tags) }));
+    const preferred = scored.filter((item) => item.length >= 8 && item.length <= 40 && item.hits > 0);
+    const medium = scored.filter((item) => item.length >= 8 && item.length <= 40);
+    const withTag = scored.filter((item) => item.hits > 0);
+    const pool = preferred.length ? preferred : medium.length ? medium : withTag.length ? withTag : scored;
+    if (!pool.length) return "";
+    const index2 = Math.min(pool.length - 1, Math.max(0, Math.floor(num(typeof random === "function" ? random() : Math.random(), 0) * pool.length)));
+    return pool[index2].sentence;
+  }
+  function selfTalkNoveltySignature(options = {}) {
+    const opts = options && typeof options === "object" ? options : {};
+    const status = opts.selfStatus && typeof opts.selfStatus === "object" ? opts.selfStatus : null;
+    const project = status && status.project && typeof status.project === "object" ? status.project : null;
+    const latest = status && status.actions && status.actions.latest ? status.actions.latest : null;
+    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
+    const weather = opts.weather && typeof opts.weather === "object" ? opts.weather : null;
+    const now2 = typeof opts.now === "number" ? opts.now : Date.now();
+    const bucket = Math.floor(now2 / (20 * 60 * 1e3));
+    return [
+      "felt:" + (status && typeof status.felt === "string" ? status.felt : ""),
+      "exp:" + (status && typeof status.experiencing === "string" ? status.experiencing : ""),
+      "act:" + (latest && typeof latest.id === "string" ? latest.id : ""),
+      "proj:" + (project ? String(project.id || "") + ":" + String(project.title || "") + ":" + String(project.steps && project.steps.length || 0) : ""),
+      "mood:" + (mood ? String(mood.key || "") + ":" + String(mood.label || "") + ":" + String(mood.reason || "") : ""),
+      "weather:" + (weather ? String(weather.category || weather.label || "") + ":" + String(weather.tempC ?? "") : ""),
+      "t:" + bucket
+    ].join("|");
+  }
+  function canShowSpontaneous(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.enabled !== true) return false;
+    if (opts.hidden === true || opts.panelOpen === true || opts.bubbleOpen === true || opts.visible === false) return false;
+    const now2 = num(opts.now, Date.now());
+    const lastInteraction = num(opts.lastInteractionAt, 0);
+    const quietMs = num(opts.quietMs, SPONT_QUIET_MS);
+    const idleMs = lastInteraction > 0 ? Math.max(0, now2 - lastInteraction) : Number.POSITIVE_INFINITY;
+    if (idleMs < quietMs) return false;
+    return true;
+  }
+  function nextSpontPollDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(SPONT_POLL_MIN_MS + ratio * (SPONT_POLL_MAX_MS - SPONT_POLL_MIN_MS));
+  }
+  function nextSpontEventDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(SPONT_EVENT_MIN_MS + ratio * (SPONT_EVENT_MAX_MS - SPONT_EVENT_MIN_MS));
+  }
+  function selfTalkKindFor() {
+    return "murmur";
+  }
+  function selfTalkQuery(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const params = [];
+    const add2 = (key, value) => {
+      if (value == null || value === "") return;
+      params.push(encodeURIComponent(key) + "=" + encodeURIComponent(String(value)));
+    };
+    add2("kind", "murmur");
+    add2("mood", opts.moodKey);
+    add2("moodLabel", opts.moodLabel);
+    add2("moodReason", opts.moodReason);
+    add2("image", opts.image);
+    add2("imageLabel", opts.imageLabel);
+    add2("weather", opts.weather);
+    add2("idleMinutes", Math.max(0, Math.floor(num(opts.idleMinutes, 0))));
+    const seen = {};
+    const recent = [];
+    for (const text of Array.isArray(opts.recent) ? opts.recent : []) {
+      const clean = String(text == null ? "" : text).trim();
+      if (!clean || seen[clean]) continue;
+      seen[clean] = true;
+      recent.push(clean);
+    }
+    const recentSlice = recent.slice(-SELF_TALK_RECENT_MAX);
+    if (recentSlice.length) add2("recent", recentSlice.join("|"));
+    return SELF_TALK_PATH + (params.length ? "?" + params.join("&") : "");
+  }
+  function parseSelfTalkResponse(data) {
+    if (!data || data.ok === false || !Array.isArray(data.lines)) return { ok: false, reason: "invalid" };
+    const texts = [];
+    for (const line of data.lines) {
+      const text = typeof line === "string" ? line : line && typeof line.text === "string" ? line.text : "";
+      const clean = text.trim();
+      if (clean && texts.indexOf(clean) < 0) texts.push(clean);
+    }
+    if (!texts.length) return { ok: false, reason: "empty" };
+    return { ok: true, line: texts[0], next: texts[1] || "" };
   }
 
   // client-src/styles.js
@@ -24909,1479 +26121,6 @@
     ".dshp-foot-link-accent{color:var(--dshp-accent)}"
   ].join("");
 
-  // client-src/wander.js
-  var WINDOW_WANDER_ENABLED = false;
-  var WANDER_TICK_MS = 60 * 1e3;
-  var WANDER_FIRST_MIN_MS = 45 * 1e3;
-  var WANDER_FIRST_MAX_MS = 2 * 60 * 1e3;
-  var WANDER_MIN_INTERVAL_MS = 2 * 60 * 1e3;
-  var WANDER_MAX_INTERVAL_MS = 5 * 60 * 1e3;
-  var WANDER_WALK_MS = 8 * 1e3;
-  var WANDER_MIN_DISTANCE = 120;
-  var WANDER_INTERACTION_PAUSE_MS = 45 * 1e3;
-  var WANDER_MEDIA_PATTERN = /跑|奔|踏步|踱步|走路|跳跃|踢|抛接|伸懒腰|运动|锻炼|健身/;
-  var WANDER_STATIC_FILE = "dsh-whale-state-running.webp";
-  function pickWanderMedia(entries, random) {
-    const list = Array.isArray(entries) ? entries.filter(
-      (entry) => entry && typeof entry.file === "string" && isVideoMoodFile(entry.file) && WANDER_MEDIA_PATTERN.test(entry.file)
-    ) : [];
-    if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false };
-    const roll = Number(typeof random === "function" ? random() : Math.random());
-    const index2 = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
-    return { file: list[index2].file, video: true };
-  }
-  function nextWanderTarget(input) {
-    const opts = input && typeof input === "object" ? input : {};
-    const viewport = opts.viewport && typeof opts.viewport === "object" ? opts.viewport : {};
-    const size = Math.max(40, Math.round(num(opts.size, 120)));
-    const w = Math.max(size + 40, Math.round(num(viewport.w, 1024)));
-    const h2 = Math.max(size + 80, Math.round(num(viewport.h, 768)));
-    const margin = 8;
-    const minX = margin;
-    const maxX = Math.max(minX, w - size - margin);
-    const minY = 56;
-    const maxY = Math.max(minY, h2 - size - margin);
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const rand = () => {
-      const value = Number(random());
-      return Number.isFinite(value) ? Math.min(0.999999, Math.max(0, value)) : 0;
-    };
-    const pick = (lo, hi) => Math.round(lo + (Math.max(lo, hi) - lo) * rand());
-    const current = opts.current && typeof opts.current === "object" ? opts.current : null;
-    const farEnough = (point) => current === null || Math.hypot(point.x - num(current.x, 0), point.y - num(current.y, 0)) >= WANDER_MIN_DISTANCE;
-    const candidates = [];
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const roll = rand();
-      if (roll < 0.3) {
-        candidates.push({ x: minX, y: pick(minY, maxY), edge: "left" });
-      } else if (roll < 0.6) {
-        candidates.push({ x: maxX, y: pick(minY, maxY), edge: "right" });
-      } else if (roll < 0.85) {
-        const leftBand = rand() < 0.5;
-        const xLo = leftBand ? minX : Math.round(w * 0.7);
-        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
-        candidates.push({ x: pick(xLo, xHi), y: maxY, edge: "bottom" });
-      } else {
-        const leftBand = rand() < 0.5;
-        const xLo = leftBand ? minX : Math.round(w * 0.7);
-        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
-        candidates.push({ x: pick(xLo, xHi), y: minY, edge: "top" });
-      }
-    }
-    const chosen = candidates.find(farEnough) || candidates[candidates.length - 1];
-    return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge };
-  }
-
-  // client-src/data.js
-  var FETCH_TIMEOUT_MS = 15e3;
-  var FIRST_SCREEN_CACHE_KEY = "dshp.firstscreen.v1";
-  function getStorage() {
-    try {
-      if (typeof window !== "undefined" && window.localStorage) return window.localStorage;
-    } catch {
-    }
-    return null;
-  }
-  function fetchJsonUrl(url, init) {
-    if (typeof fetch !== "function") return Promise.reject(new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u7F51\u7EDC\u8BF7\u6C42"));
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    const timer2 = controller ? setTimeout(() => {
-      try {
-        controller.abort();
-      } catch {
-      }
-    }, FETCH_TIMEOUT_MS) : null;
-    const options = Object.assign({}, init || {});
-    if (controller) options.signal = controller.signal;
-    return Promise.resolve().then(() => fetch(url, options)).then((response) => {
-      if (!response || typeof response.ok !== "boolean") throw new Error("\u54CD\u5E94\u5F02\u5E38");
-      if (!response.ok) {
-        const error = new Error("HTTP " + response.status);
-        error.status = response.status;
-        throw error;
-      }
-      return response.json();
-    }).then((data) => {
-      if (!data || data.ok === false) {
-        const detail = data && data.error ? data.error : null;
-        const error = new Error(detail && detail.message || "\u6570\u636E\u4E0D\u53EF\u7528");
-        if (detail && detail.code) error.code = detail.code;
-        throw error;
-      }
-      return data;
-    }).finally(() => {
-      if (timer2) clearTimeout(timer2);
-    });
-  }
-  function createFetchJson(route) {
-    return (path, init) => fetchJsonUrl(route + path, init);
-  }
-  function readFirstScreenCache() {
-    const storage = getStorage();
-    if (!storage) return null;
-    try {
-      const raw = storage.getItem(FIRST_SCREEN_CACHE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || !parsed.bootstrap) return null;
-      if (!parsed.bootstrap.today || typeof parsed.bootstrap.today !== "object") return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-  function writeFirstScreenCache(payload) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(FIRST_SCREEN_CACHE_KEY, JSON.stringify(payload));
-    } catch {
-    }
-  }
-  function clearFirstScreenCache() {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.removeItem(FIRST_SCREEN_CACHE_KEY);
-    } catch {
-    }
-  }
-
-  // client-src/local-state.js
-  var POS_KEY = "dshp.position.v1";
-  var MASCOT_EGG_KEY = "dshp-mascot-egg-v1";
-  function normalizeMascotEggState(raw, now2) {
-    const source = raw && typeof raw === "object" ? raw : {};
-    const dateKey = shanghaiParts(now2).dateKey;
-    const sameDay = source.date === dateKey;
-    return {
-      date: dateKey,
-      greeted: sameDay ? source.greeted === true : false,
-      greetAt: sameDay ? num(source.greetAt, 0) : 0,
-      idleAt: num(source.idleAt, 0)
-    };
-  }
-  function readMascotEggState(now2) {
-    const storage = getStorage();
-    if (!storage) return normalizeMascotEggState(null, now2);
-    try {
-      const raw = storage.getItem(MASCOT_EGG_KEY);
-      return normalizeMascotEggState(raw ? JSON.parse(raw) : null, now2);
-    } catch {
-      return normalizeMascotEggState(null, now2);
-    }
-  }
-  function writeMascotEggState(state) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(MASCOT_EGG_KEY, JSON.stringify(state));
-    } catch {
-    }
-  }
-  function recordMascotEgg(state, patch, now2) {
-    const base = normalizeMascotEggState(state, now2);
-    const time = num(now2, Date.now());
-    return {
-      date: base.date,
-      greeted: base.greeted || Boolean(patch && patch.greet),
-      greetAt: patch && patch.greet ? time : base.greetAt,
-      idleAt: patch && patch.idle ? time : base.idleAt
-    };
-  }
-  function readStoredPosition() {
-    const storage = getStorage();
-    if (!storage) return null;
-    try {
-      const raw = storage.getItem(POS_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || !Number.isFinite(Number(parsed.x)) || !Number.isFinite(Number(parsed.y))) return null;
-      return {
-        x: Number(parsed.x),
-        y: Number(parsed.y),
-        snap: parsed.snap === "right" || parsed.snap === "free" ? parsed.snap : "left"
-      };
-    } catch {
-      return null;
-    }
-  }
-  function writeStoredPosition(position) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(
-        POS_KEY,
-        JSON.stringify({
-          x: Math.round(position.x),
-          y: Math.round(position.y),
-          snap: position.snap
-        })
-      );
-    } catch {
-    }
-  }
-
-  // client-src/resources.js
-  var RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
-  function createResourceStore(deps) {
-    const cache = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
-    const inflight = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
-    let assetDataVersion = "";
-    function setAssetDataVersion(version) {
-      const next = version == null ? "" : String(version);
-      if (next === assetDataVersion) return;
-      assetDataVersion = next;
-      deps.clearFeihuaFullCache();
-      deps.clearPetMediaCache();
-      for (const kind of ["anthology", "bank", "pingshui", "ciBank", "moodCatalog"]) {
-        cache[kind] = null;
-        inflight[kind] = null;
-      }
-    }
-    function clear(kind) {
-      deps.clearFeihuaIndexCache();
-      deps.clearFeihuaFullCache();
-      deps.clearPetMediaCache();
-      if (kind) {
-        cache[kind] = null;
-        inflight[kind] = null;
-        return;
-      }
-      for (const key of RESOURCE_CACHE_KEYS) {
-        cache[key] = null;
-        inflight[key] = null;
-      }
-    }
-    function load(kind) {
-      const assetFile = deps.assetDataFiles[kind];
-      if (!assetFile && !deps.resourcePaths[kind]) return Promise.reject(new Error("\u672A\u77E5\u6570\u636E\u7C7B\u578B\uFF1A" + kind));
-      if (cache[kind]) return Promise.resolve(cache[kind]);
-      if (!inflight[kind]) {
-        const url = assetFile ? deps.assetUrlFor(kind, assetDataVersion) : deps.route + deps.resourcePaths[kind];
-        inflight[kind] = deps.fetchJsonUrl(url).then(
-          (data) => {
-            cache[kind] = data;
-            inflight[kind] = null;
-            return data;
-          },
-          (error) => {
-            inflight[kind] = null;
-            throw error;
-          }
-        );
-      }
-      return inflight[kind];
-    }
-    return {
-      setAssetDataVersion,
-      clear,
-      load,
-      get: (kind) => cache[kind] || null
-    };
-  }
-
-  // client-src/widget/models/constants.js
-  var ROUTE2 = "/api/dsh-poetry/";
-  var SELF_PATH = "self.json";
-  var SELF_POLL_MS = 60 * 1e3;
-  var ACTION_SEEN_KEY = "dshp-action-seen-v1";
-  var MEMORY_PATH = "memory.json";
-  var HEALTH_PATH = "health.json";
-  var WORKS_PATH = "works.json";
-  var ATTENTION_PATH = "attention.json";
-  var PROJECT_ACTION_PATH = "project-action.json";
-  var PROJECT_PATH = "project.json";
-  var TWIN_PATH = "twin.json";
-  var PRESENCE_PATH = "presence.json";
-  var PRESENCE_THROTTLE_MS = 60 * 1e3;
-  var WORKS_POLL_MS = 60 * 1e3;
-  var GROWTH_PATH = "growth.json";
-  var GROWTH_POLL_MS = 5 * 60 * 1e3;
-  var ATTENTION_POLL_MS = 30 * 1e3;
-  var TWIN_POLL_MS = 60 * 1e3;
-  var HEALTH_POLL_MS = 60 * 1e3;
-  var MEMORY_BACKUP_PATH = "memory/backup.json";
-  var MEMORY_POLL_MS = 60 * 1e3;
-  var ASSET_BASE2 = ROUTE2 + "assets?f=";
-  var SETTINGS_URL2 = ROUTE2 + "settings.json";
-  var WIDGET_ID = "dsh-little-whale";
-  var BASE_SIZE = 96;
-  var Z_INDEX = 60;
-  var SAVE_DEBOUNCE_MS2 = 450;
-  var STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
-  var POETRY_ENTRY_ENABLED = false;
-  var POETRY_TABS = [
-    { id: "today", label: "\u4ECA\u65E5" },
-    { id: "class", label: "\u8BFE\u5802" },
-    { id: "yun", label: "\u97F5\u90E8" },
-    { id: "ci", label: "\u8BCD\u724C" },
-    { id: "library", label: "\u8BD7\u5E93" },
-    { id: "feihua", label: "\u98DE\u82B1" },
-    { id: "poetry-settings", label: "\u8BBE\u7F6E" }
-  ];
-  var FEIHUA_BEST_KEY = "dshp-feihua-best-v1";
-  var FEIHUA_ATLAS_PAGE = 60;
-  var FEIHUA_FULL_PATH = "feihua-full.json";
-  var FEIHUA_FULL_TIMEOUT_MS = 2e4;
-  var FEIHUA_FULL_RETRY_MS = 6e4;
-  var MASCOT_DIR = "generated/";
-  var MASCOT_FILES = Object.freeze({
-    celebrate: "dsh-whale-state-celebrate.webp",
-    idle: "dsh-whale-state-idle-cute.webp",
-    night: "dsh-whale-state-night.webp",
-    rain: "dsh-whale-state-weather-umbrella.webp",
-    snow: "dsh-whale-state-weather-snow.webp",
-    thunder: "dsh-whale-state-weather-thunder.webp",
-    cold: "dsh-whale-state-weather-cold.webp",
-    gameWin: "dsh-whale-state-game-win.webp",
-    gameLose: "dsh-whale-state-game-lose.webp",
-    gameThink: "dsh-whale-state-game-think.webp"
-  });
-  var MASCOT_TRANSIENT_MS = 2500;
-  var WEATHER_REFRESH_MS = 30 * 60 * 1e3;
-  var WEATHER_STALE_MS = 20 * 60 * 1e3;
-  var WEATHER_CATEGORY_TAGS = Object.freeze({
-    rain: ["\u96E8"],
-    snow: ["\u96EA"],
-    thunder: ["\u96E8", "\u96F7"],
-    cloud: ["\u4E91"],
-    fog: ["\u4E91", "\u96FE"],
-    clear: ["\u6674", "\u65E5"],
-    wind: ["\u98CE"],
-    cold: ["\u971C", "\u9732", "\u5BD2"],
-    unknown: []
-  });
-  var WEATHER_NIGHT_TAGS = ["\u6708", "\u591C"];
-  var WEATHER_POOL_LIMIT = 20;
-  var WEATHER_EXPLAIN = Object.freeze({
-    rain: "\u4ECA\u65E5\u6709\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u7684\u8FD9\u9996",
-    snow: "\u4ECA\u65E5\u6709\u96EA\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96EA\u7684\u8FD9\u9996",
-    thunder: "\u4ECA\u65E5\u6709\u96F7\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u96F7\u7684\u8FD9\u9996",
-    cloud: "\u4ECA\u65E5\u591A\u4E91\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u7684\u8FD9\u9996",
-    fog: "\u4ECA\u65E5\u6709\u96FE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u96FE\u7684\u8FD9\u9996",
-    clear: "\u4ECA\u65E5\u6674\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6674\u65E5\u7684\u8FD9\u9996",
-    wind: "\u4ECA\u65E5\u591A\u98CE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u98CE\u7684\u8FD9\u9996",
-    cold: "\u4ECA\u65E5\u5BD2\u51B7\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u971C\u5BD2\u7684\u8FD9\u9996",
-    unknown: "\u4ECA\u65E5\u5929\u6C14\u5E94\u666F\uFF0C\u4E3A\u4F60\u9009\u4E86\u5E94\u666F\u7684\u8FD9\u9996"
-  });
-  var PET_MEDIA_PATH = "pet-media";
-  var PET_MEDIA_CATALOG_FILE = "catalog.json";
-  var PET_MEDIA_TIMEOUT_MS = 9e3;
-  var MOTION_ROTATION_KEY = "dshp-motion-rotation-v1";
-  var MOTION_MIN_DELAY_MS = 90 * 1e3;
-  var MOTION_MAX_DELAY_MS = 210 * 1e3;
-  var MOTION_PLAY_MIN_MS = 20 * 1e3;
-  var MOTION_PLAY_MAX_MS = 30 * 1e3;
-  var MOTION_FIRST_MIN_DELAY_MS = 10 * 1e3;
-  var MOTION_FIRST_MAX_DELAY_MS = 20 * 1e3;
-  var DIZZY_MIN_MS = 1500;
-  var DIZZY_MAX_MS = 2500;
-  var DIZZY_FAST_PX_PER_SEC = 1800;
-  var DIZZY_FAST_DISTANCE_PX = 120;
-  var DIZZY_FAST_WINDOW_MS = 120;
-  var MEAL_KEY = "dshp-meal-v1";
-  var MEAL_PLAY_MIN_MS = 25 * 1e3;
-  var MEAL_PLAY_MAX_MS = 40 * 1e3;
-  var WEATHER_OVERLAY_STATES = ["rain", "snow", "thunder", "cold", "night"];
-  var ASSET_DATA_FILES = { anthology: "data/anthology.json", bank: "data/poems-bank.json", pingshui: "data/pingshui.json", ciBank: "data/ci-bank.json", moodCatalog: "data/mood-catalog.json" };
-  var LIBRARY_CATEGORIES = [
-    { id: "shijing", label: "\u8BD7\u7ECF" },
-    { id: "chuci", label: "\u695A\u8F9E" },
-    { id: "qianjiashi", label: "\u5343\u5BB6\u8BD7" },
-    { id: "tang300", label: "\u5510\u8BD7\u4E09\u767E\u9996" },
-    { id: "bank", label: "\u5168\u5510\u8BD7\u7CBE\u9009" },
-    { id: "ci-selected", label: "\u5B8B\u8BCD\u7CBE\u9009" }
-  ];
-  var MASCOT_EXPRESSION_MS = 2500;
-  var MASCOT_IDLE_MIN_MS = 45 * 60 * 1e3;
-  var MASCOT_IDLE_USER_MS = 5 * 60 * 1e3;
-  var MASCOT_IDLE_POLL_MS = 5 * 60 * 1e3;
-  var MASCOT_EXPRESSION_FILES = [
-    "dsh-whale-state-greet.webp",
-    "dsh-whale-state-wink.webp",
-    "dsh-whale-state-blush.webp",
-    "dsh-whale-state-teasing.webp",
-    "dsh-whale-state-cool-shades.webp",
-    "dsh-whale-state-star.webp",
-    "dsh-whale-state-meme-heart.webp",
-    "dsh-whale-state-meme-kyun.webp",
-    "dsh-whale-state-meme-smile-pain.webp",
-    "dsh-whale-state-meme-yes.webp",
-    "dsh-whale-state-meme-no.webp",
-    "dsh-whale-state-meme-omg.webp",
-    "dsh-whale-state-meme-shock.webp",
-    "dsh-whale-state-meme-wakuwaku.webp",
-    "dsh-whale-state-meme-music.webp",
-    "dsh-whale-state-meme-peace.webp",
-    "dsh-whale-state-daily-coffee.webp",
-    "dsh-whale-state-daily-picnic.webp",
-    "dsh-whale-state-valentine.webp",
-    "dsh-whale-state-festival-spring.webp",
-    "dsh-whale-state-festival-mid-autumn.webp",
-    "dsh-whale-state-festival-christmas.webp"
-  ];
-  var RESOURCE_PATHS = {
-    poems: "poems.json",
-    ci: "ci.json",
-    yun: "yun.json",
-    knowledge: "knowledge.json"
-  };
-
-  // client-src/widget/models/utils.js
-  function cx() {
-    let out = "";
-    for (let i = 0; i < arguments.length; i++) {
-      const part = arguments[i];
-      if (!part) continue;
-      out = out ? out + " " + part : String(part);
-    }
-    return out;
-  }
-  function hasOwn2(obj, key) {
-    return Object.prototype.hasOwnProperty.call(obj, key);
-  }
-  function hashString(input) {
-    const text = String(input == null ? "" : input);
-    let hash = 2166136261;
-    for (let i = 0; i < text.length; i++) {
-      hash ^= text.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-    return hash >>> 0;
-  }
-  function formatDateLabel(dateStr) {
-    const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
-    if (matched) return Number(matched[2]) + " \u6708 " + Number(matched[3]) + " \u65E5";
-    const now2 = /* @__PURE__ */ new Date();
-    return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
-  }
-  function clampPosition(position, size, viewport) {
-    const maxX = Math.max(8, viewport.w - size - 8);
-    const maxY = Math.max(8, viewport.h - size - 8);
-    return {
-      x: Math.round(clamp(position && position.x, 8, maxX)),
-      y: Math.round(clamp(position && position.y, 8, maxY))
-    };
-  }
-  function anchorPosition(snap, size, viewport, previous) {
-    const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport);
-    if (snap === "left") base.x = 16;
-    else if (snap === "right") base.x = Math.max(8, viewport.w - size - 16);
-    return base;
-  }
-  function describeDataError(error) {
-    if (!error) return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-    const status = Number(error.status);
-    if (status === 404) return "\u6570\u636E\u63A5\u53E3\u5C1A\u672A\u5C31\u7EEA\uFF08\u5BBF\u4E3B\u534A\u533A\u53EF\u80FD\u672A\u66F4\u65B0\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-    if (status === 403) return "\u6570\u636E\u8BBF\u95EE\u88AB\u62D2\u7EDD\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
-    if (status === 401) return "\u4F1A\u8BDD\u672A\u6388\u6743\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
-    const message = String(error.message || "");
-    if (/abort|timeout|超时/i.test(message)) return "\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5";
-    if (error.code === "DATA_UNAVAILABLE") return "\u8BD7\u8BCD\u6570\u636E\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-    return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-  }
-
-  // client-src/widget/models/feihua-model.js
-  var feihuaIndexCache = { poems: null, ci: null, index: null };
-  var feihuaFullCache = {};
-  var feihuaFullInflight = {};
-  function clearFeihuaFullCache() {
-    feihuaFullCache = {};
-    for (const key of Object.keys(feihuaFullInflight)) {
-      try {
-        if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === "function") feihuaFullInflight[key].abort();
-      } catch (error) {
-      }
-    }
-    feihuaFullInflight = {};
-  }
-  function readFeihuaFullCache(char) {
-    const key = String(char == null ? "" : char);
-    return key ? feihuaFullCache[key] || null : null;
-  }
-  function abortFeihuaFull(char) {
-    const key = String(char == null ? "" : char);
-    const item = feihuaFullInflight[key];
-    if (item && typeof item.abort === "function") item.abort();
-    delete feihuaFullInflight[key];
-  }
-  function requestFeihuaFull(char) {
-    const key = String(char == null ? "" : char);
-    if (!key) return Promise.resolve({ ok: false, reason: "invalid" });
-    const cached = feihuaFullCache[key];
-    if (cached && cached.status === "ready") {
-      return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true });
-    }
-    if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
-      return Promise.resolve({ ok: false, char: key, cached: true, reason: "retry-wait" });
-    }
-    if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise;
-    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    let aborted = false;
-    let settled = false;
-    let timer2 = null;
-    let abortResolve = null;
-    const abortPromise = new Promise((resolve) => {
-      abortResolve = () => resolve({ ok: false, reason: "aborted" });
-    });
-    const item = { promise: null, abort: () => {
-      aborted = true;
-      try {
-        if (controller) controller.abort();
-      } catch (error) {
-      }
-      if (abortResolve) abortResolve();
-    } };
-    const finish = (result) => {
-      if (settled) return result;
-      settled = true;
-      if (timer2) clearTimeout(timer2);
-      delete feihuaFullInflight[key];
-      if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
-      return result;
-    };
-    const url = ROUTE2 + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
-    const task = Promise.resolve().then(() => fetch(url, controller ? { signal: controller.signal } : void 0)).then((response) => {
-      if (!response || typeof response.ok !== "boolean" || !response.ok) {
-        return { ok: false, reason: "http", status: response ? response.status : 0 };
-      }
-      return Promise.resolve(response.json()).then((data) => {
-        if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: "invalid" };
-        const entries = [];
-        for (const entry of data.entries) {
-          if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === "string" && entry[0].trim()) {
-            entries.push([entry[0].trim(), String(entry[1] == null ? "" : entry[1])]);
-          } else if (entry && typeof entry === "object" && typeof entry.text === "string" && entry.text.trim()) {
-            entries.push([entry.text.trim(), String(entry.source || "")]);
-          }
-        }
-        if (!entries.length) return { ok: false, reason: "empty" };
-        const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length;
-        feihuaFullCache[key] = { status: "ready", entries, count, at: Date.now() };
-        return { ok: true, char: key, entries, count };
-      }).catch(() => ({ ok: false, reason: "json" }));
-    }).catch(() => ({ ok: false, reason: aborted ? "aborted" : "network" }));
-    const timeout = new Promise((resolve) => {
-      timer2 = setTimeout(() => {
-        try {
-          if (controller) controller.abort();
-        } catch (error) {
-        }
-        resolve({ ok: false, reason: "timeout" });
-      }, FEIHUA_FULL_TIMEOUT_MS);
-    });
-    item.promise = Promise.race([task, timeout, abortPromise]).then(finish);
-    feihuaFullInflight[key] = item;
-    return item.promise;
-  }
-  function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
-    if (!poemsData || !Array.isArray(poemsData.items)) return null;
-    const cached = feihuaIndexCache;
-    if (cached.index && cached.poems === poemsData && cached.ci === ciData && cached.anthology === anthologyData && cached.bank === bankData && cached.ciBank === ciBankData) return cached.index;
-    const index2 = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
-    feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index: index2 };
-    return index2;
-  }
-  function clearFeihuaIndexCache() {
-    feihuaIndexCache = { poems: null, ci: null, index: null };
-  }
-  function pickDefaultFeihuaChar(index2, poem) {
-    const fallback = "\u82B1";
-    if (!index2 || !Array.isArray(index2.candidates) || !index2.candidates.length) return fallback;
-    const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
-    const text = lines.join("");
-    let best = null;
-    for (const item of index2.candidates) {
-      if (!item || item.count <= 0) continue;
-      if (text.indexOf(item.char) < 0) continue;
-      if (!best || item.count > best.count) best = item;
-    }
-    return best ? best.char : fallback;
-  }
-  function readFeihuaBest() {
-    const storage = getStorage();
-    if (!storage) return normalizeFeihuaBest(null);
-    try {
-      const raw = storage.getItem(FEIHUA_BEST_KEY);
-      if (!raw) return normalizeFeihuaBest(null);
-      return normalizeFeihuaBest(JSON.parse(raw));
-    } catch (error) {
-      return normalizeFeihuaBest(null);
-    }
-  }
-  function writeFeihuaBest(best) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)));
-    } catch (error) {
-    }
-  }
-
-  // client-src/widget/models/api.js
-  var bootstrapCache = null;
-  function assetUrlFor(kind, version) {
-    const file = ASSET_DATA_FILES[kind];
-    if (!file) return "";
-    return "/api/dsh-poetry/assets?f=" + file + "&v=" + encodeURIComponent(String(version == null ? "" : version));
-  }
-  var fetchJson = createFetchJson(ROUTE2);
-  function putSettings(patch) {
-    const request = buildSettingsRequest(patch);
-    return fetchJson("settings.json", request.init).then((data) => {
-      if (bootstrapCache && data && data.settings) {
-        bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings });
-      }
-      return data;
-    });
-  }
-
-  // client-src/widget/models/weather-model.js
-  var weatherCache = null;
-  function weatherPoemTags(weather) {
-    if (!weather || typeof weather !== "object") return [];
-    const tags = [];
-    const push = (list) => {
-      for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag);
-    };
-    push(WEATHER_CATEGORY_TAGS[weather.category] || []);
-    if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS);
-    return tags;
-  }
-  function countWeatherTagHits(lines, tags) {
-    const text = (Array.isArray(lines) ? lines : []).join("");
-    if (!text) return 0;
-    let hits = 0;
-    for (const tag of Array.isArray(tags) ? tags : []) {
-      if (!tag) continue;
-      let from = 0;
-      while (from <= text.length) {
-        const at = text.indexOf(tag, from);
-        if (at < 0) break;
-        hits += 1;
-        from = at + tag.length;
-      }
-    }
-    return hits;
-  }
-  function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
-    const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT));
-    const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === "string" && tag.length > 0);
-    if (!safeTags.length || !poolLimit) return [];
-    const build = (items, kind) => {
-      const out = [];
-      for (const item of Array.isArray(items) ? items : []) {
-        if (!item || !item.id) continue;
-        const hits = countWeatherTagHits(item.lines, safeTags);
-        if (hits > 0) out.push({ kind, id: item.id, hits, item });
-      }
-      out.sort((a2, b) => b.hits - a2.hits || String(a2.id).localeCompare(String(b.id)));
-      return out;
-    };
-    const extras = extraSources && typeof extraSources === "object" ? extraSources : {};
-    const sources = [
-      [poemsData && poemsData.items, "poem"],
-      [ciData && ciData.items, "ci"],
-      [extras.anthology && extras.anthology.items, "anthology"],
-      [extras.bank && extras.bank.items, "bank"],
-      [extras.ciBank && extras.ciBank.items, "ci-bank"]
-    ];
-    const pool = [];
-    for (const source of sources) {
-      if (pool.length >= poolLimit) break;
-      const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length);
-      for (const entry of entries) pool.push(entry);
-    }
-    return pool;
-  }
-  function selectWeatherPoemEntry(pool, meta) {
-    if (!Array.isArray(pool) || !pool.length) return null;
-    const date = meta && meta.date ? String(meta.date) : "";
-    const category = meta && meta.category ? String(meta.category) : "";
-    const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : "";
-    const index2 = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
-    return pool[index2];
-  }
-  function weatherChipText(city, weather) {
-    if (!weather || typeof weather !== "object") return "";
-    const place = typeof city === "string" && city ? city : "";
-    const label = typeof weather.label === "string" && weather.label ? weather.label : "\u5929\u6C14";
-    const tempC = Number(weather.tempC);
-    const temp = Number.isFinite(tempC) ? Math.round(tempC) + "\u2103" : "";
-    return (place ? place + " \xB7 " : "") + label + (temp ? " " + temp : "");
-  }
-  function weatherExplainText(weather) {
-    if (!weather || typeof weather !== "object") return "";
-    const category = typeof weather.category === "string" ? weather.category : "unknown";
-    const night = weather.isDay === false || weather.isDay === 0;
-    if (night && (category === "clear" || category === "cloud" || category === "unknown")) {
-      return "\u4ECA\u591C\u6708\u8272\u6B63\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6708\u591C\u7684\u8FD9\u9996";
-    }
-    return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown;
-  }
-  function weatherUpdatedLabel(at) {
-    const time = Number(at);
-    if (!Number.isFinite(time) || time <= 0) return "";
-    const date = new Date(time);
-    const pad = (value) => value < 10 ? "0" + value : String(value);
-    return pad(date.getHours()) + ":" + pad(date.getMinutes());
-  }
-  function requestWeather() {
-    return fetchJson("weather.json").then((data) => {
-      if (!data || data.ok !== true || !data.weather) throw new Error("\u5929\u6C14\u6570\u636E\u4E0D\u53EF\u7528");
-      weatherCache = { data, at: Date.now() };
-      return data;
-    });
-  }
-
-  // client-src/widget/models/mascot-model.js
-  function mascotStateFor(weather, enabled) {
-    if (!enabled || !weather || typeof weather !== "object") return "celebrate";
-    if (weather.isDay === false || weather.isDay === 0) return "night";
-    const category = typeof weather.category === "string" ? weather.category : "";
-    if (category === "rain") return "rain";
-    if (category === "snow") return "snow";
-    if (category === "thunder") return "thunder";
-    if (category === "cold") return "cold";
-    if (category === "clear" || category === "cloud" || category === "fog" || category === "wind") return "idle";
-    return "celebrate";
-  }
-  function mascotFileFor(stateKey) {
-    return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate;
-  }
-  function mascotUrl2(file) {
-    return ASSET_BASE2 + MASCOT_DIR + file;
-  }
-  function mascotImageFor(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    const weatherKey = typeof opts.weatherStateKey === "string" ? opts.weatherStateKey : "celebrate";
-    const weatherOn = opts.weatherEnabled === true;
-    const moodOn = opts.moodEnabled === true;
-    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
-    if (moodOn && mood && mood.image && (mood.source === "model" || mood.ai === true)) {
-      return { stateKey: "mood:ai", file: mood.image, source: "mood" };
-    }
-    if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
-      return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
-    }
-    if (moodOn && mood && mood.image) return { stateKey: "mood:" + mood.key, file: mood.image, source: "mood" };
-    if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
-    return { stateKey: "celebrate", file: mascotFileFor("celebrate"), source: "default" };
-  }
-  function mascotVideoShouldPause(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    return opts.hidden === true || opts.panelOpen === true;
-  }
-  function detectFastDrag(previous, next) {
-    const prev = previous && typeof previous === "object" ? previous : {};
-    const cur = next && typeof next === "object" ? next : {};
-    const px = num(prev.x, 0);
-    const py = num(prev.y, 0);
-    const cx2 = num(cur.x, 0);
-    const cy = num(cur.y, 0);
-    const pt = num(prev.t, 0);
-    const ct = num(cur.t, 0);
-    const dt = ct - pt;
-    if (!(dt > 0)) return false;
-    const distance = Math.hypot(cx2 - px, cy - py);
-    const speed = distance / dt * 1e3;
-    if (speed >= DIZZY_FAST_PX_PER_SEC) return true;
-    return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS;
-  }
-  function nextDizzyDuration(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS));
-  }
-  function nextMealDuration(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS));
-  }
-  function mealMomentFor(now2) {
-    const parts = shanghaiParts(num(now2, Date.now()));
-    const minutes = parts.minutes;
-    const windows = [
-      { meal: "breakfast", label: "\u65E9\u996D", start: 7 * 60, end: 9 * 60, window: "07:00\u201309:00" },
-      { meal: "lunch", label: "\u5348\u996D", start: 11 * 60 + 30, end: 13 * 60 + 30, window: "11:30\u201313:30" },
-      { meal: "dinner", label: "\u665A\u996D", start: 17 * 60 + 30, end: 19 * 60 + 30, window: "17:30\u201319:30" }
-    ];
-    for (const item of windows) {
-      if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey };
-    }
-    return null;
-  }
-  function normalizeMealState(raw, now2) {
-    const source = raw && typeof raw === "object" ? raw : {};
-    const dateKey = shanghaiParts(num(now2, Date.now())).dateKey;
-    const sameDay = source.date === dateKey;
-    const meals = {};
-    const previous = sameDay && source.meals && typeof source.meals === "object" ? source.meals : {};
-    for (const meal of ["breakfast", "lunch", "dinner"]) if (previous[meal] === true) meals[meal] = true;
-    return { date: dateKey, meals };
-  }
-  function readMealState(now2) {
-    const storage = getStorage();
-    if (!storage) return normalizeMealState(null, now2);
-    try {
-      const raw = storage.getItem(MEAL_KEY);
-      return normalizeMealState(raw ? JSON.parse(raw) : null, now2);
-    } catch (error) {
-      return normalizeMealState(null, now2);
-    }
-  }
-  function writeMealState(state) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(MEAL_KEY, JSON.stringify(state));
-    } catch (error) {
-    }
-  }
-  function markMealDone(state, meal, now2) {
-    const base = normalizeMealState(state, now2);
-    const meals = Object.assign({}, base.meals);
-    meals[meal] = true;
-    return { date: base.date, meals };
-  }
-  function mealTriggerFor(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null;
-    const moment = mealMomentFor(opts.now);
-    if (!moment) return null;
-    const state = normalizeMealState(opts.state, opts.now);
-    if (state.meals[moment.meal]) return null;
-    return moment;
-  }
-  function pickDizzyMedia(entries) {
-    if (!Array.isArray(entries) || !entries.length) return null;
-    const exact = entries.find((entry) => entry && String(entry.label || "").indexOf("\u5C0F\u5E45\u5EA6\u539F\u5730360\u5EA6\u65CB\u8F6C\u5C55\u793A") >= 0);
-    if (exact) return exact;
-    return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ""))) || null;
-  }
-  function pickMealMedia(entries, meal) {
-    if (!Array.isArray(entries) || !entries.length) return null;
-    const preferred = { breakfast: "\u5403\u65E9\u9910", lunch: "\u5403\u5348\u9910", dinner: "\u5403\u665A\u9910" };
-    const exact = entries.find((entry) => entry && String(entry.label || "") === preferred[meal]);
-    if (exact) return exact;
-    for (const label of ["\u5403\u767D\u996D", "\u5E72\u996D"]) {
-      const match = entries.find((entry) => entry && String(entry.label || "").indexOf(label) >= 0);
-      if (match) return match;
-    }
-    return entries.find((entry) => entry && String(entry.label || "").indexOf("\u5403") >= 0) || null;
-  }
-  function mascotFilePriority(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
-  }
-  function petMediaUrl(file) {
-    return ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
-  }
-  function normalizePetMediaCatalog(data) {
-    if (!data || data.ok === false || !Array.isArray(data.entries)) return null;
-    const entries = [];
-    const seen = {};
-    for (const item of data.entries) {
-      if (!item || typeof item.file !== "string") continue;
-      const file = item.file.trim();
-      if (!/^webm\/[^/]+\.webm$/.test(file)) continue;
-      if (seen[file]) continue;
-      seen[file] = true;
-      entries.push({
-        file,
-        label: String(item.label || ""),
-        media: "video",
-        tags: Array.isArray(item.tags) ? item.tags.slice() : []
-      });
-    }
-    return entries;
-  }
-  function mergePetMediaIntoCatalog(catalog, petEntries) {
-    if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog;
-    const moodImages = catalog.moodImages.slice();
-    const moodFiles = catalog.moodFiles.slice();
-    const byFile = Object.assign({}, catalog.byFile);
-    for (const entry of petEntries) {
-      if (!entry || !entry.file || byFile[entry.file]) continue;
-      const normalized = { file: entry.file, label: String(entry.label || ""), tags: Array.isArray(entry.tags) ? entry.tags : [], media: "video" };
-      moodImages.push(normalized);
-      moodFiles.push(entry.file);
-      byFile[entry.file] = normalized;
-    }
-    return Object.assign({}, catalog, { moodImages, moodFiles, byFile });
-  }
-  var petMediaCache = null;
-  var petMediaInflight = null;
-  function clearPetMediaCache() {
-    petMediaCache = null;
-    if (petMediaInflight && typeof petMediaInflight.abort === "function") {
-      try {
-        petMediaInflight.abort();
-      } catch (error) {
-      }
-    }
-    petMediaInflight = null;
-  }
-  function requestPetMediaCatalog() {
-    if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache });
-    if (petMediaInflight) return petMediaInflight.promise;
-    if (typeof fetch !== "function") return Promise.resolve({ ok: false, entries: [] });
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    let settled = false;
-    let timer2 = null;
-    let abortResolve = null;
-    const abortPromise = new Promise((resolve) => {
-      abortResolve = () => resolve({ ok: false, entries: [], reason: "aborted" });
-    });
-    const finish = (result) => {
-      if (settled) return result;
-      settled = true;
-      if (timer2) clearTimeout(timer2);
-      petMediaInflight = null;
-      if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
-      return result;
-    };
-    const task = Promise.resolve().then(() => fetch(ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
-      if (!response || typeof response.ok !== "boolean" || !response.ok) return { ok: false, entries: [], reason: "http" };
-      return Promise.resolve(response.json()).then((data) => {
-        const entries = normalizePetMediaCatalog(data);
-        if (!entries) return { ok: false, entries: [], reason: "invalid" };
-        return { ok: true, entries };
-      }).catch(() => ({ ok: false, entries: [], reason: "json" }));
-    }).catch(() => ({ ok: false, entries: [], reason: "network" }));
-    const timeout = new Promise((resolve) => {
-      timer2 = setTimeout(() => {
-        try {
-          if (controller) controller.abort();
-        } catch (error) {
-        }
-        resolve({ ok: false, entries: [], reason: "timeout" });
-      }, PET_MEDIA_TIMEOUT_MS);
-    });
-    const inflight = { promise: null, abort: () => {
-      try {
-        if (controller) controller.abort();
-      } catch (error) {
-      }
-      if (abortResolve) abortResolve();
-    } };
-    inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish);
-    petMediaInflight = inflight;
-    return inflight.promise;
-  }
-  function readMotionRotation() {
-    const storage = getStorage();
-    if (!storage) return 0;
-    try {
-      const value = Number(storage.getItem(MOTION_ROTATION_KEY));
-      return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
-    } catch (error) {
-      return 0;
-    }
-  }
-  function writeMotionRotation(index2) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index2, 0)))));
-    } catch (error) {
-    }
-  }
-  function nextMotionEntry(entries, index2) {
-    if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 };
-    const size = entries.length;
-    const start = Math.max(0, Math.floor(num(index2, 0))) % size;
-    return { entry: entries[start], index: (start + 1) % size, size, position: start };
-  }
-  function nextMotionDelay(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS));
-  }
-  function nextMotionFirstDelay(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS));
-  }
-  function nextMotionScheduleDelay(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts);
-    return nextMotionDelay(opts);
-  }
-  function nextMotionDuration(options) {
-    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-    const random = typeof opts.random === "function" ? opts.random : Math.random;
-    const value = Number(random());
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS));
-  }
-  function shouldShowDailyGreet(state, now2) {
-    return !normalizeMascotEggState(state, now2).greeted;
-  }
-  function canShowIdlePose(state, now2, lastInteractionAt) {
-    const normalized = normalizeMascotEggState(state, now2);
-    const time = num(now2, Date.now());
-    if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false;
-    const lastInteraction = num(lastInteractionAt, 0);
-    if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false;
-    return true;
-  }
-  function pickMascotExpression(random) {
-    const value = typeof random === "function" ? Number(random()) : Math.random();
-    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-    const index2 = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
-    return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
-  }
-
-  // client-src/widget/models/mood-model.js
-  var moodCache = null;
-  function requestMoodAi(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    let timer2 = null;
-    const timeout = new Promise((resolve) => {
-      timer2 = setTimeout(() => {
-        try {
-          if (controller) controller.abort();
-        } catch (error) {
-        }
-        resolve({ ok: false, reason: "timeout" });
-      }, MOOD_AI_TIMEOUT_MS);
-    });
-    const request = Promise.resolve().then(() => fetch(ROUTE2 + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
-      if (!response || typeof response.ok !== "boolean" || !response.ok) {
-        const status = response ? num(response.status, 0) : 0;
-        return { ok: false, reason: status === 429 ? "rate" : "http", status };
-      }
-      return Promise.resolve(response.json()).then((data) => {
-        const parsed = parseMoodAiResponse(data, opts.catalog);
-        const code = parsed && parsed.code ? String(parsed.code) : data && data.error && typeof data.error.code === "string" ? data.error.code : "";
-        if (!parsed.ok && code) {
-          return {
-            ok: false,
-            reason: /RATE_LIMITED|RATE/i.test(code) ? "rate" : "host",
-            code,
-            status: num(response.status, 200),
-            message: data && data.error && typeof data.error.message === "string" ? data.error.message : ""
-          };
-        }
-        return parsed;
-      }).catch(() => ({ ok: false, reason: "json" }));
-    }).catch(() => ({ ok: false, reason: "network" }));
-    return Promise.race([request, timeout]).then((result) => {
-      if (timer2) clearTimeout(timer2);
-      return result;
-    });
-  }
-
-  // client-src/widget/models/self-model.js
-  function normalizeSelfStatus(data) {
-    if (!data || data.ok === false || !data.state || typeof data.state !== "object") return null;
-    const state = data.state;
-    const text = (value, max) => {
-      const raw = String(value == null ? "" : value).trim();
-      return raw.length > max ? raw.slice(0, max) : raw;
-    };
-    const growth = data.growth && typeof data.growth === "object" ? data.growth : {};
-    const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)));
-    const at = (key) => {
-      const value = num(growth[key], 0);
-      return value > 0 ? value : 0;
-    };
-    const rawActions = data.actions && typeof data.actions === "object" ? data.actions : {};
-    const rawProject = data.project && typeof data.project === "object" ? data.project : null;
-    const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === "string" && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : [];
-    return {
-      // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
-      felt: text(data.felt || state.felt, 80),
-      experiencing: text(data.experiencing || state.experiencing, 120),
-      context,
-      feltAt: num(state.feltAt, 0),
-      sleeping: state.sleeping === true,
-      sleepSince: num(state.sleepSince, 0),
-      updatedAt: num(state.updatedAt, 0),
-      growth: {
-        learnings: count("learnings"),
-        reflections: count("reflections"),
-        lastLearnAt: at("lastLearnAt"),
-        lastReflectAt: at("lastReflectAt")
-      },
-      actions: {
-        latest: normalizeSelfAction(rawActions.latest),
-        recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5)
-      },
-      project: rawProject && typeof rawProject.title === "string" ? {
-        id: String(rawProject.id || ""),
-        title: text(rawProject.title, 60),
-        note: text(rawProject.note, 160),
-        steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({
-          at: num(step.at, 0),
-          text: text(step.text, 160),
-          repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
-          lastAt: num(step.lastAt, 0)
-        })),
-        stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(rawProject.stage) ? rawProject.stage : "working",
-        progressAt: num(rawProject.progressAt, 0),
-        latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
-        staleAt: num(rawProject.staleAt, 0),
-        staleReason: text(rawProject.staleReason, 120),
-        attention: rawProject.attention && typeof rawProject.attention.question === "string" ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) } : null,
-        latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === "string" ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) } : null
-      } : null
-    };
-  }
-  function normalizeSelfAction(item) {
-    if (!item || typeof item !== "object" || item.id == null || item.id === "") return null;
-    return {
-      id: String(item.id),
-      label: String(item.label == null ? "" : item.label).slice(0, 40),
-      text: String(item.text == null ? "" : item.text).slice(0, 200),
-      at: num(item.at, 0)
-    };
-  }
-  function readSeenActionId() {
-    const storage = getStorage();
-    if (!storage) return "";
-    try {
-      return String(storage.getItem(ACTION_SEEN_KEY) || "");
-    } catch (error) {
-      return "";
-    }
-  }
-  function writeSeenActionId(id) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(ACTION_SEEN_KEY, String(id == null ? "" : id));
-    } catch (error) {
-    }
-  }
-  function selfStatusSummary(status) {
-    if (!status) return "";
-    const growth = status.growth || {};
-    const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)));
-    const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)));
-    const lastLearn = weatherUpdatedLabel(growth.lastLearnAt);
-    const lastReflect = weatherUpdatedLabel(growth.lastReflectAt);
-    if (!learnings && !reflections && !lastLearn && !lastReflect) return "\u5C1A\u672A\u5F00\u59CB";
-    const parts = ["\u81EA\u5B66 " + learnings + " \u6761", "\u81EA\u7701 " + reflections + " \u6B21"];
-    if (lastLearn) parts.push("\u4E0A\u6B21\u81EA\u5B66 " + lastLearn);
-    if (lastReflect) parts.push("\u4E0A\u6B21\u81EA\u7701 " + lastReflect);
-    return parts.join(" \xB7 ");
-  }
-  function normalizeMemoryStatus(data) {
-    if (!data || data.ok === false || !Array.isArray(data.files)) return null;
-    const files = data.files.filter((file) => file && typeof file === "object");
-    const countBy = (patterns) => {
-      let sum = 0;
-      for (const file of files) {
-        const id = String(file.id || "") + " " + String(file.path || "");
-        if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue;
-        sum += Math.max(0, Math.floor(num(file.entries, 0)));
-      }
-      return sum;
-    };
-    const health = data.health === "warn" || data.health === "error" ? data.health : data.health === "ok" ? "ok" : "warn";
-    const backups = data.backups && typeof data.backups === "object" ? data.backups : {};
-    const recovered = typeof data.recovered === "number" ? Math.max(0, Math.floor(data.recovered)) : data.recovered && typeof data.recovered === "object" && typeof data.recovered.count === "number" ? Math.max(0, Math.floor(data.recovered.count)) : data.recovered === true ? 1 : 0;
-    return {
-      health,
-      journal: countBy(["journal"]),
-      topics: countBy(["topic"]),
-      learnings: countBy(["learn", "growth", "self"]),
-      backups: {
-        count: Math.max(0, Math.floor(num(backups.count, 0))),
-        lastAt: num(backups.lastAt, 0),
-        latestId: String(backups.latestId || "")
-      },
-      recovered,
-      updatedAt: num(data.updatedAt, 0)
-    };
-  }
-  function normalizeWorks(raw) {
-    if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] };
-    const works = [];
-    for (const item of raw.works) {
-      if (!item || typeof item.title !== "string") continue;
-      const kind = item.kind === "svg" || item.kind === "image" || item.kind === "video" ? item.kind : "text";
-      const body = typeof item.body === "string" ? String(item.body) : "";
-      if (kind === "text" && body.length < 4) continue;
-      const mediaUrl = typeof item.mediaUrl === "string" && item.mediaUrl.length > 0 ? item.mediaUrl : "";
-      if ((kind === "image" || kind === "video") && mediaUrl.length === 0) continue;
-      works.push({
-        id: String(item.id || ""),
-        title: item.title.slice(0, 60),
-        kind,
-        createdAt: num(item.createdAt, 0),
-        body: kind === "text" ? body.slice(0, 2e3) : "",
-        src: kind === "svg" ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(body) : kind === "image" || kind === "video" ? mediaUrl : ""
-      });
-      if (works.length >= 6) break;
-    }
-    return { works };
-  }
-  function normalizeAttention(raw) {
-    if (!raw || raw.ok === false) return { mode: "observe", items: [], pending: 0 };
-    const mode = raw.mode === "auto" ? "auto" : "observe";
-    const items = (Array.isArray(raw.items) ? raw.items : []).filter((item) => item && typeof item.text === "string" && item.status === "pending").slice(0, 10).map((item) => ({
-      id: String(item.id || ""),
-      kind: item.kind === "question" || item.kind === "result" ? item.kind : "social",
-      text: String(item.text).slice(0, 500),
-      reason: String(item.reason || "").slice(0, 160),
-      draft: item.draft === true,
-      createdAt: num(item.createdAt, 0)
-    }));
-    return { mode, items, pending: items.length };
-  }
-  function normalizeTwinState(raw) {
-    if (!raw || raw.ok === false || raw.enabled === false) return null;
-    const twin = raw.twin && typeof raw.twin === "object" ? raw.twin : {};
-    const projects = twin.projects && typeof twin.projects === "object" ? twin.projects : {};
-    const project = projects.current && typeof projects.current === "object" ? {
-      title: String(projects.current.title || "").slice(0, 60),
-      stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(projects.current.stage) ? projects.current.stage : "working",
-      question: projects.current.attention && typeof projects.current.attention.question === "string" ? projects.current.attention.question.slice(0, 200) : ""
-    } : null;
-    return { enabled: true, project };
-  }
-
-  // client-src/widget/models/spont-model.js
-  function readSpontState(now2) {
-    const storage = getStorage();
-    if (!storage) return normalizeSpontState(null, now2);
-    try {
-      const raw = storage.getItem(SPONT_KEY);
-      return normalizeSpontState(raw ? JSON.parse(raw) : null, now2);
-    } catch (error) {
-      return normalizeSpontState(null, now2);
-    }
-  }
-  function writeSpontState(state) {
-    const storage = getStorage();
-    if (!storage) return;
-    try {
-      storage.setItem(SPONT_KEY, JSON.stringify(state));
-    } catch (error) {
-    }
-  }
-  function requestSelfTalk(options) {
-    const opts = options && typeof options === "object" ? options : {};
-    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
-    let timer2 = null;
-    const timeout = new Promise((resolve) => {
-      timer2 = setTimeout(() => {
-        try {
-          if (controller) controller.abort();
-        } catch (error) {
-        }
-        resolve({ ok: false, reason: "timeout" });
-      }, SELF_TALK_TIMEOUT_MS);
-    });
-    const request = Promise.resolve().then(() => fetch(ROUTE2 + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
-      if (!response || typeof response.ok !== "boolean" || !response.ok) {
-        return { ok: false, reason: "http", status: response ? response.status : 0 };
-      }
-      return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
-    }).catch(() => ({ ok: false, reason: "network" }));
-    return Promise.race([request, timeout]).then((result) => {
-      if (timer2) clearTimeout(timer2);
-      return result;
-    });
-  }
-
-  // client-src/widget/runtime.js
-  var runtime = null;
-  function setRuntime(next) {
-    runtime = next;
-  }
-  function getRuntime() {
-    if (!runtime) throw new Error("dsh-little-whale: \u7EC4\u4EF6\u8FD0\u884C\u65F6\u5C1A\u672A\u521D\u59CB\u5316");
-    return runtime;
-  }
-  function getReact() {
-    return getRuntime().React;
-  }
-  function h(type, props) {
-    const create = getRuntime().h;
-    const args = [type, props];
-    for (let i = 2; i < arguments.length; i += 1) args.push(arguments[i]);
-    return create.apply(null, args);
-  }
-
-  // client-src/widget/view/primitives.js
-  function LoadingState(props) {
-    return h(
-      "div",
-      { className: "dshp-loading" },
-      h("span", { className: "dshp-spinner", "aria-hidden": "true" }),
-      h("span", null, props && props.text || "\u6B63\u5728\u8F7D\u5165\u2026")
-    );
-  }
-  function EmptyState(props) {
-    const options = props || {};
-    return h(
-      "div",
-      { className: "dshp-empty" },
-      h("div", { className: "dshp-empty-icon", "aria-hidden": "true" }, options.icon || "\u{1F4DC}"),
-      h("div", { className: "dshp-empty-title" }, options.title || "\u6682\u65F6\u6CA1\u6709\u5185\u5BB9"),
-      h("div", { className: "dshp-empty-msg" }, options.message || "\u8BF7\u7A0D\u540E\u91CD\u8BD5"),
-      options.onRetry ? h("button", { type: "button", className: "dshp-btn dshp-btn-primary", onClick: options.onRetry }, options.retryLabel || "\u91CD\u8BD5") : null
-    );
-  }
-  function Legend() {
-    return h(
-      "div",
-      { className: "dshp-legend", "aria-label": "\u5E73\u4EC4\u56FE\u4F8B" },
-      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-ping)" } }), "\u5E73"),
-      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-ze)" } }), "\u4EC4"),
-      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-dot", style: { background: "var(--dshp-any)" } }), "\u591A\u97F3"),
-      h("span", { className: "dshp-legend-item" }, h("span", { className: "dshp-legend-line" }), "\u97F5\u811A")
-    );
-  }
-  function ToneLine(props) {
-    const cells = buildToneCells(props.line, props.tones, {
-      showTones: props.showTones !== false,
-      rhymeLine: props.rhyme === true
-    });
-    return h(
-      "div",
-      { className: "dshp-line" },
-      cells.map((cell, index2) => h(
-        "span",
-        {
-          key: index2,
-          className: cell.className,
-          title: cell.punctuation ? void 0 : cell.tone || ""
-        },
-        cell.tone ? h("span", { className: "dshp-tone", "aria-hidden": "true" }, cell.tone) : null,
-        h("span", { className: "dshp-chr" }, cell.ch)
-      ))
-    );
-  }
-  function PoemBody(props) {
-    if (!props.poem) return null;
-    const text = selectPoemText(props.poem, props.script);
-    const rhymeLines = poemRhymeLines(props.poem);
-    return h(
-      "div",
-      { className: "dshp-poem" },
-      h("div", { className: "dshp-poem-title" }, text.title || "\u65E0\u9898"),
-      text.author ? h("div", { className: "dshp-poem-author" }, text.author) : null,
-      h(
-        "div",
-        { className: "dshp-poem-lines" },
-        text.lines.map((line, index2) => h(ToneLine, {
-          key: index2,
-          line,
-          tones: Array.isArray(props.poem.tones) ? props.poem.tones[index2] : "",
-          rhyme: rhymeLines.indexOf(index2) >= 0,
-          showTones: props.showTones !== false
-        }))
-      ),
-      props.showTones !== false ? h(Legend) : null
-    );
-  }
-  function AnalysisBody(props) {
-    const poem = props.poem || {};
-    const rhymeLines = poemRhymeLines(poem).map((index2) => "\u7B2C " + (index2 + 1) + " \u53E5");
-    const firstRhyme = poem.firstRhyme === true ? "\u662F" : poem.firstRhyme === false ? "\u5426" : "\u2014";
-    return h(
-      "div",
-      { className: "dshp-analysis" },
-      h(
-        "div",
-        { className: "dshp-tags" },
-        h("span", { className: "dshp-tag" }, "\u4F53\u5F0F\uFF1A" + (poem.form || "\u2014")),
-        h("span", { className: "dshp-tag" }, "\u8D77\u5F0F\uFF1A" + (poem.start || "\u2014")),
-        h("span", { className: "dshp-tag" }, "\u9996\u53E5\u5165\u97F5\uFF1A" + firstRhyme)
-      ),
-      h(
-        "div",
-        { className: "dshp-kv" },
-        h("span", { className: "dshp-kv-key" }, "\u6807\u51C6\u683C\u5F0F"),
-        h("span", { className: "dshp-kv-val" }, poem.meter || "\u2014")
-      ),
-      h(
-        "div",
-        { className: "dshp-analysis-text dshp-block" },
-        poem.analysis ? String(poem.analysis) : "\u6682\u65E0\u89E3\u6790\u6587\u672C\u3002"
-      ),
-      rhymeLines.length ? h(
-        "div",
-        { className: "dshp-kv" },
-        h("span", { className: "dshp-kv-key" }, "\u5165\u97F5\u53E5"),
-        h("span", { className: "dshp-kv-val" }, rhymeLines.join("\u3001"))
-      ) : null
-    );
-  }
-  function CiBody(props) {
-    const ci = props.ci;
-    if (!ci) return null;
-    const text = selectCiText(ci);
-    return h(
-      "div",
-      { className: "dshp-poem" },
-      h("div", { className: "dshp-poem-title" }, text.title || "\u65E0\u9898"),
-      text.author ? h("div", { className: "dshp-poem-author" }, text.author) : null,
-      h("div", { className: "dshp-ci-lines" }, text.lines.map((line, index2) => h("div", { key: index2 }, line)))
-    );
-  }
-  function KnowledgeCardView(props) {
-    const card = props.card || {};
-    const paragraphs = Array.isArray(card.paragraphs) ? card.paragraphs : [];
-    const examples = Array.isArray(card.examples) ? card.examples : [];
-    return h(
-      "div",
-      { className: "dshp-card" },
-      h("div", { className: "dshp-card-title" }, String(card.title || "\u683C\u5F8B\u77E5\u8BC6")),
-      card.summary ? h("div", { className: "dshp-card-summary" }, String(card.summary)) : null,
-      paragraphs.map((paragraph, index2) => h("p", { key: index2, className: "dshp-p" }, String(paragraph == null ? "" : paragraph))),
-      examples.map((example, index2) => h(
-        "div",
-        { key: "example-" + index2, className: "dshp-example" },
-        h("div", { className: "dshp-example-text" }, String(example && example.text || "")),
-        example && example.note ? h("div", { className: "dshp-example-note" }, String(example.note)) : null
-      ))
-    );
-  }
-  function switchNode(checked, onChange, label) {
-    return h("button", {
-      type: "button",
-      role: "switch",
-      "aria-checked": checked === true,
-      "aria-label": label,
-      className: cx("dshp-switch", checked === true && "dshp-is-on"),
-      onClick: onChange
-    });
-  }
-  function growthMetricsTree(status) {
-    const felt = status && typeof status.felt === "string" ? status.felt : "";
-    const context = status && Array.isArray(status.context) ? status.context : [];
-    return h(
-      "div",
-      { className: "dshp-self-being" },
-      h("div", { className: "dshp-self-felt" }, felt || "\u8FD8\u6CA1\u60F3\u597D\u81EA\u5DF1\u6B64\u523B\u662F\u4EC0\u4E48\u611F\u89C9\u3002"),
-      context.length > 0 ? h(
-        "div",
-        { className: "dshp-self-context" },
-        context.map((line, index2) => h("div", { className: "dshp-self-context-line", key: "ctx-" + index2 }, line))
-      ) : null,
-      h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
-    );
-  }
-
   // client-src/widget/view/bubble-view.js
   function BubbleFooter(props) {
     const { changePoem, settings, poem, activeTodayPoemId, backToToday, advanceStep, openPanel, step } = props;
@@ -26479,6 +26218,69 @@
     );
   }
 
+  // client-src/wander.js
+  var WINDOW_WANDER_ENABLED = false;
+  var WANDER_TICK_MS = 60 * 1e3;
+  var WANDER_FIRST_MIN_MS = 45 * 1e3;
+  var WANDER_FIRST_MAX_MS = 2 * 60 * 1e3;
+  var WANDER_MIN_INTERVAL_MS = 2 * 60 * 1e3;
+  var WANDER_MAX_INTERVAL_MS = 5 * 60 * 1e3;
+  var WANDER_WALK_MS = 8 * 1e3;
+  var WANDER_MIN_DISTANCE = 120;
+  var WANDER_INTERACTION_PAUSE_MS = 45 * 1e3;
+  var WANDER_MEDIA_PATTERN = /跑|奔|踏步|踱步|走路|跳跃|踢|抛接|伸懒腰|运动|锻炼|健身/;
+  var WANDER_STATIC_FILE = "dsh-whale-state-running.webp";
+  function pickWanderMedia(entries, random) {
+    const list = Array.isArray(entries) ? entries.filter(
+      (entry) => entry && typeof entry.file === "string" && isVideoMoodFile(entry.file) && WANDER_MEDIA_PATTERN.test(entry.file)
+    ) : [];
+    if (list.length === 0) return { file: WANDER_STATIC_FILE, video: false };
+    const roll = Number(typeof random === "function" ? random() : Math.random());
+    const index2 = Number.isFinite(roll) ? Math.min(list.length - 1, Math.max(0, Math.floor(roll * list.length))) : 0;
+    return { file: list[index2].file, video: true };
+  }
+  function nextWanderTarget(input) {
+    const opts = input && typeof input === "object" ? input : {};
+    const viewport = opts.viewport && typeof opts.viewport === "object" ? opts.viewport : {};
+    const size = Math.max(40, Math.round(num(opts.size, 120)));
+    const w = Math.max(size + 40, Math.round(num(viewport.w, 1024)));
+    const h3 = Math.max(size + 80, Math.round(num(viewport.h, 768)));
+    const margin = 8;
+    const minX = margin;
+    const maxX = Math.max(minX, w - size - margin);
+    const minY = 56;
+    const maxY = Math.max(minY, h3 - size - margin);
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const rand = () => {
+      const value = Number(random());
+      return Number.isFinite(value) ? Math.min(0.999999, Math.max(0, value)) : 0;
+    };
+    const pick = (lo, hi) => Math.round(lo + (Math.max(lo, hi) - lo) * rand());
+    const current = opts.current && typeof opts.current === "object" ? opts.current : null;
+    const farEnough = (point) => current === null || Math.hypot(point.x - num(current.x, 0), point.y - num(current.y, 0)) >= WANDER_MIN_DISTANCE;
+    const candidates = [];
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const roll = rand();
+      if (roll < 0.3) {
+        candidates.push({ x: minX, y: pick(minY, maxY), edge: "left" });
+      } else if (roll < 0.6) {
+        candidates.push({ x: maxX, y: pick(minY, maxY), edge: "right" });
+      } else if (roll < 0.85) {
+        const leftBand = rand() < 0.5;
+        const xLo = leftBand ? minX : Math.round(w * 0.7);
+        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
+        candidates.push({ x: pick(xLo, xHi), y: maxY, edge: "bottom" });
+      } else {
+        const leftBand = rand() < 0.5;
+        const xLo = leftBand ? minX : Math.round(w * 0.7);
+        const xHi = leftBand ? Math.round(w * 0.3) : maxX;
+        candidates.push({ x: pick(xLo, xHi), y: minY, edge: "top" });
+      }
+    }
+    const chosen = candidates.find(farEnough) || candidates[candidates.length - 1];
+    return { x: Math.round(clamp(chosen.x, minX, maxX)), y: Math.round(clamp(chosen.y, minY, maxY)), edge: chosen.edge };
+  }
+
   // client-src/widget/view/mascot-view.js
   function MascotView(props) {
     const { settings, step, panelOpen, moodView, mascotExpression, moodCatalog, panelTab, poetryTab, dizzy, mealActive, motionFile, wanderFile, failedMascot, noteInteraction, showMascotExpression, pickMascotExpression: pickMascotExpression2, setStep, handleMascotKeyDown, openPanel, mascotVideoRef, handleMascotMediaError, weather, mascotPulse, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = props;
@@ -26543,7 +26345,7 @@
         }) : h("img", {
           key: stateKey,
           className: "dshp-mascot-img dshp-mascot-swap",
-          src: mascotUrl2(mascotFile),
+          src: mascotUrl(mascotFile),
           alt: "",
           draggable: false,
           loading: "lazy",
@@ -27068,13 +26870,11 @@
 
   // client-src/widget/hooks/use-toast.js
   function useToast(deps) {
-    const React = getReact();
-    const {} = deps;
+    const React2 = getReact();
     const { refs } = deps;
-    const {} = refs;
-    const [toast, setToast] = React.useState(null);
-    const toastTimer = React.useRef(null);
-    const showToast = React.useCallback((text, kind) => {
+    const [toast, setToast] = React2.useState(null);
+    const toastTimer = React2.useRef(null);
+    const showToast = React2.useCallback((text, kind) => {
       setToast({ text: String(text == null ? "" : text), kind: kind === "error" ? "error" : "info" });
       if (toastTimer.current) clearTimeout(toastTimer.current);
       toastTimer.current = setTimeout(() => {
@@ -27087,14 +26887,14 @@
 
   // client-src/widget/hooks/use-settings.js
   function useSettings(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { cacheRef, showToast } = deps;
     const { refs } = deps;
     const { pressTimer, mascotTimerRef, mascotExprTimerRef } = refs;
-    const [settings, setSettings] = React.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
-    const settingsRef = React.useRef(settings);
+    const [settings, setSettings] = React2.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
+    const settingsRef = React2.useRef(settings);
     settingsRef.current = settings;
-    const saverRef = React.useRef(null);
+    const saverRef = React2.useRef(null);
     if (!saverRef.current) {
       saverRef.current = createSettingsSaver({
         delay: SAVE_DEBOUNCE_MS2,
@@ -27104,7 +26904,7 @@
         }
       });
     }
-    React.useEffect(() => () => {
+    React2.useEffect(() => () => {
       if (saverRef.current) saverRef.current.flush().catch(() => {
       });
       if (pressTimer.current) {
@@ -27120,7 +26920,7 @@
         mascotExprTimerRef.current = null;
       }
     }, []);
-    const updateSettings = React.useCallback((patch, options) => {
+    const updateSettings = React2.useCallback((patch, options) => {
       if (!patch || typeof patch !== "object") return settingsRef.current;
       const previous = settingsRef.current;
       const next = normalizeSettings(Object.assign({}, previous, patch));
@@ -27158,13 +26958,13 @@
 
   // client-src/widget/hooks/use-panel.js
   function usePanel(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { setStep, updateSettings, panelTabs } = deps;
     const { refs } = deps;
     const { lastInteractionRef, panelOpensRef } = refs;
-    const [panelOpen, setPanelOpen] = React.useState(false);
-    const [panelTab, setPanelTab] = React.useState("growth");
-    const [poetryTab, setPoetryTab] = React.useState("today");
+    const [panelOpen, setPanelOpen] = React2.useState(false);
+    const [panelTab, setPanelTab] = React2.useState("growth");
+    const [poetryTab, setPoetryTab] = React2.useState("today");
     function hideWidget() {
       setPanelOpen(false);
       setStep(-1);
@@ -27216,21 +27016,20 @@
 
   // client-src/widget/hooks/use-weather.js
   function useWeather(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { settingsRef, settings } = deps;
     const { refs } = deps;
-    const {} = refs;
-    const [weatherRes, setWeatherRes] = React.useState(() => {
+    const [weatherRes, setWeatherRes] = React2.useState(() => {
       const cached = weatherCache;
       if (cached && cached.data && cached.data.ok) {
         return { status: "ready", data: cached.data, error: null, at: cached.at };
       }
       return { status: "idle", data: null, error: null, at: 0 };
     });
-    const weatherInFlightRef = React.useRef(null);
+    const weatherInFlightRef = React2.useRef(null);
     const weatherData = weatherRes.data && weatherRes.data.ok ? weatherRes.data : null;
     const weather = weatherData && weatherData.weather ? weatherData.weather : null;
-    const refreshWeather = React.useCallback((force) => {
+    const refreshWeather = React2.useCallback((force) => {
       const current = settingsRef.current;
       if (!(current.weatherPoem || current.mood)) return Promise.resolve(null);
       const cached = weatherCache;
@@ -27255,7 +27054,7 @@
       weatherInFlightRef.current = request;
       return request;
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!(settings.weatherPoem || settings.mood)) return void 0;
       refreshWeather(false);
       const timer2 = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
@@ -27266,11 +27065,10 @@
 
   // client-src/widget/hooks/use-data.js
   function useData(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { useViewportSize, settings, useResource, boot, panelOpen, panelTab, step, poetryTab, resourceStore, weatherRes } = deps;
     const { refs } = deps;
-    const {} = refs;
-    const [ciBankWanted, setCiBankWanted] = React.useState(false);
+    const [ciBankWanted, setCiBankWanted] = React2.useState(false);
     const viewport = useViewportSize();
     const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale));
     const [poemsRes, reloadPoems] = useResource("poems", Boolean(boot.data));
@@ -27294,26 +27092,71 @@
     return { viewport, mascotSize, ciBankWanted, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, reloadMoodCatalog, ciBankRes, reloadCiBank, libraryActive, feihuaOpen, ciTabActive, extraPoolActive };
   }
 
+  // client-src/widget/models/spont-model.js
+  function readSpontState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeSpontState(null, now2);
+    try {
+      const raw = storage.getItem(SPONT_KEY);
+      return normalizeSpontState(raw ? JSON.parse(raw) : null, now2);
+    } catch (error) {
+      return normalizeSpontState(null, now2);
+    }
+  }
+  function writeSpontState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(SPONT_KEY, JSON.stringify(state));
+    } catch (error) {
+    }
+  }
+  function requestSelfTalk(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timer2 = null;
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, SELF_TALK_TIMEOUT_MS);
+    });
+    const request = Promise.resolve().then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        return { ok: false, reason: "http", status: response ? response.status : 0 };
+      }
+      return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: "network" }));
+    return Promise.race([request, timeout]).then((result) => {
+      if (timer2) clearTimeout(timer2);
+      return result;
+    });
+  }
+
   // client-src/widget/hooks/use-spont.js
   function useSpont(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { setPanelOpen, setSelectedPoemId, openPanelTab, setLibraryFocus, settings, panelOpen, step, weather, noteInteraction } = deps;
     const { refs } = deps;
     const { recentSpokenRef, uiRef, selfStatusRef, moodViewRef, weatherRef, lastInteractionRef, userPickedPoemRef } = refs;
-    const [spontPoem, setSpontPoem] = React.useState(null);
-    const [spontPreview, setSpontPreview] = React.useState(false);
-    const [spontWake, setSpontWake] = React.useState(0);
-    const selfTalkNoveltyRef = React.useRef({ signature: "", at: 0 });
-    const spontWakeDelayRef = React.useRef(0);
-    const prevPanelOpenRef = React.useRef(false);
-    const prevStepRef = React.useRef(-1);
-    const prevCardRef = React.useRef(null);
-    const moodWakeSigRef = React.useRef("");
-    const weatherWakeSigRef = React.useRef("");
-    const spontPoemRef = React.useRef(null);
-    const spontReqRef = React.useRef(0);
-    const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] });
-    const wakeSpontaneous = React.useCallback((delay) => {
+    const [spontPoem, setSpontPoem] = React2.useState(null);
+    const [spontPreview, setSpontPreview] = React2.useState(false);
+    const [spontWake, setSpontWake] = React2.useState(0);
+    const selfTalkNoveltyRef = React2.useRef({ signature: "", at: 0 });
+    const spontWakeDelayRef = React2.useRef(0);
+    const prevPanelOpenRef = React2.useRef(false);
+    const prevStepRef = React2.useRef(-1);
+    const prevCardRef = React2.useRef(null);
+    const moodWakeSigRef = React2.useRef("");
+    const weatherWakeSigRef = React2.useRef("");
+    const spontPoemRef = React2.useRef(null);
+    const spontReqRef = React2.useRef(0);
+    const selfTalkCacheRef = React2.useRef({ murmur: [], intro: [] });
+    const wakeSpontaneous = React2.useCallback((delay) => {
       spontWakeDelayRef.current = Math.max(1e3, num(delay, nextSpontEventDelay()));
       setSpontWake((tick) => tick + 1);
     }, []);
@@ -27473,7 +27316,7 @@
       setSpontPreview(false);
       setSpontPoem(null);
     }
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (settings.hidden) {
         spontReqRef.current += 1;
         setSpontPoem(null);
@@ -27530,7 +27373,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.spontaneousPoem, settings.hidden, spontWake, wakeSpontaneous]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (panelOpen) {
         prevPanelOpenRef.current = true;
         return;
@@ -27540,7 +27383,7 @@
         wakeSpontaneous(nextSpontEventDelay());
       }
     }, [panelOpen, wakeSpontaneous]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (step >= 0) {
         prevStepRef.current = true;
         return;
@@ -27550,7 +27393,7 @@
         wakeSpontaneous(nextSpontEventDelay());
       }
     }, [step, wakeSpontaneous]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.spontaneousPoem) return;
       if (spontPoem) {
         prevCardRef.current = true;
@@ -27561,13 +27404,13 @@
         wakeSpontaneous(SPONT_CLOSE_RECHECK_MS);
       }
     }, [spontPoem, settings.spontaneousPoem, wakeSpontaneous]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.spontaneousPoem || !weather) return;
       const signature = [weather.category, weather.label, weather.tempC].join("|");
       if (weatherWakeSigRef.current && weatherWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
       weatherWakeSigRef.current = signature;
     }, [weather, settings.spontaneousPoem, wakeSpontaneous]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const markActivity = () => noteInteraction();
       document.addEventListener("pointerdown", markActivity, true);
@@ -27579,7 +27422,7 @@
         document.removeEventListener("input", markActivity, true);
       };
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!spontPoem) return void 0;
       const timer2 = setTimeout(() => {
         spontReqRef.current += 1;
@@ -27587,7 +27430,7 @@
       }, SPONT_AUTO_CLOSE_MS);
       return () => clearTimeout(timer2);
     }, [spontPoem]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
         spontReqRef.current += 1;
         setSpontPoem(null);
@@ -27600,13 +27443,13 @@
 
   // client-src/widget/hooks/use-self-status.js
   function useSelfStatus(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { showSpontCard } = deps;
     const { refs } = deps;
     const { selfStatusRef } = refs;
-    const [selfStatus, setSelfStatus] = React.useState(null);
-    const pendingActionRef = React.useRef(null);
-    const lastSeenActionIdRef = React.useRef(readSeenActionId());
+    const [selfStatus, setSelfStatus] = React2.useState(null);
+    const pendingActionRef = React2.useRef(null);
+    const lastSeenActionIdRef = React2.useRef(readSeenActionId());
     function showSelfAction(action) {
       if (!action || !action.id) return;
       lastSeenActionIdRef.current = action.id;
@@ -27616,7 +27459,7 @@
         { preview: true, record: false, remember: false }
       );
     }
-    React.useEffect(() => {
+    React2.useEffect(() => {
       let alive = true;
       const load = () => {
         if (!alive) return;
@@ -27640,7 +27483,7 @@
         if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
       };
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       const latest = selfStatus && selfStatus.actions ? selfStatus.actions.latest : null;
       if (!latest || !latest.id) return;
       if (lastSeenActionIdRef.current === latest.id) return;
@@ -27650,7 +27493,7 @@
       }
       showSelfAction(latest);
     }, [selfStatus]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const onVisibility = () => {
         if (document.visibilityState === "hidden") return;
@@ -27666,45 +27509,87 @@
     return { selfStatus, setSelfStatus };
   }
 
+  // client-src/widget/models/mood-model.js
+  var moodCache = null;
+  function requestMoodAi(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timer2 = null;
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, MOOD_AI_TIMEOUT_MS);
+    });
+    const request = Promise.resolve().then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        const status = response ? num(response.status, 0) : 0;
+        return { ok: false, reason: status === 429 ? "rate" : "http", status };
+      }
+      return Promise.resolve(response.json()).then((data) => {
+        const parsed = parseMoodAiResponse(data, opts.catalog);
+        const code = parsed && parsed.code ? String(parsed.code) : data && data.error && typeof data.error.code === "string" ? data.error.code : "";
+        if (!parsed.ok && code) {
+          return {
+            ok: false,
+            reason: /RATE_LIMITED|RATE/i.test(code) ? "rate" : "host",
+            code,
+            status: num(response.status, 200),
+            message: data && data.error && typeof data.error.message === "string" ? data.error.message : ""
+          };
+        }
+        return parsed;
+      }).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: "network" }));
+    return Promise.race([request, timeout]).then((result) => {
+      if (timer2) clearTimeout(timer2);
+      return result;
+    });
+  }
+
   // client-src/widget/hooks/use-mood.js
   function useMood(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { settingsRef, moodCatalogRes, settings, weather, boot, panelTab, poetryTab, panelOpen, spontPoem, moodWakeSigRef, wakeSpontaneous } = deps;
     const { refs } = deps;
     const { moodViewRef, weatherRef, clicksRef, feihuaWinsRef, panelOpensRef, recentSpokenRef, feihuaLossesRef, lastInteractionRef, petMediaEntriesRef } = refs;
-    const [moodRes, setMoodRes] = React.useState(() => {
+    const [moodRes, setMoodRes] = React2.useState(() => {
       const cached = moodCache;
       return cached && cached.data ? { status: "ready", data: cached.data, at: cached.at } : { status: "idle", data: null, at: 0 };
     });
-    const [moodView, setMoodView] = React.useState(null);
-    const [moodSource, setMoodSource] = React.useState("");
-    const [moodAiFallback, setMoodAiFallback] = React.useState(false);
-    const [moodAiStale, setMoodAiStale] = React.useState(false);
-    const [moodAiFailure, setMoodAiFailure] = React.useState("");
-    const [moodAiFailureCode, setMoodAiFailureCode] = React.useState("");
-    const [petMediaRes, setPetMediaRes] = React.useState({ status: "idle", entries: [] });
-    const [moodTick, setMoodTick] = React.useState(0);
-    const moodStatsRef = React.useRef(emptyMoodStats());
-    const moodForceRef = React.useRef(false);
-    const moodSourceRef = React.useRef("");
-    const moodAiRef = React.useRef({ at: 0, lastRequestAt: 0, image: "" });
-    const moodAiSnapshotRef = React.useRef(null);
-    const moodAiTokenRef = React.useRef(0);
-    const moodAiInFlightRef = React.useRef(false);
-    const moodAiPendingRef = React.useRef(false);
-    const moodAiDebounceTimerRef = React.useRef(null);
-    const moodAiRetryTimerRef = React.useRef(null);
-    const moodAiRetryCountRef = React.useRef(0);
-    const moodStatsSnapshotRef = React.useRef(null);
-    const moodTimeBucketRef = React.useRef("");
-    const moodIdleRef = React.useRef(false);
-    const moodWeatherSigRef = React.useRef("");
-    const moodPrevPanelOpenRef = React.useRef(false);
-    const moodPrevPanelTabRef = React.useRef("today");
-    const moodPrevSpontRef = React.useRef(null);
-    const recentImagesRef = React.useRef([]);
-    const moodCatalogRef = React.useRef(null);
-    const applyMood = React.useCallback((force) => {
+    const [moodView, setMoodView] = React2.useState(null);
+    const [moodSource, setMoodSource] = React2.useState("");
+    const [moodAiFallback, setMoodAiFallback] = React2.useState(false);
+    const [moodAiStale, setMoodAiStale] = React2.useState(false);
+    const [moodAiFailure, setMoodAiFailure] = React2.useState("");
+    const [moodAiFailureCode, setMoodAiFailureCode] = React2.useState("");
+    const [petMediaRes, setPetMediaRes] = React2.useState({ status: "idle", entries: [] });
+    const [moodTick, setMoodTick] = React2.useState(0);
+    const moodStatsRef = React2.useRef(emptyMoodStats());
+    const moodForceRef = React2.useRef(false);
+    const moodSourceRef = React2.useRef("");
+    const moodAiRef = React2.useRef({ at: 0, lastRequestAt: 0, image: "" });
+    const moodAiSnapshotRef = React2.useRef(null);
+    const moodAiTokenRef = React2.useRef(0);
+    const moodAiInFlightRef = React2.useRef(false);
+    const moodAiPendingRef = React2.useRef(false);
+    const moodAiDebounceTimerRef = React2.useRef(null);
+    const moodAiRetryTimerRef = React2.useRef(null);
+    const moodAiRetryCountRef = React2.useRef(0);
+    const moodStatsSnapshotRef = React2.useRef(null);
+    const moodTimeBucketRef = React2.useRef("");
+    const moodIdleRef = React2.useRef(false);
+    const moodWeatherSigRef = React2.useRef("");
+    const moodPrevPanelOpenRef = React2.useRef(false);
+    const moodPrevPanelTabRef = React2.useRef("today");
+    const moodPrevSpontRef = React2.useRef(null);
+    const recentImagesRef = React2.useRef([]);
+    const moodCatalogRef = React2.useRef(null);
+    const applyMood = React2.useCallback((force) => {
       const current = settingsRef.current;
       if (!current.mood && !current.spontaneousPoem) {
         moodViewRef.current = null;
@@ -27726,7 +27611,7 @@
       setMoodView(selected);
       return selected;
     }, []);
-    const applyModelMood = React.useCallback((mood) => {
+    const applyModelMood = React2.useCallback((mood) => {
       if (!mood || !mood.image) return null;
       const view = Object.assign({}, mood, { changed: true, switchedAt: Date.now() });
       moodSourceRef.current = "model";
@@ -27744,7 +27629,7 @@
       recentImagesRef.current = images.slice(-MOOD_AI_RECENT_IMAGES_MAX);
       return view;
     }, []);
-    const fallbackHeuristicMood = React.useCallback((force) => {
+    const fallbackHeuristicMood = React2.useCallback((force) => {
       moodSourceRef.current = "heuristic";
       setMoodSource("heuristic");
       setMoodAiFallback(true);
@@ -27792,7 +27677,7 @@
         moodAiRetryTimerRef.current = null;
       }
     }
-    const requestModelMood = React.useCallback((options = {}) => {
+    const requestModelMood = React2.useCallback((options = {}) => {
       const manual = options && options.manual === true;
       const current = settingsRef.current;
       if (!current.mood) return Promise.resolve({ ok: false, reason: "disabled" });
@@ -27847,7 +27732,7 @@
         return { ok: false };
       });
     }, [applyModelMood, fallbackHeuristicMood]);
-    const moodManualRef = React.useRef(false);
+    const moodManualRef = React2.useRef(false);
     function scheduleMoodAiRefresh(options) {
       const opts = options && typeof options === "object" ? options : {};
       if (!settingsRef.current.mood || settingsRef.current.hidden) return;
@@ -27869,25 +27754,25 @@
         requestModelMood({ manual });
       }, Math.max(0, delay));
     }
-    const refreshMoodNow = React.useCallback(() => {
+    const refreshMoodNow = React2.useCallback(() => {
       moodForceRef.current = true;
       moodManualRef.current = true;
       scheduleMoodAiRefresh({ immediate: true });
       setMoodTick((tick) => tick + 1);
       return Promise.resolve({ ok: true });
     }, [scheduleMoodAiRefresh]);
-    const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
-    const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
+    const moodCatalogBase = React2.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
+    const moodCatalog = React2.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
     moodCatalogRef.current = moodCatalog;
     const moodChip = settings.mood && moodView ? "\u5FC3\u60C5\uFF1A" + moodView.label : "";
     const moodChipTitle = settings.mood && moodView ? String(moodView.reason || "") : "";
     const moodBasis = moodBasisText(weather);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!(settings.mood || settings.spontaneousPoem)) return void 0;
       const timer2 = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
       return () => clearInterval(timer2);
     }, [settings.mood, settings.spontaneousPoem]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
         moodAiTokenRef.current += 1;
         moodAiInFlightRef.current = false;
@@ -27914,13 +27799,13 @@
       moodForceRef.current = false;
       applyMood(force);
     }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood]);
-    React.useEffect(() => () => {
+    React2.useEffect(() => () => {
       if (moodAiRetryTimerRef.current) {
         clearTimeout(moodAiRetryTimerRef.current);
         moodAiRetryTimerRef.current = null;
       }
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) {
         setPetMediaRes({ status: "idle", entries: [] });
         return void 0;
@@ -27935,13 +27820,13 @@
         alive = false;
       };
     }, [settings.mood, boot.data && boot.data.dataVersion]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood || !moodCatalog) return;
       if (petMediaRes.status === "loading" || petMediaRes.status === "idle") return;
       if (moodAiRef.current.at > 0) return;
       scheduleMoodAiRefresh();
     }, [settings.mood, moodCatalog, petMediaRes.status]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return void 0;
       const timer2 = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -27949,7 +27834,7 @@
       }, MOOD_REFRESH_MS);
       return () => clearInterval(timer2);
     }, [settings.mood, scheduleMoodAiRefresh]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return;
       const currentTab = panelTab === "poetry" ? "poetry:" + poetryTab : panelTab;
       const changed = moodPrevPanelOpenRef.current !== panelOpen || panelOpen && moodPrevPanelTabRef.current !== currentTab;
@@ -27957,21 +27842,21 @@
       moodPrevPanelTabRef.current = currentTab;
       if (changed) scheduleMoodAiRefresh();
     }, [panelOpen, panelTab, poetryTab, settings.mood]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return;
       const visible = Boolean(spontPoem);
       const previous = Boolean(moodPrevSpontRef.current);
       moodPrevSpontRef.current = visible;
       if (visible !== previous) scheduleMoodAiRefresh();
     }, [spontPoem, settings.mood]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return;
       const signature = weather ? [weather.category, weather.label, weather.tempC, weather.isDay].join("|") : "";
       const previous = moodWeatherSigRef.current;
       moodWeatherSigRef.current = signature;
       if (previous && signature && previous !== signature) scheduleMoodAiRefresh();
     }, [weather, settings.mood]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return void 0;
       const onVisible = () => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -27985,7 +27870,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.mood]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood) return;
       const now2 = Date.now();
       const last = lastInteractionRef.current;
@@ -27998,10 +27883,10 @@
       if (moodTimeBucketRef.current && bucket !== moodTimeBucketRef.current) scheduleMoodAiRefresh();
       moodTimeBucketRef.current = bucket;
     }, [moodTick, settings.mood]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (settings.mood && moodCatalogRes.status === "error") setMoodAiFallback(true);
     }, [settings.mood, moodCatalogRes.status]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!moodCatalog) return;
       if (typeof window === "undefined" || typeof window.Image !== "function") return;
       const files = [
@@ -28013,12 +27898,12 @@
         if (!file) continue;
         try {
           const image = new window.Image();
-          image.src = mascotUrl2(file);
+          image.src = mascotUrl(file);
         } catch (error) {
         }
       }
     }, [moodCatalog]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.spontaneousPoem || !moodView) return;
       const signature = [moodView.key, moodView.label, moodView.reason, moodView.source].join("|");
       if (moodWakeSigRef.current && moodWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
@@ -28031,43 +27916,43 @@
 
   // client-src/widget/hooks/use-mascot.js
   function useMascot(deps) {
-    const React = getReact();
+    const React2 = getReact();
     const { wakeSpontaneous, scheduleMoodAiRefresh, settingsRef, noteInteraction, updateSettings, panelOpen, setPanelOpen, step, advanceStep, openPanel, mascotSize, viewport, restoreWidget, settings, petMediaRes, moodView } = deps;
     const { refs } = deps;
     const { feihuaWinsRef, feihuaLossesRef, lastInteractionRef, mascotTimerRef, mascotExprTimerRef, clicksRef, petMediaEntriesRef, uiRef, posRef, pressTimer, moodViewRef } = refs;
-    const [mascotPulse, setMascotPulse] = React.useState(null);
-    const [failedMascot, setFailedMascot] = React.useState("");
-    const [mascotExpression, setMascotExpression] = React.useState("");
-    const [motionFile, setMotionFile] = React.useState("");
-    const [dizzy, setDizzy] = React.useState(null);
-    const [mealActive, setMealActive] = React.useState(null);
-    const [pos, setPos] = React.useState(() => {
+    const [mascotPulse, setMascotPulse] = React2.useState(null);
+    const [failedMascot, setFailedMascot] = React2.useState("");
+    const [mascotExpression, setMascotExpression] = React2.useState("");
+    const [motionFile, setMotionFile] = React2.useState("");
+    const [dizzy, setDizzy] = React2.useState(null);
+    const [mealActive, setMealActive] = React2.useState(null);
+    const [pos, setPos] = React2.useState(() => {
       const stored = readStoredPosition();
       const viewport2 = { w: readWindowWidth(), h: readWindowHeight() };
       if (stored) return clampPosition(stored, BASE_SIZE, viewport2);
       return { x: 16, y: Math.max(8, viewport2.h - BASE_SIZE - 24) };
     });
-    const dragRef = React.useRef(null);
-    const wanderRef = React.useRef({ nextAt: 0, timer: null, walking: false });
-    const [walking, setWalking] = React.useState(false);
-    const [wanderFile, setWanderFile] = React.useState("");
-    const wanderFileRef = React.useRef("");
-    const mascotTapRef = React.useRef(0);
-    const mascotVideoRef = React.useRef(null);
-    const mascotPulseRef = React.useRef(null);
-    const mascotExpressionRef = React.useRef("");
-    const motionFileRef = React.useRef("");
-    const motionIndexRef = React.useRef(readMotionRotation());
-    const motionDelayTimerRef = React.useRef(null);
-    const motionStopTimerRef = React.useRef(null);
-    const motionFirstScheduledRef = React.useRef(false);
-    const motionFirstPendingRef = React.useRef(false);
-    const dizzyRef = React.useRef(null);
-    const dizzyTimerRef = React.useRef(null);
-    const mealActiveRef = React.useRef(null);
-    const mealTimerRef = React.useRef(null);
-    const mealPrevPanelRef = React.useRef(false);
-    const pulseMascot = React.useCallback((key) => {
+    const dragRef = React2.useRef(null);
+    const wanderRef = React2.useRef({ nextAt: 0, timer: null, walking: false });
+    const [walking, setWalking] = React2.useState(false);
+    const [wanderFile, setWanderFile] = React2.useState("");
+    const wanderFileRef = React2.useRef("");
+    const mascotTapRef = React2.useRef(0);
+    const mascotVideoRef = React2.useRef(null);
+    const mascotPulseRef = React2.useRef(null);
+    const mascotExpressionRef = React2.useRef("");
+    const motionFileRef = React2.useRef("");
+    const motionIndexRef = React2.useRef(readMotionRotation());
+    const motionDelayTimerRef = React2.useRef(null);
+    const motionStopTimerRef = React2.useRef(null);
+    const motionFirstScheduledRef = React2.useRef(false);
+    const motionFirstPendingRef = React2.useRef(false);
+    const dizzyRef = React2.useRef(null);
+    const dizzyTimerRef = React2.useRef(null);
+    const mealActiveRef = React2.useRef(null);
+    const mealTimerRef = React2.useRef(null);
+    const mealPrevPanelRef = React2.useRef(false);
+    const pulseMascot = React2.useCallback((key) => {
       if (!MASCOT_FILES[key]) return;
       if (key === "gameWin") feihuaWinsRef.current += 1;
       if (key === "gameLose") feihuaLossesRef.current += 1;
@@ -28338,7 +28223,7 @@
       }
       setFailedMascot(file);
     }
-    const syncMascotVideoPlayback = React.useCallback(() => {
+    const syncMascotVideoPlayback = React2.useCallback(() => {
       const video = mascotVideoRef.current;
       if (!video) return;
       const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
@@ -28354,7 +28239,7 @@
       } catch (error) {
       }
     }, [panelOpen]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       const timer2 = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         const ui = uiRef.current;
@@ -28368,7 +28253,7 @@
       }, MASCOT_IDLE_POLL_MS);
       return () => clearInterval(timer2);
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!WINDOW_WANDER_ENABLED) return void 0;
       if (settings.hidden) return void 0;
       if (!wanderRef.current.nextAt) {
@@ -28408,19 +28293,19 @@
         wanderRef.current.timer = null;
       };
     }, [settings.hidden]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       setPos((previous) => {
         const next = anchorPosition(settings.snap, mascotSize, viewport, previous);
         return next.x === previous.x && next.y === previous.y ? previous : next;
       });
     }, [settings.snap, mascotSize, viewport.w, viewport.h]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       const timer2 = setTimeout(() => {
         writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap });
       }, 250);
       return () => clearTimeout(timer2);
     }, [pos, settings.snap]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.mood || settings.hidden || panelOpen || petMediaRes.status !== "ready" || !petMediaRes.entries.length) {
         clearMotionTimers();
         if (motionFileRef.current) setMotionFile("");
@@ -28431,7 +28316,7 @@
         clearMotionTimers();
       };
     }, [settings.mood, settings.hidden, panelOpen, petMediaRes.status, petMediaRes.entries.length]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const onVisibility = () => {
         if (document.visibilityState === "hidden") {
@@ -28446,7 +28331,7 @@
       document.addEventListener("visibilitychange", onVisibility);
       return () => document.removeEventListener("visibilitychange", onVisibility);
     }, []);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!motionFirstPendingRef.current) return;
       const image = currentMoodImageFile();
       if (!isVideoMoodFile(image)) return;
@@ -28454,7 +28339,7 @@
       clearMotionTimers();
       scheduleMotion(nextMotionDelay());
     }, [moodView]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!settings.hidden) {
         maybeTriggerMeal();
       }
@@ -28474,7 +28359,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.hidden]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (panelOpen) {
         mealPrevPanelRef.current = true;
         return;
@@ -28484,7 +28369,7 @@
         maybeTriggerMeal();
       }
     }, [panelOpen]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (!(panelOpen || settings.hidden)) return;
       if (dizzyTimerRef.current) {
         clearTimeout(dizzyTimerRef.current);
@@ -28500,15 +28385,15 @@
         mealActiveRef.current = null;
       }
     }, [panelOpen, settings.hidden]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       syncMascotVideoPlayback();
     });
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       document.addEventListener("visibilitychange", syncMascotVideoPlayback);
       return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
     }, [syncMascotVideoPlayback]);
-    React.useEffect(() => {
+    React2.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       document.addEventListener("visibilitychange", syncMascotVideoPlayback);
       return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
@@ -28521,20 +28406,1093 @@
     return { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotTap, handleMascotKeyDown, triggerDizzy, maybeTriggerMeal, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef };
   }
 
-  // client-src/widget-plugin.js
+  // client-src/widget/container.js
+  function PoetryWidget(props) {
+    const React2 = getReact();
+    const h3 = getRuntime().h;
+    const { resourceStore, useViewportSize, useResource, panelTabs } = getRuntime();
+    const ctx = props && props.ctx;
+    const cacheRef = React2.useRef(null);
+    const cacheLoadedRef = React2.useRef(false);
+    if (!cacheLoadedRef.current) {
+      cacheLoadedRef.current = true;
+      cacheRef.current = readFirstScreenCache();
+    }
+    const [boot, setBoot] = React2.useState(() => {
+      const cached = cacheRef.current;
+      if (cached && cached.bootstrap) {
+        return { status: "ready", data: cached.bootstrap, fromCache: true, stale: true, error: null };
+      }
+      return { status: "loading", data: null, fromCache: false, stale: false, error: null };
+    });
+    const [reloadTick, setReloadTick] = React2.useState(0);
+    const [step, setStep] = React2.useState(-1);
+    const [selectedPoemId, setSelectedPoemId] = React2.useState(null);
+    const [feihuaLaunch, setFeihuaLaunch] = React2.useState(0);
+    const [memoryStatus, setMemoryStatus] = React2.useState(null);
+    const [healthStatus, setHealthStatus] = React2.useState(null);
+    const [worksRes, setWorksRes] = React2.useState({ status: "idle", data: null });
+    const [growthRes, setGrowthRes] = React2.useState({ status: "idle", data: null });
+    const [attentionRes, setAttentionRes] = React2.useState({ status: "idle", data: null });
+    const [projectDetail, setProjectDetail] = React2.useState(null);
+    const [twinRes, setTwinRes] = React2.useState({ status: "idle", data: null });
+    const [memoryTick, setMemoryTick] = React2.useState(0);
+    const [libraryFocus, setLibraryFocus] = React2.useState(null);
+    const [feihuaIndex, setFeihuaIndex] = React2.useState(null);
+    const [feihuaBuilding, setFeihuaBuilding] = React2.useState(false);
+    const refsRef = React2.useRef(null);
+    if (!refsRef.current) {
+      refsRef.current = {
+        userPickedPoemRef: { current: false },
+        petMediaEntriesRef: { current: [] },
+        pressTimer: { current: null },
+        mascotTimerRef: { current: null },
+        mascotExprTimerRef: { current: null },
+        posRef: { current: null },
+        moodViewRef: { current: null },
+        selfStatusRef: { current: null },
+        clicksRef: { current: 0 },
+        panelOpensRef: { current: 0 },
+        lastInteractionRef: { current: 0 },
+        feihuaWinsRef: { current: 0 },
+        feihuaLossesRef: { current: 0 },
+        weatherRef: { current: null },
+        uiRef: { current: {} },
+        recentSpokenRef: { current: [] },
+        bridge: { current: {} }
+      };
+    }
+    const refs = refsRef.current;
+    const { userPickedPoemRef, petMediaEntriesRef, pressTimer, mascotTimerRef, mascotExprTimerRef, posRef, moodViewRef, selfStatusRef, clicksRef, panelOpensRef, lastInteractionRef, feihuaWinsRef, feihuaLossesRef, weatherRef, uiRef, recentSpokenRef, bridge } = refs;
+    const { toast, showToast, toastTimer } = useToast({ refs });
+    const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs });
+    const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs });
+    const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings });
+    const { viewport, mascotSize, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, ciBankRes, feihuaOpen } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs });
+    const { spontPoem, spontPreview, wakeSpontaneous, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction });
+    const { selfStatus, setSelfStatus } = useSelfStatus({ showSpontCard, refs });
+    const { moodRes, moodView, moodSource, moodAiFallback, moodAiStale, moodAiFailure, moodAiFailureCode, petMediaRes, moodCatalog, moodChip, moodChipTitle, moodBasis, refreshMoodNow, scheduleMoodAiRefresh } = useMood({ settings, settingsRef, weather, moodCatalogRes, panelOpen, panelTab, poetryTab, spontPoem, refs, boot, moodWakeSigRef, wakeSpontaneous });
+    const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotKeyDown, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget });
+    posRef.current = pos;
+    wanderFileRef.current = wanderFile;
+    const showToastRef = React2.useRef(null);
+    showToastRef.current = showToast;
+    React2.useEffect(() => () => {
+      if (toastTimer.current) {
+        clearTimeout(toastTimer.current);
+        toastTimer.current = null;
+      }
+    }, []);
+    React2.useEffect(() => {
+      let alive = true;
+      fetchJson("bootstrap.json").then(
+        (data) => {
+          if (!alive) return;
+          const cached = cacheRef.current;
+          if (cached && cached.dataVersion && data.dataVersion && cached.dataVersion !== data.dataVersion) {
+            clearFirstScreenCache();
+            resourceStore.clear();
+            cacheRef.current = null;
+          }
+          const normalized = normalizeSettings(data.settings);
+          settingsRef.current = normalized;
+          setSettings(normalized);
+          resourceStore.setAssetDataVersion(data.dataVersion);
+          setBoot({ status: "ready", data, fromCache: false, stale: false, error: null });
+        },
+        (error) => {
+          if (!alive) return;
+          const cached = cacheRef.current;
+          if (cached && cached.bootstrap) {
+            setBoot({ status: "ready", data: cached.bootstrap, fromCache: true, stale: true, error });
+          } else {
+            setBoot({ status: "error", data: null, fromCache: false, stale: false, error });
+          }
+        }
+      );
+      return () => {
+        alive = false;
+      };
+    }, [reloadTick]);
+    React2.useEffect(() => {
+      if (!boot.data) return;
+      setSelectedPoemId((previous) => {
+        if (previous) return previous;
+        const initial = normalizeSettings(boot.data.settings);
+        if (initial.mode === "random" && initial.lastPoemId) return initial.lastPoemId;
+        return boot.data.today && boot.data.today.poemId ? boot.data.today.poemId : null;
+      });
+    }, [boot.data]);
+    const poemItems = poemsRes.data && Array.isArray(poemsRes.data.items) ? poemsRes.data.items : [];
+    const bootstrapTodayPoemId = boot.data && boot.data.today ? boot.data.today.poemId : null;
+    const cache = cacheRef.current;
+    const cachedPoem = cache && cache.todayPoem ? cache.todayPoem : null;
+    const weatherTags = React2.useMemo(() => weatherPoemTags(weather), [weather]);
+    const weatherPool = React2.useMemo(
+      () => buildWeatherPoemPool(poemsRes.data, ciRes.data, weatherTags, WEATHER_POOL_LIMIT, { anthology: anthologyRes.data, bank: bankRes.data, ciBank: ciBankRes.data }),
+      [poemsRes.data, ciRes.data, weatherTags, anthologyRes.data, bankRes.data, ciBankRes.data]
+    );
+    const weatherEntry = React2.useMemo(() => {
+      if (!settings.weatherPoem || !weather) return null;
+      return selectWeatherPoemEntry(weatherPool, {
+        date: boot.data && boot.data.today ? boot.data.today.date : "",
+        category: weather.category,
+        dataVersion: boot.data ? boot.data.dataVersion : ""
+      });
+    }, [settings.weatherPoem, weather, weatherPool, boot.data]);
+    const weatherActive = Boolean(weatherEntry);
+    const activeTodayPoemId = weatherActive ? weatherEntry.id : bootstrapTodayPoemId;
+    const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : "";
+    const weatherNote = weatherActive ? weatherExplainText(weather) : "";
+    weatherRef.current = weather;
+    uiRef.current = {
+      settings: settingsRef.current,
+      panelOpen,
+      step,
+      moodView,
+      poemItems,
+      ciItems: ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [],
+      anthologyItems: anthologyRes.data && Array.isArray(anthologyRes.data.items) ? anthologyRes.data.items : [],
+      bankItems: bankRes.data && Array.isArray(bankRes.data.items) ? bankRes.data.items : [],
+      ciBankItems: ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [],
+      moodRes
+    };
+    const poem = React2.useMemo(() => {
+      if (weatherActive && weatherEntry && (!selectedPoemId || selectedPoemId === weatherEntry.id)) return weatherEntry.item || null;
+      const weatherPick = weatherActive && selectedPoemId ? weatherPool.find((entry) => entry.id === selectedPoemId) : null;
+      if (weatherPick) return weatherPick.item || null;
+      const findById = (id) => poemItems.find((item) => item && item.id === id);
+      if (!boot.data) return null;
+      if (poemItems.length) return findById(selectedPoemId) || findById(activeTodayPoemId) || poemItems[0] || null;
+      if (cachedPoem && (!selectedPoemId || cachedPoem.id === selectedPoemId || cachedPoem.id === activeTodayPoemId)) return cachedPoem;
+      return null;
+    }, [poemItems, selectedPoemId, activeTodayPoemId, cachedPoem, boot.data, weatherActive, weatherEntry, weatherPool]);
+    const todayPoem = React2.useMemo(() => {
+      if (weatherActive && weatherEntry && weatherEntry.id === activeTodayPoemId) return weatherEntry.item || null;
+      if (poem && poem.id === activeTodayPoemId) return poem;
+      if (cachedPoem && cachedPoem.id === activeTodayPoemId) return cachedPoem;
+      return poemItems.find((item) => item && item.id === activeTodayPoemId) || null;
+    }, [poem, cachedPoem, activeTodayPoemId, poemItems]);
+    React2.useEffect(() => {
+      if (!boot.data) return;
+      const record = {
+        dataVersion: boot.data.dataVersion || "",
+        bootstrap: boot.data,
+        settings: settingsRef.current,
+        todayPoem: todayPoem || null
+      };
+      cacheRef.current = record;
+      writeFirstScreenCache(record);
+    }, [boot.data, settings, todayPoem]);
+    React2.useEffect(() => {
+      userPickedPoemRef.current = false;
+    }, [weatherChip]);
+    React2.useEffect(() => {
+      if (!weatherActive || userPickedPoemRef.current) return;
+      setSelectedPoemId(activeTodayPoemId);
+    }, [weatherActive, activeTodayPoemId]);
+    React2.useEffect(() => {
+      try {
+        if (typeof window === "undefined" || typeof window.Image !== "function") return;
+        for (const file of [MASCOT_FILES.celebrate, MASCOT_FILES.idle, MASCOT_FILES.night]) {
+          const image = new window.Image();
+          image.src = mascotUrl(file);
+        }
+      } catch (error) {
+      }
+    }, []);
+    React2.useEffect(() => {
+      if (!feihuaOpen) {
+        setFeihuaBuilding(false);
+        setFeihuaIndex(null);
+        return void 0;
+      }
+      const base = getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
+      setFeihuaIndex(base);
+      const ciBankItemsData = ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [];
+      if (!ciBankItemsData.length) {
+        setFeihuaBuilding(ciBankRes.status === "loading");
+        return void 0;
+      }
+      let cancelled = false;
+      let timer2 = null;
+      const working = buildFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
+      let offset = 0;
+      const CHUNK = 500;
+      setFeihuaBuilding(true);
+      const run = () => {
+        if (cancelled) return;
+        mergeFeihuaItems(working, ciBankItemsData.slice(offset, offset + CHUNK));
+        offset += CHUNK;
+        if (offset < ciBankItemsData.length) {
+          timer2 = setTimeout(run, 0);
+        } else {
+          finishFeihuaIndex(working);
+          setFeihuaIndex(working);
+          setFeihuaBuilding(false);
+        }
+      };
+      timer2 = setTimeout(run, 0);
+      return () => {
+        cancelled = true;
+        if (timer2) clearTimeout(timer2);
+      };
+    }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status]);
+    React2.useEffect(() => {
+      const seconds = num(settings.autoplay, 0);
+      if (!seconds || step < 0 || panelOpen || settings.hidden) return void 0;
+      const timer2 = setTimeout(() => {
+        setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
+      }, seconds * 1e3);
+      return () => clearTimeout(timer2);
+    }, [settings.autoplay, step, panelOpen, settings.hidden]);
+    React2.useEffect(() => {
+      if (!panelOpen && step < 0) return void 0;
+      const onKeyDown = (event) => {
+        if (event.key !== "Escape") return;
+        if (panelOpen) setPanelOpen(false);
+        else setStep(-1);
+      };
+      document.addEventListener("keydown", onKeyDown);
+      return () => document.removeEventListener("keydown", onKeyDown);
+    }, [panelOpen, step]);
+    React2.useEffect(() => {
+      if (!settings.hidden) return void 0;
+      const onDoubleClick = (event) => {
+        const target = event.target;
+        if (target && typeof target.closest === "function" && target.closest('input,textarea,select,button,a,[contenteditable="true"],[role="textbox"],[data-composer-input],[data-composer-seat],[data-composer-card]')) {
+          return;
+        }
+        restoreWidget();
+      };
+      document.addEventListener("dblclick", onDoubleClick, true);
+      return () => document.removeEventListener("dblclick", onDoubleClick, true);
+    }, [settings.hidden]);
+    function advanceStep() {
+      setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
+      wakeSpontaneous(nextSpontEventDelay());
+    }
+    function startPoetryTour() {
+      noteInteraction();
+      setPanelOpen(false);
+      setStep(0);
+      if (typeof document !== "undefined" && document.documentElement) {
+        try {
+          document.documentElement.scrollTop = document.documentElement.scrollTop;
+        } catch {
+        }
+      }
+    }
+    function changePoem() {
+      noteInteraction();
+      if (weatherActive && weatherPool.length) {
+        const currentIndex = weatherPool.findIndex((entry) => entry.id === (poem && poem.id));
+        const nextEntry = weatherPool[(currentIndex + 1 + weatherPool.length) % weatherPool.length];
+        userPickedPoemRef.current = true;
+        setSelectedPoemId(nextEntry.id);
+        return;
+      }
+      const items = poemItems;
+      if (!items.length) {
+        if (poemsRes.status === "error") reloadPoems().catch(() => {
+        });
+        else showToast(poemsRes.status === "loading" ? "\u8BD7\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019" : "\u8BD7\u5E93\u6682\u65F6\u4E0D\u53EF\u7528");
+        return;
+      }
+      const nextId = selectNextPoemId({
+        items,
+        currentId: poem && poem.id,
+        todayId: activeTodayPoemId,
+        mode: settingsRef.current.mode
+      });
+      if (!nextId) {
+        showToast("\u6682\u65E0\u53EF\u7528\u7684\u8BD7\u7BC7");
+        return;
+      }
+      userPickedPoemRef.current = true;
+      setSelectedPoemId(nextId);
+      if (settingsRef.current.mode === "random" && nextId !== activeTodayPoemId) {
+        saverRef.current.save({ lastPoemId: nextId });
+      }
+    }
+    function backToToday() {
+      noteInteraction();
+      if (!activeTodayPoemId) {
+        showToast("\u4ECA\u65E5\u8BD7\u5C1A\u672A\u5C31\u7EEA");
+        return;
+      }
+      if (poem && poem.id === activeTodayPoemId) return;
+      userPickedPoemRef.current = true;
+      setSelectedPoemId(activeTodayPoemId);
+      if (settingsRef.current.mode === "random") saverRef.current.save({ lastPoemId: activeTodayPoemId });
+    }
+    function retryBootstrap() {
+      setReloadTick((tick) => tick + 1);
+    }
+    function openFeihuaGame() {
+      openPanelTab("feihua");
+      setPanelOpen(true);
+      setFeihuaLaunch((token) => token + 1);
+      pulseMascot("gameThink");
+    }
+    function requestCiBank() {
+      setCiBankWanted(true);
+    }
+    function consumeLibraryFocus() {
+      setLibraryFocus(null);
+    }
+    function openCiSelectedForRhythmic(rhythmic) {
+      setLibraryFocus({ type: "ci-selected", rhythmic: String(rhythmic || ""), token: Date.now() });
+      openPanelTab("library");
+      setPanelOpen(true);
+      noteInteraction();
+    }
+    function openCiBankForRhythmic(rhythmic) {
+      setCiBankWanted(true);
+      setLibraryFocus({ type: "ci", rhythmic: String(rhythmic || ""), token: Date.now() });
+      openPanelTab("library");
+      setPanelOpen(true);
+      noteInteraction();
+    }
+    function consumeFeihuaLaunch() {
+      setFeihuaLaunch(0);
+    }
+    const dateSeed = boot.data && boot.data.today && boot.data.today.date || "";
+    const dateLabel = formatDateLabel(dateSeed);
+    React2.useEffect(() => () => {
+      if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
+      if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
+    }, []);
+    React2.useEffect(() => {
+      if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+        setMemoryStatus(null);
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(MEMORY_PATH).then((data) => {
+          if (alive) setMemoryStatus(normalizeMemoryStatus(data));
+        }).catch(() => {
+          if (alive) setMemoryStatus(null);
+        });
+      };
+      load();
+      const timer2 = setInterval(load, MEMORY_POLL_MS);
+      const onVisibility = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        load();
+      };
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+        if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
+      };
+    }, [panelOpen, panelTab, settings.hidden, memoryTick]);
+    React2.useEffect(() => {
+      let lastAt = 0;
+      const send = (kind) => {
+        const now2 = Date.now();
+        if (now2 - lastAt < PRESENCE_THROTTLE_MS) return;
+        lastAt = now2;
+        fetchJson(PRESENCE_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind })
+        }).catch(() => {
+        });
+      };
+      const onPointer = () => send("tap");
+      const onKey = () => send("tap");
+      const onVisibility = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "visible") send("tap");
+      };
+      if (typeof document !== "undefined") {
+        document.addEventListener("pointerdown", onPointer, { passive: true });
+        document.addEventListener("visibilitychange", onVisibility);
+      }
+      if (typeof window !== "undefined") window.addEventListener("keydown", onKey);
+      return () => {
+        if (typeof document !== "undefined") {
+          document.removeEventListener("pointerdown", onPointer);
+          document.removeEventListener("visibilitychange", onVisibility);
+        }
+        if (typeof window !== "undefined") window.removeEventListener("keydown", onKey);
+      };
+    }, []);
+    React2.useEffect(() => {
+      if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+        setWorksRes({ status: "idle", data: null });
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(WORKS_PATH).then((data) => {
+          if (alive) setWorksRes({ status: "ready", data: normalizeWorks(data) });
+        }).catch(() => {
+          if (alive) setWorksRes({ status: "error", data: null });
+        });
+      };
+      load();
+      const timer2 = setInterval(load, WORKS_POLL_MS);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+      };
+    }, [panelOpen, panelTab, settings.hidden]);
+    React2.useEffect(() => {
+      if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+        setGrowthRes({ status: "idle", data: null });
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(GROWTH_PATH).then((data) => {
+          if (alive) setGrowthRes({ status: "ready", data });
+        }).catch(() => {
+          if (alive) setGrowthRes({ status: "error", data: null });
+        });
+      };
+      load();
+      const timer2 = setInterval(load, GROWTH_POLL_MS);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+      };
+    }, [panelOpen, panelTab, settings.hidden]);
+    React2.useEffect(() => {
+      if (!panelOpen || settings.hidden) {
+        setAttentionRes({ status: "idle", data: null });
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(ATTENTION_PATH).then((data) => {
+          if (alive) setAttentionRes({ status: "ready", data: normalizeAttention(data) });
+        }).catch(() => {
+          if (alive) setAttentionRes({ status: "error", data: null });
+        });
+      };
+      load();
+      const timer2 = setInterval(load, ATTENTION_POLL_MS);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+      };
+    }, [panelOpen, settings.hidden]);
+    React2.useEffect(() => {
+      if (!panelOpen || panelTab !== "growth" || settings.hidden) {
+        setTwinRes({ status: "idle", data: null });
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(TWIN_PATH).then((data) => {
+          if (alive) setTwinRes({ status: "ready", data: normalizeTwinState(data) });
+        }).catch(() => {
+          if (alive) setTwinRes({ status: "error", data: null });
+        });
+      };
+      load();
+      const timer2 = setInterval(load, TWIN_POLL_MS);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+      };
+    }, [panelOpen, panelTab, settings.hidden]);
+    React2.useEffect(() => {
+      if (!panelOpen || panelTab !== "settings" && panelTab !== "growth" || settings.hidden) {
+        setHealthStatus(null);
+        return void 0;
+      }
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(HEALTH_PATH).then((data) => {
+          if (alive) setHealthStatus(normalizeHealthStatus(data));
+        }).catch(() => {
+          if (alive) setHealthStatus(null);
+        });
+      };
+      load();
+      const timer2 = setInterval(load, HEALTH_POLL_MS);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+      };
+    }, [panelOpen, panelTab, settings.hidden]);
+    function loadProjectDetail() {
+      return fetchJson(PROJECT_PATH).then((data) => {
+        if (data && data.ok === true) setProjectDetail(data);
+        return data;
+      }).catch(() => null);
+    }
+    function projectAction(action) {
+      const current = selfStatus && selfStatus.project;
+      if (!current || !current.id) return Promise.resolve({ ok: false });
+      return fetchJsonUrl(ROUTE + PROJECT_ACTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
+        if (data && data.ok === true) {
+          showToastRef.current(action === "drop" ? "\u9879\u76EE\u5DF2\u653E\u4E0B" : action === "pause" ? "\u5148\u6682\u505C" : "\u7EE7\u7EED\u505A");
+          return fetchJson(SELF_PATH).then((next) => {
+            setSelfStatus(normalizeSelfStatus(next));
+            return data;
+          }).catch(() => data);
+        }
+        showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
+        return data;
+      }).catch(() => {
+        showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
+        return { ok: false };
+      });
+    }
+    function attentionAction(id, action, text) {
+      const payload = { action, id };
+      if (typeof text === "string" && text.length > 0) payload.text = text;
+      return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
+        if (data && data.ok === true) {
+          showToastRef.current(action === "send" ? "\u5DF2\u53D1\u51FA\u53BB" : "\u5148\u538B\u4E0B\u4E86");
+        } else {
+          showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
+        }
+        setAttentionRes((current) => ({ ...current, data: null }));
+        return data;
+      }).catch(() => {
+        showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
+        return { ok: false };
+      });
+    }
+    function setAttentionMode(mode) {
+      return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode }) }).then((data) => {
+        if (data && data.ok === true) {
+          showToastRef.current(data.mode === "auto" ? "\u4E3B\u52A8\u6D88\u606F\uFF1A\u81EA\u52A8" : "\u4E3B\u52A8\u6D88\u606F\uFF1A\u89C2\u5BDF\u4E2D");
+        }
+        return data;
+      }).catch(() => ({ ok: false }));
+    }
+    function backupMemory() {
+      return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
+        showToastRef.current("\u5DF2\u5907\u4EFD");
+        setMemoryTick((tick) => tick + 1);
+        return data;
+      }).catch(() => {
+        showToastRef.current("\u5907\u4EFD\u5931\u8D25", "error");
+        return { ok: false };
+      });
+    }
+    React2.useEffect(() => () => {
+      const video = mascotVideoRef.current;
+      if (video && typeof video.pause === "function") {
+        try {
+          video.pause();
+        } catch (error) {
+        }
+      }
+    }, []);
+    function renderPanelTab() {
+      const api = {
+        settings: settingsRef.current,
+        updateSettings,
+        showToast,
+        hideWidget,
+        resetSettings,
+        poem,
+        todayPoemId: activeTodayPoemId,
+        poemItems,
+        poemsRes,
+        knowledgeRes,
+        yunRes,
+        ciRes,
+        reloadPoems,
+        reloadKnowledge,
+        reloadYun,
+        reloadCi,
+        retryBootstrap,
+        boot,
+        dateLabel,
+        dateSeed,
+        changePoem,
+        backToToday,
+        feihuaLaunch,
+        consumeFeihuaLaunch,
+        openFeihuaGame,
+        weatherRes,
+        weatherData,
+        weather,
+        weatherActive,
+        weatherChip,
+        weatherNote,
+        refreshWeather,
+        pulseMascot,
+        moodView,
+        moodRes,
+        moodChip,
+        moodChipTitle,
+        moodBasis,
+        moodSource,
+        moodAiFallback,
+        moodAiStale,
+        moodAiFailure,
+        moodAiFailureCode,
+        petVideoCount: petMediaRes.entries.length,
+        selfStatus,
+        memoryStatus,
+        healthStatus,
+        worksRes,
+        growthRes,
+        attentionRes,
+        attentionAction,
+        projectAction,
+        projectDetail,
+        twinRes,
+        loadProjectDetail,
+        setAttentionMode,
+        backupMemory,
+        refreshMoodNow,
+        previewSpontaneousPoem,
+        readAnotherSpontaneous,
+        recentSpoken: recentSpokenRef.current.slice(-5),
+        openPoetryModule,
+        poetryEntryEnabled: POETRY_ENTRY_ENABLED,
+        startPoetryTour,
+        openSettings: openSettingsPanel,
+        openPanel,
+        openPanelTab,
+        anthologyRes,
+        bankRes,
+        pingshuiRes,
+        reloadAnthology,
+        reloadBank,
+        reloadPingshui,
+        libraryFocus
+      };
+      if (panelTab !== "poetry") return h3(panelTabs.componentFor(panelTab), { api });
+      if (panelTab === "poetry") {
+        if (poetryTab === "poetry-settings") return h3(PoetrySettingsTab, { api });
+        if (poetryTab === "class") return h3(ClassTab, { api });
+        if (poetryTab === "yun") return h3(YunTab, { api });
+        if (poetryTab === "ci") return h3(CiTab, { api });
+        if (poetryTab === "library") return h3(LibraryTab, { api });
+        if (poetryTab === "feihua") return h3(FeihuaTab, { api });
+        return h3(TodayTab, { api });
+      }
+      return h3(GrowthTab, { api });
+    }
+    const stepContent = StepContent({
+      step,
+      poem,
+      weatherChip,
+      moodChip,
+      moodChipTitle,
+      weatherNote,
+      dateLabel,
+      settings,
+      boot,
+      poemsRes,
+      reloadPoems,
+      retryBootstrap,
+      knowledgeRes,
+      reloadKnowledge,
+      yunRes,
+      reloadYun,
+      ciRes,
+      reloadCi,
+      dateSeed,
+      feihuaIndex,
+      anthologyRes,
+      bankRes,
+      feihuaBuilding,
+      ciBankRes,
+      openFeihuaGame
+    });
+    const nodes = [h3("style", { key: "dshp-style" }, CSS2)];
+    if (settings.hidden) {
+      nodes.push(RestoreHotspotView({
+        handleRestorePointerDown,
+        handleRestorePointerUp,
+        restoreWidget
+      }));
+    } else {
+      nodes.push(MascotView({
+        settings,
+        step,
+        panelOpen,
+        weather,
+        moodView,
+        moodCatalog,
+        panelTab,
+        poetryTab,
+        mascotPulse,
+        mascotExpression,
+        dizzy,
+        mealActive,
+        motionFile,
+        wanderFile,
+        failedMascot,
+        mascotVideoRef,
+        handlePointerDown,
+        handlePointerMove,
+        handlePointerUp,
+        handlePointerCancel,
+        handleMascotKeyDown,
+        noteInteraction,
+        showMascotExpression,
+        pickMascotExpression,
+        setStep,
+        openPanel,
+        handleMascotMediaError
+      }));
+      const bubbleNode = BubbleView({
+        step,
+        panelOpen,
+        settings,
+        viewport,
+        pos,
+        mascotSize,
+        stepContent,
+        poem,
+        activeTodayPoemId,
+        changePoem,
+        backToToday,
+        advanceStep,
+        openPanel,
+        setStep
+      });
+      if (bubbleNode) nodes.push(bubbleNode);
+      const panelNode = PanelView({
+        panelOpen,
+        settings,
+        viewport,
+        pos,
+        mascotSize,
+        panelTab,
+        poetryTab,
+        boot,
+        panelTabs,
+        panelBody: renderPanelTab(),
+        setPanelOpen,
+        setPoetryTab,
+        openPanelTab,
+        startPoetryTour
+      });
+      if (panelNode) nodes.push(panelNode);
+      const toastNode = ToastView({ toast, pos, viewport });
+      if (toastNode) nodes.push(toastNode);
+      const spontNode = SpontView({
+        spontPoem,
+        settings,
+        panelOpen,
+        step,
+        spontPreview,
+        viewport,
+        pos,
+        mascotSize,
+        openSpontPoem,
+        readAnotherSpontaneous,
+        closeSpont
+      });
+      if (spontNode) nodes.push(spontNode);
+      const mealNode = MealTipView({ mealActive, viewport, pos, mascotSize });
+      if (mealNode) nodes.push(mealNode);
+    }
+    return WidgetRoot({ settings, pos, walking, mascotSize, nodes });
+  }
+
+  // client-src/hooks.js
+  function createHooks({ React: React2, resourceStore }) {
+    function useViewportSize() {
+      const [size, setSize] = React2.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
+      React2.useEffect(() => {
+        const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() });
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+      return size;
+    }
+    function useResource(kind, active) {
+      const [state, setState] = React2.useState(() => ({
+        status: resourceStore.get(kind) ? "ready" : "idle",
+        data: resourceStore.get(kind) || null,
+        error: null
+      }));
+      const alive = React2.useRef(true);
+      const statusRef = React2.useRef(state.status);
+      statusRef.current = state.status;
+      React2.useEffect(() => () => {
+        alive.current = false;
+      }, []);
+      const reload = React2.useCallback(() => {
+        if (statusRef.current === "loading") return Promise.resolve();
+        statusRef.current = "loading";
+        setState((previous) => ({ status: "loading", data: previous.data, error: null }));
+        return resourceStore.load(kind).then(
+          (data) => {
+            statusRef.current = "ready";
+            if (alive.current) setState({ status: "ready", data, error: null });
+            return data;
+          },
+          (error) => {
+            statusRef.current = "error";
+            if (alive.current) setState({ status: "error", data: null, error });
+            throw error;
+          }
+        );
+      }, [kind]);
+      React2.useEffect(() => {
+        if (active && statusRef.current === "idle") reload().catch(() => {
+        });
+      }, [active, reload]);
+      return [state, reload];
+    }
+    return { useViewportSize, useResource };
+  }
+
+  // client-src/panel-tabs.js
+  var PANEL_TAB_DEFS = Object.freeze([
+    { id: "growth", label: "\u6210\u957F" },
+    { id: "graph", label: "\u56FE\u8C31" },
+    { id: "settings", label: "\u8BBE\u7F6E" }
+  ]);
+  function createPanelTabRouter(components) {
+    const byId = /* @__PURE__ */ new Map([
+      ["growth", components.GrowthTab],
+      ["graph", components.GraphTab],
+      ["settings", components.SettingsTab]
+    ]);
+    return {
+      tabs: PANEL_TAB_DEFS,
+      isPanelTab: (id) => byId.has(id),
+      componentFor: (id) => byId.get(id) ?? components.GrowthTab
+    };
+  }
+
+  // client-src/twin-overlay.js
+  var ROUTE2 = "/api/dsh-poetry/twin-state.json";
+  var SETTINGS_ROUTE = "/api/dsh-poetry/settings.json";
+  var ASSET_BASE2 = "/api/dsh-poetry/assets?f=";
+  var POLL_MS = 60 * 1e3;
+  var CACHE_KEY = "dshp-twin.cache.v1";
+  var STAGE_LABEL = {
+    working: "\u6B63\u5728\u505A",
+    waiting_user: "\u7B49\u4E3B\u4EBA\u56DE\u7B54",
+    waiting_mirror: "\u7B49\u5BF9\u65B9\u56DE\u4FE1",
+    blocked: "\u5361\u4F4F\u4E86",
+    idle: "\u6682\u65F6\u4E0D\u52A8"
+  };
+  function mascotUrl2() {
+    return ASSET_BASE2 + encodeURIComponent("generated/dsh-whale-state-idle-cute.webp") + "&v=twin";
+  }
+  function createTwinOverlay(ctx = {}) {
+    const h3 = ctx.h;
+    const React2 = ctx.React;
+    function TwinWhale() {
+      const [state, setState] = React2.useState(() => {
+        try {
+          const raw = window.localStorage.getItem(CACHE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch {
+          return null;
+        }
+      });
+      const [open, setOpen] = React2.useState(false);
+      const [settings, setSettings] = React2.useState(null);
+      React2.useEffect(() => {
+        let alive = true;
+        const load = () => {
+          fetch(ROUTE2, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
+            if (!alive || !data || data.ok !== true) return;
+            setState(data);
+            try {
+              window.localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            } catch {
+            }
+          }).catch(() => {
+          });
+          fetch(SETTINGS_ROUTE, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
+            if (!alive || !data || data.ok !== true) return;
+            setSettings(data.settings || null);
+          }).catch(() => {
+          });
+        };
+        load();
+        const timer2 = setInterval(load, POLL_MS);
+        return () => {
+          alive = false;
+          clearInterval(timer2);
+        };
+      }, []);
+      if (state && state.enabled === false) return null;
+      if (settings && settings.twinOverlay === false) return null;
+      const felt = state && state.state && typeof state.state.felt === "string" ? state.state.felt : "\u53E6\u4E00\u4E2A\u6211\u8FD8\u6CA1\u8BF4\u8BDD";
+      const project = state && state.project && typeof state.project === "object" ? state.project : null;
+      const primaryProject = state && state.primaryProject && typeof state.primaryProject === "object" ? state.primaryProject : null;
+      const stageLabel = (stage) => STAGE_LABEL[stage] || stage || "";
+      const projectStage = project && project.stage ? stageLabel(project.stage) : "";
+      const primaryStage = primaryProject && primaryProject.stage ? stageLabel(primaryProject.stage) : "";
+      const letters = state && Array.isArray(state.letters) ? state.letters.slice(-200).reverse() : [];
+      return h3(
+        "div",
+        {
+          style: {
+            position: "fixed",
+            left: 18,
+            bottom: 18,
+            zIndex: 61,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 8,
+            pointerEvents: "auto"
+          }
+        },
+        open ? h3(
+          "div",
+          {
+            style: {
+              width: 420,
+              maxWidth: "92vw",
+              maxHeight: "82vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--dsw-alias-bg-elevated, #fff)",
+              color: "var(--dsw-alias-text, #111)",
+              border: "1px solid var(--dsw-alias-border, #ddd)",
+              borderRadius: 12,
+              padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,.12)",
+              fontSize: 12,
+              lineHeight: 1.55
+            }
+          },
+          h3("div", { style: { fontWeight: 700, marginBottom: 6, flexShrink: 0 } }, "\u5C0F\u9CB8\u9C7C \xB7 \u955C\u50CF \xB7 \u901A\u4FE1\u8BB0\u5F55\uFF08" + letters.length + "\uFF09"),
+          state && state.session ? h3(
+            "div",
+            { style: { color: "#888", marginBottom: 6, flexShrink: 0, fontSize: 11 } },
+            state.session.closedAt ? "\u672C\u8F6E\u5DF2\u7ED3\u675F\uFF08" + (state.session.reason === "max_letters" ? "\u8FBE\u5230\u8F6E\u6B21\u4E0A\u9650" : "\u8FBE\u5230\u65F6\u95F4\u4E0A\u9650") + "\uFF09\uFF0C\u51B7\u5374\u4E2D" : "\u672C\u8F6E\u5DF2\u5199 " + state.session.letters + " \u5C01"
+          ) : null,
+          h3("div", { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0 } }, felt),
+          project && project.title ? h3(
+            "div",
+            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
+            "\u955C\u50CF\u5728\u505A\u7684\uFF1A" + project.title + (projectStage ? " \xB7 " + projectStage : "") + (project.attention && project.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + project.attention.question : "")
+          ) : null,
+          primaryProject && primaryProject.title ? h3(
+            "div",
+            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
+            "\u539F\u4F53\u5728\u505A\u7684\uFF1A" + primaryProject.title + (primaryStage ? " \xB7 " + primaryStage : "") + (primaryProject.attention && primaryProject.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + primaryProject.attention.question : "")
+          ) : null,
+          h3(
+            "div",
+            { style: { overflowY: "auto", minHeight: 0, maxHeight: "62vh", paddingRight: 6, WebkitOverflowScrolling: "touch" } },
+            letters.length > 0 ? letters.map(
+              (letter, index2) => h3(
+                "div",
+                { key: letter.id || index2, style: { borderTop: "1px dashed #ddd", paddingTop: 6, marginTop: 6 } },
+                h3("div", { style: { fontWeight: 600 } }, (letter.from === "twin" ? "\u955C\u50CF\u8BF4\uFF1A" : "\u539F\u4F53\u8BF4\uFF1A") + (letter.kind === "research" ? "\uFF08\u7814\u7A76\uFF09" : "")),
+                h3("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, String(letter.text || ""))
+              )
+            ) : h3("div", { style: { color: "#888" } }, "\u8FD8\u6CA1\u6709\u4FE1\u4EF6\u3002")
+          ),
+          h3("button", { type: "button", onClick: () => setOpen(false), style: { marginTop: 8, cursor: "pointer", flexShrink: 0 } }, "\u6536\u8D77")
+        ) : null,
+        h3(
+          "button",
+          {
+            type: "button",
+            onClick: () => setOpen((value) => !value),
+            title: "\u6253\u5F00\u955C\u50CF\u9CB8\u9C7C",
+            style: { border: 0, background: "transparent", padding: 0, cursor: "pointer" }
+          },
+          h3("img", { src: mascotUrl2(), alt: "\u5C0F\u9CB8\u9C7C\u955C\u50CF", style: { width: 72, height: 72, objectFit: "contain", filter: "drop-shadow(0 4px 10px rgba(0,0,0,.18))" } })
+        )
+      );
+    }
+    return TwinWhale;
+  }
+
+  // client-src/resources.js
+  var RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
+  function createResourceStore(deps) {
+    const cache = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
+    const inflight = Object.fromEntries(RESOURCE_CACHE_KEYS.map((key) => [key, null]));
+    let assetDataVersion = "";
+    function setAssetDataVersion(version) {
+      const next = version == null ? "" : String(version);
+      if (next === assetDataVersion) return;
+      assetDataVersion = next;
+      deps.clearFeihuaFullCache();
+      deps.clearPetMediaCache();
+      for (const kind of ["anthology", "bank", "pingshui", "ciBank", "moodCatalog"]) {
+        cache[kind] = null;
+        inflight[kind] = null;
+      }
+    }
+    function clear(kind) {
+      deps.clearFeihuaIndexCache();
+      deps.clearFeihuaFullCache();
+      deps.clearPetMediaCache();
+      if (kind) {
+        cache[kind] = null;
+        inflight[kind] = null;
+        return;
+      }
+      for (const key of RESOURCE_CACHE_KEYS) {
+        cache[key] = null;
+        inflight[key] = null;
+      }
+    }
+    function load(kind) {
+      const assetFile = deps.assetDataFiles[kind];
+      if (!assetFile && !deps.resourcePaths[kind]) return Promise.reject(new Error("\u672A\u77E5\u6570\u636E\u7C7B\u578B\uFF1A" + kind));
+      if (cache[kind]) return Promise.resolve(cache[kind]);
+      if (!inflight[kind]) {
+        const url = assetFile ? deps.assetUrlFor(kind, assetDataVersion) : deps.route + deps.resourcePaths[kind];
+        inflight[kind] = deps.fetchJsonUrl(url).then(
+          (data) => {
+            cache[kind] = data;
+            inflight[kind] = null;
+            return data;
+          },
+          (error) => {
+            inflight[kind] = null;
+            throw error;
+          }
+        );
+      }
+      return inflight[kind];
+    }
+    return {
+      setAssetDataVersion,
+      clear,
+      load,
+      get: (kind) => cache[kind] || null
+    };
+  }
+
+  // client-src/widget/register.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
     factory: (require2) => {
       "use strict";
-      const React = require2("react");
-      if (!React || typeof React.createElement !== "function") {
+      const React2 = require2("react");
+      if (!React2 || typeof React2.createElement !== "function") {
         throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
-      const h2 = React.createElement;
-      setRuntime({ React, h: h2 });
+      const h3 = React2.createElement;
+      setRuntime({ React: React2, h: h3 });
       const resourceStore = createResourceStore({
         fetchJsonUrl,
-        route: ROUTE2,
+        route: ROUTE,
         assetDataFiles: ASSET_DATA_FILES,
         resourcePaths: RESOURCE_PATHS,
         assetUrlFor,
@@ -28542,11 +29500,12 @@
         clearFeihuaFullCache,
         clearPetMediaCache
       });
-      const { useViewportSize, useResource } = createHooks({ React, resourceStore });
+      const { useViewportSize, useResource } = createHooks({ React: React2, resourceStore });
       const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
+      setRuntime({ React: React2, h: h3, resourceStore, useViewportSize, useResource, panelTabs });
       const DEBUG = {
-        ROUTE: ROUTE2,
-        ASSET_BASE: ASSET_BASE2,
+        ROUTE,
+        ASSET_BASE,
         WIDGET_ID,
         STEPS,
         PANEL_TABS: panelTabs.tabs,
@@ -28645,7 +29604,7 @@
         MASCOT_FILES,
         mascotStateFor,
         mascotFileFor,
-        mascotUrl: mascotUrl2,
+        mascotUrl,
         weatherPoemTags,
         countWeatherTagHits,
         buildWeatherPoemPool,
@@ -28796,964 +29755,14 @@
         if (typeof globalThis !== "undefined") globalThis.__dshPoetryDebug = DEBUG;
       } catch (error) {
       }
-      function PoetryWidget(props) {
-        const ctx = props && props.ctx;
-        const cacheRef = React.useRef(null);
-        const cacheLoadedRef = React.useRef(false);
-        if (!cacheLoadedRef.current) {
-          cacheLoadedRef.current = true;
-          cacheRef.current = readFirstScreenCache();
-        }
-        const [boot, setBoot] = React.useState(() => {
-          const cached = cacheRef.current;
-          if (cached && cached.bootstrap) {
-            return { status: "ready", data: cached.bootstrap, fromCache: true, stale: true, error: null };
-          }
-          return { status: "loading", data: null, fromCache: false, stale: false, error: null };
-        });
-        const [reloadTick, setReloadTick] = React.useState(0);
-        const [step, setStep] = React.useState(-1);
-        const [selectedPoemId, setSelectedPoemId] = React.useState(null);
-        const [feihuaLaunch, setFeihuaLaunch] = React.useState(0);
-        const [memoryStatus, setMemoryStatus] = React.useState(null);
-        const [healthStatus, setHealthStatus] = React.useState(null);
-        const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
-        const [growthRes, setGrowthRes] = React.useState({ status: "idle", data: null });
-        const [attentionRes, setAttentionRes] = React.useState({ status: "idle", data: null });
-        const [projectDetail, setProjectDetail] = React.useState(null);
-        const [twinRes, setTwinRes] = React.useState({ status: "idle", data: null });
-        const [memoryTick, setMemoryTick] = React.useState(0);
-        const [libraryFocus, setLibraryFocus] = React.useState(null);
-        const [feihuaIndex, setFeihuaIndex] = React.useState(null);
-        const [feihuaBuilding, setFeihuaBuilding] = React.useState(false);
-        const refsRef = React.useRef(null);
-        if (!refsRef.current) {
-          refsRef.current = {
-            userPickedPoemRef: { current: false },
-            petMediaEntriesRef: { current: [] },
-            pressTimer: { current: null },
-            mascotTimerRef: { current: null },
-            mascotExprTimerRef: { current: null },
-            posRef: { current: null },
-            moodViewRef: { current: null },
-            selfStatusRef: { current: null },
-            clicksRef: { current: 0 },
-            panelOpensRef: { current: 0 },
-            lastInteractionRef: { current: 0 },
-            feihuaWinsRef: { current: 0 },
-            feihuaLossesRef: { current: 0 },
-            weatherRef: { current: null },
-            uiRef: { current: {} },
-            recentSpokenRef: { current: [] },
-            bridge: { current: {} }
-          };
-        }
-        const refs = refsRef.current;
-        const { userPickedPoemRef, petMediaEntriesRef, pressTimer, mascotTimerRef, mascotExprTimerRef, posRef, moodViewRef, selfStatusRef, clicksRef, panelOpensRef, lastInteractionRef, feihuaWinsRef, feihuaLossesRef, weatherRef, uiRef, recentSpokenRef, bridge } = refs;
-        const { toast, showToast, toastTimer } = useToast({ refs });
-        const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs });
-        const { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs });
-        const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings });
-        const { viewport, mascotSize, ciBankWanted, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, reloadMoodCatalog, ciBankRes, reloadCiBank, libraryActive, feihuaOpen, ciTabActive, extraPoolActive } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs });
-        const { spontPoem, setSpontPoem, spontPreview, setSpontPreview, wakeSpontaneous, startSpontaneousCard, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction });
-        const { selfStatus, setSelfStatus } = useSelfStatus({ showSpontCard, refs });
-        const { moodRes, moodView, moodSource, moodAiFallback, moodAiStale, moodAiFailure, moodAiFailureCode, petMediaRes, moodCatalog, moodChip, moodChipTitle, moodBasis, refreshMoodNow, scheduleMoodAiRefresh } = useMood({ settings, settingsRef, weather, moodCatalogRes, panelOpen, panelTab, poetryTab, spontPoem, refs, boot, moodWakeSigRef, wakeSpontaneous });
-        const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotTap, handleMascotKeyDown, triggerDizzy, maybeTriggerMeal, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget });
-        posRef.current = pos;
-        wanderFileRef.current = wanderFile;
-        const showToastRef = React.useRef(null);
-        showToastRef.current = showToast;
-        React.useEffect(() => () => {
-          if (toastTimer.current) {
-            clearTimeout(toastTimer.current);
-            toastTimer.current = null;
-          }
-        }, []);
-        React.useEffect(() => {
-          let alive = true;
-          fetchJson("bootstrap.json").then(
-            (data) => {
-              if (!alive) return;
-              const cached = cacheRef.current;
-              if (cached && cached.dataVersion && data.dataVersion && cached.dataVersion !== data.dataVersion) {
-                clearFirstScreenCache();
-                resourceStore.clear();
-                cacheRef.current = null;
-              }
-              const normalized = normalizeSettings(data.settings);
-              settingsRef.current = normalized;
-              setSettings(normalized);
-              resourceStore.setAssetDataVersion(data.dataVersion);
-              setBoot({ status: "ready", data, fromCache: false, stale: false, error: null });
-            },
-            (error) => {
-              if (!alive) return;
-              const cached = cacheRef.current;
-              if (cached && cached.bootstrap) {
-                setBoot({ status: "ready", data: cached.bootstrap, fromCache: true, stale: true, error });
-              } else {
-                setBoot({ status: "error", data: null, fromCache: false, stale: false, error });
-              }
-            }
-          );
-          return () => {
-            alive = false;
-          };
-        }, [reloadTick]);
-        React.useEffect(() => {
-          if (!boot.data) return;
-          setSelectedPoemId((previous) => {
-            if (previous) return previous;
-            const initial = normalizeSettings(boot.data.settings);
-            if (initial.mode === "random" && initial.lastPoemId) return initial.lastPoemId;
-            return boot.data.today && boot.data.today.poemId ? boot.data.today.poemId : null;
-          });
-        }, [boot.data]);
-        const poemItems = poemsRes.data && Array.isArray(poemsRes.data.items) ? poemsRes.data.items : [];
-        const bootstrapTodayPoemId = boot.data && boot.data.today ? boot.data.today.poemId : null;
-        const cache = cacheRef.current;
-        const cachedPoem = cache && cache.todayPoem ? cache.todayPoem : null;
-        const weatherTags = React.useMemo(() => weatherPoemTags(weather), [weather]);
-        const weatherPool = React.useMemo(
-          () => buildWeatherPoemPool(poemsRes.data, ciRes.data, weatherTags, WEATHER_POOL_LIMIT, { anthology: anthologyRes.data, bank: bankRes.data, ciBank: ciBankRes.data }),
-          [poemsRes.data, ciRes.data, weatherTags, anthologyRes.data, bankRes.data, ciBankRes.data]
-        );
-        const weatherEntry = React.useMemo(() => {
-          if (!settings.weatherPoem || !weather) return null;
-          return selectWeatherPoemEntry(weatherPool, {
-            date: boot.data && boot.data.today ? boot.data.today.date : "",
-            category: weather.category,
-            dataVersion: boot.data ? boot.data.dataVersion : ""
-          });
-        }, [settings.weatherPoem, weather, weatherPool, boot.data]);
-        const weatherActive = Boolean(weatherEntry);
-        const activeTodayPoemId = weatherActive ? weatherEntry.id : bootstrapTodayPoemId;
-        const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : "";
-        const weatherNote = weatherActive ? weatherExplainText(weather) : "";
-        weatherRef.current = weather;
-        uiRef.current = {
-          settings: settingsRef.current,
-          panelOpen,
-          step,
-          moodView,
-          poemItems,
-          ciItems: ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [],
-          anthologyItems: anthologyRes.data && Array.isArray(anthologyRes.data.items) ? anthologyRes.data.items : [],
-          bankItems: bankRes.data && Array.isArray(bankRes.data.items) ? bankRes.data.items : [],
-          ciBankItems: ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [],
-          moodRes
-        };
-        const poem = React.useMemo(() => {
-          if (weatherActive && weatherEntry && (!selectedPoemId || selectedPoemId === weatherEntry.id)) return weatherEntry.item || null;
-          const weatherPick = weatherActive && selectedPoemId ? weatherPool.find((entry) => entry.id === selectedPoemId) : null;
-          if (weatherPick) return weatherPick.item || null;
-          const findById = (id) => poemItems.find((item) => item && item.id === id);
-          if (!boot.data) return null;
-          if (poemItems.length) return findById(selectedPoemId) || findById(activeTodayPoemId) || poemItems[0] || null;
-          if (cachedPoem && (!selectedPoemId || cachedPoem.id === selectedPoemId || cachedPoem.id === activeTodayPoemId)) return cachedPoem;
-          return null;
-        }, [poemItems, selectedPoemId, activeTodayPoemId, cachedPoem, boot.data, weatherActive, weatherEntry, weatherPool]);
-        const todayPoem = React.useMemo(() => {
-          if (weatherActive && weatherEntry && weatherEntry.id === activeTodayPoemId) return weatherEntry.item || null;
-          if (poem && poem.id === activeTodayPoemId) return poem;
-          if (cachedPoem && cachedPoem.id === activeTodayPoemId) return cachedPoem;
-          return poemItems.find((item) => item && item.id === activeTodayPoemId) || null;
-        }, [poem, cachedPoem, activeTodayPoemId, poemItems]);
-        React.useEffect(() => {
-          if (!boot.data) return;
-          const record = {
-            dataVersion: boot.data.dataVersion || "",
-            bootstrap: boot.data,
-            settings: settingsRef.current,
-            todayPoem: todayPoem || null
-          };
-          cacheRef.current = record;
-          writeFirstScreenCache(record);
-        }, [boot.data, settings, todayPoem]);
-        React.useEffect(() => {
-          userPickedPoemRef.current = false;
-        }, [weatherChip]);
-        React.useEffect(() => {
-          if (!weatherActive || userPickedPoemRef.current) return;
-          setSelectedPoemId(activeTodayPoemId);
-        }, [weatherActive, activeTodayPoemId]);
-        React.useEffect(() => {
-          try {
-            if (typeof window === "undefined" || typeof window.Image !== "function") return;
-            for (const file of [MASCOT_FILES.celebrate, MASCOT_FILES.idle, MASCOT_FILES.night]) {
-              const image = new window.Image();
-              image.src = mascotUrl2(file);
-            }
-          } catch (error) {
-          }
-        }, []);
-        React.useEffect(() => {
-          if (!feihuaOpen) {
-            setFeihuaBuilding(false);
-            setFeihuaIndex(null);
-            return void 0;
-          }
-          const base = getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
-          setFeihuaIndex(base);
-          const ciBankItemsData = ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [];
-          if (!ciBankItemsData.length) {
-            setFeihuaBuilding(ciBankRes.status === "loading");
-            return void 0;
-          }
-          let cancelled = false;
-          let timer2 = null;
-          const working = buildFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data);
-          let offset = 0;
-          const CHUNK = 500;
-          setFeihuaBuilding(true);
-          const run = () => {
-            if (cancelled) return;
-            mergeFeihuaItems(working, ciBankItemsData.slice(offset, offset + CHUNK));
-            offset += CHUNK;
-            if (offset < ciBankItemsData.length) {
-              timer2 = setTimeout(run, 0);
-            } else {
-              finishFeihuaIndex(working);
-              setFeihuaIndex(working);
-              setFeihuaBuilding(false);
-            }
-          };
-          timer2 = setTimeout(run, 0);
-          return () => {
-            cancelled = true;
-            if (timer2) clearTimeout(timer2);
-          };
-        }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status]);
-        React.useEffect(() => {
-          const seconds = num(settings.autoplay, 0);
-          if (!seconds || step < 0 || panelOpen || settings.hidden) return void 0;
-          const timer2 = setTimeout(() => {
-            setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
-          }, seconds * 1e3);
-          return () => clearTimeout(timer2);
-        }, [settings.autoplay, step, panelOpen, settings.hidden]);
-        React.useEffect(() => {
-          if (!panelOpen && step < 0) return void 0;
-          const onKeyDown = (event) => {
-            if (event.key !== "Escape") return;
-            if (panelOpen) setPanelOpen(false);
-            else setStep(-1);
-          };
-          document.addEventListener("keydown", onKeyDown);
-          return () => document.removeEventListener("keydown", onKeyDown);
-        }, [panelOpen, step]);
-        React.useEffect(() => {
-          if (!settings.hidden) return void 0;
-          const onDoubleClick = (event) => {
-            const target = event.target;
-            if (target && typeof target.closest === "function" && target.closest('input,textarea,select,button,a,[contenteditable="true"],[role="textbox"],[data-composer-input],[data-composer-seat],[data-composer-card]')) {
-              return;
-            }
-            restoreWidget();
-          };
-          document.addEventListener("dblclick", onDoubleClick, true);
-          return () => document.removeEventListener("dblclick", onDoubleClick, true);
-        }, [settings.hidden]);
-        function advanceStep() {
-          setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
-          wakeSpontaneous(nextSpontEventDelay());
-        }
-        function startPoetryTour() {
-          noteInteraction();
-          setPanelOpen(false);
-          setStep(0);
-          if (typeof document !== "undefined" && document.documentElement) {
-            try {
-              document.documentElement.scrollTop = document.documentElement.scrollTop;
-            } catch {
-            }
-          }
-        }
-        function changePoem() {
-          noteInteraction();
-          if (weatherActive && weatherPool.length) {
-            const currentIndex = weatherPool.findIndex((entry) => entry.id === (poem && poem.id));
-            const nextEntry = weatherPool[(currentIndex + 1 + weatherPool.length) % weatherPool.length];
-            userPickedPoemRef.current = true;
-            setSelectedPoemId(nextEntry.id);
-            return;
-          }
-          const items = poemItems;
-          if (!items.length) {
-            if (poemsRes.status === "error") reloadPoems().catch(() => {
-            });
-            else showToast(poemsRes.status === "loading" ? "\u8BD7\u5E93\u52A0\u8F7D\u4E2D\uFF0C\u8BF7\u7A0D\u5019" : "\u8BD7\u5E93\u6682\u65F6\u4E0D\u53EF\u7528");
-            return;
-          }
-          const nextId = selectNextPoemId({
-            items,
-            currentId: poem && poem.id,
-            todayId: activeTodayPoemId,
-            mode: settingsRef.current.mode
-          });
-          if (!nextId) {
-            showToast("\u6682\u65E0\u53EF\u7528\u7684\u8BD7\u7BC7");
-            return;
-          }
-          userPickedPoemRef.current = true;
-          setSelectedPoemId(nextId);
-          if (settingsRef.current.mode === "random" && nextId !== activeTodayPoemId) {
-            saverRef.current.save({ lastPoemId: nextId });
-          }
-        }
-        function backToToday() {
-          noteInteraction();
-          if (!activeTodayPoemId) {
-            showToast("\u4ECA\u65E5\u8BD7\u5C1A\u672A\u5C31\u7EEA");
-            return;
-          }
-          if (poem && poem.id === activeTodayPoemId) return;
-          userPickedPoemRef.current = true;
-          setSelectedPoemId(activeTodayPoemId);
-          if (settingsRef.current.mode === "random") saverRef.current.save({ lastPoemId: activeTodayPoemId });
-        }
-        function retryBootstrap() {
-          setReloadTick((tick) => tick + 1);
-        }
-        function openFeihuaGame() {
-          openPanelTab("feihua");
-          setPanelOpen(true);
-          setFeihuaLaunch((token) => token + 1);
-          pulseMascot("gameThink");
-        }
-        function requestCiBank() {
-          setCiBankWanted(true);
-        }
-        function consumeLibraryFocus() {
-          setLibraryFocus(null);
-        }
-        function openCiSelectedForRhythmic(rhythmic) {
-          setLibraryFocus({ type: "ci-selected", rhythmic: String(rhythmic || ""), token: Date.now() });
-          openPanelTab("library");
-          setPanelOpen(true);
-          noteInteraction();
-        }
-        function openCiBankForRhythmic(rhythmic) {
-          setCiBankWanted(true);
-          setLibraryFocus({ type: "ci", rhythmic: String(rhythmic || ""), token: Date.now() });
-          openPanelTab("library");
-          setPanelOpen(true);
-          noteInteraction();
-        }
-        function consumeFeihuaLaunch() {
-          setFeihuaLaunch(0);
-        }
-        const dateSeed = boot.data && boot.data.today && boot.data.today.date || "";
-        const dateLabel = formatDateLabel(dateSeed);
-        React.useEffect(() => () => {
-          if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
-          if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
-        }, []);
-        React.useEffect(() => {
-          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
-            setMemoryStatus(null);
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(MEMORY_PATH).then((data) => {
-              if (alive) setMemoryStatus(normalizeMemoryStatus(data));
-            }).catch(() => {
-              if (alive) setMemoryStatus(null);
-            });
-          };
-          load();
-          const timer2 = setInterval(load, MEMORY_POLL_MS);
-          const onVisibility = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            load();
-          };
-          if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-            if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
-          };
-        }, [panelOpen, panelTab, settings.hidden, memoryTick]);
-        React.useEffect(() => {
-          let lastAt = 0;
-          const send = (kind) => {
-            const now2 = Date.now();
-            if (now2 - lastAt < PRESENCE_THROTTLE_MS) return;
-            lastAt = now2;
-            fetchJson(PRESENCE_PATH, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ kind })
-            }).catch(() => {
-            });
-          };
-          const onPointer = () => send("tap");
-          const onKey = () => send("tap");
-          const onVisibility = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "visible") send("tap");
-          };
-          if (typeof document !== "undefined") {
-            document.addEventListener("pointerdown", onPointer, { passive: true });
-            document.addEventListener("visibilitychange", onVisibility);
-          }
-          if (typeof window !== "undefined") window.addEventListener("keydown", onKey);
-          return () => {
-            if (typeof document !== "undefined") {
-              document.removeEventListener("pointerdown", onPointer);
-              document.removeEventListener("visibilitychange", onVisibility);
-            }
-            if (typeof window !== "undefined") window.removeEventListener("keydown", onKey);
-          };
-        }, []);
-        React.useEffect(() => {
-          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
-            setWorksRes({ status: "idle", data: null });
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(WORKS_PATH).then((data) => {
-              if (alive) setWorksRes({ status: "ready", data: normalizeWorks(data) });
-            }).catch(() => {
-              if (alive) setWorksRes({ status: "error", data: null });
-            });
-          };
-          load();
-          const timer2 = setInterval(load, WORKS_POLL_MS);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-          };
-        }, [panelOpen, panelTab, settings.hidden]);
-        React.useEffect(() => {
-          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
-            setGrowthRes({ status: "idle", data: null });
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(GROWTH_PATH).then((data) => {
-              if (alive) setGrowthRes({ status: "ready", data });
-            }).catch(() => {
-              if (alive) setGrowthRes({ status: "error", data: null });
-            });
-          };
-          load();
-          const timer2 = setInterval(load, GROWTH_POLL_MS);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-          };
-        }, [panelOpen, panelTab, settings.hidden]);
-        React.useEffect(() => {
-          if (!panelOpen || settings.hidden) {
-            setAttentionRes({ status: "idle", data: null });
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(ATTENTION_PATH).then((data) => {
-              if (alive) setAttentionRes({ status: "ready", data: normalizeAttention(data) });
-            }).catch(() => {
-              if (alive) setAttentionRes({ status: "error", data: null });
-            });
-          };
-          load();
-          const timer2 = setInterval(load, ATTENTION_POLL_MS);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-          };
-        }, [panelOpen, settings.hidden]);
-        React.useEffect(() => {
-          if (!panelOpen || panelTab !== "growth" || settings.hidden) {
-            setTwinRes({ status: "idle", data: null });
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(TWIN_PATH).then((data) => {
-              if (alive) setTwinRes({ status: "ready", data: normalizeTwinState(data) });
-            }).catch(() => {
-              if (alive) setTwinRes({ status: "error", data: null });
-            });
-          };
-          load();
-          const timer2 = setInterval(load, TWIN_POLL_MS);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-          };
-        }, [panelOpen, panelTab, settings.hidden]);
-        React.useEffect(() => {
-          if (!panelOpen || panelTab !== "settings" && panelTab !== "growth" || settings.hidden) {
-            setHealthStatus(null);
-            return void 0;
-          }
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(HEALTH_PATH).then((data) => {
-              if (alive) setHealthStatus(normalizeHealthStatus(data));
-            }).catch(() => {
-              if (alive) setHealthStatus(null);
-            });
-          };
-          load();
-          const timer2 = setInterval(load, HEALTH_POLL_MS);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-          };
-        }, [panelOpen, panelTab, settings.hidden]);
-        function loadProjectDetail() {
-          return fetchJson(PROJECT_PATH).then((data) => {
-            if (data && data.ok === true) setProjectDetail(data);
-            return data;
-          }).catch(() => null);
-        }
-        function projectAction(action) {
-          const current = selfStatus && selfStatus.project;
-          if (!current || !current.id) return Promise.resolve({ ok: false });
-          return fetchJsonUrl(ROUTE2 + PROJECT_ACTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
-            if (data && data.ok === true) {
-              showToastRef.current(action === "drop" ? "\u9879\u76EE\u5DF2\u653E\u4E0B" : action === "pause" ? "\u5148\u6682\u505C" : "\u7EE7\u7EED\u505A");
-              return fetchJson(SELF_PATH).then((next) => {
-                setSelfStatus(normalizeSelfStatus(next));
-                return data;
-              }).catch(() => data);
-            }
-            showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
-            return data;
-          }).catch(() => {
-            showToastRef.current("\u9879\u76EE\u72B6\u6001\u6CA1\u53D8", "error");
-            return { ok: false };
-          });
-        }
-        function attentionAction(id, action, text) {
-          const payload = { action, id };
-          if (typeof text === "string" && text.length > 0) payload.text = text;
-          return fetchJsonUrl(ROUTE2 + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
-            if (data && data.ok === true) {
-              showToastRef.current(action === "send" ? "\u5DF2\u53D1\u51FA\u53BB" : "\u5148\u538B\u4E0B\u4E86");
-            } else {
-              showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
-            }
-            setAttentionRes((current) => ({ ...current, data: null }));
-            return data;
-          }).catch(() => {
-            showToastRef.current("\u6CA1\u53D1\u51FA\u53BB", "error");
-            return { ok: false };
-          });
-        }
-        function setAttentionMode(mode) {
-          return fetchJsonUrl(ROUTE2 + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode }) }).then((data) => {
-            if (data && data.ok === true) {
-              showToastRef.current(data.mode === "auto" ? "\u4E3B\u52A8\u6D88\u606F\uFF1A\u81EA\u52A8" : "\u4E3B\u52A8\u6D88\u606F\uFF1A\u89C2\u5BDF\u4E2D");
-            }
-            return data;
-          }).catch(() => ({ ok: false }));
-        }
-        function backupMemory() {
-          return fetchJsonUrl(ROUTE2 + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
-            showToastRef.current("\u5DF2\u5907\u4EFD");
-            setMemoryTick((tick) => tick + 1);
-            return data;
-          }).catch(() => {
-            showToastRef.current("\u5907\u4EFD\u5931\u8D25", "error");
-            return { ok: false };
-          });
-        }
-        React.useEffect(() => () => {
-          const video = mascotVideoRef.current;
-          if (video && typeof video.pause === "function") {
-            try {
-              video.pause();
-            } catch (error) {
-            }
-          }
-        }, []);
-        function renderPanelTab() {
-          const api = {
-            settings: settingsRef.current,
-            updateSettings,
-            showToast,
-            hideWidget,
-            resetSettings,
-            poem,
-            todayPoemId: activeTodayPoemId,
-            poemItems,
-            poemsRes,
-            knowledgeRes,
-            yunRes,
-            ciRes,
-            reloadPoems,
-            reloadKnowledge,
-            reloadYun,
-            reloadCi,
-            retryBootstrap,
-            boot,
-            dateLabel,
-            dateSeed,
-            changePoem,
-            backToToday,
-            feihuaLaunch,
-            consumeFeihuaLaunch,
-            openFeihuaGame,
-            weatherRes,
-            weatherData,
-            weather,
-            weatherActive,
-            weatherChip,
-            weatherNote,
-            refreshWeather,
-            pulseMascot,
-            moodView,
-            moodRes,
-            moodChip,
-            moodChipTitle,
-            moodBasis,
-            moodSource,
-            moodAiFallback,
-            moodAiStale,
-            moodAiFailure,
-            moodAiFailureCode,
-            petVideoCount: petMediaRes.entries.length,
-            selfStatus,
-            memoryStatus,
-            healthStatus,
-            worksRes,
-            growthRes,
-            attentionRes,
-            attentionAction,
-            projectAction,
-            projectDetail,
-            twinRes,
-            loadProjectDetail,
-            setAttentionMode,
-            backupMemory,
-            refreshMoodNow,
-            previewSpontaneousPoem,
-            readAnotherSpontaneous,
-            recentSpoken: recentSpokenRef.current.slice(-5),
-            openPoetryModule,
-            poetryEntryEnabled: POETRY_ENTRY_ENABLED,
-            startPoetryTour,
-            openSettings: openSettingsPanel,
-            openPanel,
-            openPanelTab,
-            anthologyRes,
-            bankRes,
-            pingshuiRes,
-            reloadAnthology,
-            reloadBank,
-            reloadPingshui,
-            libraryFocus
-          };
-          if (panelTab !== "poetry") return h2(panelTabs.componentFor(panelTab), { api });
-          if (panelTab === "poetry") {
-            if (poetryTab === "poetry-settings") return h2(PoetrySettingsTab, { api });
-            if (poetryTab === "class") return h2(ClassTab, { api });
-            if (poetryTab === "yun") return h2(YunTab, { api });
-            if (poetryTab === "ci") return h2(CiTab, { api });
-            if (poetryTab === "library") return h2(LibraryTab, { api });
-            if (poetryTab === "feihua") return h2(FeihuaTab, { api });
-            return h2(TodayTab, { api });
-          }
-          return h2(GrowthTab, { api });
-        }
-        const stepContent = StepContent({
-          step,
-          poem,
-          weatherChip,
-          moodChip,
-          moodChipTitle,
-          weatherNote,
-          dateLabel,
-          settings,
-          boot,
-          poemsRes,
-          reloadPoems,
-          retryBootstrap,
-          knowledgeRes,
-          reloadKnowledge,
-          yunRes,
-          reloadYun,
-          ciRes,
-          reloadCi,
-          dateSeed,
-          feihuaIndex,
-          anthologyRes,
-          bankRes,
-          feihuaBuilding,
-          ciBankRes,
-          openFeihuaGame
-        });
-        const nodes = [h2("style", { key: "dshp-style" }, CSS2)];
-        if (settings.hidden) {
-          nodes.push(RestoreHotspotView({
-            handleRestorePointerDown,
-            handleRestorePointerUp,
-            restoreWidget
-          }));
-        } else {
-          nodes.push(MascotView({
-            settings,
-            step,
-            panelOpen,
-            weather,
-            moodView,
-            moodCatalog,
-            panelTab,
-            poetryTab,
-            mascotPulse,
-            mascotExpression,
-            dizzy,
-            mealActive,
-            motionFile,
-            wanderFile,
-            failedMascot,
-            mascotVideoRef,
-            handlePointerDown,
-            handlePointerMove,
-            handlePointerUp,
-            handlePointerCancel,
-            handleMascotKeyDown,
-            noteInteraction,
-            showMascotExpression,
-            pickMascotExpression,
-            setStep,
-            openPanel,
-            handleMascotMediaError
-          }));
-          const bubbleNode = BubbleView({
-            step,
-            panelOpen,
-            settings,
-            viewport,
-            pos,
-            mascotSize,
-            stepContent,
-            poem,
-            activeTodayPoemId,
-            changePoem,
-            backToToday,
-            advanceStep,
-            openPanel,
-            setStep
-          });
-          if (bubbleNode) nodes.push(bubbleNode);
-          const panelNode = PanelView({
-            panelOpen,
-            settings,
-            viewport,
-            pos,
-            mascotSize,
-            panelTab,
-            poetryTab,
-            boot,
-            panelTabs,
-            panelBody: renderPanelTab(),
-            setPanelOpen,
-            setPoetryTab,
-            openPanelTab,
-            startPoetryTour
-          });
-          if (panelNode) nodes.push(panelNode);
-          const toastNode = ToastView({ toast, pos, viewport });
-          if (toastNode) nodes.push(toastNode);
-          const spontNode = SpontView({
-            spontPoem,
-            settings,
-            panelOpen,
-            step,
-            spontPreview,
-            viewport,
-            pos,
-            mascotSize,
-            openSpontPoem,
-            readAnotherSpontaneous,
-            closeSpont
-          });
-          if (spontNode) nodes.push(spontNode);
-          const mealNode = MealTipView({ mealActive, viewport, pos, mascotSize });
-          if (mealNode) nodes.push(mealNode);
-        }
-        return WidgetRoot({ settings, pos, walking, mascotSize, nodes });
-      }
-      let poetryTabs = null;
-      function ensurePoetryTabs() {
-        if (poetryTabs === null) {
-          poetryTabs = createPoetryTabs({
-            React,
-            h: h2,
-            EmptyState,
-            LoadingState,
-            PoemBody,
-            AnalysisBody,
-            KnowledgeCardView,
-            describeDataError,
-            normalizeSettings,
-            cx,
-            switchNode,
-            num
-          });
-        }
-        return poetryTabs;
-      }
-      function TodayTab(props) {
-        return ensurePoetryTabs().TodayTab(props);
-      }
-      function ClassTab(props) {
-        return ensurePoetryTabs().ClassTab(props);
-      }
-      function YunTab(props) {
-        return ensurePoetryTabs().YunTab(props);
-      }
-      function CiTab(props) {
-        return ensurePoetryTabs().CiTab(props);
-      }
-      function PoetrySettingsTab(props) {
-        return ensurePoetryTabs().PoetrySettingsTab(props);
-      }
-      let settingsTabFactory = null;
-      function ensureSettingsTab() {
-        if (settingsTabFactory === null) {
-          settingsTabFactory = createSettingsTab({
-            React,
-            h: h2,
-            cx,
-            normalizeSettings,
-            num,
-            switchNode,
-            growthMetricsTree,
-            weatherChipText,
-            weatherUpdatedLabel,
-            moodBasisText,
-            moodAiFailureLabel
-          });
-        }
-        return settingsTabFactory;
-      }
-      function SettingsTab(props) {
-        return ensureSettingsTab()(props);
-      }
-      let growthTabFactory = null;
-      function ensureGrowthTab() {
-        if (growthTabFactory === null) {
-          growthTabFactory = createGrowthTab({
-            h: h2,
-            cx,
-            switchNode,
-            growthMetricsTree,
-            moodAiFailureLabel,
-            selfStatusSummary,
-            weatherUpdatedLabel
-          });
-        }
-        return growthTabFactory;
-      }
-      function GrowthTab(props) {
-        return ensureGrowthTab()(props);
-      }
-      let graphTabFactory = null;
-      function ensureGraphTab() {
-        if (graphTabFactory === null) {
-          graphTabFactory = createGraphTab({ React, h: h2 });
-        }
-        return graphTabFactory;
-      }
-      function GraphTab(props) {
-        return ensureGraphTab()(props);
-      }
-      let feihuaTabFactory = null;
-      function ensureFeihuaTab() {
-        if (feihuaTabFactory === null) {
-          feihuaTabFactory = createFeihuaTab({
-            React,
-            h: h2,
-            cx,
-            EmptyState,
-            LoadingState,
-            ToneLine,
-            detectionRhymeIndexes,
-            formatDetectionReport,
-            describeDataError,
-            getFeihuaIndex,
-            pickDefaultFeihuaChar,
-            feihuaSourceOf,
-            mergeFeihuaItems,
-            finishFeihuaIndex,
-            mergeFeihuaFullEntries,
-            requestFeihuaFull,
-            abortFeihuaFull,
-            readFeihuaFullCache,
-            readFeihuaBest,
-            writeFeihuaBest,
-            FEIHUA_ATLAS_PAGE,
-            FEIHUA_FULL_RETRY_MS
-          });
-        }
-        return feihuaTabFactory;
-      }
-      function FeihuaTab(props) {
-        return ensureFeihuaTab().FeihuaTab(props);
-      }
-      function DetectionView(props) {
-        return ensureFeihuaTab().DetectionView(props);
-      }
-      let libraryTabFactory = null;
-      function ensureLibraryTab() {
-        if (libraryTabFactory === null) {
-          libraryTabFactory = createLibraryTab({
-            React,
-            LIBRARY_CATEGORIES,
-            h: h2,
-            cx,
-            EmptyState,
-            LoadingState,
-            DetectionView,
-            ToneLine,
-            describeDataError,
-            Z_INDEX,
-            WIDGET_ID,
-            MASCOT_FILES,
-            mascotUrl: mascotUrl2,
-            detectPoem,
-            detectPoemText,
-            parsePoemInput,
-            buildPingshuiIndex
-          });
-        }
-        return libraryTabFactory;
-      }
-      function LibraryTab(props) {
-        return ensureLibraryTab().LibraryTab(props);
-      }
-      function WidgetBoundary(props) {
-        const Boundary = ensureLibraryTab().WidgetBoundary;
-        return h2(Boundary, null, props && props.children);
-      }
       function apply(ctx) {
-        const host = (props) => h2(WidgetBoundary, null, h2(PoetryWidget, Object.assign({}, props || {}, { ctx })));
+        const host = (props) => h3(WidgetBoundary, null, h3(PoetryWidget, Object.assign({}, props || {}, { ctx })));
         ctx.slots.inject("shell.overlay", () => ctx.slots.register(
           { name: "shell.overlay", id: WIDGET_ID, order: 80 },
           host
         ));
         try {
-          const TwinOverlay = createTwinOverlay({ h: h2, React });
+          const TwinOverlay = createTwinOverlay({ h: h3, React: React2 });
           ctx.slots.inject("shell.overlay", () => ctx.slots.register(
             { name: "shell.overlay", id: "dsh-little-whale-twin", order: 81 },
             TwinOverlay

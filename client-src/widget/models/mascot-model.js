@@ -336,7 +336,6 @@ import { ASSET_BASE, DIZZY_FAST_DISTANCE_PX, DIZZY_FAST_PX_PER_SEC, DIZZY_FAST_W
   return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS))
   }
 
-  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
 
 
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v3.0 客户端组件架构重构**：`client-src/widget-plugin.js`（4.8k 行单文件闭包）拆为 `client-src/widget/`：`register.js`（ModuleLoader/DEBUG/资源/overlay 注册）、`container.js`（容器组件：状态/effects/组合）、`hooks/`（settings/panel/weather/data/spont/self-status/mood/mascot/toast 九个 hook，共享实例级 refs + bridge）、`view/`（primitives、steps 六张卡、bubble/panel/mascot/spont/toast/meal/restore/widget-root，纯 props 视图）、`models/`（常量/工具/api/feihua/weather/mascot/mood/self/spont 纯逻辑）。`client-src/client.js` 仅 `import './widget/register.js'`；`globalThis.__dshPoetryDebug` 契约字段全部保留。测试 565/565、`npm run check` 0 失败。
 - **v0.4.0 客户端入口拆分**：`client-src/client.js` 从 5392 行降为 2 行（只加载 widget-plugin）；实现迁入 `client-src/widget-plugin.js`；并从其中抽出 `settings-model.js`（设置归一化/PUT/防抖）、`health-model.js`（health 快照归一化）、`poetry-engine.js`（平仄/格律/诗词检测，394 行）。测试 565/565。
 - **v0.3.1 跨域 facade 100%**：剩余 22 条跨域 import 一次性收掉——为 8 个域生成**窄 facade**（只导出跨域需要的符号，不 `export *`），并把 22 条引用切过去；顺手用 `memory/facade.mjs` 解掉最后一个 self-being↔memory 循环。依赖检查：82/82 走 facade（100%）、0 循环、0 分层违规；`check-deps` 把 `facade.mjs` 也计为 facade。测试 565/565、state:audit 通过。
 - **v0.3.0 P2 运行时面板**：成长页新增「运行时」区（模型调用/心跳拍数/24h 模型失败 + 各心跳任务的下次运行、上次耗时、错误数）；health 快照新增 nextAt/lastDurationMs/consecutiveErrors/skippedRuns；health.json 在成长 tab 时也轮询（60s）。测试 565/565。

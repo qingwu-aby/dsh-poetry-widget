@@ -7,7 +7,6 @@ export function useData(deps) {
   const React = getReact()
   const { useViewportSize, settings, useResource, boot, panelOpen, panelTab, step, poetryTab, resourceStore, weatherRes } = deps
   const { refs } = deps
-  const { } = refs
   const [ciBankWanted, setCiBankWanted] = React.useState(false)
   const viewport = useViewportSize()
   const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale))

@@ -5,18 +5,11 @@ import { FEIHUA_BEST_KEY, FEIHUA_FULL_PATH, FEIHUA_FULL_RETRY_MS, FEIHUA_FULL_TI
 
   let feihuaIndexCache = { poems: null, ci: null, index: null }
 
-  /**
-
-  */
-  /** 把一条目的 lines 先拼成连续文本，再按 。！？ 切成完整句（保留标点、去空、纯字<5 丢）。 */
-  
-  /** 去空白与各种标点，用于自由输入的宽松匹配。 */
   
   
-  /** 自由输入校验：先小句精确，再整句精确，最后长度≥5 时包含扫描。 */
   
   
-  /** 把全量校验分片 [句子,出处] 并入当前索引：只注册当前令字，去重、补 plain/clause。 */
+  
   
   let feihuaFullCache = {}
   let feihuaFullInflight = {}
@@ -118,11 +111,8 @@ import { FEIHUA_BEST_KEY, FEIHUA_FULL_PATH, FEIHUA_FULL_RETRY_MS, FEIHUA_FULL_TI
   return item.promise
   }
 
-  /** 词句来源文本：作者《标题》/ 词牌。 */
   
-  /** 把一批诗/词条目并入已建索引（分片异步构建用；按句去重，不计入性能关键路径）。 */
   
-  /** 收尾：按句数重算候选令字（合并完成后调用）。 */
   
   /** 索引按数据对象引用缓存：换数据（dataVersion 变化）时 clearResourceCache 会一并作废。 */
   export function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
@@ -159,9 +149,7 @@ import { FEIHUA_BEST_KEY, FEIHUA_FULL_PATH, FEIHUA_FULL_RETRY_MS, FEIHUA_FULL_TI
   
   
   
-  /** 开局：系统先出一句含令字的诗，player 自由输入对句。 */
   
-  /** 自由输入提交：校验出处（本地句库）、含令字、本局未重复。 */
     
   
   export function readFeihuaBest() {

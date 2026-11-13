@@ -35,9 +35,6 @@ import { ASSET_BASE, MASCOT_DIR, MASCOT_FILES, WEATHER_CATEGORY_TAGS, WEATHER_EX
   return hits
   }
 
-  /**
-
-  */
   export function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
   const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT))
   const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === 'string' && tag.length > 0)
