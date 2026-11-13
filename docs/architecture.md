@@ -129,3 +129,21 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - 剩余 22 条跨域 import 全部切到窄 facade；最后一个 `self-being ↔ memory` 环用 `memory/facade.mjs` 解开。
 - 结果：跨域依赖 82 条，82 条走 facade（100%）；模块 178 个，0 循环、0 分层违规。
 - `check-deps` 的 facade 判定同时接受 `index.mjs` 与 `facade.mjs`。
+
+## 客户端组件架构（v0.5.0）
+
+```
+client-src/client.js (2 行)
+client-src/widget/
+  register.js      # ModuleLoader 注册、runtime 装配、DEBUG 契约、overlay 注册
+  container.js     # 容器：跨域状态/effects/事件/组合（~950 行）
+  runtime.js       # React/createElement 运行时桥
+  tabs.js          # 面板 tab 惰性工厂
+  hooks/           # 9 个 hook：settings/panel/weather/data/spont/self-status/mood/mascot/toast
+  view/            # 纯 props 视图：primitives、bubble、panel、mascot、spont、toast、steps/…
+  models/          # 纯逻辑：constants/utils/api/feihua/weather/mascot/mood/self/spont
+```
+
+- 视图函数纯 props-in/element-out，不读 localStorage/fetch；数据/网络/持久化在 models/hooks。
+- 既有 `settings-model.js`、`health-model.js`、`poetry-engine.js` 保留在 `client-src/` 根并继续被引用。
+- `globalThis.__dshPoetryDebug` 全量保留，客户端测试 565/565。
