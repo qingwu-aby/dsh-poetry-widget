@@ -328,6 +328,27 @@ import {
  fetchJson,
  putSettings,
 } from "./widget/models/api.js"
+import { setRuntime } from './widget/runtime.js'
+import {
+  AnalysisBody,
+  CiBody,
+  EmptyState,
+  KnowledgeCardView,
+  LoadingState,
+  PoemBody,
+  ToneLine,
+  growthMetricsTree,
+  switchNode,
+} from './widget/view/primitives.js'
+import { BubbleView } from './widget/view/bubble-view.js'
+import { MascotView } from './widget/view/mascot-view.js'
+import { MealTipView } from './widget/view/meal-tip.js'
+import { PanelView } from './widget/view/panel-view.js'
+import { RestoreHotspotView } from './widget/view/restore-hotspot.js'
+import { SpontView } from './widget/view/spont-view.js'
+import { ToastView } from './widget/view/toast-view.js'
+import { WidgetRoot } from './widget/view/widget-root.js'
+import { StepContent } from './widget/view/steps/index.js'
 
 /**
  * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
@@ -359,52 +380,7 @@ window.__ModuleLoader__.load({
   throw new Error('dsh-little-whale: React 运行时不可用')
   }
   const h = React.createElement
-  /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
-  function switchNode(checked, onChange, label) {
-  return h('button', {
-   type: 'button',
-   role: 'switch',
-   'aria-checked': checked === true,
-   'aria-label': label,
-   className: cx('dshp-switch', checked === true && 'dshp-is-on'),
-   onClick: onChange,
-  })
-  }
-
-  /** 她此刻的状态（SettingsTab 与 GrowthTab 共用）：一句话 + 事实时间线，没有分数。 */
-  function growthMetricsTree(status) {
-  const felt = status && typeof status.felt === 'string' ? status.felt : ''
-  const context = status && Array.isArray(status.context) ? status.context : []
-  return h(
-   'div',
-   { className: 'dshp-self-being' },
-   h('div', { className: 'dshp-self-felt' }, felt || '还没想好自己此刻是什么感觉。'),
-   context.length > 0
-    ? h(
-       'div',
-       { className: 'dshp-self-context' },
-       context.map((line, index) => h('div', { className: 'dshp-self-context-line', key: 'ctx-' + index }, line)),
-      )
-    : null,
-   h('div', { className: 'dshp-self-summary' }, selfStatusSummary(status) || '尚未开始'),
-  )
-  }
-
-  /** 自动刷新前的短暂提示延时 300–800ms。 */
-
-  /** 模型心情失败后的自动重试延时 12–25s。 */
-
-  /** 失败时是否保留上一次模型心情：当前是模型来源且距上次成功 <30min。 */
-
-  /** 归一化失败原因，便于设置页显示。 */
-
-
-  /** 事件触发请求距上次请求开始  /** 事件触发请求距上次请求开始不足 20s 时，延后到剩余时间（合并事件）。 */
-
-  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */  /** 时段/饭点桶：用于触发实时心情（不依赖定时器）。 */
-
-
-
+  setRuntime({ React, h })
 
   const resourceStore = createResourceStore({
     fetchJsonUrl,
@@ -418,7 +394,6 @@ window.__ModuleLoader__.load({
   })
   const { useViewportSize, useResource } = createHooks({ React, resourceStore })
   const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab })
-  /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
   const DEBUG = {
   ROUTE,
   ASSET_BASE,
@@ -509,133 +484,6 @@ window.__ModuleLoader__.load({
   /**
 
   */
-  function LoadingState(props) {
-  return h(
-   'div',
-   { className: 'dshp-loading' },
-   h('span', { className: 'dshp-spinner', 'aria-hidden': 'true' }),
-   h('span', null, (props && props.text) || '正在载入…'),
-  )
-  }
-
-  function EmptyState(props) {
-  const options = props || {}
-  return h(
-   'div',
-   { className: 'dshp-empty' },
-   h('div', { className: 'dshp-empty-icon', 'aria-hidden': 'true' }, options.icon || '📜'),
-   h('div', { className: 'dshp-empty-title' }, options.title || '暂时没有内容'),
-   h('div', { className: 'dshp-empty-msg' }, options.message || '请稍后重试'),
-   options.onRetry
-    ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-primary', onClick: options.onRetry }, options.retryLabel || '重试')
-    : null,
-  )
-  }
-
-  function Legend() {
-  return h(
-   'div',
-   { className: 'dshp-legend', 'aria-label': '平仄图例' },
-   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-ping)' } }), '平'),
-   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-ze)' } }), '仄'),
-   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-dot', style: { background: 'var(--dshp-any)' } }), '多音'),
-   h('span', { className: 'dshp-legend-item' }, h('span', { className: 'dshp-legend-line' }), '韵脚'),
-  )
-  }
-
-  function ToneLine(props) {
-  const cells = buildToneCells(props.line, props.tones, {
-   showTones: props.showTones !== false,
-   rhymeLine: props.rhyme === true,
-  })
-  return h(
-   'div',
-   { className: 'dshp-line' },
-   cells.map((cell, index) => h(
-    'span',
-    {
-    key: index,
-    className: cell.className,
-    title: cell.punctuation ? undefined : (cell.tone || ''),
-    },
-    cell.tone ? h('span', { className: 'dshp-tone', 'aria-hidden': 'true' }, cell.tone) : null,
-    h('span', { className: 'dshp-chr' }, cell.ch),
-   )),
-  )
-  }
-
-  function PoemBody(props) {
-  if (!props.poem) return null
-  const text = selectPoemText(props.poem, props.script)
-  const rhymeLines = poemRhymeLines(props.poem)
-  return h(
-   'div',
-   { className: 'dshp-poem' },
-   h('div', { className: 'dshp-poem-title' }, text.title || '无题'),
-   text.author ? h('div', { className: 'dshp-poem-author' }, text.author) : null,
-   h(
-    'div',
-    { className: 'dshp-poem-lines' },
-    text.lines.map((line, index) => h(ToneLine, {
-    key: index,
-    line,
-    tones: Array.isArray(props.poem.tones) ? props.poem.tones[index] : '',
-    rhyme: rhymeLines.indexOf(index) >= 0,
-    showTones: props.showTones !== false,
-    })),
-   ),
-   props.showTones !== false ? h(Legend) : null,
-  )
-  }
-
-  function AnalysisBody(props) {
-  const poem = props.poem || {}
-  const rhymeLines = poemRhymeLines(poem).map((index) => '第 ' + (index + 1) + ' 句')
-  const firstRhyme = poem.firstRhyme === true ? '是' : (poem.firstRhyme === false ? '否' : '—')
-  return h(
-   'div',
-   { className: 'dshp-analysis' },
-   h(
-    'div',
-    { className: 'dshp-tags' },
-    h('span', { className: 'dshp-tag' }, '体式：' + (poem.form || '—')),
-    h('span', { className: 'dshp-tag' }, '起式：' + (poem.start || '—')),
-    h('span', { className: 'dshp-tag' }, '首句入韵：' + firstRhyme),
-   ),
-   h(
-    'div',
-    { className: 'dshp-kv' },
-    h('span', { className: 'dshp-kv-key' }, '标准格式'),
-    h('span', { className: 'dshp-kv-val' }, poem.meter || '—'),
-   ),
-   h(
-    'div',
-    { className: 'dshp-analysis-text dshp-block' },
-    poem.analysis ? String(poem.analysis) : '暂无解析文本。',
-   ),
-   rhymeLines.length
-    ? h(
-    'div',
-    { className: 'dshp-kv' },
-    h('span', { className: 'dshp-kv-key' }, '入韵句'),
-    h('span', { className: 'dshp-kv-val' }, rhymeLines.join('、')),
-    )
-    : null,
-  )
-  }
-
-  function CiBody(props) {
-  const ci = props.ci
-  if (!ci) return null
-  const text = selectCiText(ci)
-  return h(
-   'div',
-   { className: 'dshp-poem' },
-   h('div', { className: 'dshp-poem-title' }, text.title || '无题'),
-   text.author ? h('div', { className: 'dshp-poem-author' }, text.author) : null,
-   h('div', { className: 'dshp-ci-lines' }, text.lines.map((line, index) => h('div', { key: index }, line))),
-  )
-  }
   function PoetryWidget(props) {
   const ctx = props && props.ctx
   const cacheRef = React.useRef(null)
@@ -2209,452 +2057,7 @@ window.__ModuleLoader__.load({
   const dateSeed = (boot.data && boot.data.today && boot.data.today.date) || ''
   const dateLabel = formatDateLabel(dateSeed)
 
-  function renderPoemFallback() {
-   if (boot.status === 'error') {
-    return h(EmptyState, {
-    title: '诗词数据尚未就绪',
-    message: describeDataError(boot.error),
-    onRetry: retryBootstrap,
-    })
-   }
-   if (poemsRes.status === 'error') {
-    return h(EmptyState, {
-    title: '今日一诗暂时不可用',
-    message: describeDataError(poemsRes.error),
-    onRetry: () => reloadPoems().catch(() => {}),
-    })
-   }
-   return h(LoadingState, { text: '正在载入今日一诗…' })
-  }
-
-  function renderPoemStep() {
-   if (poem) {
-    return h(
-    'div',
-    null,
-    weatherChip || moodChip
-     ? h(
-      'div',
-      { className: 'dshp-weather' },
-      h(
-      'div',
-      { className: 'dshp-chip-row' },
-      weatherChip ? h('span', { className: 'dshp-weather-chip' }, weatherChip) : null,
-      moodChip ? h('span', { className: 'dshp-weather-chip dshp-mood-chip', title: moodChipTitle }, moodChip) : null,
-      ),
-      weatherNote ? h('div', { className: 'dshp-weather-note' }, weatherNote) : null,
-     )
-     : null,
-    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px', textAlign: 'center', marginBottom: '2px' } }, '今日一诗 · ' + dateLabel),
-    h(PoemBody, { poem, script: settings.script, showTones: settings.showTones }),
-    )
-   }
-   return renderPoemFallback()
-  }
-
-  function renderAnalysisStep() {
-   if (!poem) return renderPoemFallback()
-   return h(
-    'div',
-    null,
-    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px', textAlign: 'center', marginBottom: '4px' } }, (poem.title || '这首诗') + ' · 格律解析'),
-    h(AnalysisBody, { poem }),
-   )
-  }
-
-  function renderKnowledgeStep() {
-   const resource = knowledgeRes
-   if (resource.status === 'error') {
-    return h(EmptyState, {
-    title: '格律知识卡暂时不可用',
-    message: describeDataError(resource.error),
-    onRetry: () => reloadKnowledge().catch(() => {}),
-    })
-   }
-   const cards = resource.data && Array.isArray(resource.data.cards) ? resource.data.cards : []
-   if (!cards.length) {
-    if (resource.status === 'ready') {
-    return h(EmptyState, {
-     title: '知识卡尚未就绪',
-     message: '数据文件中还没有课堂内容，稍后再来看看。',
-     onRetry: () => reloadKnowledge().catch(() => {}),
-    })
-    }
-    return h(LoadingState, { text: '正在载入格律知识卡…' })
-   }
-   const index = Math.abs(hashString(dateSeed + '|knowledge')) % cards.length
-   return h(
-    'div',
-    null,
-    h('div', { className: 'dshp-card-summary', style: { marginBottom: '6px' } }, '今日知识卡 · 第 ' + (index + 1) + ' / ' + cards.length + ' 张'),
-    h(KnowledgeCardView, { card: cards[index] }),
-   )
-  }
-
-  function renderYunStep() {
-   const resource = yunRes
-   if (resource.status === 'error') {
-    return h(EmptyState, {
-    title: '韵部数据暂时不可用',
-    message: describeDataError(resource.error),
-    onRetry: () => reloadYun().catch(() => {}),
-    })
-   }
-   const volumes = resource.data && Array.isArray(resource.data.volumes) ? resource.data.volumes : []
-   const chapters = []
-   volumes.forEach((volume) => {
-    const list = volume && Array.isArray(volume.chapters) ? volume.chapters : []
-    list.forEach((chapter) => chapters.push({ volume: volume.title, chapter }))
-   })
-   if (!chapters.length) {
-    if (resource.status === 'ready') {
-    return h(EmptyState, {
-     title: '韵部尚未就绪',
-     message: '声律启蒙数据还不完整，稍后再试。',
-     onRetry: () => reloadYun().catch(() => {}),
-    })
-    }
-    return h(LoadingState, { text: '正在载入声律启蒙…' })
-   }
-   const index = Math.abs(hashString(dateSeed + '|yun')) % chapters.length
-   const picked = chapters[index]
-   const chapter = picked.chapter || {}
-   return h(
-    'div',
-    { className: 'dshp-card' },
-    h('div', { className: 'dshp-card-summary' }, '声律启蒙 · ' + (picked.volume || '') + ' · 第 ' + (index + 1) + ' / ' + chapters.length + ' 韵部'),
-    h('div', { className: 'dshp-card-title' }, String(chapter.name || '韵部')),
-    chapter.exampleLine
-    ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(chapter.exampleLine)))
-    : (Array.isArray(chapter.paragraphs) && chapter.paragraphs.length
-     ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-text' }, String(chapter.paragraphs[0])))
-     : null),
-    Array.isArray(chapter.exampleChars) && chapter.exampleChars.length
-    ? h('div', { className: 'dshp-tags' }, chapter.exampleChars.map((ch, i) => h('span', { key: i, className: 'dshp-tag' }, String(ch))))
-    : null,
-    h('div', { className: 'dshp-muted', style: { fontSize: '11.5px' } }, '韵部例字仅作教学示例，不构成完整韵表。'),
-   )
-  }
-
-  function renderCiStep() {
-   const knowledge = knowledgeRes
-   if (knowledge.status === 'error') {
-    return h(EmptyState, {
-    title: '词牌数据暂时不可用',
-    message: describeDataError(knowledge.error),
-    onRetry: () => reloadKnowledge().catch(() => {}),
-    })
-   }
-   if (ciRes.status === 'error') {
-    return h(EmptyState, {
-    title: '名篇词暂时不可用',
-    message: describeDataError(ciRes.error),
-    onRetry: () => reloadCi().catch(() => {}),
-    })
-   }
-   const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : []
-   if (!ciCards.length) {
-    if (knowledge.status === 'ready') {
-    return h(EmptyState, {
-     title: '词牌卡尚未就绪',
-     message: '数据文件中还没有词牌内容，稍后再试。',
-     onRetry: () => reloadKnowledge().catch(() => {}),
-    })
-    }
-    return h(LoadingState, { text: '正在载入词牌…' })
-   }
-   const index = Math.abs(hashString(dateSeed + '|ci')) % ciCards.length
-   const card = ciCards[index] || {}
-   const ciItems = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : []
-   const matched = ciItems.filter((item) => item && item.rhythmic && item.rhythmic === card.name)
-   const ci = matched.length
-    ? matched[Math.abs(hashString(dateSeed + '|ciname')) % matched.length]
-    : (ciItems.length ? ciItems[Math.abs(hashString(dateSeed + '|ciany')) % ciItems.length] : null)
-   const meta = h(
-    'div',
-    { className: 'dshp-card' },
-    h('div', { className: 'dshp-card-summary' }, '词牌名篇 · 第 ' + (index + 1) + ' / ' + ciCards.length + ' 个词牌'),
-    h(
-    'div',
-    { className: 'dshp-card-title' },
-    String(card.name || '词牌'),
-    Array.isArray(card.aliases) && card.aliases.length
-     ? h('span', { className: 'dshp-muted', style: { fontSize: '11.5px', fontWeight: 400 } }, '（' + card.aliases.join('、') + '）')
-     : null,
-    ),
-    card.form
-    ? h('div', { className: 'dshp-p dshp-muted' }, String(card.form) + (card.rhyme ? ' · ' + String(card.rhyme) : ''))
-    : null,
-    card.example
-    ? h('div', { className: 'dshp-example' }, h('div', { className: 'dshp-example-note' }, '代表名句'), h('div', { className: 'dshp-example-text' }, String(card.example)))
-    : null,
-   )
-   if (!ci) {
-    return h(
-    'div',
-    null,
-    meta,
-    ciRes.status === 'ready'
-     ? h('div', { className: 'dshp-empty-msg', style: { marginTop: '8px' } }, '名篇词暂时没有匹配到这一词牌。')
-     : h(LoadingState, { text: '正在载入名篇词…' }),
-    )
-   }
-   return h('div', null, meta, h('div', { className: 'dshp-subtitle' }, '名篇词'), h(CiBody, { ci }))
-  }
-
-  function renderStepContent() {
-   if (step === 0) return renderPoemStep()
-   if (step === 1) return renderAnalysisStep()
-   if (step === 2) return renderKnowledgeStep()
-   if (step === 3) return renderYunStep()
-   if (step === 4) return renderCiStep()
-   return renderFeihuaStep()
-  }
-
   /** 气泡第 6 张卡：飞花令入口（今日令字 + 句数 + 历史最佳 + 来一局）。 */
-  function renderFeihuaStep() {
-   if (poemsRes.status === 'error' || ciRes.status === 'error') {
-    const failed = poemsRes.status === 'error' ? poemsRes : ciRes
-    const retry = poemsRes.status === 'error' ? reloadPoems : reloadCi
-    return h(EmptyState, {
-    title: '飞花令句库暂时不可用',
-    message: describeDataError(failed.error),
-    onRetry: () => retry().catch(() => {}),
-    })
-   }
-   const index = feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data)
-   if (!index || !ciRes.data) return h(LoadingState, { text: '正在载入飞花令句库…' })
-   const char = pickDefaultFeihuaChar(index, poem)
-   const count = (index.byChar[char] || []).length
-   const best = readFeihuaBest()
-   const charBest = best.chars[char] || 0
-   return h(
-    'div',
-    { className: 'dshp-card' },
-    h('div', { className: 'dshp-card-summary' }, '飞花令 · 对句'),
-    h(
-    'div',
-    { className: 'dshp-fh-meta' },
-    h('span', null, '今日令字 ', h('b', null, '「' + char + '」')),
-    h('span', null, '句库 ', h('b', null, String(count)), ' 句'),
-    h('span', null, '历史最佳 ', h('b', null, String(best.overall)), ' 分'),
-    ),
-    h('div', { className: 'dshp-block' }, '系统先出含令字的诗句，你输入一句：有出处、含令字、本局不重复就算接上。'),
-    feihuaBuilding || (ciBankRes.status === 'loading') ? h('div', { className: 'dshp-lib-note' }, '正在并入宋词全库…') : null,
-    ciBankRes.status === 'error' ? h('div', { className: 'dshp-lib-note' }, '宋词全库加载失败，已回退原句库') : null,
-    count
-    ? h(
-     'div',
-     { className: 'dshp-fh-actions' },
-     h('button', {
-      type: 'button',
-      className: 'dshp-btn dshp-btn-primary',
-      onClick: (event) => {
-      event.stopPropagation()
-      openFeihuaGame()
-      },
-     }, '来一局'),
-     h('span', { className: 'dshp-pager-label' }, '本字最佳 ' + charBest + ' 分'),
-    )
-    : h('div', { className: 'dshp-empty-msg', style: { marginTop: '8px' } }, '这一字暂时没有句子，换一个令字试试。'),
-   )
-  }
-
-  function renderBubbleFooter() {
-   if (step < 0) return null
-   const buttons = []
-   if (step === 0) {
-    buttons.push(h('button', {
-    key: 'next',
-    type: 'button',
-    className: 'dshp-btn dshp-btn-primary',
-    onClick: changePoem,
-    title: settings.mode === 'random' ? '随机换一首' : '每日模式：回到今日，再点翻下一首',
-    }, '换一首'))
-    if (poem && activeTodayPoemId && poem.id !== activeTodayPoemId) {
-    buttons.push(h('button', { key: 'today', type: 'button', className: 'dshp-link', onClick: backToToday }, '回到今日'))
-    }
-   } else {
-    buttons.push(h('button', {
-    key: 'next',
-    type: 'button',
-    className: 'dshp-btn dshp-btn-primary',
-    onClick: advanceStep,
-    }, step >= STEPS.length - 1 ? '收起' : '下一条'))
-   }
-   buttons.push(h('span', { key: 'spacer', className: 'dshp-spacer' }))
-   buttons.push(h('button', {
-    key: 'panel',
-    type: 'button',
-    className: 'dshp-btn',
-    onClick: () => openPanel(['today', 'today', 'class', 'yun', 'ci', 'feihua'][step] || 'today'),
-   }, '展开面板'))
-   return h('div', { className: 'dshp-bubble-foot' }, buttons)
-  }
-
-  function renderBubble() {
-   if (step < 0 || panelOpen || settings.hidden) return null
-   const width = Math.min(304, viewport.w - 16)
-   const placeAbove = pos.y > Math.min(300, viewport.h * 0.45)
-   const available = placeAbove
-    ? Math.max(140, pos.y - 20)
-    : Math.max(140, viewport.h - pos.y - mascotSize - 20)
-   const bodyMax = Math.max(120, Math.min(380, available - 96))
-   let left = pos.x + mascotSize / 2 - width / 2
-   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
-   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
-   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
-   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
-   return h(
-    'div',
-    { key: 'bubble', className: 'dshp-bubble', style, role: 'dialog', 'aria-label': STEPS[step] || '诗词气泡' },
-    h(
-    'div',
-    { className: 'dshp-bubble-head' },
-    h(
-     'span',
-     { className: 'dshp-bubble-title' },
-     h('span', { className: 'dshp-bubble-step-name' }, STEPS[step] || '诗词'),
-     h('span', { className: 'dshp-progress', 'aria-hidden': 'true' }, (step + 1) + ' / ' + STEPS.length),
-     h(
-      'span',
-      { className: 'dshp-dots', role: 'group', 'aria-label': '切换到指定卡片' },
-      STEPS.map((label, index) => h('button', {
-      key: label,
-      type: 'button',
-      className: cx('dshp-dot', index === step && 'dshp-is-active'),
-      title: label,
-      'aria-label': '切换到第 ' + (index + 1) + ' 张：' + label,
-      'aria-current': index === step ? 'step' : undefined,
-      onClick: (event) => {
-       event.stopPropagation()
-       setStep(index)
-      },
-      })),
-      h('button', {
-      key: 'collapse',
-      type: 'button',
-      className: 'dshp-dot dshp-dot-collapse',
-      title: '收起气泡',
-      'aria-label': '收起气泡',
-      onClick: (event) => {
-       event.stopPropagation()
-       setStep(-1)
-      },
-      }),
-     ),
-    ),
-    h('button', {
-     type: 'button',
-     className: 'dshp-icon-btn',
-     title: '收起气泡',
-     'aria-label': '收起气泡',
-     onClick: () => setStep(-1),
-    }, '×'),
-    ),
-    h('div', { className: 'dshp-bubble-body', style: { maxHeight: Math.round(bodyMax) + 'px' } }, renderStepContent()),
-    renderBubbleFooter(),
-   )
-  }
-
-  function renderSpontPoem() {
-   if (!spontPoem || settings.hidden || (panelOpen && !spontPreview) || (!spontPreview && step >= 0)) return null
-   const width = Math.min(288, viewport.w - 16)
-   let left = pos.x + mascotSize / 2 - width / 2
-   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
-   const placeAbove = pos.y > Math.min(280, viewport.h * 0.45)
-   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
-   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
-   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
-   if (spontPoem.type === 'thinking') {
-    return h(
-     'div',
-     { key: 'spont', className: 'dshp-spont', style, role: 'status', 'aria-live': 'polite' },
-     h('div', { className: 'dshp-spont-title' }, '它正在想…'),
-     h('div', { className: 'dshp-spont-thinking' }, '稍等一下下…'),
-     h(
-      'div',
-      { className: 'dshp-spont-actions' },
-      h('button', {
-       type: 'button',
-       className: 'dshp-btn dshp-btn-small',
-       onClick: (event) => {
-        event.stopPropagation()
-        spontReqRef.current += 1
-        selfTalkNoveltyRef.current = { signature: '', at: 0 }
-        setSpontPreview(false)
-        setSpontPoem(null)
-       },
-      }, '关闭'),
-     ),
-    )
-   }
-   const isPoemCard = spontPoem.type !== 'murmur'
-   const sentenceProps = { className: 'dshp-spont-sentence' }
-   if (isPoemCard) {
-    sentenceProps.role = 'button'
-    sentenceProps.tabIndex = 0
-    sentenceProps.title = '在面板里查看整首'
-    sentenceProps.onClick = (event) => {
-     event.stopPropagation()
-     openSpontPoem()
-    }
-    sentenceProps.onKeyDown = (event) => {
-     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
-      event.preventDefault()
-      openSpontPoem()
-     }
-    }
-   }
-   return h(
-    'div',
-    { key: 'spont', className: 'dshp-spont', style, role: 'status', 'aria-live': 'polite' },
-    h('div', { className: 'dshp-spont-title' }, spontPoem.tag === 'action' ? '自己' : '它说：'),
-    spontPoem.type === 'hybrid' && spontPoem.prefix
-     ? h('div', { className: 'dshp-spont-prefix' }, String(spontPoem.prefix))
-     : null,
-    h('div', sentenceProps, String(spontPoem.line || '')),
-    isPoemCard && spontPoem.label
-     ? h('div', { className: 'dshp-spont-source' }, '—— ' + spontPoem.label)
-     : null,
-    h(
-    'div',
-    { className: 'dshp-spont-actions' },
-    h('button', {
-     type: 'button',
-     className: 'dshp-btn dshp-btn-small',
-     onClick: (event) => {
-      event.stopPropagation()
-      readAnotherSpontaneous()
-     },
-    }, '再说一句'),
-    h('button', {
-     type: 'button',
-     className: 'dshp-btn dshp-btn-small',
-     onClick: (event) => {
-      event.stopPropagation()
-      spontReqRef.current += 1
-      selfTalkNoveltyRef.current = { signature: '', at: 0 }
-      setSpontPreview(false)
-      setSpontPoem(null)
-     },
-    }, '关闭'),
-    ),
-   )
-  }
-  function renderToast() {
-   if (!toast) return null
-   const left = clamp(pos.x, 8, Math.max(8, viewport.w - 280))
-   const top = clamp(pos.y - 44, 8, Math.max(8, viewport.h - 72))
-   return h('div', {
-    key: 'toast',
-    className: cx('dshp-toast', toast.kind === 'error' && 'dshp-is-error'),
-    role: 'status',
-    'aria-live': 'polite',
-    style: { left: Math.round(left) + 'px', top: Math.round(top) + 'px' },
-   }, toast.text)
-  }
-
   function clearMotionTimers() {
    if (motionDelayTimerRef.current) {
     clearTimeout(motionDelayTimerRef.current)
@@ -3181,130 +2584,6 @@ window.__ModuleLoader__.load({
    }
   }, [])
 
-  function renderMascot() {
-   const showHint = !settings.tutorialSeen && step < 0 && !panelOpen
-   const weatherOn = settings.weatherPoem || settings.mood
-   const imageInfo = mascotImageFor({
-    weatherStateKey: mascotStateFor(weather, weatherOn),
-    weatherEnabled: weatherOn,
-    moodEnabled: settings.mood,
-    mood: moodView,
-   })
-   const pulseFile = mascotPulse && MASCOT_FILES[mascotPulse] ? MASCOT_FILES[mascotPulse] : ''
-   const expressionFile = mascotExpression && MASCOT_EXPRESSION_FILES.indexOf(mascotExpression) >= 0 ? mascotExpression : ''
-   const panelFile = panelOpen ? panelPeekFile(moodCatalog, panelTab === 'poetry' ? poetryTab : panelTab) : ''
-   const dizzyFile = dizzy && dizzy.file ? dizzy.file : ''
-   const mealFile = mealActive && mealActive.file ? mealActive.file : ''
-   const motionVideoFile = motionFile && isVideoMoodFile(motionFile) ? motionFile : ''
-   const wanderMediaFile = wanderFile && (isVideoMoodFile(wanderFile) || wanderFile === WANDER_STATIC_FILE) ? wanderFile : ''
-   const stateKey = pulseFile ? mascotPulse : panelFile ? 'peek:' + panelTab : dizzyFile ? 'dizzy:' + dizzyFile : mealFile ? 'meal:' + mealFile : expressionFile ? 'egg:' + expressionFile : wanderMediaFile ? 'wander:' + wanderMediaFile : motionVideoFile ? 'motion:' + motionVideoFile : imageInfo.stateKey
-   const desiredFile = mascotFilePriority({ pulseFile, panelFile, dizzyFile, mealFile, expressionFile, wanderFile: wanderMediaFile, motionFile: motionVideoFile, moodFile: imageInfo.file })
-   const mascotFile = failedMascot && failedMascot === desiredFile ? MASCOT_FILES.celebrate : desiredFile
-   return h(
-    'div',
-    {
-    key: 'mascot',
-    className: cx('dshp-stage', dizzy && 'dshp-dizzy'),
-    role: 'button',
-    tabIndex: 0,
-    'aria-label': '小鲸鱼：点击看看她，可拖动',
-    title: '点击：今日一诗 · 拖动：移动 · 右键：设置',
-    onPointerDown: handlePointerDown,
-    onPointerMove: handlePointerMove,
-    onPointerUp: handlePointerUp,
-    onPointerCancel: handlePointerCancel,
-    onDoubleClick: (event) => {
-     if (event && typeof event.preventDefault === 'function') event.preventDefault()
-     noteInteraction()
-     showMascotExpression(pickMascotExpression())
-     setStep((current) => (current > 0 ? current - 2 : -1))
-    },
-    onKeyDown: handleMascotKeyDown,
-    onContextMenu: (event) => {
-     event.preventDefault()
-     openPanel('settings')
-    },
-    },
-    h(
-    'div',
-    { className: 'dshp-mascot', 'aria-hidden': 'true' },
-    isVideoMoodFile(mascotFile)
-    ? h('video', {
-     key: stateKey + '|' + mascotFile,
-     ref: mascotVideoRef,
-     className: 'dshp-mascot-video dshp-mascot-swap',
-     src: petMediaUrl(mascotFile),
-     autoPlay: true,
-     muted: true,
-     loop: true,
-     playsInline: true,
-     preload: 'auto',
-     'aria-hidden': 'true',
-     onError: () => handleMascotMediaError(desiredFile),
-    })
-    : h('img', {
-     key: stateKey,
-     className: 'dshp-mascot-img dshp-mascot-swap',
-     src: mascotUrl(mascotFile),
-     alt: '',
-     draggable: false,
-     loading: 'lazy',
-     decoding: 'async',
-     onError: () => handleMascotMediaError(desiredFile),
-    }),
-    ),
-    dizzy ? h('div', { className: 'dshp-dizzy-stars', 'aria-hidden': 'true' }, '💫') : null,
-    dizzy ? h('div', { className: 'dshp-dizzy-tip' }, '别甩啦，头好晕…') : null,
-    showHint ? h('div', { className: 'dshp-tip' }, '点我看今日一诗') : null,
-   )
-  }
-
-  function renderMealTip() {
-   if (!mealActive) return null
-   const width = Math.min(288, viewport.w - 16)
-   let left = pos.x + mascotSize / 2 - width / 2
-   left = clamp(left, 8, Math.max(8, viewport.w - width - 8))
-   const style = { left: Math.round(left) + 'px', width: Math.round(width) + 'px' }
-   const placeAbove = pos.y > Math.min(280, viewport.h * 0.45)
-   if (placeAbove) style.bottom = Math.round(viewport.h - pos.y + 10) + 'px'
-   else style.top = Math.round(pos.y + mascotSize + 10) + 'px'
-   return h(
-    'div',
-    { key: 'meal', className: 'dshp-spont dshp-meal-tip', style, role: 'status', 'aria-live': 'polite' },
-    h('div', { className: 'dshp-spont-title' }, '到饭点啦'),
-    h('div', { className: 'dshp-spont-sentence' }, String(mealActive.text || '')),
-   )
-  }
-
-  function renderRestoreHotspot() {
-   return h(
-    'div',
-    {
-    key: 'restore',
-    className: 'dshp-restore',
-    role: 'button',
-    tabIndex: 0,
-    title: '双击空白处或长按这里恢复小鲸鱼',
-    'aria-label': '恢复小鲸鱼',
-    onPointerDown: handleRestorePointerDown,
-    onPointerUp: handleRestorePointerUp,
-    onPointerCancel: handleRestorePointerUp,
-    onDoubleClick: (event) => {
-     event.preventDefault()
-     event.stopPropagation()
-     restoreWidget()
-    },
-    onKeyDown: (event) => {
-     if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
-      event.preventDefault()
-      restoreWidget()
-     }
-    },
-    },
-    '诗',
-   )
-  }
-
   function renderPanelTab() {
    const api = {
     settings: settingsRef.current,
@@ -3395,156 +2674,134 @@ window.__ModuleLoader__.load({
    return h(GrowthTab, { api })
   }
 
-  function renderPanel() {
-   if (!panelOpen || settings.hidden) return null
-   const width = Math.min(420, viewport.w - 16)
-   const height = Math.min(560, viewport.h - 16)
-   let left = pos.x + mascotSize + 12
-   if (left + width > viewport.w - 8) left = pos.x - width - 12
-   if (left + width > viewport.w - 8) left = viewport.w - width - 8
-   left = Math.max(8, left)
-   let top = pos.y + mascotSize - height
-   top = clamp(top, 8, Math.max(8, viewport.h - height - 8))
-   return h(
-    'div',
-    {
-    key: 'panel',
-    className: 'dshp-panel',
-    role: 'dialog',
-    'aria-label': '鲸鱼娘的小角落成长面板',
-    style: { left: Math.round(left) + 'px', top: Math.round(top) + 'px' },
-    },
-    h(
-    'div',
-    { className: 'dshp-panel-head' },
-    h(
-     'div',
-     { className: 'dshp-panel-title' },
-     '鲸鱼娘的小角落',
-     h('small', null, panelTab === 'poetry'
-      ? '诗词与格律 · 二级菜单'
-      : '自驱成长中' + (boot.data && boot.data.dataVersion ? ' · 数据 ' + boot.data.dataVersion : '')),
-    ),
-    h('button', {
-     type: 'button',
-     className: 'dshp-icon-btn',
-     title: '关闭面板（Esc）',
-     'aria-label': '关闭面板',
-     onClick: () => setPanelOpen(false),
-    }, '×'),
-    ),
-    h(
-    'div',
-    { className: 'dshp-tabs', role: 'tablist' },
-    (panelTab === 'poetry' ? POETRY_TABS : panelTabs.tabs).map((tab) => h('button', {
-     key: tab.id,
-     type: 'button',
-     role: 'tab',
-     'aria-selected': panelTab === 'poetry' ? poetryTab === tab.id : panelTab === tab.id,
-     className: cx(
-      panelTab === 'poetry' ? 'dshp-subtab' : 'dshp-tab',
-      panelTab === 'poetry' ? null : 'dshp-primary-tab',
-      (panelTab === 'poetry' ? poetryTab === tab.id : panelTab === tab.id) && 'dshp-is-active',
-     ),
-     onClick: () => (panelTab === 'poetry' ? setPoetryTab(tab.id) : openPanelTab(tab.id)),
-    }, tab.label)),
-    ),
-    h('div', { className: 'dshp-panel-body' }, renderPanelTab()),
-    h(
-     'div',
-     { className: 'dshp-panel-foot' },
-     panelTab === 'poetry'
-      ? [
-       h('button', {
-        key: 'back',
-        type: 'button',
-        className: 'dshp-foot-link',
-        'aria-label': '返回成长',
-        title: '返回成长',
-        onClick: () => openPanelTab('growth'),
-       }, '← 返回成长'),
-       h('button', {
-        key: 'tour',
-        type: 'button',
-        className: 'dshp-foot-link dshp-foot-link-accent',
-        'aria-label': '逐页看诗笺',
-        title: '以诗笺气泡逐页看今日诗',
-        onClick: () => {
-         if (typeof startPoetryTour === 'function') startPoetryTour()
-        },
-       }, '逐页看诗笺'),
-      ]
-      : [
-       h('span', { key: 'hint', className: 'dshp-foot-hint' }, '更多'),
-       h('button', {
-        key: 'poetry',
-        type: 'button',
-        className: 'dshp-foot-link',
-        'aria-label': '打开诗词二级菜单',
-        title: '诗词与格律（二级菜单）',
-        onClick: () => openPanelTab('poetry'),
-       }, '诗词与格律 ›'),
-      ],
-    ),
-   )
+
+  /** 容器组合：把状态/回调装进 props，交给无 hooks 的视图函数。 */
+  function closeSpont(event) {
+   if (event && typeof event.stopPropagation === 'function') event.stopPropagation()
+   spontReqRef.current += 1
+   selfTalkNoveltyRef.current = { signature: '', at: 0 }
+   setSpontPreview(false)
+   setSpontPoem(null)
   }
 
-  const rootSize = settings.hidden ? 28 : mascotSize
-  const rootStyle = {
-   position: 'fixed',
-   left: Math.round(pos.x) + 'px',
-   top: Math.round(pos.y) + 'px',
-   transition: walking ? `left ${WANDER_WALK_MS}ms ease-in-out, top ${WANDER_WALK_MS}ms ease-in-out` : 'none',
-   width: rootSize + 'px',
-   height: rootSize + 'px',
-   zIndex: Z_INDEX,
-   pointerEvents: 'auto',
-   userSelect: 'none',
-  }
+  const stepContent = StepContent({
+   step,
+   poem,
+   weatherChip,
+   moodChip,
+   moodChipTitle,
+   weatherNote,
+   dateLabel,
+   settings,
+   boot,
+   poemsRes,
+   reloadPoems,
+   retryBootstrap,
+   knowledgeRes,
+   reloadKnowledge,
+   yunRes,
+   reloadYun,
+   ciRes,
+   reloadCi,
+   dateSeed,
+   feihuaIndex,
+   anthologyRes,
+   bankRes,
+   feihuaBuilding,
+   ciBankRes,
+   openFeihuaGame,
+  })
   const nodes = [h('style', { key: 'dshp-style' }, CSS)]
   if (settings.hidden) {
-   nodes.push(renderRestoreHotspot())
+   nodes.push(RestoreHotspotView({
+    handleRestorePointerDown,
+    handleRestorePointerUp,
+    restoreWidget,
+   }))
   } else {
-   nodes.push(renderMascot())
-   const bubbleNode = renderBubble()
+   nodes.push(MascotView({
+    settings,
+    step,
+    panelOpen,
+    weather,
+    moodView,
+    moodCatalog,
+    panelTab,
+    poetryTab,
+    mascotPulse,
+    mascotExpression,
+    dizzy,
+    mealActive,
+    motionFile,
+    wanderFile,
+    failedMascot,
+    mascotVideoRef,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+    handleMascotKeyDown,
+    noteInteraction,
+    showMascotExpression,
+    pickMascotExpression,
+    setStep,
+    openPanel,
+    handleMascotMediaError,
+   }))
+   const bubbleNode = BubbleView({
+    step,
+    panelOpen,
+    settings,
+    viewport,
+    pos,
+    mascotSize,
+    stepContent,
+    poem,
+    activeTodayPoemId,
+    changePoem,
+    backToToday,
+    advanceStep,
+    openPanel,
+    setStep,
+   })
    if (bubbleNode) nodes.push(bubbleNode)
-   const panelNode = renderPanel()
+   const panelNode = PanelView({
+    panelOpen,
+    settings,
+    viewport,
+    pos,
+    mascotSize,
+    panelTab,
+    poetryTab,
+    boot,
+    panelTabs,
+    panelBody: renderPanelTab(),
+    setPanelOpen,
+    setPoetryTab,
+    openPanelTab,
+    startPoetryTour,
+   })
    if (panelNode) nodes.push(panelNode)
-   const toastNode = renderToast()
+   const toastNode = ToastView({ toast, pos, viewport })
    if (toastNode) nodes.push(toastNode)
-   const spontNode = renderSpontPoem()
+   const spontNode = SpontView({
+    spontPoem,
+    settings,
+    panelOpen,
+    step,
+    spontPreview,
+    viewport,
+    pos,
+    mascotSize,
+    openSpontPoem,
+    readAnotherSpontaneous,
+    closeSpont,
+   })
    if (spontNode) nodes.push(spontNode)
-   const mealNode = renderMealTip()
+   const mealNode = MealTipView({ mealActive, viewport, pos, mascotSize })
    if (mealNode) nodes.push(mealNode)
   }
-  return h(
-   'div',
-   {
-    'data-dsh-little-whale': 'root',
-    'data-dshp-hidden': settings.hidden ? 'true' : 'false',
-    className: 'dshp-root',
-    style: rootStyle,
-   },
-   nodes,
-  )
-  }
-  function KnowledgeCardView(props) {
-  const card = props.card || {}
-  const paragraphs = Array.isArray(card.paragraphs) ? card.paragraphs : []
-  const examples = Array.isArray(card.examples) ? card.examples : []
-  return h(
-   'div',
-   { className: 'dshp-card' },
-   h('div', { className: 'dshp-card-title' }, String(card.title || '格律知识')),
-   card.summary ? h('div', { className: 'dshp-card-summary' }, String(card.summary)) : null,
-   paragraphs.map((paragraph, index) => h('p', { key: index, className: 'dshp-p' }, String(paragraph == null ? '' : paragraph))),
-   examples.map((example, index) => h(
-    'div',
-    { key: 'example-' + index, className: 'dshp-example' },
-    h('div', { className: 'dshp-example-text' }, String((example && example.text) || '')),
-    example && example.note ? h('div', { className: 'dshp-example-note' }, String(example.note)) : null,
-   )),
-  )
+  return WidgetRoot({ settings, pos, walking, mascotSize, nodes })
   }
 
   // v1.85：诗词基础 tab 已移到 tabs-poetry.js；这里用惰性包装保持 DEBUG/渲染引用不变。
