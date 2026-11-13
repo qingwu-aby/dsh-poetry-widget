@@ -11065,11 +11065,11 @@
             var hw = thw + pad;
             var hh = thh + pad;
             var thy = textHeight / 2;
-            var cx = 0;
+            var cx2 = 0;
             var cy = 0;
             switch ((_data$labelPosition = data.labelPosition) !== null && _data$labelPosition !== void 0 ? _data$labelPosition : "right") {
               case "left":
-                cx = -(start + thw);
+                cx2 = -(start + thw);
                 break;
               case "above":
                 cy = -(start + thy);
@@ -11080,11 +11080,11 @@
               case "over":
                 break;
               default:
-                cx = start + thw;
+                cx2 = start + thw;
             }
             var angle = (_data$labelAngle = data.labelAngle) !== null && _data$labelAngle !== void 0 ? _data$labelAngle : 0;
             var _rotateVec = rotateVec2({
-              x: cx,
+              x: cx2,
               y: cy
             }, angle), rcx = _rotateVec.x, rcy = _rotateVec.y;
             var ax = Math.abs(Math.cos(angle));
@@ -15397,6 +15397,7 @@
     "\u5E73\u8D77\u5165\u97F5": ["\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73"]
   };
   var TONE_ANY_CHARS = "\u25CB\u3007";
+  var TONE_QUESTION_CHARS = "\uFF1F?";
   var PUNCTUATION = "\uFF0C\u3002\uFF01\uFF1F\uFF1B\u3001\uFF1A,.!?;:\u300C\u300D\u300E\u300F\uFF08\uFF09()\u300A\u300B\u3008\u3009\u201C\u201D\u2018\u2019\u2014\u2026\xB7";
   function isPunctuation(ch) {
     if (!ch) return true;
@@ -16239,9 +16240,9 @@
     const PoemBody = ctx.PoemBody;
     const AnalysisBody = ctx.AnalysisBody;
     const KnowledgeCardView = ctx.KnowledgeCardView;
-    const describeDataError = ctx.describeDataError;
+    const describeDataError2 = ctx.describeDataError;
     const normalizeSettings2 = ctx.normalizeSettings;
-    const cx = ctx.cx;
+    const cx2 = ctx.cx;
     const switchNode = ctx.switchNode;
     const num2 = ctx.num;
     function TodayTab(props) {
@@ -16251,14 +16252,14 @@
         if (api.boot && api.boot.status === "error") {
           return h(EmptyState, {
             title: "\u8BD7\u8BCD\u6570\u636E\u5C1A\u672A\u5C31\u7EEA",
-            message: describeDataError(api.boot.error),
+            message: describeDataError2(api.boot.error),
             onRetry: api.retryBootstrap
           });
         }
         if (api.poemsRes && api.poemsRes.status === "error") {
           return h(EmptyState, {
             title: "\u4ECA\u65E5\u4E00\u8BD7\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(api.poemsRes.error),
+            message: describeDataError2(api.poemsRes.error),
             onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
             })
           });
@@ -16305,7 +16306,7 @@
       if (resource.status === "error") {
         return h(EmptyState, {
           title: "\u683C\u5F8B\u8BFE\u5802\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(resource.error),
+          message: describeDataError2(resource.error),
           onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
           })
         });
@@ -16365,7 +16366,7 @@
       if (resource.status === "error") {
         return h(EmptyState, {
           title: "\u97F5\u90E8\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(resource.error),
+          message: describeDataError2(resource.error),
           onRetry: () => api.reloadYun && api.reloadYun().catch(() => {
           })
         });
@@ -16398,7 +16399,7 @@
                   "button",
                   {
                     type: "button",
-                    className: cx("dshp-row", open && "dshp-is-open"),
+                    className: cx2("dshp-row", open && "dshp-is-open"),
                     onClick: () => setExpanded(open ? null : key),
                     "aria-expanded": open
                   },
@@ -16471,7 +16472,7 @@
       if (knowledge.status === "error") {
         return h(EmptyState, {
           title: "\u8BCD\u724C\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(knowledge.error),
+          message: describeDataError2(knowledge.error),
           onRetry: () => api.reloadKnowledge && api.reloadKnowledge().catch(() => {
           })
         });
@@ -16521,7 +16522,7 @@
         if (ciRes.status === "error") {
           return h(EmptyState, {
             title: "\u540D\u7BC7\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: describeDataError(ciRes.error),
+            message: describeDataError2(ciRes.error),
             onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
             })
           });
@@ -16571,7 +16572,7 @@
                   "button",
                   {
                     type: "button",
-                    className: cx("dshp-row", open && "dshp-is-open"),
+                    className: cx2("dshp-row", open && "dshp-is-open"),
                     onClick: () => setOpenId(open ? null : ciId),
                     "aria-expanded": open
                   },
@@ -16629,12 +16630,12 @@
           { className: "dshp-seg", style: { marginBottom: "10px" } },
           h("button", {
             type: "button",
-            className: cx("dshp-seg-btn", subTab === "poems" && "dshp-is-active"),
+            className: cx2("dshp-seg-btn", subTab === "poems" && "dshp-is-active"),
             onClick: () => setSubTab("poems")
           }, "\u540D\u7BC7\u8BCD"),
           h("button", {
             type: "button",
-            className: cx("dshp-seg-btn", subTab === "cards" && "dshp-is-active"),
+            className: cx2("dshp-seg-btn", subTab === "cards" && "dshp-is-active"),
             onClick: () => setSubTab("cards")
           }, "\u8BCD\u724C\u5361")
         ),
@@ -16652,7 +16653,7 @@
         options.map((option) => h("button", {
           key: String(option.value),
           type: "button",
-          className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
+          className: cx2("dshp-seg-btn", current === option.value && "dshp-is-active"),
           onClick: () => onPick(option.value)
         }, option.label))
       );
@@ -16718,13 +16719,13 @@
   function createSettingsTab(ctx = {}) {
     const React = ctx.React;
     const h = ctx.h;
-    const cx = ctx.cx;
+    const cx2 = ctx.cx;
     const normalizeSettings2 = ctx.normalizeSettings;
     const num2 = ctx.num;
     const switchNode = ctx.switchNode;
     const growthMetricsTree = ctx.growthMetricsTree;
-    const weatherChipText = ctx.weatherChipText;
-    const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
+    const weatherChipText2 = ctx.weatherChipText;
+    const weatherUpdatedLabel2 = ctx.weatherUpdatedLabel;
     const moodBasisText2 = ctx.moodBasisText;
     const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
     function SettingsTab(props) {
@@ -16746,17 +16747,17 @@
       const weatherRes = api.weatherRes || {};
       const weatherInfo = api.weatherData && api.weatherData.weather ? api.weatherData.weather : null;
       const weatherAt = weatherRes.at || weatherInfo && weatherInfo.updatedAt || 0;
-      const weatherStatusText = weatherInfo ? weatherChipText(api.weatherData.city, weatherInfo) + (weatherAt ? " \xB7 \u66F4\u65B0\u4E8E " + weatherUpdatedLabel(weatherAt) : "") : weatherRes.status === "loading" ? "\u6B63\u5728\u83B7\u53D6\u5929\u6C14\u2026" : "\u5929\u6C14\u6682\u4E0D\u53EF\u7528\uFF08\u4E0D\u5F71\u54CD\u5176\u4ED6\u529F\u80FD\uFF09";
+      const weatherStatusText = weatherInfo ? weatherChipText2(api.weatherData.city, weatherInfo) + (weatherAt ? " \xB7 \u66F4\u65B0\u4E8E " + weatherUpdatedLabel2(weatherAt) : "") : weatherRes.status === "loading" ? "\u6B63\u5728\u83B7\u53D6\u5929\u6C14\u2026" : "\u5929\u6C14\u6682\u4E0D\u53EF\u7528\uFF08\u4E0D\u5F71\u54CD\u5176\u4ED6\u529F\u80FD\uFF09";
       const currentMood = api.moodView || null;
       const moodAt = api.moodRes && (api.moodRes.at || api.moodRes.data && api.moodRes.data.updatedAt) || 0;
       const moodSourceLabel = api.moodSource === "model" ? "\u6A21\u578B" : api.moodSource === "heuristic" ? "\u542F\u53D1\u5F0F" : "";
       const moodReasonText = currentMood ? String(currentMood.reason || "").replace(/[「」]/g, "").trim() : "";
       const moodQuotedReason = moodReasonText ? "\u300C" + moodReasonText + "\u300D" : "";
       const moodDetailText = currentMood ? "\u5F53\u524D\uFF1A" + currentMood.label + moodQuotedReason : "";
-      const moodMetaText = [api.moodBasis || moodBasisText2(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel(moodAt) : ""].filter(Boolean).join(" \xB7 ");
+      const moodMetaText = [api.moodBasis || moodBasisText2(api.weather), moodSourceLabel ? "\u6765\u6E90\uFF1A" + moodSourceLabel : "", moodAt ? "\u66F4\u65B0\u4E8E " + weatherUpdatedLabel2(moodAt) : ""].filter(Boolean).join(" \xB7 ");
       const moodStatusText = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ") || "\u5FC3\u60C5\u6570\u636E\u52A0\u8F7D\u4E2D";
       const moodStatusFull = [moodDetailText, moodMetaText].filter(Boolean).join(" \xB7 ");
-      const moodLine = (text, className, key) => h("div", { key, className: cx("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
+      const moodLine = (text, className, key) => h("div", { key, className: cx2("dshp-card-summary", "dshp-ellipsis", className), title: text }, text);
       function seg(options, current, onPick) {
         return h(
           "div",
@@ -16764,7 +16765,7 @@
           options.map((option) => h("button", {
             key: String(option.value),
             type: "button",
-            className: cx("dshp-seg-btn", current === option.value && "dshp-is-active"),
+            className: cx2("dshp-seg-btn", current === option.value && "dshp-is-active"),
             onClick: () => onPick(option.value)
           }, option.label))
         );
@@ -16996,12 +16997,12 @@
   // client-src/tabs-growth.js
   function createGrowthTab(ctx = {}) {
     const h = ctx.h;
-    const cx = ctx.cx;
+    const cx2 = ctx.cx;
     const switchNode = ctx.switchNode;
     const growthMetricsTree = ctx.growthMetricsTree;
     const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
-    const selfStatusSummary = ctx.selfStatusSummary;
-    const weatherUpdatedLabel = ctx.weatherUpdatedLabel;
+    const selfStatusSummary2 = ctx.selfStatusSummary;
+    const weatherUpdatedLabel2 = ctx.weatherUpdatedLabel;
     function GrowthTab(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : {};
@@ -17109,7 +17110,7 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u5185\u5728\u72B6\u6001"),
-          status && status.sleeping ? h("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel(status.sleepSince) : "")) : null,
+          status && status.sleeping ? h("div", { className: "dshp-growth-sleep" }, "\u7761\u7720\u4E2D" + (status.sleepSince ? " \xB7 \u81EA " + weatherUpdatedLabel2(status.sleepSince) : "")) : null,
           growthMetricsTree(status)
         ),
         status && status.project ? h(
@@ -17119,9 +17120,9 @@
           h("div", { className: "dshp-growth-quote" }, status.project.title + (status.project.note ? " \xB7 " + status.project.note : "")),
           status.project.stage ? h("div", { className: "dshp-growth-empty" }, "\u9636\u6BB5\uFF1A" + ({ working: "\u6B63\u5728\u505A", waiting_user: "\u7B49\u4F60\u56DE\u7B54", waiting_mirror: "\u7B49\u955C\u50CF\u56DE\u4FE1", blocked: "\u5361\u4F4F\u4E86", idle: "\u6682\u65F6\u4E0D\u52A8" }[status.project.stage] || status.project.stage)) : null,
           status.project.latestReport ? h("div", { className: "dshp-growth-empty" }, "\u6700\u8FD1\u4E00\u6B21\uFF1A" + status.project.latestReport.state + (status.project.latestReport.summary ? " \xB7 " + status.project.latestReport.summary : "")) : null,
-          status.project.latestRepeat > 1 ? h("div", { className: "dshp-growth-empty", style: { color: "#b58a4a" } }, "\u6700\u8FD1\u8FD9\u6B65\u91CD\u590D\u4E86 " + status.project.latestRepeat + " \u6B21" + (status.project.progressAt ? "\uFF0C\u4E0A\u6B21\u771F\u6B63\u63A8\u8FDB\u5728 " + (weatherUpdatedLabel(status.project.progressAt) || "--:--") : "") + "\uFF0C\u8FD8\u6CA1\u6709\u65B0\u8FDB\u5C55") : null,
+          status.project.latestRepeat > 1 ? h("div", { className: "dshp-growth-empty", style: { color: "#b58a4a" } }, "\u6700\u8FD1\u8FD9\u6B65\u91CD\u590D\u4E86 " + status.project.latestRepeat + " \u6B21" + (status.project.progressAt ? "\uFF0C\u4E0A\u6B21\u771F\u6B63\u63A8\u8FDB\u5728 " + (weatherUpdatedLabel2(status.project.progressAt) || "--:--") : "") + "\uFF0C\u8FD8\u6CA1\u6709\u65B0\u8FDB\u5C55") : null,
           status.project.attention && status.project.attention.question ? h("div", { className: "dshp-growth-quote", style: { color: "#b58a4a" } }, "\u7B49\u4F60\u51B3\u5B9A\uFF1A" + status.project.attention.question) : null,
-          ...status.project.steps.map((step, index2) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index2 }, (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
+          ...status.project.steps.map((step, index2) => h("div", { className: "dshp-growth-empty", key: "project-step-" + index2 }, (weatherUpdatedLabel2(step.at) || "--:--") + " \xB7 " + step.text + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : ""))),
           h(
             "div",
             { style: { display: "flex", gap: 6, marginTop: 6 } },
@@ -17145,7 +17146,7 @@
           (Array.isArray(api.projectDetail.steps) ? api.projectDetail.steps : []).slice(-8).map((step, index2) => h(
             "div",
             { className: "dshp-growth-empty", key: "detail-step-" + index2 },
-            (weatherUpdatedLabel(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
+            (weatherUpdatedLabel2(step.at) || "--:--") + " \xB7 " + String(step.text || "") + (step.repeatCount > 1 ? " \xD7" + step.repeatCount : "") + (step.report ? "\uFF08" + step.report + "\uFF09" : "")
           )),
           api.projectDetail.completed && api.projectDetail.completed.length ? h("div", { className: "dshp-growth-empty" }, "\u4EE5\u524D\u505A\u8FC7\u7684\uFF1A" + api.projectDetail.completed.map((item) => String(item.title || "")).join("\u3001")) : null
         ) : null,
@@ -17163,7 +17164,7 @@
           recentActions.length ? recentActions.map((item, index2) => h(
             "div",
             { className: "dshp-growth-action", key: "action-" + (item.id || index2) },
-            h("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel(item.at) || "--:--"),
+            h("span", { className: "dshp-growth-action-time" }, weatherUpdatedLabel2(item.at) || "--:--"),
             h("span", { className: "dshp-growth-action-text" }, (item.label ? item.label + " \xB7 " : "") + String(item.text || ""))
           )) : h("div", { className: "dshp-growth-empty" }, "\u8FD8\u6CA1\u6709\u81EA\u5DF1\u884C\u52A8")
         ),
@@ -17174,10 +17175,10 @@
             "div",
             { className: "dshp-memory-head" },
             h("div", { className: "dshp-growth-section-head" }, "\u8BB0\u5FC6\u4E2D\u67A2"),
-            h("span", { className: cx("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
+            h("span", { className: cx2("dshp-memory-health", "dshp-memory-" + memory.health) }, memoryLabels[memory.health] || "\u6CE8\u610F")
           ),
           h("div", { className: "dshp-memory-line" }, "journal " + memory.journal + " \u6761 \xB7 \u8BDD\u9898 " + memory.topics + " \u6761 \xB7 \u5B66\u4E60 " + memory.learnings + " \u6761"),
-          h("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel(memory.backups.lastAt) || "\u2014")),
+          h("div", { className: "dshp-memory-line" }, "\u4E0A\u6B21\u5907\u4EFD " + (weatherUpdatedLabel2(memory.backups.lastAt) || "\u2014")),
           memory.recovered ? h("div", { className: "dshp-memory-line dshp-memory-recovered" }, "\u5DF2\u4ECE\u5907\u4EFD\u6062\u590D " + memory.recovered + " \u4E2A\u6587\u4EF6") : null,
           h(
             "div",
@@ -17200,7 +17201,7 @@
             { className: "dshp-work", key: "work-" + (work.id || index2) },
             h("div", { className: "dshp-work-title" }, work.title),
             (work.kind === "svg" || work.kind === "image") && work.src ? h("img", { className: "dshp-work-art", src: work.src, alt: work.title, loading: "lazy" }) : work.kind === "video" && work.src ? h("video", { className: "dshp-work-art", src: work.src, controls: true, playsInline: true, preload: "metadata" }) : h("div", { className: "dshp-growth-quote" }, work.body),
-            h("div", { className: "dshp-work-time" }, weatherUpdatedLabel(work.createdAt) || "--:--")
+            h("div", { className: "dshp-work-time" }, weatherUpdatedLabel2(work.createdAt) || "--:--")
           ))
         ) : null,
         (() => {
@@ -17293,7 +17294,7 @@
           "div",
           { className: "dshp-growth-section" },
           h("div", { className: "dshp-growth-section-head" }, "\u6210\u957F\u6458\u8981"),
-          h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
+          h("div", { className: "dshp-self-summary" }, selfStatusSummary2(status) || "\u5C1A\u672A\u5F00\u59CB")
         ),
         h(
           "div",
@@ -23656,44 +23657,44 @@
   function createFeihuaTab(ctx = {}) {
     const React = ctx.React;
     const h = ctx.h;
-    const cx = ctx.cx;
+    const cx2 = ctx.cx;
     const EmptyState = ctx.EmptyState;
     const LoadingState = ctx.LoadingState;
     const ToneLine = ctx.ToneLine;
     const detectionRhymeIndexes2 = ctx.detectionRhymeIndexes;
     const formatDetectionReport2 = ctx.formatDetectionReport;
-    const describeDataError = ctx.describeDataError;
-    const getFeihuaIndex = ctx.getFeihuaIndex;
-    const pickDefaultFeihuaChar = ctx.pickDefaultFeihuaChar;
+    const describeDataError2 = ctx.describeDataError;
+    const getFeihuaIndex2 = ctx.getFeihuaIndex;
+    const pickDefaultFeihuaChar2 = ctx.pickDefaultFeihuaChar;
     const feihuaSourceOf2 = ctx.feihuaSourceOf;
     const mergeFeihuaItems2 = ctx.mergeFeihuaItems;
     const finishFeihuaIndex2 = ctx.finishFeihuaIndex;
     const mergeFeihuaFullEntries2 = ctx.mergeFeihuaFullEntries;
-    const requestFeihuaFull = ctx.requestFeihuaFull;
-    const abortFeihuaFull = ctx.abortFeihuaFull;
-    const readFeihuaFullCache = ctx.readFeihuaFullCache;
-    const readFeihuaBest = ctx.readFeihuaBest;
-    const writeFeihuaBest = ctx.writeFeihuaBest;
-    const FEIHUA_ATLAS_PAGE = ctx.FEIHUA_ATLAS_PAGE;
-    const FEIHUA_FULL_RETRY_MS = ctx.FEIHUA_FULL_RETRY_MS;
+    const requestFeihuaFull2 = ctx.requestFeihuaFull;
+    const abortFeihuaFull2 = ctx.abortFeihuaFull;
+    const readFeihuaFullCache2 = ctx.readFeihuaFullCache;
+    const readFeihuaBest2 = ctx.readFeihuaBest;
+    const writeFeihuaBest2 = ctx.writeFeihuaBest;
+    const FEIHUA_ATLAS_PAGE2 = ctx.FEIHUA_ATLAS_PAGE;
+    const FEIHUA_FULL_RETRY_MS2 = ctx.FEIHUA_FULL_RETRY_MS;
     function FeihuaTab(props) {
       const api = props.api || {};
       const poemsRes = api.poemsRes || {};
       const ciRes = api.ciRes || {};
-      const index2 = api.feihuaIndex || getFeihuaIndex(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
+      const index2 = api.feihuaIndex || getFeihuaIndex2(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
       const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
       const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
       const [char, setChar] = React.useState(null);
       const [mode, setMode] = React.useState("chain");
       const [game, setGame] = React.useState(null);
       const [inputText, setInputText] = React.useState("");
-      const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE);
-      const [best, setBest] = React.useState(() => readFeihuaBest());
+      const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE2);
+      const [best, setBest] = React.useState(() => readFeihuaBest2());
       const bestRef = React.useRef(best);
       bestRef.current = best;
       const launch = num(api.feihuaLaunch, 0);
       const launchRef = React.useRef(0);
-      const activeChar = index2 ? char || pickDefaultFeihuaChar(index2, api.poem) : null;
+      const activeChar = index2 ? char || pickDefaultFeihuaChar2(index2, api.poem) : null;
       React.useEffect(() => {
         if (!index2 || !activeChar) return;
         if (launch > 0 && launch !== launchRef.current) {
@@ -23708,20 +23709,20 @@
       React.useEffect(() => {
         if (!index2 || !activeChar) return void 0;
         const target = activeChar;
-        const cached = readFeihuaFullCache(target);
+        const cached = readFeihuaFullCache2(target);
         if (cached && cached.status === "ready") {
           mergeFeihuaFullEntries2(index2, target, cached.entries);
           setFullInfo({ char: target, status: "ready", count: cached.count });
           return void 0;
         }
-        if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+        if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS2) {
           setFullInfo({ char: target, status: "error", count: 0 });
           return void 0;
         }
         const token = fullTokenRef.current + 1;
         fullTokenRef.current = token;
         setFullInfo({ char: target, status: "loading", count: 0 });
-        requestFeihuaFull(target).then((result) => {
+        requestFeihuaFull2(target).then((result) => {
           if (token !== fullTokenRef.current) return;
           if (result && result.ok && Array.isArray(result.entries)) {
             mergeFeihuaFullEntries2(index2, target, result.entries);
@@ -23732,13 +23733,13 @@
         });
         return () => {
           fullTokenRef.current += 1;
-          abortFeihuaFull(target);
+          abortFeihuaFull2(target);
         };
       }, [activeChar, index2]);
       if (poemsRes.status === "error") {
         return h(EmptyState, {
           title: "\u98DE\u82B1\u4EE4\u53E5\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(poemsRes.error),
+          message: describeDataError2(poemsRes.error),
           onRetry: () => api.reloadPoems && api.reloadPoems().catch(() => {
           })
         });
@@ -23746,7 +23747,7 @@
       if (ciRes.status === "error") {
         return h(EmptyState, {
           title: "\u8BCD\u5E93\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(ciRes.error),
+          message: describeDataError2(ciRes.error),
           onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
           })
         });
@@ -23768,12 +23769,12 @@
         setInputText("");
         setGame(feihuaStart(index2, use));
         setMode("chain");
-        setAtlasLimit(FEIHUA_ATLAS_PAGE);
-        const cachedFull = readFeihuaFullCache(use);
+        setAtlasLimit(FEIHUA_ATLAS_PAGE2);
+        const cachedFull = readFeihuaFullCache2(use);
         if (!cachedFull || cachedFull.status !== "ready") {
           const token = fullTokenRef.current + 1;
           fullTokenRef.current = token;
-          requestFeihuaFull(use).then((result) => {
+          requestFeihuaFull2(use).then((result) => {
             if (token !== fullTokenRef.current) return;
             if (result && result.ok && Array.isArray(result.entries)) {
               mergeFeihuaFullEntries2(index2, use, result.entries);
@@ -23794,7 +23795,7 @@
         setChar(next);
         setInputText("");
         setGame(null);
-        setAtlasLimit(FEIHUA_ATLAS_PAGE);
+        setAtlasLimit(FEIHUA_ATLAS_PAGE2);
       }
       function randomChar() {
         if (!index2 || !index2.candidates.length) return;
@@ -23814,7 +23815,7 @@
         const updated = feihuaBestUpdate(bestRef.current, next.char, next.score);
         if (updated.overall !== bestRef.current.overall || (updated.chars[next.char] || 0) !== (bestRef.current.chars[next.char] || 0)) {
           setBest(updated);
-          writeFeihuaBest(updated);
+          writeFeihuaBest2(updated);
         }
       }
       function handleInputKey(event) {
@@ -23884,7 +23885,7 @@
             }, "\u63A5\u4E00\u53E5")
           ),
           h("div", {
-            className: cx(
+            className: cx2(
               "dshp-fh-feedback",
               game.feedback && game.feedback.kind === "good" && "dshp-is-good",
               game.feedback && game.feedback.kind === "bad" && "dshp-is-bad"
@@ -23949,7 +23950,7 @@
             h("button", {
               type: "button",
               className: "dshp-btn",
-              onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE))
+              onClick: () => setAtlasLimit(Math.min(FEIHUA_ATLAS_LIMIT, atlasLimit + FEIHUA_ATLAS_PAGE2))
             }, "\u52A0\u8F7D\u66F4\u591A\uFF08\u5269\u4F59 " + (total - shown.length) + " \u6761\uFF09")
           ) : null
         );
@@ -23963,7 +23964,7 @@
           candidateChips.map((item) => h("button", {
             key: item.char,
             type: "button",
-            className: cx("dshp-fh-chip", item.char === activeChar && "dshp-is-active"),
+            className: cx2("dshp-fh-chip", item.char === activeChar && "dshp-is-active"),
             title: "\u4EE4\u5B57\u300C" + item.char + "\u300D\xB7 " + item.count + " \u53E5",
             "aria-pressed": item.char === activeChar,
             onClick: (event) => {
@@ -24002,12 +24003,12 @@
           { className: "dshp-seg", style: { marginBottom: "10px" } },
           h("button", {
             type: "button",
-            className: cx("dshp-seg-btn", mode === "chain" && "dshp-is-active"),
+            className: cx2("dshp-seg-btn", mode === "chain" && "dshp-is-active"),
             onClick: () => setMode("chain")
           }, "\u5BF9\u53E5"),
           h("button", {
             type: "button",
-            className: cx("dshp-seg-btn", mode === "atlas" && "dshp-is-active"),
+            className: cx2("dshp-seg-btn", mode === "atlas" && "dshp-is-active"),
             onClick: () => setMode("atlas")
           }, "\u56FE\u9274")
         ),
@@ -24166,19 +24167,19 @@
 
   // client-src/tabs-library.js
   function createLibraryTab(ctx = {}) {
-    const LIBRARY_CATEGORIES = ctx.LIBRARY_CATEGORIES;
+    const LIBRARY_CATEGORIES2 = ctx.LIBRARY_CATEGORIES;
     const React = ctx.React;
     const h = ctx.h;
-    const cx = ctx.cx;
+    const cx2 = ctx.cx;
     const EmptyState = ctx.EmptyState;
     const LoadingState = ctx.LoadingState;
     const DetectionView = ctx.DetectionView;
     const ToneLine = ctx.ToneLine;
-    const describeDataError = ctx.describeDataError;
-    const Z_INDEX = ctx.Z_INDEX;
-    const WIDGET_ID = ctx.WIDGET_ID;
-    const MASCOT_FILES = ctx.MASCOT_FILES;
-    const mascotUrl2 = ctx.mascotUrl;
+    const describeDataError2 = ctx.describeDataError;
+    const Z_INDEX2 = ctx.Z_INDEX;
+    const WIDGET_ID2 = ctx.WIDGET_ID;
+    const MASCOT_FILES2 = ctx.MASCOT_FILES;
+    const mascotUrl3 = ctx.mascotUrl;
     const detectPoem2 = ctx.detectPoem;
     const detectPoemText2 = ctx.detectPoemText;
     const parsePoemInput2 = ctx.parsePoemInput;
@@ -24284,7 +24285,7 @@
         if (anthologyRes.status === "error" && bankRes.status === "error") {
           return h(EmptyState, {
             title: "\u8BD7\u5E93\u6570\u636E\u6682\u65F6\u4E0D\u53EF\u7528",
-            message: anthologyRes.error && anthologyRes.error.status === 404 || bankRes.error && bankRes.error.status === 404 ? "\u8BD7\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(anthologyRes.error || bankRes.error),
+            message: anthologyRes.error && anthologyRes.error.status === 404 || bankRes.error && bankRes.error.status === 404 ? "\u8BD7\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError2(anthologyRes.error || bankRes.error),
             onRetry: () => {
               if (typeof api.reloadAnthology === "function") api.reloadAnthology().catch(() => {
               });
@@ -24388,7 +24389,7 @@
           h(
             "div",
             { className: "dshp-lib-note" },
-            ((LIBRARY_CATEGORIES.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
+            ((LIBRARY_CATEGORIES2.find((item) => item.id === detail.categoryId) || {}).label || detail.categoryId) + (detail.rhythmic ? " \xB7 \u8BCD\u724C " + detail.rhythmic : "")
           ),
           detail.tones ? h("div", { className: "dshp-lib-lines" }, rows) : h("div", { className: "dshp-lib-plain" }, lines.map((line, index2) => h("div", { key: index2 }, line))),
           detail.tones ? h(
@@ -24408,7 +24409,7 @@
           "div",
           { className: "dshp-fh-chips" },
           h("button", { type: "button", className: "dshp-fh-chip" + (category === "all" ? " dshp-is-active" : ""), onClick: () => setCategory("all") }, "\u5168\u90E8 " + items.length),
-          LIBRARY_CATEGORIES.map((item) => {
+          LIBRARY_CATEGORIES2.map((item) => {
             const count = item.id === "ci-selected" ? ciRes.data ? ciSelectedCount : "\u2026" : items.filter((entry) => entry.categoryId === item.id).length;
             return h("button", {
               key: item.id,
@@ -24500,12 +24501,12 @@
         ) : null,
         ciSelectedLoading ? ciRes.status === "error" ? h(EmptyState, {
           title: "\u5B8B\u8BCD\u7CBE\u9009\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: describeDataError(ciRes.error),
+          message: describeDataError2(ciRes.error),
           onRetry: () => api.reloadCi && api.reloadCi().catch(() => {
           })
         }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5B8B\u8BCD\u7CBE\u9009 283 \u9996\u2026" }) : ciBankLoading ? ciBankRes.status === "error" ? h(EmptyState, {
           title: "\u5168\u90E8\u5B8B\u8BCD\u6682\u65F6\u4E0D\u53EF\u7528",
-          message: ciBankRes.error && ciBankRes.error.status === 404 ? "\u5B8B\u8BCD\u5168\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError(ciBankRes.error),
+          message: ciBankRes.error && ciBankRes.error.status === 404 ? "\u5B8B\u8BCD\u5168\u5E93\u6570\u636E\u5C1A\u672A\u751F\u6210\uFF08assets/data\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002" : describeDataError2(ciBankRes.error),
           onRetry: () => api.reloadCiBank && api.reloadCiBank().catch(() => {
           })
         }) : h(LoadingState, { text: "\u6B63\u5728\u8F7D\u5165\u5168\u90E8\u5B8B\u8BCD\uFF08\u7EA6 2 \u4E07\u9996\uFF0C\u9996\u6B21\u7A0D\u6162\uFF09\u2026" }) : h(
@@ -24560,7 +24561,7 @@
               position: "fixed",
               left: "16px",
               bottom: "24px",
-              zIndex: Z_INDEX,
+              zIndex: Z_INDEX2,
               pointerEvents: "auto",
               display: "flex",
               flexDirection: "column",
@@ -24571,7 +24572,7 @@
           },
           h("style", null, CSS),
           h("img", {
-            src: mascotUrl2(MASCOT_FILES.celebrate),
+            src: mascotUrl3(MASCOT_FILES2.celebrate),
             alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
             width: 64,
             height: 64,
@@ -25180,6 +25181,1026 @@
     };
   }
 
+  // client-src/widget/models/constants.js
+  var ROUTE2 = "/api/dsh-poetry/";
+  var SELF_PATH = "self.json";
+  var SELF_POLL_MS = 60 * 1e3;
+  var ACTION_SEEN_KEY = "dshp-action-seen-v1";
+  var MEMORY_PATH = "memory.json";
+  var HEALTH_PATH = "health.json";
+  var WORKS_PATH = "works.json";
+  var ATTENTION_PATH = "attention.json";
+  var PROJECT_ACTION_PATH = "project-action.json";
+  var PROJECT_PATH = "project.json";
+  var TWIN_PATH = "twin.json";
+  var PRESENCE_PATH = "presence.json";
+  var PRESENCE_THROTTLE_MS = 60 * 1e3;
+  var WORKS_POLL_MS = 60 * 1e3;
+  var GROWTH_PATH = "growth.json";
+  var GROWTH_POLL_MS = 5 * 60 * 1e3;
+  var ATTENTION_POLL_MS = 30 * 1e3;
+  var TWIN_POLL_MS = 60 * 1e3;
+  var HEALTH_POLL_MS = 60 * 1e3;
+  var MEMORY_BACKUP_PATH = "memory/backup.json";
+  var MEMORY_POLL_MS = 60 * 1e3;
+  var ASSET_BASE2 = ROUTE2 + "assets?f=";
+  var SETTINGS_URL2 = ROUTE2 + "settings.json";
+  var WIDGET_ID = "dsh-little-whale";
+  var BASE_SIZE = 96;
+  var Z_INDEX = 60;
+  var SAVE_DEBOUNCE_MS2 = 450;
+  var STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
+  var POETRY_ENTRY_ENABLED = false;
+  var POETRY_TABS = [
+    { id: "today", label: "\u4ECA\u65E5" },
+    { id: "class", label: "\u8BFE\u5802" },
+    { id: "yun", label: "\u97F5\u90E8" },
+    { id: "ci", label: "\u8BCD\u724C" },
+    { id: "library", label: "\u8BD7\u5E93" },
+    { id: "feihua", label: "\u98DE\u82B1" },
+    { id: "poetry-settings", label: "\u8BBE\u7F6E" }
+  ];
+  var FEIHUA_BEST_KEY = "dshp-feihua-best-v1";
+  var FEIHUA_ATLAS_PAGE = 60;
+  var FEIHUA_FULL_PATH = "feihua-full.json";
+  var FEIHUA_FULL_TIMEOUT_MS = 2e4;
+  var FEIHUA_FULL_RETRY_MS = 6e4;
+  var MASCOT_DIR = "generated/";
+  var MASCOT_FILES = Object.freeze({
+    celebrate: "dsh-whale-state-celebrate.webp",
+    idle: "dsh-whale-state-idle-cute.webp",
+    night: "dsh-whale-state-night.webp",
+    rain: "dsh-whale-state-weather-umbrella.webp",
+    snow: "dsh-whale-state-weather-snow.webp",
+    thunder: "dsh-whale-state-weather-thunder.webp",
+    cold: "dsh-whale-state-weather-cold.webp",
+    gameWin: "dsh-whale-state-game-win.webp",
+    gameLose: "dsh-whale-state-game-lose.webp",
+    gameThink: "dsh-whale-state-game-think.webp"
+  });
+  var MASCOT_TRANSIENT_MS = 2500;
+  var WEATHER_REFRESH_MS = 30 * 60 * 1e3;
+  var WEATHER_STALE_MS = 20 * 60 * 1e3;
+  var WEATHER_CATEGORY_TAGS = Object.freeze({
+    rain: ["\u96E8"],
+    snow: ["\u96EA"],
+    thunder: ["\u96E8", "\u96F7"],
+    cloud: ["\u4E91"],
+    fog: ["\u4E91", "\u96FE"],
+    clear: ["\u6674", "\u65E5"],
+    wind: ["\u98CE"],
+    cold: ["\u971C", "\u9732", "\u5BD2"],
+    unknown: []
+  });
+  var WEATHER_NIGHT_TAGS = ["\u6708", "\u591C"];
+  var WEATHER_POOL_LIMIT = 20;
+  var WEATHER_EXPLAIN = Object.freeze({
+    rain: "\u4ECA\u65E5\u6709\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u7684\u8FD9\u9996",
+    snow: "\u4ECA\u65E5\u6709\u96EA\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96EA\u7684\u8FD9\u9996",
+    thunder: "\u4ECA\u65E5\u6709\u96F7\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u96F7\u7684\u8FD9\u9996",
+    cloud: "\u4ECA\u65E5\u591A\u4E91\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u7684\u8FD9\u9996",
+    fog: "\u4ECA\u65E5\u6709\u96FE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u96FE\u7684\u8FD9\u9996",
+    clear: "\u4ECA\u65E5\u6674\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6674\u65E5\u7684\u8FD9\u9996",
+    wind: "\u4ECA\u65E5\u591A\u98CE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u98CE\u7684\u8FD9\u9996",
+    cold: "\u4ECA\u65E5\u5BD2\u51B7\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u971C\u5BD2\u7684\u8FD9\u9996",
+    unknown: "\u4ECA\u65E5\u5929\u6C14\u5E94\u666F\uFF0C\u4E3A\u4F60\u9009\u4E86\u5E94\u666F\u7684\u8FD9\u9996"
+  });
+  var PET_MEDIA_PATH = "pet-media";
+  var PET_MEDIA_CATALOG_FILE = "catalog.json";
+  var PET_MEDIA_TIMEOUT_MS = 9e3;
+  var MOTION_ROTATION_KEY = "dshp-motion-rotation-v1";
+  var MOTION_MIN_DELAY_MS = 90 * 1e3;
+  var MOTION_MAX_DELAY_MS = 210 * 1e3;
+  var MOTION_PLAY_MIN_MS = 20 * 1e3;
+  var MOTION_PLAY_MAX_MS = 30 * 1e3;
+  var MOTION_FIRST_MIN_DELAY_MS = 10 * 1e3;
+  var MOTION_FIRST_MAX_DELAY_MS = 20 * 1e3;
+  var DIZZY_MIN_MS = 1500;
+  var DIZZY_MAX_MS = 2500;
+  var DIZZY_FAST_PX_PER_SEC = 1800;
+  var DIZZY_FAST_DISTANCE_PX = 120;
+  var DIZZY_FAST_WINDOW_MS = 120;
+  var MEAL_KEY = "dshp-meal-v1";
+  var MEAL_PLAY_MIN_MS = 25 * 1e3;
+  var MEAL_PLAY_MAX_MS = 40 * 1e3;
+  var WEATHER_OVERLAY_STATES = ["rain", "snow", "thunder", "cold", "night"];
+  var ASSET_DATA_FILES = { anthology: "data/anthology.json", bank: "data/poems-bank.json", pingshui: "data/pingshui.json", ciBank: "data/ci-bank.json", moodCatalog: "data/mood-catalog.json" };
+  var LIBRARY_CATEGORIES = [
+    { id: "shijing", label: "\u8BD7\u7ECF" },
+    { id: "chuci", label: "\u695A\u8F9E" },
+    { id: "qianjiashi", label: "\u5343\u5BB6\u8BD7" },
+    { id: "tang300", label: "\u5510\u8BD7\u4E09\u767E\u9996" },
+    { id: "bank", label: "\u5168\u5510\u8BD7\u7CBE\u9009" },
+    { id: "ci-selected", label: "\u5B8B\u8BCD\u7CBE\u9009" }
+  ];
+  var MASCOT_EXPRESSION_MS = 2500;
+  var MASCOT_IDLE_MIN_MS = 45 * 60 * 1e3;
+  var MASCOT_IDLE_USER_MS = 5 * 60 * 1e3;
+  var MASCOT_IDLE_POLL_MS = 5 * 60 * 1e3;
+  var MASCOT_EXPRESSION_FILES = [
+    "dsh-whale-state-greet.webp",
+    "dsh-whale-state-wink.webp",
+    "dsh-whale-state-blush.webp",
+    "dsh-whale-state-teasing.webp",
+    "dsh-whale-state-cool-shades.webp",
+    "dsh-whale-state-star.webp",
+    "dsh-whale-state-meme-heart.webp",
+    "dsh-whale-state-meme-kyun.webp",
+    "dsh-whale-state-meme-smile-pain.webp",
+    "dsh-whale-state-meme-yes.webp",
+    "dsh-whale-state-meme-no.webp",
+    "dsh-whale-state-meme-omg.webp",
+    "dsh-whale-state-meme-shock.webp",
+    "dsh-whale-state-meme-wakuwaku.webp",
+    "dsh-whale-state-meme-music.webp",
+    "dsh-whale-state-meme-peace.webp",
+    "dsh-whale-state-daily-coffee.webp",
+    "dsh-whale-state-daily-picnic.webp",
+    "dsh-whale-state-valentine.webp",
+    "dsh-whale-state-festival-spring.webp",
+    "dsh-whale-state-festival-mid-autumn.webp",
+    "dsh-whale-state-festival-christmas.webp"
+  ];
+  var RESOURCE_PATHS = {
+    poems: "poems.json",
+    ci: "ci.json",
+    yun: "yun.json",
+    knowledge: "knowledge.json"
+  };
+
+  // client-src/widget/models/utils.js
+  function cx() {
+    let out = "";
+    for (let i = 0; i < arguments.length; i++) {
+      const part = arguments[i];
+      if (!part) continue;
+      out = out ? out + " " + part : String(part);
+    }
+    return out;
+  }
+  function hasOwn2(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+  function hashString(input) {
+    const text = String(input == null ? "" : input);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+  function formatDateLabel(dateStr) {
+    const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
+    if (matched) return Number(matched[2]) + " \u6708 " + Number(matched[3]) + " \u65E5";
+    const now2 = /* @__PURE__ */ new Date();
+    return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
+  }
+  function clampPosition(position, size, viewport) {
+    const maxX = Math.max(8, viewport.w - size - 8);
+    const maxY = Math.max(8, viewport.h - size - 8);
+    return {
+      x: Math.round(clamp(position && position.x, 8, maxX)),
+      y: Math.round(clamp(position && position.y, 8, maxY))
+    };
+  }
+  function anchorPosition(snap, size, viewport, previous) {
+    const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport);
+    if (snap === "left") base.x = 16;
+    else if (snap === "right") base.x = Math.max(8, viewport.w - size - 16);
+    return base;
+  }
+  function describeDataError(error) {
+    if (!error) return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    const status = Number(error.status);
+    if (status === 404) return "\u6570\u636E\u63A5\u53E3\u5C1A\u672A\u5C31\u7EEA\uFF08\u5BBF\u4E3B\u534A\u533A\u53EF\u80FD\u672A\u66F4\u65B0\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    if (status === 403) return "\u6570\u636E\u8BBF\u95EE\u88AB\u62D2\u7EDD\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
+    if (status === 401) return "\u4F1A\u8BDD\u672A\u6388\u6743\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
+    const message = String(error.message || "");
+    if (/abort|timeout|超时/i.test(message)) return "\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5";
+    if (error.code === "DATA_UNAVAILABLE") return "\u8BD7\u8BCD\u6570\u636E\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+    return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+  }
+
+  // client-src/widget/models/feihua-model.js
+  var feihuaIndexCache = { poems: null, ci: null, index: null };
+  var feihuaFullCache = {};
+  var feihuaFullInflight = {};
+  function clearFeihuaFullCache() {
+    feihuaFullCache = {};
+    for (const key of Object.keys(feihuaFullInflight)) {
+      try {
+        if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === "function") feihuaFullInflight[key].abort();
+      } catch (error) {
+      }
+    }
+    feihuaFullInflight = {};
+  }
+  function readFeihuaFullCache(char) {
+    const key = String(char == null ? "" : char);
+    return key ? feihuaFullCache[key] || null : null;
+  }
+  function abortFeihuaFull(char) {
+    const key = String(char == null ? "" : char);
+    const item = feihuaFullInflight[key];
+    if (item && typeof item.abort === "function") item.abort();
+    delete feihuaFullInflight[key];
+  }
+  function requestFeihuaFull(char) {
+    const key = String(char == null ? "" : char);
+    if (!key) return Promise.resolve({ ok: false, reason: "invalid" });
+    const cached = feihuaFullCache[key];
+    if (cached && cached.status === "ready") {
+      return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true });
+    }
+    if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
+      return Promise.resolve({ ok: false, char: key, cached: true, reason: "retry-wait" });
+    }
+    if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise;
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let aborted = false;
+    let settled = false;
+    let timer2 = null;
+    let abortResolve = null;
+    const abortPromise = new Promise((resolve) => {
+      abortResolve = () => resolve({ ok: false, reason: "aborted" });
+    });
+    const item = { promise: null, abort: () => {
+      aborted = true;
+      try {
+        if (controller) controller.abort();
+      } catch (error) {
+      }
+      if (abortResolve) abortResolve();
+    } };
+    const finish = (result) => {
+      if (settled) return result;
+      settled = true;
+      if (timer2) clearTimeout(timer2);
+      delete feihuaFullInflight[key];
+      if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
+      return result;
+    };
+    const url = ROUTE2 + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
+    const task = Promise.resolve().then(() => fetch(url, controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        return { ok: false, reason: "http", status: response ? response.status : 0 };
+      }
+      return Promise.resolve(response.json()).then((data) => {
+        if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: "invalid" };
+        const entries = [];
+        for (const entry of data.entries) {
+          if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === "string" && entry[0].trim()) {
+            entries.push([entry[0].trim(), String(entry[1] == null ? "" : entry[1])]);
+          } else if (entry && typeof entry === "object" && typeof entry.text === "string" && entry.text.trim()) {
+            entries.push([entry.text.trim(), String(entry.source || "")]);
+          }
+        }
+        if (!entries.length) return { ok: false, reason: "empty" };
+        const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length;
+        feihuaFullCache[key] = { status: "ready", entries, count, at: Date.now() };
+        return { ok: true, char: key, entries, count };
+      }).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: aborted ? "aborted" : "network" }));
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, FEIHUA_FULL_TIMEOUT_MS);
+    });
+    item.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+    feihuaFullInflight[key] = item;
+    return item.promise;
+  }
+  function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
+    if (!poemsData || !Array.isArray(poemsData.items)) return null;
+    const cached = feihuaIndexCache;
+    if (cached.index && cached.poems === poemsData && cached.ci === ciData && cached.anthology === anthologyData && cached.bank === bankData && cached.ciBank === ciBankData) return cached.index;
+    const index2 = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
+    feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index: index2 };
+    return index2;
+  }
+  function clearFeihuaIndexCache() {
+    feihuaIndexCache = { poems: null, ci: null, index: null };
+  }
+  function pickDefaultFeihuaChar(index2, poem) {
+    const fallback = "\u82B1";
+    if (!index2 || !Array.isArray(index2.candidates) || !index2.candidates.length) return fallback;
+    const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
+    const text = lines.join("");
+    let best = null;
+    for (const item of index2.candidates) {
+      if (!item || item.count <= 0) continue;
+      if (text.indexOf(item.char) < 0) continue;
+      if (!best || item.count > best.count) best = item;
+    }
+    return best ? best.char : fallback;
+  }
+  function readFeihuaBest() {
+    const storage = getStorage();
+    if (!storage) return normalizeFeihuaBest(null);
+    try {
+      const raw = storage.getItem(FEIHUA_BEST_KEY);
+      if (!raw) return normalizeFeihuaBest(null);
+      return normalizeFeihuaBest(JSON.parse(raw));
+    } catch (error) {
+      return normalizeFeihuaBest(null);
+    }
+  }
+  function writeFeihuaBest(best) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)));
+    } catch (error) {
+    }
+  }
+
+  // client-src/widget/models/api.js
+  var bootstrapCache = null;
+  function assetUrlFor(kind, version) {
+    const file = ASSET_DATA_FILES[kind];
+    if (!file) return "";
+    return "/api/dsh-poetry/assets?f=" + file + "&v=" + encodeURIComponent(String(version == null ? "" : version));
+  }
+  var fetchJson = createFetchJson(ROUTE2);
+  function putSettings(patch) {
+    const request = buildSettingsRequest(patch);
+    return fetchJson("settings.json", request.init).then((data) => {
+      if (bootstrapCache && data && data.settings) {
+        bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings });
+      }
+      return data;
+    });
+  }
+
+  // client-src/widget/models/weather-model.js
+  var weatherCache = null;
+  function weatherPoemTags(weather) {
+    if (!weather || typeof weather !== "object") return [];
+    const tags = [];
+    const push = (list) => {
+      for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag);
+    };
+    push(WEATHER_CATEGORY_TAGS[weather.category] || []);
+    if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS);
+    return tags;
+  }
+  function countWeatherTagHits(lines, tags) {
+    const text = (Array.isArray(lines) ? lines : []).join("");
+    if (!text) return 0;
+    let hits = 0;
+    for (const tag of Array.isArray(tags) ? tags : []) {
+      if (!tag) continue;
+      let from = 0;
+      while (from <= text.length) {
+        const at = text.indexOf(tag, from);
+        if (at < 0) break;
+        hits += 1;
+        from = at + tag.length;
+      }
+    }
+    return hits;
+  }
+  function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
+    const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT));
+    const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === "string" && tag.length > 0);
+    if (!safeTags.length || !poolLimit) return [];
+    const build = (items, kind) => {
+      const out = [];
+      for (const item of Array.isArray(items) ? items : []) {
+        if (!item || !item.id) continue;
+        const hits = countWeatherTagHits(item.lines, safeTags);
+        if (hits > 0) out.push({ kind, id: item.id, hits, item });
+      }
+      out.sort((a2, b) => b.hits - a2.hits || String(a2.id).localeCompare(String(b.id)));
+      return out;
+    };
+    const extras = extraSources && typeof extraSources === "object" ? extraSources : {};
+    const sources = [
+      [poemsData && poemsData.items, "poem"],
+      [ciData && ciData.items, "ci"],
+      [extras.anthology && extras.anthology.items, "anthology"],
+      [extras.bank && extras.bank.items, "bank"],
+      [extras.ciBank && extras.ciBank.items, "ci-bank"]
+    ];
+    const pool = [];
+    for (const source of sources) {
+      if (pool.length >= poolLimit) break;
+      const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length);
+      for (const entry of entries) pool.push(entry);
+    }
+    return pool;
+  }
+  function selectWeatherPoemEntry(pool, meta) {
+    if (!Array.isArray(pool) || !pool.length) return null;
+    const date = meta && meta.date ? String(meta.date) : "";
+    const category = meta && meta.category ? String(meta.category) : "";
+    const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : "";
+    const index2 = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
+    return pool[index2];
+  }
+  function weatherChipText(city, weather) {
+    if (!weather || typeof weather !== "object") return "";
+    const place = typeof city === "string" && city ? city : "";
+    const label = typeof weather.label === "string" && weather.label ? weather.label : "\u5929\u6C14";
+    const tempC = Number(weather.tempC);
+    const temp = Number.isFinite(tempC) ? Math.round(tempC) + "\u2103" : "";
+    return (place ? place + " \xB7 " : "") + label + (temp ? " " + temp : "");
+  }
+  function weatherExplainText(weather) {
+    if (!weather || typeof weather !== "object") return "";
+    const category = typeof weather.category === "string" ? weather.category : "unknown";
+    const night = weather.isDay === false || weather.isDay === 0;
+    if (night && (category === "clear" || category === "cloud" || category === "unknown")) {
+      return "\u4ECA\u591C\u6708\u8272\u6B63\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6708\u591C\u7684\u8FD9\u9996";
+    }
+    return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown;
+  }
+  function weatherUpdatedLabel(at) {
+    const time = Number(at);
+    if (!Number.isFinite(time) || time <= 0) return "";
+    const date = new Date(time);
+    const pad = (value) => value < 10 ? "0" + value : String(value);
+    return pad(date.getHours()) + ":" + pad(date.getMinutes());
+  }
+  function requestWeather() {
+    return fetchJson("weather.json").then((data) => {
+      if (!data || data.ok !== true || !data.weather) throw new Error("\u5929\u6C14\u6570\u636E\u4E0D\u53EF\u7528");
+      weatherCache = { data, at: Date.now() };
+      return data;
+    });
+  }
+
+  // client-src/widget/models/mascot-model.js
+  function mascotStateFor(weather, enabled) {
+    if (!enabled || !weather || typeof weather !== "object") return "celebrate";
+    if (weather.isDay === false || weather.isDay === 0) return "night";
+    const category = typeof weather.category === "string" ? weather.category : "";
+    if (category === "rain") return "rain";
+    if (category === "snow") return "snow";
+    if (category === "thunder") return "thunder";
+    if (category === "cold") return "cold";
+    if (category === "clear" || category === "cloud" || category === "fog" || category === "wind") return "idle";
+    return "celebrate";
+  }
+  function mascotFileFor(stateKey) {
+    return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate;
+  }
+  function mascotUrl2(file) {
+    return ASSET_BASE2 + MASCOT_DIR + file;
+  }
+  function mascotImageFor(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const weatherKey = typeof opts.weatherStateKey === "string" ? opts.weatherStateKey : "celebrate";
+    const weatherOn = opts.weatherEnabled === true;
+    const moodOn = opts.moodEnabled === true;
+    const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
+    if (moodOn && mood && mood.image && (mood.source === "model" || mood.ai === true)) {
+      return { stateKey: "mood:ai", file: mood.image, source: "mood" };
+    }
+    if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
+      return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
+    }
+    if (moodOn && mood && mood.image) return { stateKey: "mood:" + mood.key, file: mood.image, source: "mood" };
+    if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
+    return { stateKey: "celebrate", file: mascotFileFor("celebrate"), source: "default" };
+  }
+  function mascotVideoShouldPause(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    return opts.hidden === true || opts.panelOpen === true;
+  }
+  function detectFastDrag(previous, next) {
+    const prev = previous && typeof previous === "object" ? previous : {};
+    const cur = next && typeof next === "object" ? next : {};
+    const px = num(prev.x, 0);
+    const py = num(prev.y, 0);
+    const cx2 = num(cur.x, 0);
+    const cy = num(cur.y, 0);
+    const pt = num(prev.t, 0);
+    const ct = num(cur.t, 0);
+    const dt = ct - pt;
+    if (!(dt > 0)) return false;
+    const distance = Math.hypot(cx2 - px, cy - py);
+    const speed = distance / dt * 1e3;
+    if (speed >= DIZZY_FAST_PX_PER_SEC) return true;
+    return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS;
+  }
+  function nextDizzyDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS));
+  }
+  function nextMealDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS));
+  }
+  function mealMomentFor(now2) {
+    const parts = shanghaiParts(num(now2, Date.now()));
+    const minutes = parts.minutes;
+    const windows = [
+      { meal: "breakfast", label: "\u65E9\u996D", start: 7 * 60, end: 9 * 60, window: "07:00\u201309:00" },
+      { meal: "lunch", label: "\u5348\u996D", start: 11 * 60 + 30, end: 13 * 60 + 30, window: "11:30\u201313:30" },
+      { meal: "dinner", label: "\u665A\u996D", start: 17 * 60 + 30, end: 19 * 60 + 30, window: "17:30\u201319:30" }
+    ];
+    for (const item of windows) {
+      if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey };
+    }
+    return null;
+  }
+  function normalizeMealState(raw, now2) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const dateKey = shanghaiParts(num(now2, Date.now())).dateKey;
+    const sameDay = source.date === dateKey;
+    const meals = {};
+    const previous = sameDay && source.meals && typeof source.meals === "object" ? source.meals : {};
+    for (const meal of ["breakfast", "lunch", "dinner"]) if (previous[meal] === true) meals[meal] = true;
+    return { date: dateKey, meals };
+  }
+  function readMealState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeMealState(null, now2);
+    try {
+      const raw = storage.getItem(MEAL_KEY);
+      return normalizeMealState(raw ? JSON.parse(raw) : null, now2);
+    } catch (error) {
+      return normalizeMealState(null, now2);
+    }
+  }
+  function writeMealState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MEAL_KEY, JSON.stringify(state));
+    } catch (error) {
+    }
+  }
+  function markMealDone(state, meal, now2) {
+    const base = normalizeMealState(state, now2);
+    const meals = Object.assign({}, base.meals);
+    meals[meal] = true;
+    return { date: base.date, meals };
+  }
+  function mealTriggerFor(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null;
+    const moment = mealMomentFor(opts.now);
+    if (!moment) return null;
+    const state = normalizeMealState(opts.state, opts.now);
+    if (state.meals[moment.meal]) return null;
+    return moment;
+  }
+  function pickDizzyMedia(entries) {
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const exact = entries.find((entry) => entry && String(entry.label || "").indexOf("\u5C0F\u5E45\u5EA6\u539F\u5730360\u5EA6\u65CB\u8F6C\u5C55\u793A") >= 0);
+    if (exact) return exact;
+    return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ""))) || null;
+  }
+  function pickMealMedia(entries, meal) {
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const preferred = { breakfast: "\u5403\u65E9\u9910", lunch: "\u5403\u5348\u9910", dinner: "\u5403\u665A\u9910" };
+    const exact = entries.find((entry) => entry && String(entry.label || "") === preferred[meal]);
+    if (exact) return exact;
+    for (const label of ["\u5403\u767D\u996D", "\u5E72\u996D"]) {
+      const match = entries.find((entry) => entry && String(entry.label || "").indexOf(label) >= 0);
+      if (match) return match;
+    }
+    return entries.find((entry) => entry && String(entry.label || "").indexOf("\u5403") >= 0) || null;
+  }
+  function mascotFilePriority(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
+  }
+  function petMediaUrl(file) {
+    return ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
+  }
+  function normalizePetMediaCatalog(data) {
+    if (!data || data.ok === false || !Array.isArray(data.entries)) return null;
+    const entries = [];
+    const seen = {};
+    for (const item of data.entries) {
+      if (!item || typeof item.file !== "string") continue;
+      const file = item.file.trim();
+      if (!/^webm\/[^/]+\.webm$/.test(file)) continue;
+      if (seen[file]) continue;
+      seen[file] = true;
+      entries.push({
+        file,
+        label: String(item.label || ""),
+        media: "video",
+        tags: Array.isArray(item.tags) ? item.tags.slice() : []
+      });
+    }
+    return entries;
+  }
+  function mergePetMediaIntoCatalog(catalog, petEntries) {
+    if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog;
+    const moodImages = catalog.moodImages.slice();
+    const moodFiles = catalog.moodFiles.slice();
+    const byFile = Object.assign({}, catalog.byFile);
+    for (const entry of petEntries) {
+      if (!entry || !entry.file || byFile[entry.file]) continue;
+      const normalized = { file: entry.file, label: String(entry.label || ""), tags: Array.isArray(entry.tags) ? entry.tags : [], media: "video" };
+      moodImages.push(normalized);
+      moodFiles.push(entry.file);
+      byFile[entry.file] = normalized;
+    }
+    return Object.assign({}, catalog, { moodImages, moodFiles, byFile });
+  }
+  var petMediaCache = null;
+  var petMediaInflight = null;
+  function clearPetMediaCache() {
+    petMediaCache = null;
+    if (petMediaInflight && typeof petMediaInflight.abort === "function") {
+      try {
+        petMediaInflight.abort();
+      } catch (error) {
+      }
+    }
+    petMediaInflight = null;
+  }
+  function requestPetMediaCatalog() {
+    if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache });
+    if (petMediaInflight) return petMediaInflight.promise;
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, entries: [] });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let settled = false;
+    let timer2 = null;
+    let abortResolve = null;
+    const abortPromise = new Promise((resolve) => {
+      abortResolve = () => resolve({ ok: false, entries: [], reason: "aborted" });
+    });
+    const finish = (result) => {
+      if (settled) return result;
+      settled = true;
+      if (timer2) clearTimeout(timer2);
+      petMediaInflight = null;
+      if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
+      return result;
+    };
+    const task = Promise.resolve().then(() => fetch(ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) return { ok: false, entries: [], reason: "http" };
+      return Promise.resolve(response.json()).then((data) => {
+        const entries = normalizePetMediaCatalog(data);
+        if (!entries) return { ok: false, entries: [], reason: "invalid" };
+        return { ok: true, entries };
+      }).catch(() => ({ ok: false, entries: [], reason: "json" }));
+    }).catch(() => ({ ok: false, entries: [], reason: "network" }));
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, entries: [], reason: "timeout" });
+      }, PET_MEDIA_TIMEOUT_MS);
+    });
+    const inflight = { promise: null, abort: () => {
+      try {
+        if (controller) controller.abort();
+      } catch (error) {
+      }
+      if (abortResolve) abortResolve();
+    } };
+    inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish);
+    petMediaInflight = inflight;
+    return inflight.promise;
+  }
+  function readMotionRotation() {
+    const storage = getStorage();
+    if (!storage) return 0;
+    try {
+      const value = Number(storage.getItem(MOTION_ROTATION_KEY));
+      return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+    } catch (error) {
+      return 0;
+    }
+  }
+  function writeMotionRotation(index2) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index2, 0)))));
+    } catch (error) {
+    }
+  }
+  function nextMotionEntry(entries, index2) {
+    if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 };
+    const size = entries.length;
+    const start = Math.max(0, Math.floor(num(index2, 0))) % size;
+    return { entry: entries[start], index: (start + 1) % size, size, position: start };
+  }
+  function nextMotionDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS));
+  }
+  function nextMotionFirstDelay(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS));
+  }
+  function nextMotionScheduleDelay(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts);
+    return nextMotionDelay(opts);
+  }
+  function nextMotionDuration(options) {
+    const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
+    const random = typeof opts.random === "function" ? opts.random : Math.random;
+    const value = Number(random());
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS));
+  }
+  function shouldShowDailyGreet(state, now2) {
+    return !normalizeMascotEggState(state, now2).greeted;
+  }
+  function canShowIdlePose(state, now2, lastInteractionAt) {
+    const normalized = normalizeMascotEggState(state, now2);
+    const time = num(now2, Date.now());
+    if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false;
+    const lastInteraction = num(lastInteractionAt, 0);
+    if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false;
+    return true;
+  }
+  function pickMascotExpression(random) {
+    const value = typeof random === "function" ? Number(random()) : Math.random();
+    const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
+    const index2 = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
+    return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
+  }
+
+  // client-src/widget/models/mood-model.js
+  var moodCache = null;
+  function requestMoodAi(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timer2 = null;
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, MOOD_AI_TIMEOUT_MS);
+    });
+    const request = Promise.resolve().then(() => fetch(ROUTE2 + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        const status = response ? num(response.status, 0) : 0;
+        return { ok: false, reason: status === 429 ? "rate" : "http", status };
+      }
+      return Promise.resolve(response.json()).then((data) => {
+        const parsed = parseMoodAiResponse(data, opts.catalog);
+        const code = parsed && parsed.code ? String(parsed.code) : data && data.error && typeof data.error.code === "string" ? data.error.code : "";
+        if (!parsed.ok && code) {
+          return {
+            ok: false,
+            reason: /RATE_LIMITED|RATE/i.test(code) ? "rate" : "host",
+            code,
+            status: num(response.status, 200),
+            message: data && data.error && typeof data.error.message === "string" ? data.error.message : ""
+          };
+        }
+        return parsed;
+      }).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: "network" }));
+    return Promise.race([request, timeout]).then((result) => {
+      if (timer2) clearTimeout(timer2);
+      return result;
+    });
+  }
+
+  // client-src/widget/models/self-model.js
+  function normalizeSelfStatus(data) {
+    if (!data || data.ok === false || !data.state || typeof data.state !== "object") return null;
+    const state = data.state;
+    const text = (value, max) => {
+      const raw = String(value == null ? "" : value).trim();
+      return raw.length > max ? raw.slice(0, max) : raw;
+    };
+    const growth = data.growth && typeof data.growth === "object" ? data.growth : {};
+    const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)));
+    const at = (key) => {
+      const value = num(growth[key], 0);
+      return value > 0 ? value : 0;
+    };
+    const rawActions = data.actions && typeof data.actions === "object" ? data.actions : {};
+    const rawProject = data.project && typeof data.project === "object" ? data.project : null;
+    const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === "string" && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : [];
+    return {
+      // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
+      felt: text(data.felt || state.felt, 80),
+      experiencing: text(data.experiencing || state.experiencing, 120),
+      context,
+      feltAt: num(state.feltAt, 0),
+      sleeping: state.sleeping === true,
+      sleepSince: num(state.sleepSince, 0),
+      updatedAt: num(state.updatedAt, 0),
+      growth: {
+        learnings: count("learnings"),
+        reflections: count("reflections"),
+        lastLearnAt: at("lastLearnAt"),
+        lastReflectAt: at("lastReflectAt")
+      },
+      actions: {
+        latest: normalizeSelfAction(rawActions.latest),
+        recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5)
+      },
+      project: rawProject && typeof rawProject.title === "string" ? {
+        id: String(rawProject.id || ""),
+        title: text(rawProject.title, 60),
+        note: text(rawProject.note, 160),
+        steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({
+          at: num(step.at, 0),
+          text: text(step.text, 160),
+          repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
+          lastAt: num(step.lastAt, 0)
+        })),
+        stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(rawProject.stage) ? rawProject.stage : "working",
+        progressAt: num(rawProject.progressAt, 0),
+        latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
+        staleAt: num(rawProject.staleAt, 0),
+        staleReason: text(rawProject.staleReason, 120),
+        attention: rawProject.attention && typeof rawProject.attention.question === "string" ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) } : null,
+        latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === "string" ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) } : null
+      } : null
+    };
+  }
+  function normalizeSelfAction(item) {
+    if (!item || typeof item !== "object" || item.id == null || item.id === "") return null;
+    return {
+      id: String(item.id),
+      label: String(item.label == null ? "" : item.label).slice(0, 40),
+      text: String(item.text == null ? "" : item.text).slice(0, 200),
+      at: num(item.at, 0)
+    };
+  }
+  function readSeenActionId() {
+    const storage = getStorage();
+    if (!storage) return "";
+    try {
+      return String(storage.getItem(ACTION_SEEN_KEY) || "");
+    } catch (error) {
+      return "";
+    }
+  }
+  function writeSeenActionId(id) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(ACTION_SEEN_KEY, String(id == null ? "" : id));
+    } catch (error) {
+    }
+  }
+  function selfStatusSummary(status) {
+    if (!status) return "";
+    const growth = status.growth || {};
+    const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)));
+    const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)));
+    const lastLearn = weatherUpdatedLabel(growth.lastLearnAt);
+    const lastReflect = weatherUpdatedLabel(growth.lastReflectAt);
+    if (!learnings && !reflections && !lastLearn && !lastReflect) return "\u5C1A\u672A\u5F00\u59CB";
+    const parts = ["\u81EA\u5B66 " + learnings + " \u6761", "\u81EA\u7701 " + reflections + " \u6B21"];
+    if (lastLearn) parts.push("\u4E0A\u6B21\u81EA\u5B66 " + lastLearn);
+    if (lastReflect) parts.push("\u4E0A\u6B21\u81EA\u7701 " + lastReflect);
+    return parts.join(" \xB7 ");
+  }
+  function normalizeMemoryStatus(data) {
+    if (!data || data.ok === false || !Array.isArray(data.files)) return null;
+    const files = data.files.filter((file) => file && typeof file === "object");
+    const countBy = (patterns) => {
+      let sum = 0;
+      for (const file of files) {
+        const id = String(file.id || "") + " " + String(file.path || "");
+        if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue;
+        sum += Math.max(0, Math.floor(num(file.entries, 0)));
+      }
+      return sum;
+    };
+    const health = data.health === "warn" || data.health === "error" ? data.health : data.health === "ok" ? "ok" : "warn";
+    const backups = data.backups && typeof data.backups === "object" ? data.backups : {};
+    const recovered = typeof data.recovered === "number" ? Math.max(0, Math.floor(data.recovered)) : data.recovered && typeof data.recovered === "object" && typeof data.recovered.count === "number" ? Math.max(0, Math.floor(data.recovered.count)) : data.recovered === true ? 1 : 0;
+    return {
+      health,
+      journal: countBy(["journal"]),
+      topics: countBy(["topic"]),
+      learnings: countBy(["learn", "growth", "self"]),
+      backups: {
+        count: Math.max(0, Math.floor(num(backups.count, 0))),
+        lastAt: num(backups.lastAt, 0),
+        latestId: String(backups.latestId || "")
+      },
+      recovered,
+      updatedAt: num(data.updatedAt, 0)
+    };
+  }
+  function normalizeWorks(raw) {
+    if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] };
+    const works = [];
+    for (const item of raw.works) {
+      if (!item || typeof item.title !== "string") continue;
+      const kind = item.kind === "svg" || item.kind === "image" || item.kind === "video" ? item.kind : "text";
+      const body = typeof item.body === "string" ? String(item.body) : "";
+      if (kind === "text" && body.length < 4) continue;
+      const mediaUrl = typeof item.mediaUrl === "string" && item.mediaUrl.length > 0 ? item.mediaUrl : "";
+      if ((kind === "image" || kind === "video") && mediaUrl.length === 0) continue;
+      works.push({
+        id: String(item.id || ""),
+        title: item.title.slice(0, 60),
+        kind,
+        createdAt: num(item.createdAt, 0),
+        body: kind === "text" ? body.slice(0, 2e3) : "",
+        src: kind === "svg" ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(body) : kind === "image" || kind === "video" ? mediaUrl : ""
+      });
+      if (works.length >= 6) break;
+    }
+    return { works };
+  }
+  function normalizeAttention(raw) {
+    if (!raw || raw.ok === false) return { mode: "observe", items: [], pending: 0 };
+    const mode = raw.mode === "auto" ? "auto" : "observe";
+    const items = (Array.isArray(raw.items) ? raw.items : []).filter((item) => item && typeof item.text === "string" && item.status === "pending").slice(0, 10).map((item) => ({
+      id: String(item.id || ""),
+      kind: item.kind === "question" || item.kind === "result" ? item.kind : "social",
+      text: String(item.text).slice(0, 500),
+      reason: String(item.reason || "").slice(0, 160),
+      draft: item.draft === true,
+      createdAt: num(item.createdAt, 0)
+    }));
+    return { mode, items, pending: items.length };
+  }
+  function normalizeTwinState(raw) {
+    if (!raw || raw.ok === false || raw.enabled === false) return null;
+    const twin = raw.twin && typeof raw.twin === "object" ? raw.twin : {};
+    const projects = twin.projects && typeof twin.projects === "object" ? twin.projects : {};
+    const project = projects.current && typeof projects.current === "object" ? {
+      title: String(projects.current.title || "").slice(0, 60),
+      stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(projects.current.stage) ? projects.current.stage : "working",
+      question: projects.current.attention && typeof projects.current.attention.question === "string" ? projects.current.attention.question.slice(0, 200) : ""
+    } : null;
+    return { enabled: true, project };
+  }
+
+  // client-src/widget/models/spont-model.js
+  function readSpontState(now2) {
+    const storage = getStorage();
+    if (!storage) return normalizeSpontState(null, now2);
+    try {
+      const raw = storage.getItem(SPONT_KEY);
+      return normalizeSpontState(raw ? JSON.parse(raw) : null, now2);
+    } catch (error) {
+      return normalizeSpontState(null, now2);
+    }
+  }
+  function writeSpontState(state) {
+    const storage = getStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(SPONT_KEY, JSON.stringify(state));
+    } catch (error) {
+    }
+  }
+  function requestSelfTalk(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    let timer2 = null;
+    const timeout = new Promise((resolve) => {
+      timer2 = setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (error) {
+        }
+        resolve({ ok: false, reason: "timeout" });
+      }, SELF_TALK_TIMEOUT_MS);
+    });
+    const request = Promise.resolve().then(() => fetch(ROUTE2 + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        return { ok: false, reason: "http", status: response ? response.status : 0 };
+      }
+      return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
+    }).catch(() => ({ ok: false, reason: "network" }));
+    return Promise.race([request, timeout]).then((result) => {
+      if (timer2) clearTimeout(timer2);
+      return result;
+    });
+  }
+
   // client-src/widget-plugin.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
@@ -25190,939 +26211,6 @@
         throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
       const h = React.createElement;
-      const ROUTE2 = "/api/dsh-poetry/";
-      const SELF_PATH = "self.json";
-      const SELF_POLL_MS = 60 * 1e3;
-      const ACTION_SEEN_KEY = "dshp-action-seen-v1";
-      const MEMORY_PATH = "memory.json";
-      const HEALTH_PATH = "health.json";
-      const WORKS_PATH = "works.json";
-      const ATTENTION_PATH = "attention.json";
-      const PROJECT_ACTION_PATH = "project-action.json";
-      const PROJECT_PATH = "project.json";
-      const TWIN_PATH = "twin.json";
-      const PRESENCE_PATH = "presence.json";
-      const PRESENCE_THROTTLE_MS = 60 * 1e3;
-      const WORKS_POLL_MS = 60 * 1e3;
-      const GROWTH_PATH = "growth.json";
-      const GROWTH_POLL_MS = 5 * 60 * 1e3;
-      const ATTENTION_POLL_MS = 30 * 1e3;
-      const TWIN_POLL_MS = 60 * 1e3;
-      const HEALTH_POLL_MS = 60 * 1e3;
-      const MEMORY_BACKUP_PATH = "memory/backup.json";
-      const MEMORY_POLL_MS = 60 * 1e3;
-      const ASSET_BASE2 = ROUTE2 + "assets?f=";
-      const SETTINGS_URL2 = ROUTE2 + "settings.json";
-      const WIDGET_ID = "dsh-little-whale";
-      const CACHE_KEY2 = "dshp.firstscreen.v1";
-      const BASE_SIZE = 96;
-      const MIN_SCALE2 = 0.6;
-      const MAX_SCALE2 = 1.6;
-      const Z_INDEX = 60;
-      const SAVE_DEBOUNCE_MS2 = 450;
-      const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
-      const POETRY_ENTRY_ENABLED = false;
-      const POETRY_TABS = [
-        { id: "today", label: "\u4ECA\u65E5" },
-        { id: "class", label: "\u8BFE\u5802" },
-        { id: "yun", label: "\u97F5\u90E8" },
-        { id: "ci", label: "\u8BCD\u724C" },
-        { id: "library", label: "\u8BD7\u5E93" },
-        { id: "feihua", label: "\u98DE\u82B1" },
-        { id: "poetry-settings", label: "\u8BBE\u7F6E" }
-      ];
-      const FEIHUA_BEST_KEY = "dshp-feihua-best-v1";
-      const FEIHUA_ATLAS_PAGE = 60;
-      const FEIHUA_FULL_PATH = "feihua-full.json";
-      const FEIHUA_FULL_TIMEOUT_MS = 2e4;
-      const FEIHUA_FULL_RETRY_MS = 6e4;
-      const MASCOT_DIR = "generated/";
-      const MASCOT_FILES = Object.freeze({
-        celebrate: "dsh-whale-state-celebrate.webp",
-        idle: "dsh-whale-state-idle-cute.webp",
-        night: "dsh-whale-state-night.webp",
-        rain: "dsh-whale-state-weather-umbrella.webp",
-        snow: "dsh-whale-state-weather-snow.webp",
-        thunder: "dsh-whale-state-weather-thunder.webp",
-        cold: "dsh-whale-state-weather-cold.webp",
-        gameWin: "dsh-whale-state-game-win.webp",
-        gameLose: "dsh-whale-state-game-lose.webp",
-        gameThink: "dsh-whale-state-game-think.webp"
-      });
-      const MASCOT_TRANSIENT_MS = 2500;
-      const WEATHER_REFRESH_MS = 30 * 60 * 1e3;
-      const WEATHER_STALE_MS = 20 * 60 * 1e3;
-      const WEATHER_CATEGORY_TAGS = Object.freeze({
-        rain: ["\u96E8"],
-        snow: ["\u96EA"],
-        thunder: ["\u96E8", "\u96F7"],
-        cloud: ["\u4E91"],
-        fog: ["\u4E91", "\u96FE"],
-        clear: ["\u6674", "\u65E5"],
-        wind: ["\u98CE"],
-        cold: ["\u971C", "\u9732", "\u5BD2"],
-        unknown: []
-      });
-      const WEATHER_NIGHT_TAGS = ["\u6708", "\u591C"];
-      const WEATHER_POOL_LIMIT = 20;
-      const WEATHER_EXPLAIN = Object.freeze({
-        rain: "\u4ECA\u65E5\u6709\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u7684\u8FD9\u9996",
-        snow: "\u4ECA\u65E5\u6709\u96EA\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96EA\u7684\u8FD9\u9996",
-        thunder: "\u4ECA\u65E5\u6709\u96F7\u96E8\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u96E8\u96F7\u7684\u8FD9\u9996",
-        cloud: "\u4ECA\u65E5\u591A\u4E91\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u7684\u8FD9\u9996",
-        fog: "\u4ECA\u65E5\u6709\u96FE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u4E91\u96FE\u7684\u8FD9\u9996",
-        clear: "\u4ECA\u65E5\u6674\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6674\u65E5\u7684\u8FD9\u9996",
-        wind: "\u4ECA\u65E5\u591A\u98CE\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u98CE\u7684\u8FD9\u9996",
-        cold: "\u4ECA\u65E5\u5BD2\u51B7\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u971C\u5BD2\u7684\u8FD9\u9996",
-        unknown: "\u4ECA\u65E5\u5929\u6C14\u5E94\u666F\uFF0C\u4E3A\u4F60\u9009\u4E86\u5E94\u666F\u7684\u8FD9\u9996"
-      });
-      const PET_MEDIA_PATH = "pet-media";
-      const PET_MEDIA_CATALOG_FILE = "catalog.json";
-      const PET_MEDIA_TIMEOUT_MS = 9e3;
-      const MOTION_ROTATION_KEY = "dshp-motion-rotation-v1";
-      const MOTION_MIN_DELAY_MS = 90 * 1e3;
-      const MOTION_MAX_DELAY_MS = 210 * 1e3;
-      const MOTION_PLAY_MIN_MS = 20 * 1e3;
-      const MOTION_PLAY_MAX_MS = 30 * 1e3;
-      const MOTION_FIRST_MIN_DELAY_MS = 10 * 1e3;
-      const MOTION_FIRST_MAX_DELAY_MS = 20 * 1e3;
-      const DIZZY_MIN_MS = 1500;
-      const DIZZY_MAX_MS = 2500;
-      const DIZZY_FAST_PX_PER_SEC = 1800;
-      const DIZZY_FAST_DISTANCE_PX = 120;
-      const DIZZY_FAST_WINDOW_MS = 120;
-      const MEAL_KEY = "dshp-meal-v1";
-      const MEAL_PLAY_MIN_MS = 25 * 1e3;
-      const MEAL_PLAY_MAX_MS = 40 * 1e3;
-      const WEATHER_OVERLAY_STATES = ["rain", "snow", "thunder", "cold", "night"];
-      const ASSET_DATA_FILES = { anthology: "data/anthology.json", bank: "data/poems-bank.json", pingshui: "data/pingshui.json", ciBank: "data/ci-bank.json", moodCatalog: "data/mood-catalog.json" };
-      const LIBRARY_CATEGORIES = [
-        { id: "shijing", label: "\u8BD7\u7ECF" },
-        { id: "chuci", label: "\u695A\u8F9E" },
-        { id: "qianjiashi", label: "\u5343\u5BB6\u8BD7" },
-        { id: "tang300", label: "\u5510\u8BD7\u4E09\u767E\u9996" },
-        { id: "bank", label: "\u5168\u5510\u8BD7\u7CBE\u9009" },
-        { id: "ci-selected", label: "\u5B8B\u8BCD\u7CBE\u9009" }
-      ];
-      const MASCOT_EXPRESSION_MS = 2500;
-      const MASCOT_IDLE_MIN_MS = 45 * 60 * 1e3;
-      const MASCOT_IDLE_USER_MS = 5 * 60 * 1e3;
-      const MASCOT_IDLE_POLL_MS = 5 * 60 * 1e3;
-      const MASCOT_EXPRESSION_FILES = [
-        "dsh-whale-state-greet.webp",
-        "dsh-whale-state-wink.webp",
-        "dsh-whale-state-blush.webp",
-        "dsh-whale-state-teasing.webp",
-        "dsh-whale-state-cool-shades.webp",
-        "dsh-whale-state-star.webp",
-        "dsh-whale-state-meme-heart.webp",
-        "dsh-whale-state-meme-kyun.webp",
-        "dsh-whale-state-meme-smile-pain.webp",
-        "dsh-whale-state-meme-yes.webp",
-        "dsh-whale-state-meme-no.webp",
-        "dsh-whale-state-meme-omg.webp",
-        "dsh-whale-state-meme-shock.webp",
-        "dsh-whale-state-meme-wakuwaku.webp",
-        "dsh-whale-state-meme-music.webp",
-        "dsh-whale-state-meme-peace.webp",
-        "dsh-whale-state-daily-coffee.webp",
-        "dsh-whale-state-daily-picnic.webp",
-        "dsh-whale-state-valentine.webp",
-        "dsh-whale-state-festival-spring.webp",
-        "dsh-whale-state-festival-mid-autumn.webp",
-        "dsh-whale-state-festival-christmas.webp"
-      ];
-      const RESOURCE_PATHS = {
-        poems: "poems.json",
-        ci: "ci.json",
-        yun: "yun.json",
-        knowledge: "knowledge.json"
-      };
-      function cx() {
-        let out = "";
-        for (let i = 0; i < arguments.length; i++) {
-          const part = arguments[i];
-          if (!part) continue;
-          out = out ? out + " " + part : String(part);
-        }
-        return out;
-      }
-      function hasOwn2(obj, key) {
-        return Object.prototype.hasOwnProperty.call(obj, key);
-      }
-      function hashString(input) {
-        const text = String(input == null ? "" : input);
-        let hash = 2166136261;
-        for (let i = 0; i < text.length; i++) {
-          hash ^= text.charCodeAt(i);
-          hash = Math.imul(hash, 16777619);
-        }
-        return hash >>> 0;
-      }
-      function formatDateLabel(dateStr) {
-        const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
-        if (matched) return Number(matched[2]) + " \u6708 " + Number(matched[3]) + " \u65E5";
-        const now2 = /* @__PURE__ */ new Date();
-        return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
-      }
-      const TONE_QUESTION_CHARS2 = "\uFF1F?";
-      function clampPosition(position, size, viewport) {
-        const maxX = Math.max(8, viewport.w - size - 8);
-        const maxY = Math.max(8, viewport.h - size - 8);
-        return {
-          x: Math.round(clamp(position && position.x, 8, maxX)),
-          y: Math.round(clamp(position && position.y, 8, maxY))
-        };
-      }
-      function anchorPosition(snap, size, viewport, previous) {
-        const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport);
-        if (snap === "left") base.x = 16;
-        else if (snap === "right") base.x = Math.max(8, viewport.w - size - 16);
-        return base;
-      }
-      function describeDataError(error) {
-        if (!error) return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-        const status = Number(error.status);
-        if (status === 404) return "\u6570\u636E\u63A5\u53E3\u5C1A\u672A\u5C31\u7EEA\uFF08\u5BBF\u4E3B\u534A\u533A\u53EF\u80FD\u672A\u66F4\u65B0\uFF09\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-        if (status === 403) return "\u6570\u636E\u8BBF\u95EE\u88AB\u62D2\u7EDD\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
-        if (status === 401) return "\u4F1A\u8BDD\u672A\u6388\u6743\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u540E\u91CD\u8BD5";
-        const message = String(error.message || "");
-        if (/abort|timeout|超时/i.test(message)) return "\u8BF7\u6C42\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u91CD\u8BD5";
-        if (error.code === "DATA_UNAVAILABLE") return "\u8BD7\u8BCD\u6570\u636E\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-        return "\u8BD7\u8BCD\u6570\u636E\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
-      }
-      let feihuaIndexCache = { poems: null, ci: null, index: null };
-      let feihuaFullCache = {};
-      let feihuaFullInflight = {};
-      function clearFeihuaFullCache() {
-        feihuaFullCache = {};
-        for (const key of Object.keys(feihuaFullInflight)) {
-          try {
-            if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === "function") feihuaFullInflight[key].abort();
-          } catch (error) {
-          }
-        }
-        feihuaFullInflight = {};
-      }
-      function readFeihuaFullCache(char) {
-        const key = String(char == null ? "" : char);
-        return key ? feihuaFullCache[key] || null : null;
-      }
-      function abortFeihuaFull(char) {
-        const key = String(char == null ? "" : char);
-        const item = feihuaFullInflight[key];
-        if (item && typeof item.abort === "function") item.abort();
-        delete feihuaFullInflight[key];
-      }
-      function requestFeihuaFull(char) {
-        const key = String(char == null ? "" : char);
-        if (!key) return Promise.resolve({ ok: false, reason: "invalid" });
-        const cached = feihuaFullCache[key];
-        if (cached && cached.status === "ready") {
-          return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true });
-        }
-        if (cached && cached.status === "error" && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
-          return Promise.resolve({ ok: false, char: key, cached: true, reason: "retry-wait" });
-        }
-        if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise;
-        if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let aborted = false;
-        let settled = false;
-        let timer2 = null;
-        let abortResolve = null;
-        const abortPromise = new Promise((resolve) => {
-          abortResolve = () => resolve({ ok: false, reason: "aborted" });
-        });
-        const item = { promise: null, abort: () => {
-          aborted = true;
-          try {
-            if (controller) controller.abort();
-          } catch (error) {
-          }
-          if (abortResolve) abortResolve();
-        } };
-        const finish = (result) => {
-          if (settled) return result;
-          settled = true;
-          if (timer2) clearTimeout(timer2);
-          delete feihuaFullInflight[key];
-          if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
-          return result;
-        };
-        const url = ROUTE2 + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
-        const task = Promise.resolve().then(() => fetch(url, controller ? { signal: controller.signal } : void 0)).then((response) => {
-          if (!response || typeof response.ok !== "boolean" || !response.ok) {
-            return { ok: false, reason: "http", status: response ? response.status : 0 };
-          }
-          return Promise.resolve(response.json()).then((data) => {
-            if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: "invalid" };
-            const entries = [];
-            for (const entry of data.entries) {
-              if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === "string" && entry[0].trim()) {
-                entries.push([entry[0].trim(), String(entry[1] == null ? "" : entry[1])]);
-              } else if (entry && typeof entry === "object" && typeof entry.text === "string" && entry.text.trim()) {
-                entries.push([entry.text.trim(), String(entry.source || "")]);
-              }
-            }
-            if (!entries.length) return { ok: false, reason: "empty" };
-            const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length;
-            feihuaFullCache[key] = { status: "ready", entries, count, at: Date.now() };
-            return { ok: true, char: key, entries, count };
-          }).catch(() => ({ ok: false, reason: "json" }));
-        }).catch(() => ({ ok: false, reason: aborted ? "aborted" : "network" }));
-        const timeout = new Promise((resolve) => {
-          timer2 = setTimeout(() => {
-            try {
-              if (controller) controller.abort();
-            } catch (error) {
-            }
-            resolve({ ok: false, reason: "timeout" });
-          }, FEIHUA_FULL_TIMEOUT_MS);
-        });
-        item.promise = Promise.race([task, timeout, abortPromise]).then(finish);
-        feihuaFullInflight[key] = item;
-        return item.promise;
-      }
-      function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
-        if (!poemsData || !Array.isArray(poemsData.items)) return null;
-        const cached = feihuaIndexCache;
-        if (cached.index && cached.poems === poemsData && cached.ci === ciData && cached.anthology === anthologyData && cached.bank === bankData && cached.ciBank === ciBankData) return cached.index;
-        const index2 = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData);
-        feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index: index2 };
-        return index2;
-      }
-      function clearFeihuaIndexCache() {
-        feihuaIndexCache = { poems: null, ci: null, index: null };
-      }
-      function pickDefaultFeihuaChar(index2, poem) {
-        const fallback = "\u82B1";
-        if (!index2 || !Array.isArray(index2.candidates) || !index2.candidates.length) return fallback;
-        const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
-        const text = lines.join("");
-        let best = null;
-        for (const item of index2.candidates) {
-          if (!item || item.count <= 0) continue;
-          if (text.indexOf(item.char) < 0) continue;
-          if (!best || item.count > best.count) best = item;
-        }
-        return best ? best.char : fallback;
-      }
-      function readFeihuaBest() {
-        const storage = getStorage();
-        if (!storage) return normalizeFeihuaBest(null);
-        try {
-          const raw = storage.getItem(FEIHUA_BEST_KEY);
-          if (!raw) return normalizeFeihuaBest(null);
-          return normalizeFeihuaBest(JSON.parse(raw));
-        } catch (error) {
-          return normalizeFeihuaBest(null);
-        }
-      }
-      function writeFeihuaBest(best) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)));
-        } catch (error) {
-        }
-      }
-      let weatherCache = null;
-      function mascotStateFor(weather, enabled) {
-        if (!enabled || !weather || typeof weather !== "object") return "celebrate";
-        if (weather.isDay === false || weather.isDay === 0) return "night";
-        const category = typeof weather.category === "string" ? weather.category : "";
-        if (category === "rain") return "rain";
-        if (category === "snow") return "snow";
-        if (category === "thunder") return "thunder";
-        if (category === "cold") return "cold";
-        if (category === "clear" || category === "cloud" || category === "fog" || category === "wind") return "idle";
-        return "celebrate";
-      }
-      function mascotFileFor(stateKey) {
-        return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate;
-      }
-      function mascotUrl2(file) {
-        return ASSET_BASE2 + MASCOT_DIR + file;
-      }
-      function weatherPoemTags(weather) {
-        if (!weather || typeof weather !== "object") return [];
-        const tags = [];
-        const push = (list) => {
-          for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag);
-        };
-        push(WEATHER_CATEGORY_TAGS[weather.category] || []);
-        if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS);
-        return tags;
-      }
-      function countWeatherTagHits(lines, tags) {
-        const text = (Array.isArray(lines) ? lines : []).join("");
-        if (!text) return 0;
-        let hits = 0;
-        for (const tag of Array.isArray(tags) ? tags : []) {
-          if (!tag) continue;
-          let from = 0;
-          while (from <= text.length) {
-            const at = text.indexOf(tag, from);
-            if (at < 0) break;
-            hits += 1;
-            from = at + tag.length;
-          }
-        }
-        return hits;
-      }
-      function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
-        const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT));
-        const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === "string" && tag.length > 0);
-        if (!safeTags.length || !poolLimit) return [];
-        const build = (items, kind) => {
-          const out = [];
-          for (const item of Array.isArray(items) ? items : []) {
-            if (!item || !item.id) continue;
-            const hits = countWeatherTagHits(item.lines, safeTags);
-            if (hits > 0) out.push({ kind, id: item.id, hits, item });
-          }
-          out.sort((a2, b) => b.hits - a2.hits || String(a2.id).localeCompare(String(b.id)));
-          return out;
-        };
-        const extras = extraSources && typeof extraSources === "object" ? extraSources : {};
-        const sources = [
-          [poemsData && poemsData.items, "poem"],
-          [ciData && ciData.items, "ci"],
-          [extras.anthology && extras.anthology.items, "anthology"],
-          [extras.bank && extras.bank.items, "bank"],
-          [extras.ciBank && extras.ciBank.items, "ci-bank"]
-        ];
-        const pool = [];
-        for (const source of sources) {
-          if (pool.length >= poolLimit) break;
-          const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length);
-          for (const entry of entries) pool.push(entry);
-        }
-        return pool;
-      }
-      function selectWeatherPoemEntry(pool, meta) {
-        if (!Array.isArray(pool) || !pool.length) return null;
-        const date = meta && meta.date ? String(meta.date) : "";
-        const category = meta && meta.category ? String(meta.category) : "";
-        const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : "";
-        const index2 = Math.abs(hashString(date + "|" + category + "|" + dataVersion)) % pool.length;
-        return pool[index2];
-      }
-      function weatherChipText(city, weather) {
-        if (!weather || typeof weather !== "object") return "";
-        const place = typeof city === "string" && city ? city : "";
-        const label = typeof weather.label === "string" && weather.label ? weather.label : "\u5929\u6C14";
-        const tempC = Number(weather.tempC);
-        const temp = Number.isFinite(tempC) ? Math.round(tempC) + "\u2103" : "";
-        return (place ? place + " \xB7 " : "") + label + (temp ? " " + temp : "");
-      }
-      function weatherExplainText(weather) {
-        if (!weather || typeof weather !== "object") return "";
-        const category = typeof weather.category === "string" ? weather.category : "unknown";
-        const night = weather.isDay === false || weather.isDay === 0;
-        if (night && (category === "clear" || category === "cloud" || category === "unknown")) {
-          return "\u4ECA\u591C\u6708\u8272\u6B63\u597D\uFF0C\u4E3A\u4F60\u9009\u4E86\u5199\u6708\u591C\u7684\u8FD9\u9996";
-        }
-        return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown;
-      }
-      function weatherUpdatedLabel(at) {
-        const time = Number(at);
-        if (!Number.isFinite(time) || time <= 0) return "";
-        const date = new Date(time);
-        const pad = (value) => value < 10 ? "0" + value : String(value);
-        return pad(date.getHours()) + ":" + pad(date.getMinutes());
-      }
-      function requestWeather() {
-        return fetchJson("weather.json").then((data) => {
-          if (!data || data.ok !== true || !data.weather) throw new Error("\u5929\u6C14\u6570\u636E\u4E0D\u53EF\u7528");
-          weatherCache = { data, at: Date.now() };
-          return data;
-        });
-      }
-      function clearWeatherCache() {
-        weatherCache = null;
-      }
-      let moodCache = null;
-      function mascotImageFor(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const weatherKey = typeof opts.weatherStateKey === "string" ? opts.weatherStateKey : "celebrate";
-        const weatherOn = opts.weatherEnabled === true;
-        const moodOn = opts.moodEnabled === true;
-        const mood = opts.mood && typeof opts.mood === "object" ? opts.mood : null;
-        if (moodOn && mood && mood.image && (mood.source === "model" || mood.ai === true)) {
-          return { stateKey: "mood:ai", file: mood.image, source: "mood" };
-        }
-        if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
-          return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
-        }
-        if (moodOn && mood && mood.image) return { stateKey: "mood:" + mood.key, file: mood.image, source: "mood" };
-        if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: "weather" };
-        return { stateKey: "celebrate", file: mascotFileFor("celebrate"), source: "default" };
-      }
-      function mascotVideoShouldPause(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        return opts.hidden === true || opts.panelOpen === true;
-      }
-      function detectFastDrag(previous, next) {
-        const prev = previous && typeof previous === "object" ? previous : {};
-        const cur = next && typeof next === "object" ? next : {};
-        const px = num(prev.x, 0);
-        const py = num(prev.y, 0);
-        const cx2 = num(cur.x, 0);
-        const cy = num(cur.y, 0);
-        const pt = num(prev.t, 0);
-        const ct = num(cur.t, 0);
-        const dt = ct - pt;
-        if (!(dt > 0)) return false;
-        const distance = Math.hypot(cx2 - px, cy - py);
-        const speed = distance / dt * 1e3;
-        if (speed >= DIZZY_FAST_PX_PER_SEC) return true;
-        return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS;
-      }
-      function nextDizzyDuration(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS));
-      }
-      function nextMealDuration(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS));
-      }
-      function mealMomentFor(now2) {
-        const parts = shanghaiParts(num(now2, Date.now()));
-        const minutes = parts.minutes;
-        const windows = [
-          { meal: "breakfast", label: "\u65E9\u996D", start: 7 * 60, end: 9 * 60, window: "07:00\u201309:00" },
-          { meal: "lunch", label: "\u5348\u996D", start: 11 * 60 + 30, end: 13 * 60 + 30, window: "11:30\u201313:30" },
-          { meal: "dinner", label: "\u665A\u996D", start: 17 * 60 + 30, end: 19 * 60 + 30, window: "17:30\u201319:30" }
-        ];
-        for (const item of windows) {
-          if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey };
-        }
-        return null;
-      }
-      function normalizeMealState(raw, now2) {
-        const source = raw && typeof raw === "object" ? raw : {};
-        const dateKey = shanghaiParts(num(now2, Date.now())).dateKey;
-        const sameDay = source.date === dateKey;
-        const meals = {};
-        const previous = sameDay && source.meals && typeof source.meals === "object" ? source.meals : {};
-        for (const meal of ["breakfast", "lunch", "dinner"]) if (previous[meal] === true) meals[meal] = true;
-        return { date: dateKey, meals };
-      }
-      function readMealState(now2) {
-        const storage = getStorage();
-        if (!storage) return normalizeMealState(null, now2);
-        try {
-          const raw = storage.getItem(MEAL_KEY);
-          return normalizeMealState(raw ? JSON.parse(raw) : null, now2);
-        } catch (error) {
-          return normalizeMealState(null, now2);
-        }
-      }
-      function writeMealState(state) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(MEAL_KEY, JSON.stringify(state));
-        } catch (error) {
-        }
-      }
-      function markMealDone(state, meal, now2) {
-        const base = normalizeMealState(state, now2);
-        const meals = Object.assign({}, base.meals);
-        meals[meal] = true;
-        return { date: base.date, meals };
-      }
-      function mealTriggerFor(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null;
-        const moment = mealMomentFor(opts.now);
-        if (!moment) return null;
-        const state = normalizeMealState(opts.state, opts.now);
-        if (state.meals[moment.meal]) return null;
-        return moment;
-      }
-      function pickDizzyMedia(entries) {
-        if (!Array.isArray(entries) || !entries.length) return null;
-        const exact = entries.find((entry) => entry && String(entry.label || "").indexOf("\u5C0F\u5E45\u5EA6\u539F\u5730360\u5EA6\u65CB\u8F6C\u5C55\u793A") >= 0);
-        if (exact) return exact;
-        return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ""))) || null;
-      }
-      function pickMealMedia(entries, meal) {
-        if (!Array.isArray(entries) || !entries.length) return null;
-        const preferred = { breakfast: "\u5403\u65E9\u9910", lunch: "\u5403\u5348\u9910", dinner: "\u5403\u665A\u9910" };
-        const exact = entries.find((entry) => entry && String(entry.label || "") === preferred[meal]);
-        if (exact) return exact;
-        for (const label of ["\u5403\u767D\u996D", "\u5E72\u996D"]) {
-          const match = entries.find((entry) => entry && String(entry.label || "").indexOf(label) >= 0);
-          if (match) return match;
-        }
-        return entries.find((entry) => entry && String(entry.label || "").indexOf("\u5403") >= 0) || null;
-      }
-      function mascotFilePriority(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
-      }
-      function petMediaUrl(file) {
-        return ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
-      }
-      function normalizePetMediaCatalog(data) {
-        if (!data || data.ok === false || !Array.isArray(data.entries)) return null;
-        const entries = [];
-        const seen = {};
-        for (const item of data.entries) {
-          if (!item || typeof item.file !== "string") continue;
-          const file = item.file.trim();
-          if (!/^webm\/[^/]+\.webm$/.test(file)) continue;
-          if (seen[file]) continue;
-          seen[file] = true;
-          entries.push({
-            file,
-            label: String(item.label || ""),
-            media: "video",
-            tags: Array.isArray(item.tags) ? item.tags.slice() : []
-          });
-        }
-        return entries;
-      }
-      function mergePetMediaIntoCatalog(catalog, petEntries) {
-        if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog;
-        const moodImages = catalog.moodImages.slice();
-        const moodFiles = catalog.moodFiles.slice();
-        const byFile = Object.assign({}, catalog.byFile);
-        for (const entry of petEntries) {
-          if (!entry || !entry.file || byFile[entry.file]) continue;
-          const normalized = { file: entry.file, label: String(entry.label || ""), tags: Array.isArray(entry.tags) ? entry.tags : [], media: "video" };
-          moodImages.push(normalized);
-          moodFiles.push(entry.file);
-          byFile[entry.file] = normalized;
-        }
-        return Object.assign({}, catalog, { moodImages, moodFiles, byFile });
-      }
-      let petMediaCache = null;
-      let petMediaInflight = null;
-      function clearPetMediaCache() {
-        petMediaCache = null;
-        if (petMediaInflight && typeof petMediaInflight.abort === "function") {
-          try {
-            petMediaInflight.abort();
-          } catch (error) {
-          }
-        }
-        petMediaInflight = null;
-      }
-      function requestPetMediaCatalog() {
-        if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache });
-        if (petMediaInflight) return petMediaInflight.promise;
-        if (typeof fetch !== "function") return Promise.resolve({ ok: false, entries: [] });
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let settled = false;
-        let timer2 = null;
-        let abortResolve = null;
-        const abortPromise = new Promise((resolve) => {
-          abortResolve = () => resolve({ ok: false, entries: [], reason: "aborted" });
-        });
-        const finish = (result) => {
-          if (settled) return result;
-          settled = true;
-          if (timer2) clearTimeout(timer2);
-          petMediaInflight = null;
-          if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
-          return result;
-        };
-        const task = Promise.resolve().then(() => fetch(ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
-          if (!response || typeof response.ok !== "boolean" || !response.ok) return { ok: false, entries: [], reason: "http" };
-          return Promise.resolve(response.json()).then((data) => {
-            const entries = normalizePetMediaCatalog(data);
-            if (!entries) return { ok: false, entries: [], reason: "invalid" };
-            return { ok: true, entries };
-          }).catch(() => ({ ok: false, entries: [], reason: "json" }));
-        }).catch(() => ({ ok: false, entries: [], reason: "network" }));
-        const timeout = new Promise((resolve) => {
-          timer2 = setTimeout(() => {
-            try {
-              if (controller) controller.abort();
-            } catch (error) {
-            }
-            resolve({ ok: false, entries: [], reason: "timeout" });
-          }, PET_MEDIA_TIMEOUT_MS);
-        });
-        const inflight = { promise: null, abort: () => {
-          try {
-            if (controller) controller.abort();
-          } catch (error) {
-          }
-          if (abortResolve) abortResolve();
-        } };
-        inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish);
-        petMediaInflight = inflight;
-        return inflight.promise;
-      }
-      function readMotionRotation() {
-        const storage = getStorage();
-        if (!storage) return 0;
-        try {
-          const value = Number(storage.getItem(MOTION_ROTATION_KEY));
-          return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
-        } catch (error) {
-          return 0;
-        }
-      }
-      function writeMotionRotation(index2) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index2, 0)))));
-        } catch (error) {
-        }
-      }
-      function nextMotionEntry(entries, index2) {
-        if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 };
-        const size = entries.length;
-        const start = Math.max(0, Math.floor(num(index2, 0))) % size;
-        return { entry: entries[start], index: (start + 1) % size, size, position: start };
-      }
-      function nextMotionDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS));
-      }
-      function nextMotionFirstDelay(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS));
-      }
-      function nextMotionScheduleDelay(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts);
-        return nextMotionDelay(opts);
-      }
-      function nextMotionDuration(options) {
-        const opts = typeof options === "function" ? { random: options } : options && typeof options === "object" ? options : {};
-        const random = typeof opts.random === "function" ? opts.random : Math.random;
-        const value = Number(random());
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS));
-      }
-      function requestMoodAi(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let timer2 = null;
-        const timeout = new Promise((resolve) => {
-          timer2 = setTimeout(() => {
-            try {
-              if (controller) controller.abort();
-            } catch (error) {
-            }
-            resolve({ ok: false, reason: "timeout" });
-          }, MOOD_AI_TIMEOUT_MS);
-        });
-        const request = Promise.resolve().then(() => fetch(ROUTE2 + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
-          if (!response || typeof response.ok !== "boolean" || !response.ok) {
-            const status = response ? num(response.status, 0) : 0;
-            return { ok: false, reason: status === 429 ? "rate" : "http", status };
-          }
-          return Promise.resolve(response.json()).then((data) => {
-            const parsed = parseMoodAiResponse(data, opts.catalog);
-            const code = parsed && parsed.code ? String(parsed.code) : data && data.error && typeof data.error.code === "string" ? data.error.code : "";
-            if (!parsed.ok && code) {
-              return {
-                ok: false,
-                reason: /RATE_LIMITED|RATE/i.test(code) ? "rate" : "host",
-                code,
-                status: num(response.status, 200),
-                message: data && data.error && typeof data.error.message === "string" ? data.error.message : ""
-              };
-            }
-            return parsed;
-          }).catch(() => ({ ok: false, reason: "json" }));
-        }).catch(() => ({ ok: false, reason: "network" }));
-        return Promise.race([request, timeout]).then((result) => {
-          if (timer2) clearTimeout(timer2);
-          return result;
-        });
-      }
-      function normalizeSelfStatus(data) {
-        if (!data || data.ok === false || !data.state || typeof data.state !== "object") return null;
-        const state = data.state;
-        const text = (value, max) => {
-          const raw = String(value == null ? "" : value).trim();
-          return raw.length > max ? raw.slice(0, max) : raw;
-        };
-        const growth = data.growth && typeof data.growth === "object" ? data.growth : {};
-        const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)));
-        const at = (key) => {
-          const value = num(growth[key], 0);
-          return value > 0 ? value : 0;
-        };
-        const rawActions = data.actions && typeof data.actions === "object" ? data.actions : {};
-        const rawProject = data.project && typeof data.project === "object" ? data.project : null;
-        const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === "string" && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : [];
-        return {
-          // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
-          felt: text(data.felt || state.felt, 80),
-          experiencing: text(data.experiencing || state.experiencing, 120),
-          context,
-          feltAt: num(state.feltAt, 0),
-          sleeping: state.sleeping === true,
-          sleepSince: num(state.sleepSince, 0),
-          updatedAt: num(state.updatedAt, 0),
-          growth: {
-            learnings: count("learnings"),
-            reflections: count("reflections"),
-            lastLearnAt: at("lastLearnAt"),
-            lastReflectAt: at("lastReflectAt")
-          },
-          actions: {
-            latest: normalizeSelfAction(rawActions.latest),
-            recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5)
-          },
-          project: rawProject && typeof rawProject.title === "string" ? {
-            id: String(rawProject.id || ""),
-            title: text(rawProject.title, 60),
-            note: text(rawProject.note, 160),
-            steps: (Array.isArray(rawProject.steps) ? rawProject.steps : []).filter((step) => step && typeof step.text === "string").slice(-3).map((step) => ({
-              at: num(step.at, 0),
-              text: text(step.text, 160),
-              repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
-              lastAt: num(step.lastAt, 0)
-            })),
-            stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(rawProject.stage) ? rawProject.stage : "working",
-            progressAt: num(rawProject.progressAt, 0),
-            latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
-            staleAt: num(rawProject.staleAt, 0),
-            staleReason: text(rawProject.staleReason, 120),
-            attention: rawProject.attention && typeof rawProject.attention.question === "string" ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) } : null,
-            latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === "string" ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) } : null
-          } : null
-        };
-      }
-      function normalizeSelfAction(item) {
-        if (!item || typeof item !== "object" || item.id == null || item.id === "") return null;
-        return {
-          id: String(item.id),
-          label: String(item.label == null ? "" : item.label).slice(0, 40),
-          text: String(item.text == null ? "" : item.text).slice(0, 200),
-          at: num(item.at, 0)
-        };
-      }
-      function readSeenActionId() {
-        const storage = getStorage();
-        if (!storage) return "";
-        try {
-          return String(storage.getItem(ACTION_SEEN_KEY) || "");
-        } catch (error) {
-          return "";
-        }
-      }
-      function writeSeenActionId(id) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(ACTION_SEEN_KEY, String(id == null ? "" : id));
-        } catch (error) {
-        }
-      }
-      function selfStatusSummary(status) {
-        if (!status) return "";
-        const growth = status.growth || {};
-        const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)));
-        const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)));
-        const lastLearn = weatherUpdatedLabel(growth.lastLearnAt);
-        const lastReflect = weatherUpdatedLabel(growth.lastReflectAt);
-        if (!learnings && !reflections && !lastLearn && !lastReflect) return "\u5C1A\u672A\u5F00\u59CB";
-        const parts = ["\u81EA\u5B66 " + learnings + " \u6761", "\u81EA\u7701 " + reflections + " \u6B21"];
-        if (lastLearn) parts.push("\u4E0A\u6B21\u81EA\u5B66 " + lastLearn);
-        if (lastReflect) parts.push("\u4E0A\u6B21\u81EA\u7701 " + lastReflect);
-        return parts.join(" \xB7 ");
-      }
-      function normalizeMemoryStatus(data) {
-        if (!data || data.ok === false || !Array.isArray(data.files)) return null;
-        const files = data.files.filter((file) => file && typeof file === "object");
-        const countBy = (patterns) => {
-          let sum = 0;
-          for (const file of files) {
-            const id = String(file.id || "") + " " + String(file.path || "");
-            if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue;
-            sum += Math.max(0, Math.floor(num(file.entries, 0)));
-          }
-          return sum;
-        };
-        const health = data.health === "warn" || data.health === "error" ? data.health : data.health === "ok" ? "ok" : "warn";
-        const backups = data.backups && typeof data.backups === "object" ? data.backups : {};
-        const recovered = typeof data.recovered === "number" ? Math.max(0, Math.floor(data.recovered)) : data.recovered && typeof data.recovered === "object" && typeof data.recovered.count === "number" ? Math.max(0, Math.floor(data.recovered.count)) : data.recovered === true ? 1 : 0;
-        return {
-          health,
-          journal: countBy(["journal"]),
-          topics: countBy(["topic"]),
-          learnings: countBy(["learn", "growth", "self"]),
-          backups: {
-            count: Math.max(0, Math.floor(num(backups.count, 0))),
-            lastAt: num(backups.lastAt, 0),
-            latestId: String(backups.latestId || "")
-          },
-          recovered,
-          updatedAt: num(data.updatedAt, 0)
-        };
-      }
-      function normalizeWorks(raw) {
-        if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] };
-        const works = [];
-        for (const item of raw.works) {
-          if (!item || typeof item.title !== "string") continue;
-          const kind = item.kind === "svg" || item.kind === "image" || item.kind === "video" ? item.kind : "text";
-          const body = typeof item.body === "string" ? String(item.body) : "";
-          if (kind === "text" && body.length < 4) continue;
-          const mediaUrl = typeof item.mediaUrl === "string" && item.mediaUrl.length > 0 ? item.mediaUrl : "";
-          if ((kind === "image" || kind === "video") && mediaUrl.length === 0) continue;
-          works.push({
-            id: String(item.id || ""),
-            title: item.title.slice(0, 60),
-            kind,
-            createdAt: num(item.createdAt, 0),
-            body: kind === "text" ? body.slice(0, 2e3) : "",
-            src: kind === "svg" ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(body) : kind === "image" || kind === "video" ? mediaUrl : ""
-          });
-          if (works.length >= 6) break;
-        }
-        return { works };
-      }
-      function normalizeAttention(raw) {
-        if (!raw || raw.ok === false) return { mode: "observe", items: [], pending: 0 };
-        const mode = raw.mode === "auto" ? "auto" : "observe";
-        const items = (Array.isArray(raw.items) ? raw.items : []).filter((item) => item && typeof item.text === "string" && item.status === "pending").slice(0, 10).map((item) => ({
-          id: String(item.id || ""),
-          kind: item.kind === "question" || item.kind === "result" ? item.kind : "social",
-          text: String(item.text).slice(0, 500),
-          reason: String(item.reason || "").slice(0, 160),
-          draft: item.draft === true,
-          createdAt: num(item.createdAt, 0)
-        }));
-        return { mode, items, pending: items.length };
-      }
-      function normalizeTwinState(raw) {
-        if (!raw || raw.ok === false || raw.enabled === false) return null;
-        const twin = raw.twin && typeof raw.twin === "object" ? raw.twin : {};
-        const projects = twin.projects && typeof twin.projects === "object" ? twin.projects : {};
-        const project = projects.current && typeof projects.current === "object" ? {
-          title: String(projects.current.title || "").slice(0, 60),
-          stage: ["working", "waiting_user", "waiting_mirror", "blocked", "idle"].includes(projects.current.stage) ? projects.current.stage : "working",
-          question: projects.current.attention && typeof projects.current.attention.question === "string" ? projects.current.attention.question.slice(0, 200) : ""
-        } : null;
-        return { enabled: true, project };
-      }
       function switchNode(checked, onChange, label) {
         return h("button", {
           type: "button",
@@ -26148,80 +26236,6 @@
           h("div", { className: "dshp-self-summary" }, selfStatusSummary(status) || "\u5C1A\u672A\u5F00\u59CB")
         );
       }
-      function readSpontState(now2) {
-        const storage = getStorage();
-        if (!storage) return normalizeSpontState(null, now2);
-        try {
-          const raw = storage.getItem(SPONT_KEY);
-          return normalizeSpontState(raw ? JSON.parse(raw) : null, now2);
-        } catch (error) {
-          return normalizeSpontState(null, now2);
-        }
-      }
-      function writeSpontState(state) {
-        const storage = getStorage();
-        if (!storage) return;
-        try {
-          storage.setItem(SPONT_KEY, JSON.stringify(state));
-        } catch (error) {
-        }
-      }
-      function murmurPeriod(hour) {
-        if (hour >= 5 && hour < 9) return "\u65E9\u4E0A";
-        if (hour >= 9 && hour < 11) return "\u4E0A\u5348";
-        if (hour >= 11 && hour < 14) return "\u4E2D\u5348";
-        if (hour >= 14 && hour < 18) return "\u4E0B\u5348";
-        if (hour >= 18 && hour < 23) return "\u665A\u4E0A";
-        return "\u6DF1\u591C";
-      }
-      function requestSelfTalk(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        if (typeof fetch !== "function") return Promise.resolve({ ok: false, reason: "no-fetch" });
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        let timer2 = null;
-        const timeout = new Promise((resolve) => {
-          timer2 = setTimeout(() => {
-            try {
-              if (controller) controller.abort();
-            } catch (error) {
-            }
-            resolve({ ok: false, reason: "timeout" });
-          }, SELF_TALK_TIMEOUT_MS);
-        });
-        const request = Promise.resolve().then(() => fetch(ROUTE2 + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
-          if (!response || typeof response.ok !== "boolean" || !response.ok) {
-            return { ok: false, reason: "http", status: response ? response.status : 0 };
-          }
-          return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
-        }).catch(() => ({ ok: false, reason: "network" }));
-        return Promise.race([request, timeout]).then((result) => {
-          if (timer2) clearTimeout(timer2);
-          return result;
-        });
-      }
-      function assetUrlFor(kind, version) {
-        const file = ASSET_DATA_FILES[kind];
-        if (!file) return "";
-        return "/api/dsh-poetry/assets?f=" + file + "&v=" + encodeURIComponent(String(version == null ? "" : version));
-      }
-      function shouldShowDailyGreet(state, now2) {
-        return !normalizeMascotEggState(state, now2).greeted;
-      }
-      function canShowIdlePose(state, now2, lastInteractionAt) {
-        const normalized = normalizeMascotEggState(state, now2);
-        const time = num(now2, Date.now());
-        if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false;
-        const lastInteraction = num(lastInteractionAt, 0);
-        if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false;
-        return true;
-      }
-      function pickMascotExpression(random) {
-        const value = typeof random === "function" ? Number(random()) : Math.random();
-        const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0;
-        const index2 = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length);
-        return MASCOT_EXPRESSION_FILES[index2] || MASCOT_EXPRESSION_FILES[0];
-      }
-      let bootstrapCache = null;
       const resourceStore = createResourceStore({
         fetchJsonUrl,
         route: ROUTE2,
@@ -26234,16 +26248,6 @@
       });
       const { useViewportSize, useResource } = createHooks({ React, resourceStore });
       const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
-      const fetchJson = createFetchJson(ROUTE2);
-      function putSettings(patch) {
-        const request = buildSettingsRequest(patch);
-        return fetchJson("settings.json", request.init).then((data) => {
-          if (bootstrapCache && data && data.settings) {
-            bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings });
-          }
-          return data;
-        });
-      }
       const DEBUG = {
         ROUTE: ROUTE2,
         ASSET_BASE: ASSET_BASE2,

@@ -7,6 +7,7 @@
     '平起入韵': ['平平仄仄平', '仄仄仄平平', '仄仄平平仄', '平平仄仄平'],
   }
   const TONE_ANY_CHARS = '○〇'
+  const TONE_QUESTION_CHARS = '？?'
   const PUNCTUATION = '，。！？；、：,.!?;:「」『』（）()《》〈〉“”‘’—…·'
 
   export function isPunctuation(ch) {

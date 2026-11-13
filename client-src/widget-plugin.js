@@ -171,6 +171,164 @@ import {
 } from './local-state.js'
 import { RESOURCE_CACHE_KEYS, createResourceStore } from './resources.js'
 
+import {
+ ROUTE,
+ SELF_PATH,
+ SELF_POLL_MS,
+ ACTION_SEEN_KEY,
+ MEMORY_PATH,
+ HEALTH_PATH,
+ WORKS_PATH,
+ ATTENTION_PATH,
+ PROJECT_ACTION_PATH,
+ PROJECT_PATH,
+ TWIN_PATH,
+ PRESENCE_PATH,
+ PRESENCE_THROTTLE_MS,
+ WORKS_POLL_MS,
+ GROWTH_PATH,
+ GROWTH_POLL_MS,
+ ATTENTION_POLL_MS,
+ TWIN_POLL_MS,
+ HEALTH_POLL_MS,
+ MEMORY_BACKUP_PATH,
+ MEMORY_POLL_MS,
+ ASSET_BASE,
+ WIDGET_ID,
+ BASE_SIZE,
+ Z_INDEX,
+ SAVE_DEBOUNCE_MS,
+ STEPS,
+ POETRY_ENTRY_ENABLED,
+ POETRY_TABS,
+ FEIHUA_BEST_KEY,
+ FEIHUA_ATLAS_PAGE,
+ FEIHUA_FULL_PATH,
+ FEIHUA_FULL_TIMEOUT_MS,
+ FEIHUA_FULL_RETRY_MS,
+ MASCOT_FILES,
+ MASCOT_TRANSIENT_MS,
+ WEATHER_REFRESH_MS,
+ WEATHER_STALE_MS,
+ WEATHER_POOL_LIMIT,
+ PET_MEDIA_PATH,
+ PET_MEDIA_CATALOG_FILE,
+ PET_MEDIA_TIMEOUT_MS,
+ MOTION_ROTATION_KEY,
+ MOTION_MIN_DELAY_MS,
+ MOTION_MAX_DELAY_MS,
+ MOTION_PLAY_MIN_MS,
+ MOTION_PLAY_MAX_MS,
+ MOTION_FIRST_MIN_DELAY_MS,
+ MOTION_FIRST_MAX_DELAY_MS,
+ DIZZY_MIN_MS,
+ DIZZY_MAX_MS,
+ DIZZY_FAST_PX_PER_SEC,
+ DIZZY_FAST_DISTANCE_PX,
+ DIZZY_FAST_WINDOW_MS,
+ MEAL_KEY,
+ MEAL_PLAY_MIN_MS,
+ MEAL_PLAY_MAX_MS,
+ ASSET_DATA_FILES,
+ LIBRARY_CATEGORIES,
+ MASCOT_EXPRESSION_MS,
+ MASCOT_IDLE_MIN_MS,
+ MASCOT_IDLE_USER_MS,
+ MASCOT_IDLE_POLL_MS,
+ MASCOT_EXPRESSION_FILES,
+ RESOURCE_PATHS,
+} from "./widget/models/constants.js"
+import {
+ cx,
+ hasOwn,
+ hashString,
+ formatDateLabel,
+ clampPosition,
+ anchorPosition,
+ describeDataError,
+} from "./widget/models/utils.js"
+import {
+ clearFeihuaFullCache,
+ readFeihuaFullCache,
+ abortFeihuaFull,
+ requestFeihuaFull,
+ getFeihuaIndex,
+ clearFeihuaIndexCache,
+ pickDefaultFeihuaChar,
+ readFeihuaBest,
+ writeFeihuaBest,
+} from "./widget/models/feihua-model.js"
+import {
+ weatherCache,
+ weatherPoemTags,
+ countWeatherTagHits,
+ buildWeatherPoemPool,
+ selectWeatherPoemEntry,
+ weatherChipText,
+ weatherExplainText,
+ weatherUpdatedLabel,
+ requestWeather,
+} from "./widget/models/weather-model.js"
+import {
+ mascotStateFor,
+ mascotFileFor,
+ mascotUrl,
+ mascotImageFor,
+ mascotVideoShouldPause,
+ detectFastDrag,
+ nextDizzyDuration,
+ nextMealDuration,
+ mealMomentFor,
+ normalizeMealState,
+ readMealState,
+ writeMealState,
+ markMealDone,
+ mealTriggerFor,
+ pickDizzyMedia,
+ pickMealMedia,
+ mascotFilePriority,
+ petMediaUrl,
+ normalizePetMediaCatalog,
+ mergePetMediaIntoCatalog,
+ clearPetMediaCache,
+ requestPetMediaCatalog,
+ readMotionRotation,
+ writeMotionRotation,
+ nextMotionEntry,
+ nextMotionDelay,
+ nextMotionFirstDelay,
+ nextMotionScheduleDelay,
+ nextMotionDuration,
+ shouldShowDailyGreet,
+ canShowIdlePose,
+ pickMascotExpression,
+} from "./widget/models/mascot-model.js"
+import {
+ moodCache,
+ requestMoodAi,
+} from "./widget/models/mood-model.js"
+import {
+ normalizeSelfStatus,
+ normalizeSelfAction,
+ readSeenActionId,
+ writeSeenActionId,
+ selfStatusSummary,
+ normalizeMemoryStatus,
+ normalizeWorks,
+ normalizeAttention,
+ normalizeTwinState,
+} from "./widget/models/self-model.js"
+import {
+ readSpontState,
+ writeSpontState,
+ requestSelfTalk,
+} from "./widget/models/spont-model.js"
+import {
+ assetUrlFor,
+ fetchJson,
+ putSettings,
+} from "./widget/models/api.js"
+
 /**
  * dsh-little-whale —— 浏览器半边（M9：诗词挂件 / 天气选诗 / 飞花令 / 心情彩蛋 / 诗库 / 格律检测）。
  *
@@ -201,1103 +359,6 @@ window.__ModuleLoader__.load({
   throw new Error('dsh-little-whale: React 运行时不可用')
   }
   const h = React.createElement
-  const ROUTE = '/api/dsh-poetry/'
-  const SELF_PATH = 'self.json'
-  const SELF_POLL_MS = 60 * 1000
-  const ACTION_SEEN_KEY = 'dshp-action-seen-v1'
-  const MEMORY_PATH = 'memory.json'
-  const HEALTH_PATH = 'health.json'
-  const WORKS_PATH = 'works.json'
-  const ATTENTION_PATH = 'attention.json'
-  const PROJECT_ACTION_PATH = 'project-action.json'
-  const PROJECT_PATH = 'project.json'
-  const TWIN_PATH = 'twin.json'
-  const PRESENCE_PATH = 'presence.json'
-  const PRESENCE_THROTTLE_MS = 60 * 1000
-  const WORKS_POLL_MS = 60 * 1000
-  const GROWTH_PATH = 'growth.json'
-  const GROWTH_POLL_MS = 5 * 60 * 1000
-  const ATTENTION_POLL_MS = 30 * 1000
-  const TWIN_POLL_MS = 60 * 1000
-  const HEALTH_POLL_MS = 60 * 1000
-  const MEMORY_BACKUP_PATH = 'memory/backup.json'
-  const MEMORY_POLL_MS = 60 * 1000
-  const ASSET_BASE = ROUTE + 'assets?f='
-  const SETTINGS_URL = ROUTE + 'settings.json'
-  const WIDGET_ID = 'dsh-little-whale'
-  const CACHE_KEY = 'dshp.firstscreen.v1'
-  const BASE_SIZE = 96
-  const MIN_SCALE = 0.6
-  const MAX_SCALE = 1.6
-  const Z_INDEX = 60
-  const SAVE_DEBOUNCE_MS = 450
-  const STEPS = ['今日一诗', '格律解析', '今日知识卡', '声律启蒙', '词牌名篇', '飞花令']
-  // v1.76：诗词模块与它的配置降权到二级菜单（从成长页进入）。
-  // v2.29：诗词/格律入口暂时关闭，但代码与数据都保留，后续可随时打开。
-  const POETRY_ENTRY_ENABLED = false
-  const POETRY_TABS = [
-  { id: 'today', label: '今日' },
-  { id: 'class', label: '课堂' },
-  { id: 'yun', label: '韵部' },
-  { id: 'ci', label: '词牌' },
-  { id: 'library', label: '诗库' },
-  { id: 'feihua', label: '飞花' },
-  { id: 'poetry-settings', label: '设置' },
-  ]
-  const FEIHUA_BEST_KEY = 'dshp-feihua-best-v1'
-  const FEIHUA_ATLAS_PAGE = 60
-  const FEIHUA_FULL_PATH = 'feihua-full.json'
-  const FEIHUA_FULL_TIMEOUT_MS = 20000
-  const FEIHUA_FULL_RETRY_MS = 60000
-  const MASCOT_DIR = 'generated/'
-  const MASCOT_FILES = Object.freeze({
-  celebrate: 'dsh-whale-state-celebrate.webp',
-  idle: 'dsh-whale-state-idle-cute.webp',
-  night: 'dsh-whale-state-night.webp',
-  rain: 'dsh-whale-state-weather-umbrella.webp',
-  snow: 'dsh-whale-state-weather-snow.webp',
-  thunder: 'dsh-whale-state-weather-thunder.webp',
-  cold: 'dsh-whale-state-weather-cold.webp',
-  gameWin: 'dsh-whale-state-game-win.webp',
-  gameLose: 'dsh-whale-state-game-lose.webp',
-  gameThink: 'dsh-whale-state-game-think.webp',
-  })
-  const MASCOT_TRANSIENT_MS = 2500
-  const WEATHER_REFRESH_MS = 30 * 60 * 1000
-  const WEATHER_STALE_MS = 20 * 60 * 1000
-  const WEATHER_CATEGORY_TAGS = Object.freeze({
-  rain: ['雨'],
-  snow: ['雪'],
-  thunder: ['雨', '雷'],
-  cloud: ['云'],
-  fog: ['云', '雾'],
-  clear: ['晴', '日'],
-  wind: ['风'],
-  cold: ['霜', '露', '寒'],
-  unknown: [],
-  })
-  const WEATHER_NIGHT_TAGS = ['月', '夜']
-  const WEATHER_POOL_LIMIT = 20
-  const WEATHER_EXPLAIN = Object.freeze({
-  rain: '今日有雨，为你选了写雨的这首',
-  snow: '今日有雪，为你选了写雪的这首',
-  thunder: '今日有雷雨，为你选了写雨雷的这首',
-  cloud: '今日多云，为你选了写云的这首',
-  fog: '今日有雾，为你选了写云雾的这首',
-  clear: '今日晴好，为你选了写晴日的这首',
-  wind: '今日多风，为你选了写风的这首',
-  cold: '今日寒冷，为你选了写霜寒的这首',
-  unknown: '今日天气应景，为你选了应景的这首',
-  })
-  const PET_MEDIA_PATH = 'pet-media'
-  const PET_MEDIA_CATALOG_FILE = 'catalog.json'
-  const PET_MEDIA_TIMEOUT_MS = 9000
-  const MOTION_ROTATION_KEY = 'dshp-motion-rotation-v1'
-  const MOTION_MIN_DELAY_MS = 90 * 1000
-  const MOTION_MAX_DELAY_MS = 210 * 1000
-  const MOTION_PLAY_MIN_MS = 20 * 1000
-  const MOTION_PLAY_MAX_MS = 30 * 1000
-  const MOTION_FIRST_MIN_DELAY_MS = 10 * 1000
-  const MOTION_FIRST_MAX_DELAY_MS = 20 * 1000
-  const DIZZY_MIN_MS = 1500
-  const DIZZY_MAX_MS = 2500
-  const DIZZY_FAST_PX_PER_SEC = 1800
-  const DIZZY_FAST_DISTANCE_PX = 120
-  const DIZZY_FAST_WINDOW_MS = 120
-  const MEAL_KEY = 'dshp-meal-v1'
-  const MEAL_PLAY_MIN_MS = 25 * 1000
-  const MEAL_PLAY_MAX_MS = 40 * 1000
-  const WEATHER_OVERLAY_STATES = ['rain', 'snow', 'thunder', 'cold', 'night']
-  /* M9：扩展静态数据资产 + 诗库 + 格律检测 + 剩余立绘彩蛋 */
-  const ASSET_DATA_FILES = { anthology: 'data/anthology.json', bank: 'data/poems-bank.json', pingshui: 'data/pingshui.json', ciBank: 'data/ci-bank.json', moodCatalog: 'data/mood-catalog.json' }
-  const LIBRARY_CATEGORIES = [
-   { id: 'shijing', label: '诗经' },
-   { id: 'chuci', label: '楚辞' },
-   { id: 'qianjiashi', label: '千家诗' },
-   { id: 'tang300', label: '唐诗三百首' },
-   { id: 'bank', label: '全唐诗精选' },
-   { id: 'ci-selected', label: '宋词精选' },
-  ]
-  const MASCOT_EXPRESSION_MS = 2500
-  const MASCOT_IDLE_MIN_MS = 45 * 60 * 1000
-  const MASCOT_IDLE_USER_MS = 5 * 60 * 1000
-  const MASCOT_IDLE_POLL_MS = 5 * 60 * 1000
-  const MASCOT_EXPRESSION_FILES = [
-   'dsh-whale-state-greet.webp', 'dsh-whale-state-wink.webp', 'dsh-whale-state-blush.webp',
-   'dsh-whale-state-teasing.webp', 'dsh-whale-state-cool-shades.webp', 'dsh-whale-state-star.webp',
-   'dsh-whale-state-meme-heart.webp', 'dsh-whale-state-meme-kyun.webp', 'dsh-whale-state-meme-smile-pain.webp',
-   'dsh-whale-state-meme-yes.webp', 'dsh-whale-state-meme-no.webp', 'dsh-whale-state-meme-omg.webp',
-   'dsh-whale-state-meme-shock.webp', 'dsh-whale-state-meme-wakuwaku.webp', 'dsh-whale-state-meme-music.webp',
-   'dsh-whale-state-meme-peace.webp', 'dsh-whale-state-daily-coffee.webp', 'dsh-whale-state-daily-picnic.webp',
-   'dsh-whale-state-valentine.webp', 'dsh-whale-state-festival-spring.webp', 'dsh-whale-state-festival-mid-autumn.webp',
-   'dsh-whale-state-festival-christmas.webp',
-  ]
-  const RESOURCE_PATHS = {
-  poems: 'poems.json',
-  ci: 'ci.json',
-  yun: 'yun.json',
-  knowledge: 'knowledge.json',
-  }
-
-
-  function cx() {
-  let out = ''
-  for (let i = 0; i < arguments.length; i++) {
-   const part = arguments[i]
-   if (!part) continue
-   out = out ? out + ' ' + part : String(part)
-  }
-  return out
-  }
-
-  function hasOwn(obj, key) {
-  return Object.prototype.hasOwnProperty.call(obj, key)
-  }
-
-  /** FNV-1a：用于「按日期确定性挑卡片」，不用于安全场景。 */
-  function hashString(input) {
-  const text = String(input == null ? '' : input)
-  let hash = 2166136261
-  for (let i = 0; i < text.length; i++) {
-   hash ^= text.charCodeAt(i)
-   hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-  }
-
-  /** 把 "2026-10-21" 显示成 "10 月 21 日"；解析失败时退回本机日期。 */
-  function formatDateLabel(dateStr) {
-  const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''))
-  if (matched) return Number(matched[2]) + ' 月 ' + Number(matched[3]) + ' 日'
-  const now = new Date()
-  return now.getMonth() + 1 + ' 月 ' + now.getDate() + ' 日'
-  }
-
-  const TONE_QUESTION_CHARS = '？?'
-
-  /** 视口内 clamp 的位置（左上角坐标）。 */
-  function clampPosition(position, size, viewport) {
-  const maxX = Math.max(8, viewport.w - size - 8)
-  const maxY = Math.max(8, viewport.h - size - 8)
-  return {
-   x: Math.round(clamp(position && position.x, 8, maxX)),
-   y: Math.round(clamp(position && position.y, 8, maxY)),
-  }
-  }
-
-  /** 按吸附模式计算位置：left/right 贴边，free 保留原坐标并 clamp。 */
-  function anchorPosition(snap, size, viewport, previous) {
-  const base = clampPosition(previous || { x: 16, y: viewport.h - size - 24 }, size, viewport)
-  if (snap === 'left') base.x = 16
-  else if (snap === 'right') base.x = Math.max(8, viewport.w - size - 16)
-  return base
-  }
-
-
-  /** 把 fetch/数据错误翻译成面向用户的中文提示。 */
-  function describeDataError(error) {
-  if (!error) return '诗词数据加载失败，请稍后重试'
-  const status = Number(error.status)
-  if (status === 404) return '数据接口尚未就绪（宿主半区可能未更新），请稍后重试'
-  if (status === 403) return '数据访问被拒绝，请刷新页面后重试'
-  if (status === 401) return '会话未授权，请刷新页面后重试'
-  const message = String(error.message || '')
-  if (/abort|timeout|超时/i.test(message)) return '请求超时，请检查网络后重试'
-  if (error.code === 'DATA_UNAVAILABLE') return '诗词数据暂不可用，请稍后重试'
-  return '诗词数据加载失败，请稍后重试'
-  }
-  let feihuaIndexCache = { poems: null, ci: null, index: null }
-
-  /**
-
-  */
-  /** 把一条目的 lines 先拼成连续文本，再按 。！？ 切成完整句（保留标点、去空、纯字<5 丢）。 */
-  
-  /** 去空白与各种标点，用于自由输入的宽松匹配。 */
-  
-  
-  /** 自由输入校验：先小句精确，再整句精确，最后长度≥5 时包含扫描。 */
-  
-  
-  /** 把全量校验分片 [句子,出处] 并入当前索引：只注册当前令字，去重、补 plain/clause。 */
-  
-  let feihuaFullCache = {}
-  let feihuaFullInflight = {}
-
-  function clearFeihuaFullCache() {
-  feihuaFullCache = {}
-  for (const key of Object.keys(feihuaFullInflight)) {
-   try {
-    if (feihuaFullInflight[key] && typeof feihuaFullInflight[key].abort === 'function') feihuaFullInflight[key].abort()
-   } catch (error) {
-   }
-  }
-  feihuaFullInflight = {}
-  }
-
-  function readFeihuaFullCache(char) {
-  const key = String(char == null ? '' : char)
-  return key ? feihuaFullCache[key] || null : null
-  }
-
-  function abortFeihuaFull(char) {
-  const key = String(char == null ? '' : char)
-  const item = feihuaFullInflight[key]
-  if (item && typeof item.abort === 'function') item.abort()
-  delete feihuaFullInflight[key]
-  }
-
-  function requestFeihuaFull(char) {
-  const key = String(char == null ? '' : char)
-  if (!key) return Promise.resolve({ ok: false, reason: 'invalid' })
-  const cached = feihuaFullCache[key]
-  if (cached && cached.status === 'ready') {
-   return Promise.resolve({ ok: true, char: key, entries: cached.entries, count: cached.count, cached: true })
-  }
-  if (cached && cached.status === 'error' && Date.now() - cached.at < FEIHUA_FULL_RETRY_MS) {
-   return Promise.resolve({ ok: false, char: key, cached: true, reason: 'retry-wait' })
-  }
-  if (feihuaFullInflight[key]) return feihuaFullInflight[key].promise
-  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
-  const controller = typeof AbortController === 'function' ? new AbortController() : null
-  let aborted = false
-  let settled = false
-  let timer = null
-  let abortResolve = null
-  const abortPromise = new Promise((resolve) => {
-   abortResolve = () => resolve({ ok: false, reason: 'aborted' })
-  })
-  const item = { promise: null, abort: () => {
-   aborted = true
-   try {
-    if (controller) controller.abort()
-   } catch (error) {
-   }
-   if (abortResolve) abortResolve()
-  } }
-  const finish = (result) => {
-   if (settled) return result
-   settled = true
-   if (timer) clearTimeout(timer)
-   delete feihuaFullInflight[key]
-   if (!result.ok && !aborted) feihuaFullCache[key] = { status: 'error', at: Date.now() }
-   return result
-  }
-  const url = ROUTE + FEIHUA_FULL_PATH + '?char=' + encodeURIComponent(key)
-  const task = Promise.resolve()
-   .then(() => fetch(url, controller ? { signal: controller.signal } : undefined))
-   .then((response) => {
-    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
-     return { ok: false, reason: 'http', status: response ? response.status : 0 }
-    }
-    return Promise.resolve(response.json()).then((data) => {
-     if (!data || data.ok === false || !Array.isArray(data.entries)) return { ok: false, reason: 'invalid' }
-     const entries = []
-     for (const entry of data.entries) {
-      if (Array.isArray(entry) && entry.length >= 2 && typeof entry[0] === 'string' && entry[0].trim()) {
-       entries.push([entry[0].trim(), String(entry[1] == null ? '' : entry[1])])
-      } else if (entry && typeof entry === 'object' && typeof entry.text === 'string' && entry.text.trim()) {
-       entries.push([entry.text.trim(), String(entry.source || '')])
-      }
-     }
-     if (!entries.length) return { ok: false, reason: 'empty' }
-     const count = Number.isFinite(Number(data.count)) && Number(data.count) > 0 ? Math.floor(Number(data.count)) : entries.length
-     feihuaFullCache[key] = { status: 'ready', entries, count, at: Date.now() }
-     return { ok: true, char: key, entries, count }
-    }).catch(() => ({ ok: false, reason: 'json' }))
-   })
-   .catch(() => ({ ok: false, reason: aborted ? 'aborted' : 'network' }))
-  const timeout = new Promise((resolve) => {
-   timer = setTimeout(() => {
-    try {
-     if (controller) controller.abort()
-    } catch (error) {
-    }
-    resolve({ ok: false, reason: 'timeout' })
-   }, FEIHUA_FULL_TIMEOUT_MS)
-  })
-  item.promise = Promise.race([task, timeout, abortPromise]).then(finish)
-  feihuaFullInflight[key] = item
-  return item.promise
-  }
-
-  /** 词句来源文本：作者《标题》/ 词牌。 */
-  
-  /** 把一批诗/词条目并入已建索引（分片异步构建用；按句去重，不计入性能关键路径）。 */
-  
-  /** 收尾：按句数重算候选令字（合并完成后调用）。 */
-  
-  /** 索引按数据对象引用缓存：换数据（dataVersion 变化）时 clearResourceCache 会一并作废。 */
-  function getFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData) {
-  if (!poemsData || !Array.isArray(poemsData.items)) return null
-  const cached = feihuaIndexCache
-  if (cached.index && cached.poems === poemsData && cached.ci === ciData
-   && cached.anthology === anthologyData && cached.bank === bankData
-   && cached.ciBank === ciBankData) return cached.index
-  const index = buildFeihuaIndex(poemsData, ciData, anthologyData, bankData, ciBankData)
-  feihuaIndexCache = { poems: poemsData, ci: ciData, anthology: anthologyData, bank: bankData, ciBank: ciBankData, index }
-  return index
-  }
-
-  function clearFeihuaIndexCache() {
-  feihuaIndexCache = { poems: null, ci: null, index: null }
-  }
-
-  /** 默认令字：今日诗中出现的候选字里句数最多的；否则「花」。 */
-  function pickDefaultFeihuaChar(index, poem) {
-  const fallback = '花'
-  if (!index || !Array.isArray(index.candidates) || !index.candidates.length) return fallback
-  const lines = poem && Array.isArray(poem.lines) ? poem.lines : []
-  const text = lines.join('')
-  let best = null
-  for (const item of index.candidates) {
-   if (!item || item.count <= 0) continue
-   if (text.indexOf(item.char) < 0) continue
-   if (!best || item.count > best.count) best = item
-  }
-  return best ? best.char : fallback
-  }
-
-  
-  
-  
-  
-  /** 开局：系统先出一句含令字的诗，player 自由输入对句。 */
-  
-  /** 自由输入提交：校验出处（本地句库）、含令字、本局未重复。 */
-    
-  
-  function readFeihuaBest() {
-  const storage = getStorage()
-  if (!storage) return normalizeFeihuaBest(null)
-  try {
-   const raw = storage.getItem(FEIHUA_BEST_KEY)
-   if (!raw) return normalizeFeihuaBest(null)
-   return normalizeFeihuaBest(JSON.parse(raw))
-  } catch (error) {
-   return normalizeFeihuaBest(null)
-  }
-  }
-
-  function writeFeihuaBest(best) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(FEIHUA_BEST_KEY, JSON.stringify(normalizeFeihuaBest(best)))
-  } catch (error) {
-  }
-  }
-  let weatherCache = null
-
-  /** 形象状态 key：飞花令脉冲（gameWin/gameLose/gameThink）由调用方优先叠加。 */
-  function mascotStateFor(weather, enabled) {
-  if (!enabled || !weather || typeof weather !== 'object') return 'celebrate'
-  if (weather.isDay === false || weather.isDay === 0) return 'night'
-  const category = typeof weather.category === 'string' ? weather.category : ''
-  if (category === 'rain') return 'rain'
-  if (category === 'snow') return 'snow'
-  if (category === 'thunder') return 'thunder'
-  if (category === 'cold') return 'cold'
-  if (category === 'clear' || category === 'cloud' || category === 'fog' || category === 'wind') return 'idle'
-  return 'celebrate'
-  }
-
-  function mascotFileFor(stateKey) {
-  return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate
-  }
-
-  function mascotUrl(file) {
-  return ASSET_BASE + MASCOT_DIR + file
-  }
-
-  /** 天气类别 → 诗词标签：类别标签 + 夜间追加「月/夜」。 */
-  function weatherPoemTags(weather) {
-  if (!weather || typeof weather !== 'object') return []
-  const tags = []
-  const push = (list) => {
-   for (const tag of list) if (tags.indexOf(tag) < 0) tags.push(tag)
-  }
-  push(WEATHER_CATEGORY_TAGS[weather.category] || [])
-  if (weather.isDay === false || weather.isDay === 0) push(WEATHER_NIGHT_TAGS)
-  return tags
-  }
-
-  function countWeatherTagHits(lines, tags) {
-  const text = (Array.isArray(lines) ? lines : []).join('')
-  if (!text) return 0
-  let hits = 0
-  for (const tag of Array.isArray(tags) ? tags : []) {
-   if (!tag) continue
-   let from = 0
-   while (from <= text.length) {
-    const at = text.indexOf(tag, from)
-    if (at < 0) break
-    hits += 1
-    from = at + tag.length
-   }
-  }
-  return hits
-  }
-
-  /**
-
-  */
-  function buildWeatherPoemPool(poemsData, ciData, tags, limit, extraSources) {
-  const poolLimit = Math.max(0, num(limit, WEATHER_POOL_LIMIT))
-  const safeTags = (Array.isArray(tags) ? tags : []).filter((tag) => typeof tag === 'string' && tag.length > 0)
-  if (!safeTags.length || !poolLimit) return []
-  const build = (items, kind) => {
-   const out = []
-   for (const item of Array.isArray(items) ? items : []) {
-    if (!item || !item.id) continue
-    const hits = countWeatherTagHits(item.lines, safeTags)
-    if (hits > 0) out.push({ kind, id: item.id, hits, item })
-   }
-   out.sort((a, b) => b.hits - a.hits || String(a.id).localeCompare(String(b.id)))
-   return out
-  }
-  const extras = extraSources && typeof extraSources === 'object' ? extraSources : {}
-  const sources = [
-   [poemsData && poemsData.items, 'poem'],
-   [ciData && ciData.items, 'ci'],
-   [extras.anthology && extras.anthology.items, 'anthology'],
-   [extras.bank && extras.bank.items, 'bank'],
-   [extras.ciBank && extras.ciBank.items, 'ci-bank'],
-  ]
-  const pool = []
-  for (const source of sources) {
-   if (pool.length >= poolLimit) break
-   const entries = build(source[0], source[1]).slice(0, poolLimit - pool.length)
-   for (const entry of entries) pool.push(entry)
-  }
-  return pool
-  }
-
-  /** 今日天气诗：hash(date + category + dataVersion) % pool.length（与 todayPoemId 同思路但独立）。 */
-  function selectWeatherPoemEntry(pool, meta) {
-  if (!Array.isArray(pool) || !pool.length) return null
-  const date = meta && meta.date ? String(meta.date) : ''
-  const category = meta && meta.category ? String(meta.category) : ''
-  const dataVersion = meta && meta.dataVersion ? String(meta.dataVersion) : ''
-  const index = Math.abs(hashString(date + '|' + category + '|' + dataVersion)) % pool.length
-  return pool[index]
-  }
-
-  function weatherChipText(city, weather) {
-  if (!weather || typeof weather !== 'object') return ''
-  const place = typeof city === 'string' && city ? city : ''
-  const label = typeof weather.label === 'string' && weather.label ? weather.label : '天气'
-  const tempC = Number(weather.tempC)
-  const temp = Number.isFinite(tempC) ? Math.round(tempC) + '℃' : ''
-  return (place ? place + ' · ' : '') + label + (temp ? ' ' + temp : '')
-  }
-
-  function weatherExplainText(weather) {
-  if (!weather || typeof weather !== 'object') return ''
-  const category = typeof weather.category === 'string' ? weather.category : 'unknown'
-  const night = weather.isDay === false || weather.isDay === 0
-  if (night && (category === 'clear' || category === 'cloud' || category === 'unknown')) {
-   return '今夜月色正好，为你选了写月夜的这首'
-  }
-  return WEATHER_EXPLAIN[category] || WEATHER_EXPLAIN.unknown
-  }
-
-  function weatherUpdatedLabel(at) {
-  const time = Number(at)
-  if (!Number.isFinite(time) || time <= 0) return ''
-  const date = new Date(time)
-  const pad = (value) => (value < 10 ? '0' + value : String(value))
-  return pad(date.getHours()) + ':' + pad(date.getMinutes())
-  }
-
-  function requestWeather() {
-  return fetchJson('weather.json').then((data) => {
-   if (!data || data.ok !== true || !data.weather) throw new Error('天气数据不可用')
-   weatherCache = { data, at: Date.now() }
-   return data
-  })
-  }
-
-  function clearWeatherCache() {
-  weatherCache = null
-  }
-
-  let moodCache = null
-
-
-
-
-  /** 心情引擎：天气 + 时间 + 本地小信号 → {key,label,image,reason,strong}；不读任何对话数据（v1.58）。 */
-
-  /** 心情立绘限频：同 key 只更新文案；换 key 需 ≥20min，strong 变化/force 可破例。 */
-
-  /** 天气 + 心情合成立绘：恶劣天气（rain/snow/thunder/cold/night）优先，其次心情，最后默认。 */
-  function mascotImageFor(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  const weatherKey = typeof opts.weatherStateKey === 'string' ? opts.weatherStateKey : 'celebrate'
-  const weatherOn = opts.weatherEnabled === true
-  const moodOn = opts.moodEnabled === true
-  const mood = opts.mood && typeof opts.mood === 'object' ? opts.mood : null
-  if (moodOn && mood && mood.image && (mood.source === 'model' || mood.ai === true)) {
-   return { stateKey: 'mood:ai', file: mood.image, source: 'mood' }
-  }
-  if (weatherOn && WEATHER_OVERLAY_STATES.indexOf(weatherKey) >= 0) {
-   return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: 'weather' }
-  }
-  if (moodOn && mood && mood.image) return { stateKey: 'mood:' + mood.key, file: mood.image, source: 'mood' }
-  if (weatherOn) return { stateKey: weatherKey, file: mascotFileFor(weatherKey), source: 'weather' }
-  return { stateKey: 'celebrate', file: mascotFileFor('celebrate'), source: 'default' }
-  }
-
-  /** 视频立绘暂停条件：页面隐藏或面板打开时暂停，避免后台解码/打扰。 */
-  function mascotVideoShouldPause(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  return opts.hidden === true || opts.panelOpen === true
-  }
-
-  /** 快速拖动检测：两点间速度 ≥1800px/s 或 120ms 内位移 >120px。 */
-  function detectFastDrag(previous, next) {
-  const prev = previous && typeof previous === 'object' ? previous : {}
-  const cur = next && typeof next === 'object' ? next : {}
-  const px = num(prev.x, 0)
-  const py = num(prev.y, 0)
-  const cx = num(cur.x, 0)
-  const cy = num(cur.y, 0)
-  const pt = num(prev.t, 0)
-  const ct = num(cur.t, 0)
-  const dt = ct - pt
-  if (!(dt > 0)) return false
-  const distance = Math.hypot(cx - px, cy - py)
-  const speed = distance / dt * 1000
-  if (speed >= DIZZY_FAST_PX_PER_SEC) return true
-  return distance > DIZZY_FAST_DISTANCE_PX && dt < DIZZY_FAST_WINDOW_MS
-  }
-
-  function nextDizzyDuration(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(DIZZY_MIN_MS + ratio * (DIZZY_MAX_MS - DIZZY_MIN_MS))
-  }
-
-  function nextMealDuration(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MEAL_PLAY_MIN_MS + ratio * (MEAL_PLAY_MAX_MS - MEAL_PLAY_MIN_MS))
-  }
-
-  function mealMomentFor(now) {
-  const parts = shanghaiParts(num(now, Date.now()))
-  const minutes = parts.minutes
-  const windows = [
-   { meal: 'breakfast', label: '早饭', start: 7 * 60, end: 9 * 60, window: '07:00–09:00' },
-   { meal: 'lunch', label: '午饭', start: 11 * 60 + 30, end: 13 * 60 + 30, window: '11:30–13:30' },
-   { meal: 'dinner', label: '晚饭', start: 17 * 60 + 30, end: 19 * 60 + 30, window: '17:30–19:30' },
-  ]
-  for (const item of windows) {
-   if (minutes >= item.start && minutes < item.end) return { meal: item.meal, label: item.label, window: item.window, dateKey: parts.dateKey }
-  }
-  return null
-  }
-
-  function normalizeMealState(raw, now) {
-  const source = raw && typeof raw === 'object' ? raw : {}
-  const dateKey = shanghaiParts(num(now, Date.now())).dateKey
-  const sameDay = source.date === dateKey
-  const meals = {}
-  const previous = sameDay && source.meals && typeof source.meals === 'object' ? source.meals : {}
-  for (const meal of ['breakfast', 'lunch', 'dinner']) if (previous[meal] === true) meals[meal] = true
-  return { date: dateKey, meals }
-  }
-
-  function readMealState(now) {
-  const storage = getStorage()
-  if (!storage) return normalizeMealState(null, now)
-  try {
-   const raw = storage.getItem(MEAL_KEY)
-   return normalizeMealState(raw ? JSON.parse(raw) : null, now)
-  } catch (error) {
-   return normalizeMealState(null, now)
-  }
-  }
-
-  function writeMealState(state) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(MEAL_KEY, JSON.stringify(state))
-  } catch (error) {
-  }
-  }
-
-  function markMealDone(state, meal, now) {
-  const base = normalizeMealState(state, now)
-  const meals = Object.assign({}, base.meals)
-  meals[meal] = true
-  return { date: base.date, meals }
-  }
-
-  /** 是否应触发饭点提醒（纯函数）：窗口内、未 hidden/panel 遮挡、可见、当日该餐未触发。 */
-  function mealTriggerFor(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (opts.hidden === true || opts.panelOpen === true || opts.visible === false) return null
-  const moment = mealMomentFor(opts.now)
-  if (!moment) return null
-  const state = normalizeMealState(opts.state, opts.now)
-  if (state.meals[moment.meal]) return null
-  return moment
-  }
-
-  function pickDizzyMedia(entries) {
-  if (!Array.isArray(entries) || !entries.length) return null
-  const exact = entries.find((entry) => entry && String(entry.label || '').indexOf('小幅度原地360度旋转展示') >= 0)
-  if (exact) return exact
-  return entries.find((entry) => entry && /转|旋转|转圈|晕/.test(String(entry.label || ''))) || null
-  }
-
-  function pickMealMedia(entries, meal) {
-  if (!Array.isArray(entries) || !entries.length) return null
-  const preferred = { breakfast: '吃早餐', lunch: '吃午餐', dinner: '吃晚餐' }
-  const exact = entries.find((entry) => entry && String(entry.label || '') === preferred[meal])
-  if (exact) return exact
-  for (const label of ['吃白饭', '干饭']) {
-   const match = entries.find((entry) => entry && String(entry.label || '').indexOf(label) >= 0)
-   if (match) return match
-  }
-  return entries.find((entry) => entry && String(entry.label || '').indexOf('吃') >= 0) || null
-  }
-
-  /** 立绘层优先级：pulse > panel > dizzy > meal > expression > motion > mood。 */
-  function mascotFilePriority(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || ''
-  }
-
-
-
-  function petMediaUrl(file) {
-  return ROUTE + PET_MEDIA_PATH + '?f=' + encodeURIComponent(String(file == null ? '' : file))
-  }
-
-  /** dsh-pet catalog：只接受 webm/ 下的 video 条目，去重。 */
-  function normalizePetMediaCatalog(data) {
-  if (!data || data.ok === false || !Array.isArray(data.entries)) return null
-  const entries = []
-  const seen = {}
-  for (const item of data.entries) {
-   if (!item || typeof item.file !== 'string') continue
-   const file = item.file.trim()
-   if (!/^webm\/[^/]+\.webm$/.test(file)) continue
-   if (seen[file]) continue
-   seen[file] = true
-   entries.push({
-    file,
-    label: String(item.label || ''),
-    media: 'video',
-    tags: Array.isArray(item.tags) ? item.tags.slice() : [],
-   })
-  }
-  return entries
-  }
-
-  function mergePetMediaIntoCatalog(catalog, petEntries) {
-  if (!catalog || !Array.isArray(petEntries) || !petEntries.length) return catalog
-  const moodImages = catalog.moodImages.slice()
-  const moodFiles = catalog.moodFiles.slice()
-  const byFile = Object.assign({}, catalog.byFile)
-  for (const entry of petEntries) {
-   if (!entry || !entry.file || byFile[entry.file]) continue
-   const normalized = { file: entry.file, label: String(entry.label || ''), tags: Array.isArray(entry.tags) ? entry.tags : [], media: 'video' }
-   moodImages.push(normalized)
-   moodFiles.push(entry.file)
-   byFile[entry.file] = normalized
-  }
-  return Object.assign({}, catalog, { moodImages, moodFiles, byFile })
-  }
-
-  let petMediaCache = null
-  let petMediaInflight = null
-
-  function clearPetMediaCache() {
-  petMediaCache = null
-  if (petMediaInflight && typeof petMediaInflight.abort === 'function') {
-   try {
-    petMediaInflight.abort()
-   } catch (error) {
-   }
-  }
-  petMediaInflight = null
-  }
-
-  function requestPetMediaCatalog() {
-  if (petMediaCache) return Promise.resolve({ ok: true, entries: petMediaCache })
-  if (petMediaInflight) return petMediaInflight.promise
-  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, entries: [] })
-  const controller = typeof AbortController === 'function' ? new AbortController() : null
-  let settled = false
-  let timer = null
-  let abortResolve = null
-  const abortPromise = new Promise((resolve) => {
-   abortResolve = () => resolve({ ok: false, entries: [], reason: 'aborted' })
-  })
-  const finish = (result) => {
-   if (settled) return result
-   settled = true
-   if (timer) clearTimeout(timer)
-   petMediaInflight = null
-   if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries
-   return result
-  }
-  const task = Promise.resolve()
-   .then(() => fetch(ROUTE + PET_MEDIA_PATH + '?f=' + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : undefined))
-   .then((response) => {
-    if (!response || typeof response.ok !== 'boolean' || !response.ok) return { ok: false, entries: [], reason: 'http' }
-    return Promise.resolve(response.json()).then((data) => {
-     const entries = normalizePetMediaCatalog(data)
-     if (!entries) return { ok: false, entries: [], reason: 'invalid' }
-     return { ok: true, entries }
-    }).catch(() => ({ ok: false, entries: [], reason: 'json' }))
-   })
-   .catch(() => ({ ok: false, entries: [], reason: 'network' }))
-  const timeout = new Promise((resolve) => {
-   timer = setTimeout(() => {
-    try {
-     if (controller) controller.abort()
-    } catch (error) {
-    }
-    resolve({ ok: false, entries: [], reason: 'timeout' })
-   }, PET_MEDIA_TIMEOUT_MS)
-  })
-  const inflight = { promise: null, abort: () => {
-   try {
-    if (controller) controller.abort()
-   } catch (error) {
-   }
-   if (abortResolve) abortResolve()
-  } }
-  inflight.promise = Promise.race([task, timeout, abortPromise]).then(finish)
-  petMediaInflight = inflight
-  return inflight.promise
-  }
-
-  function readMotionRotation() {
-  const storage = getStorage()
-  if (!storage) return 0
-  try {
-   const value = Number(storage.getItem(MOTION_ROTATION_KEY))
-   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
-  } catch (error) {
-   return 0
-  }
-  }
-
-  function writeMotionRotation(index) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(MOTION_ROTATION_KEY, String(Math.max(0, Math.floor(num(index, 0)))))
-  } catch (error) {
-  }
-  }
-
-  /** 轮转取下一个动作（不随机）；返回 entry 与下一次索引（一轮结束回到 0）。 */
-  function nextMotionEntry(entries, index) {
-  if (!Array.isArray(entries) || !entries.length) return { entry: null, index: 0, size: 0 }
-  const size = entries.length
-  const start = Math.max(0, Math.floor(num(index, 0))) % size
-  return { entry: entries[start], index: (start + 1) % size, size, position: start }
-  }
-
-  function nextMotionDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MOTION_MIN_DELAY_MS + ratio * (MOTION_MAX_DELAY_MS - MOTION_MIN_DELAY_MS))
-  }
-
-  function nextMotionFirstDelay(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MOTION_FIRST_MIN_DELAY_MS + ratio * (MOTION_FIRST_MAX_DELAY_MS - MOTION_FIRST_MIN_DELAY_MS))
-  }
-
-  /** 首次且当前心情为静态图时 10–20s 快速补一个动画；其它情况按 90–210s 轮转。 */
-  function nextMotionScheduleDelay(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (opts.first !== false && !isVideoMoodFile(opts.moodImage)) return nextMotionFirstDelay(opts)
-  return nextMotionDelay(opts)
-  }
-
-  function nextMotionDuration(options) {
-  const opts = typeof options === 'function' ? { random: options } : (options && typeof options === 'object' ? options : {})
-  const random = typeof opts.random === 'function' ? opts.random : Math.random
-  const value = Number(random())
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  return Math.round(MOTION_PLAY_MIN_MS + ratio * (MOTION_PLAY_MAX_MS - MOTION_PLAY_MIN_MS))
-  }
-
-  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */  /** 心情图鉴（89 mood + 3 panel）：校验模型返回图片、提供面板探头映射。 */
-
-
-
-  /** mood-ai GET：只带 force/mood/weather/idleMinutes/recent(≤3)/recentImages(≤20)，不含会话内容。 */
-
-
-  /** 请求 host 模型心情；25s 超时（宿主 20s，客户端留余量）；失败都 resolve 成 {ok:false}，由调用方回退启发式。 */
-  function requestMoodAi(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
-  const controller = typeof AbortController === 'function' ? new AbortController() : null
-  let timer = null
-  const timeout = new Promise((resolve) => {
-   timer = setTimeout(() => {
-    try {
-     if (controller) controller.abort()
-    } catch (error) {
-    }
-    resolve({ ok: false, reason: 'timeout' })
-   }, MOOD_AI_TIMEOUT_MS)
-  })
-  const request = Promise.resolve()
-   .then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : undefined))
-   .then((response) => {
-    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
-     const status = response ? num(response.status, 0) : 0
-     return { ok: false, reason: status === 429 ? 'rate' : 'http', status }
-    }
-    return Promise.resolve(response.json()).then((data) => {
-     const parsed = parseMoodAiResponse(data, opts.catalog)
-     const code = parsed && parsed.code ? String(parsed.code) : (data && data.error && typeof data.error.code === 'string' ? data.error.code : '')
-     if (!parsed.ok && code) {
-      return {
-       ok: false,
-       reason: /RATE_LIMITED|RATE/i.test(code) ? 'rate' : 'host',
-       code,
-       status: num(response.status, 200),
-       message: data && data.error && typeof data.error.message === 'string' ? data.error.message : '',
-      }
-     }
-     return parsed
-    }).catch(() => ({ ok: false, reason: 'json' }))
-   })
-   .catch(() => ({ ok: false, reason: 'network' }))
-  return Promise.race([request, timeout]).then((result) => {
-   if (timer) clearTimeout(timer)
-   return result
-  })
-  }
-
-  /** 自驱成长状态：规范化 host self.json；数据缺失/404 返回 null（整块隐藏）。 */
-  function normalizeSelfStatus(data) {
-  if (!data || data.ok === false || !data.state || typeof data.state !== 'object') return null
-  const state = data.state
-  const text = (value, max) => {
-   const raw = String(value == null ? '' : value).trim()
-   return raw.length > max ? raw.slice(0, max) : raw
-  }
-  const growth = data.growth && typeof data.growth === 'object' ? data.growth : {}
-  const count = (key) => Math.max(0, Math.floor(num(growth[key], 0)))
-  const at = (key) => {
-   const value = num(growth[key], 0)
-   return value > 0 ? value : 0
-  }
-  const rawActions = data.actions && typeof data.actions === 'object' ? data.actions : {}
-  const rawProject = data.project && typeof data.project === 'object' ? data.project : null
-  const context = Array.isArray(data.context) ? data.context.filter((line) => typeof line === 'string' && line.trim().length > 0).slice(0, 6).map((line) => line.trim()) : []
-  return {
-   // v1.51：不再有 0–100 的指标；只有她自己写的一句话 + 事实时间线。
-   felt: text(data.felt || state.felt, 80),
-   experiencing: text(data.experiencing || state.experiencing, 120),
-   context,
-   feltAt: num(state.feltAt, 0),
-   sleeping: state.sleeping === true,
-   sleepSince: num(state.sleepSince, 0),
-   updatedAt: num(state.updatedAt, 0),
-   growth: {
-    learnings: count('learnings'),
-    reflections: count('reflections'),
-    lastLearnAt: at('lastLearnAt'),
-    lastReflectAt: at('lastReflectAt'),
-   },
-   actions: {
-    latest: normalizeSelfAction(rawActions.latest),
-    recent: (Array.isArray(rawActions.recent) ? rawActions.recent : []).map(normalizeSelfAction).filter(Boolean).slice(0, 5),
-   },
-   project: rawProject && typeof rawProject.title === 'string'
-    ? {
-      id: String(rawProject.id || ''),
-      title: text(rawProject.title, 60),
-      note: text(rawProject.note, 160),
-      steps: (Array.isArray(rawProject.steps) ? rawProject.steps : [])
-        .filter((step) => step && typeof step.text === 'string')
-        .slice(-3)
-        .map((step) => ({
-          at: num(step.at, 0),
-          text: text(step.text, 160),
-          repeatCount: num(step.repeatCount, 1) > 1 ? Math.floor(num(step.repeatCount, 1)) : 1,
-          lastAt: num(step.lastAt, 0),
-        })),
-      stage: ['working', 'waiting_user', 'waiting_mirror', 'blocked', 'idle'].includes(rawProject.stage) ? rawProject.stage : 'working',
-      progressAt: num(rawProject.progressAt, 0),
-      latestRepeat: num(rawProject.latestRepeat, 1) > 1 ? Math.floor(num(rawProject.latestRepeat, 1)) : 1,
-      staleAt: num(rawProject.staleAt, 0),
-      staleReason: text(rawProject.staleReason, 120),
-      attention: rawProject.attention && typeof rawProject.attention.question === 'string'
-        ? { question: text(rawProject.attention.question, 200), at: num(rawProject.attention.at, 0) }
-        : null,
-      latestReport: rawProject.latestReport && typeof rawProject.latestReport.state === 'string'
-        ? { state: text(rawProject.latestReport.state, 20), summary: text(rawProject.latestReport.summary, 240), at: num(rawProject.latestReport.at, 0) }
-        : null,
-    }
-    : null,
-  }
-  }
-
-  function normalizeSelfAction(item) {
-  if (!item || typeof item !== 'object' || item.id == null || item.id === '') return null
-  return {
-   id: String(item.id),
-   label: String(item.label == null ? '' : item.label).slice(0, 40),
-   text: String(item.text == null ? '' : item.text).slice(0, 200),
-   at: num(item.at, 0),
-  }
-  }
-
-  function readSeenActionId() {
-  const storage = getStorage()
-  if (!storage) return ''
-  try {
-   return String(storage.getItem(ACTION_SEEN_KEY) || '')
-  } catch (error) {
-   return ''
-  }
-  }
-
-  function writeSeenActionId(id) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(ACTION_SEEN_KEY, String(id == null ? '' : id))
-  } catch (error) {
-  }
-  }
-
-  /** 成长摘要：自学/自省次数 + weatherUpdatedLabel 风格时间；无数据「尚未开始」。 */
-  function selfStatusSummary(status) {
-  if (!status) return ''
-  const growth = status.growth || {}
-  const learnings = Math.max(0, Math.floor(num(growth.learnings, 0)))
-  const reflections = Math.max(0, Math.floor(num(growth.reflections, 0)))
-  const lastLearn = weatherUpdatedLabel(growth.lastLearnAt)
-  const lastReflect = weatherUpdatedLabel(growth.lastReflectAt)
-  if (!learnings && !reflections && !lastLearn && !lastReflect) return '尚未开始'
-  const parts = ['自学 ' + learnings + ' 条', '自省 ' + reflections + ' 次']
-  if (lastLearn) parts.push('上次自学 ' + lastLearn)
-  if (lastReflect) parts.push('上次自省 ' + lastReflect)
-  return parts.join(' · ')
-  }
-
-  /** 记忆中枢状态规范化：health/files/backups/recovered；404/非法返回 null（整卡隐藏）。 */
-  function normalizeMemoryStatus(data) {
-  if (!data || data.ok === false || !Array.isArray(data.files)) return null
-  const files = data.files.filter((file) => file && typeof file === 'object')
-  const countBy = (patterns) => {
-   let sum = 0
-   for (const file of files) {
-    const id = String(file.id || '') + ' ' + String(file.path || '')
-    if (!patterns.some((pattern) => id.toLowerCase().indexOf(pattern) >= 0)) continue
-    sum += Math.max(0, Math.floor(num(file.entries, 0)))
-   }
-   return sum
-  }
-  const health = data.health === 'warn' || data.health === 'error' ? data.health : data.health === 'ok' ? 'ok' : 'warn'
-  const backups = data.backups && typeof data.backups === 'object' ? data.backups : {}
-  const recovered = typeof data.recovered === 'number'
-   ? Math.max(0, Math.floor(data.recovered))
-   : data.recovered && typeof data.recovered === 'object' && typeof data.recovered.count === 'number'
-    ? Math.max(0, Math.floor(data.recovered.count))
-    : data.recovered === true ? 1 : 0
-  return {
-   health,
-   journal: countBy(['journal']),
-   topics: countBy(['topic']),
-   learnings: countBy(['learn', 'growth', 'self']),
-   backups: {
-    count: Math.max(0, Math.floor(num(backups.count, 0))),
-    lastAt: num(backups.lastAt, 0),
-    latestId: String(backups.latestId || ''),
-   },
-   recovered,
-   updatedAt: num(data.updatedAt, 0),
-  }
-  }
-
-  /** 作品列表归一化：SVG 转 data URL，文字保留。 */
-  function normalizeWorks(raw) {
-   if (!raw || raw.ok === false || !Array.isArray(raw.works)) return { works: [] }
-   const works = []
-   for (const item of raw.works) {
-    if (!item || typeof item.title !== 'string') continue
-    const kind = item.kind === 'svg' || item.kind === 'image' || item.kind === 'video' ? item.kind : 'text'
-    const body = typeof item.body === 'string' ? String(item.body) : ''
-    if (kind === 'text' && body.length < 4) continue
-    const mediaUrl = typeof item.mediaUrl === 'string' && item.mediaUrl.length > 0 ? item.mediaUrl : ''
-    if ((kind === 'image' || kind === 'video') && mediaUrl.length === 0) continue
-    works.push({
-     id: String(item.id || ''),
-     title: item.title.slice(0, 60),
-     kind,
-     createdAt: num(item.createdAt, 0),
-     body: kind === 'text' ? body.slice(0, 2000) : '',
-     src: kind === 'svg'
-      ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(body)
-      : kind === 'image' || kind === 'video'
-       ? mediaUrl
-       : '',
-    })
-    if (works.length >= 6) break
-   }
-   return { works }
-  }
-
-  /** 注意力：主动消息草稿 / 需要用户处理的问题。 */
-  function normalizeAttention(raw) {
-   if (!raw || raw.ok === false) return { mode: 'observe', items: [], pending: 0 }
-   const mode = raw.mode === 'auto' ? 'auto' : 'observe'
-   const items = (Array.isArray(raw.items) ? raw.items : [])
-    .filter((item) => item && typeof item.text === 'string' && item.status === 'pending')
-    .slice(0, 10)
-    .map((item) => ({
-     id: String(item.id || ''),
-     kind: item.kind === 'question' || item.kind === 'result' ? item.kind : 'social',
-     text: String(item.text).slice(0, 500),
-     reason: String(item.reason || '').slice(0, 160),
-     draft: item.draft === true,
-     createdAt: num(item.createdAt, 0),
-    }))
-   return { mode, items, pending: items.length }
-  }
-
-  function normalizeTwinState(raw) {
-   if (!raw || raw.ok === false || raw.enabled === false) return null
-   const twin = raw.twin && typeof raw.twin === 'object' ? raw.twin : {}
-   const projects = twin.projects && typeof twin.projects === 'object' ? twin.projects : {}
-   const project = projects.current && typeof projects.current === 'object'
-    ? {
-      title: String(projects.current.title || '').slice(0, 60),
-      stage: ['working', 'waiting_user', 'waiting_mirror', 'blocked', 'idle'].includes(projects.current.stage) ? projects.current.stage : 'working',
-      question: projects.current.attention && typeof projects.current.attention.question === 'string' ? projects.current.attention.question.slice(0, 200) : '',
-     }
-    : null
-   return { enabled: true, project }
-  }
-
   /** 健康快照归一化：只取展示需要的数字/名称，坏数据不崩。 */
   function switchNode(checked, onChange, label) {
   return h('button', {
@@ -1345,125 +406,6 @@ window.__ModuleLoader__.load({
 
 
 
-  function readSpontState(now) {
-  const storage = getStorage()
-  if (!storage) return normalizeSpontState(null, now)
-  try {
-   const raw = storage.getItem(SPONT_KEY)
-   return normalizeSpontState(raw ? JSON.parse(raw) : null, now)
-  } catch (error) {
-   return normalizeSpontState(null, now)
-  }
-  }
-
-  function writeSpontState(state) {
-  const storage = getStorage()
-  if (!storage) return
-  try {
-   storage.setItem(SPONT_KEY, JSON.stringify(state))
-  } catch (error) {
-   /* 配额/隐私模式：放弃记录，不影响展示 */
-  }
-  }
-
-
-
-  /** 彩蛋触发条件（纯函数）：开关/可见/隐藏/面板/气泡/30s 闲置/45min 间隔/每日 3 次。 */
-  /** 把连续文本按句末标点（。！？）切成完整句，保留标点（不吃掉逗号等句中标点）。 */
-
-  /** 从若干行里挑一个完整句：优先 8–40 字且命中心情 tag；无句末标点则回退最后一个完整 line。 */
-
-  /** 触发条件（纯函数）：开关/可见/隐藏/面板/气泡/最近 3s 无交互；不再有任何时间/次数闸门。 */
-
-  /** 轮询间隔 60–120 秒（每次重新随机）；事件唤醒仍 2–5s。 */
-
-  /** 事件唤醒后的尝试延迟 2–5 秒。 */
-  function murmurPeriod(hour) {
-  if (hour >= 5 && hour < 9) return '早上'
-  if (hour >= 9 && hour < 11) return '上午'
-  if (hour >= 11 && hour < 14) return '中午'
-  if (hour >= 14 && hour < 18) return '下午'
-  if (hour >= 18 && hour < 23) return '晚上'
-  return '深夜'
-  }
-
-
-  /** 构建 self-talk GET：只带聚合上下文（mood/weather/idleMinutes/recent），不含会话内容。 */
-
-
-  /** 请求 host 实时自言自语；35s 超时（与宿主 high 推理对齐）；所有失败都 resolve 成 {ok:false}，由调用方静默处理。 */
-  function requestSelfTalk(options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (typeof fetch !== 'function') return Promise.resolve({ ok: false, reason: 'no-fetch' })
-  const controller = typeof AbortController === 'function' ? new AbortController() : null
-  let timer = null
-  const timeout = new Promise((resolve) => {
-   timer = setTimeout(() => {
-    try {
-     if (controller) controller.abort()
-    } catch (error) {
-    }
-    resolve({ ok: false, reason: 'timeout' })
-   }, SELF_TALK_TIMEOUT_MS)
-  })
-  const request = Promise.resolve()
-   .then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : undefined))
-   .then((response) => {
-    if (!response || typeof response.ok !== 'boolean' || !response.ok) {
-     return { ok: false, reason: 'http', status: response ? response.status : 0 }
-    }
-    return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: 'json' }))
-   })
-   .catch(() => ({ ok: false, reason: 'network' }))
-  return Promise.race([request, timeout]).then((result) => {
-   if (timer) clearTimeout(timer)
-   return result
-  })
-  }
-
-  /* ================================================================
-   * 2.9 诗库数据 / 平水韵格律检测 / 剩余立绘彩蛋（M9 纯函数）
-   * ================================================================ */
-
-  function assetUrlFor(kind, version) {
-  const file = ASSET_DATA_FILES[kind]
-  if (!file) return ''
-  return '/api/dsh-poetry/assets?f=' + file + '&v=' + encodeURIComponent(String(version == null ? '' : version))
-  }
-
-  
-  /** 合并 anthology + bank 为诗库条目（统一 categoryId 与 source）。 */
-  
-  /** 精选宋词（data/ci.json 283 首）→ 诗库条目；title 用「词牌·首句」。 */
-  
-  
-  /** 宋词全库的词牌分布（名 → 数量，降序），用于诗库「宋词全库」的词牌筛选。 */
-  
-  
-  
-  
-  /** 平水韵数据 → 索引（categories 与 charIndex 双驱动，charIndex 缺省时从 chars 反推）。 */
-  function shouldShowDailyGreet(state, now) {
-  return !normalizeMascotEggState(state, now).greeted
-  }
-
-  function canShowIdlePose(state, now, lastInteractionAt) {
-  const normalized = normalizeMascotEggState(state, now)
-  const time = num(now, Date.now())
-  if (normalized.idleAt > 0 && time - normalized.idleAt < MASCOT_IDLE_MIN_MS) return false
-  const lastInteraction = num(lastInteractionAt, 0)
-  if (lastInteraction > 0 && time - lastInteraction < MASCOT_IDLE_USER_MS) return false
-  return true
-  }
-
-  function pickMascotExpression(random) {
-  const value = typeof random === 'function' ? Number(random()) : Math.random()
-  const ratio = Number.isFinite(value) ? Math.min(0.9999, Math.max(0, value)) : 0
-  const index = Math.floor(ratio * MASCOT_EXPRESSION_FILES.length)
-  return MASCOT_EXPRESSION_FILES[index] || MASCOT_EXPRESSION_FILES[0]
-  }
-
-  let bootstrapCache = null
   const resourceStore = createResourceStore({
     fetchJsonUrl,
     route: ROUTE,
@@ -1476,18 +418,7 @@ window.__ModuleLoader__.load({
   })
   const { useViewportSize, useResource } = createHooks({ React, resourceStore })
   const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab })
-  const fetchJson = createFetchJson(ROUTE)
-
   /** 从 localStorage 读首屏缓存（bootstrap + 今日诗 + 设置）。 */
-  function putSettings(patch) {
-  const request = buildSettingsRequest(patch)
-  return fetchJson('settings.json', request.init).then((data) => {
-   if (bootstrapCache && data && data.settings) {
-    bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings })
-   }
-   return data
-  })
-  }
   const DEBUG = {
   ROUTE,
   ASSET_BASE,
