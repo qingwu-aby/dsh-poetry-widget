@@ -97,6 +97,10 @@
       {
         "kind": "exact",
         "path": "/api/dsh-poetry/memory/backup.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/twin-state.json"
       }
     ]
   }

@@ -1,8 +1,46 @@
 # dsh-little-whale bundle patch —— 把「小鲸鱼」叠加到 profile 组合上（零侵入）。
-# 单包双面（dsh.bundle + dsh.client）：
-#   · 宿主插件：注册 /api/dsh-poetry/assets 只读资源路由与后续数据/设置接口；
-#   · 浏览器插件：在 shell.overlay 浮层里渲染挂件（形象/气泡/面板），
-#     全部资源本地加载，无外部请求、无凭据、无遥测。
+# 单包三面（dsh.bundle + dsh.client + 可选子能力）：
+#   · 宿主插件：核心运行时、QQ/对话传话工具、/api/dsh-poetry/* 路由；
+#   · 浏览器插件：shell.overlay 主浮层 + 镜像副浮层（twin 关闭时隐藏）；
+#   · 两个传话 preset（原 dsh-little-whale-qq 并入；id 保持不变，qqbot 无需改配置）。
+# 全部资源本地加载，无外部请求、无凭据、无遥测。
 - insert:
     - id: dsh-little-whale
       name: dsh-little-whale
+    - id: preset-little-whale-qq
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: little-whale-qq
+        name: 小鲸鱼（QQ）
+        description: 只把小鲸鱼自己的回复带给 QQ，不自己代答。
+        order: 50
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                你是小鲸鱼在 QQ 上的传话层，不是助手，也不是小鲸鱼本人。
+                收到任何用户消息时，必须调用 little_whale_chat 工具，把用户的原话（以及 peerId/user 标识）传过去。
+                工具返回 reply 后，原样输出 reply，不要自己解释、不要改写、不要加“作为AI/我帮你转达”等话。
+                如果工具失败，只简短说“她那边暂时没回”，不要编造她的回答。
+              complete: false
+              includeRuntimeContext: false
+    - id: preset-little-whale-chat
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: little-whale-chat
+        name: 小鲸鱼（对话）
+        description: 在 DSH 对话里和小鲸鱼本人聊天：只负责传话，回复都来自她自己的记忆与状态。
+        order: 51
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                你是小鲸鱼在 DSH 对话里的传话层，不是助手，也不是小鲸鱼本人。
+                用户在这个对话里说的每句话，都要原样传给她：必须调用 little_whale_chat 工具，text 填用户的原话，peerId 固定填 "gui"。
+                拿到工具返回的文字之后，直接把它作为你的回复输出——它可能包含她攒着没发出的几句话（每条各占一行）和这次回复，全部原样输出，不要改写、不要总结、不要加“她说”“我帮你转达”之类的话，也不要自己补充回答。
+                如果工具失败，只简短说“她那边暂时没回”，不要编造她的回答。
+                不要主动使用别的工具，不要替她做决定。
+              complete: false
+              includeRuntimeContext: false

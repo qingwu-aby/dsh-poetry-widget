@@ -91,6 +91,7 @@ const contract = [
   ['/api/dsh-poetry/graph.json', ['ok', 'nodes', 'edges', 'claims']],
   ['/api/dsh-poetry/works.json', ['ok']],
   ['/api/dsh-poetry/growth.json', ['ok', 'growth', 'philosophy', 'emotions', 'autobiography']],
+  ['/api/dsh-poetry/twin-state.json', ['ok', 'enabled', 'letters']],
   ['/api/dsh-poetry/model-errors.json', ['ok']],
   ['/api/dsh-poetry/settings.json', ['ok', 'settings']],
   ['/api/dsh-poetry/bootstrap.json', ['ok']],

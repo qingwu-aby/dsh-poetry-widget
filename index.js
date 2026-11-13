@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { readPackageMeta } from './lib/kernel/paths.mjs'
 import { createBootstrap } from './lib/composition/bootstrap.mjs'
 import { startPluginRuntime } from './lib/composition/plugin-runtime.mjs'
+import { registerLittleWhaleChatTool } from './lib/integrations/qq-bridge.mjs'
 
 /** Cordis 插件名（loader 诊断用；与 package.json 的 dsh.bundle 行 id 一致）。 */
 export const name = 'dsh-little-whale'
@@ -34,5 +35,10 @@ export async function apply(ctx) {
       version: VERSION,
       assetsDir: ASSETS_DIR,
     })
+  })
+  // v0.2.0：QQ/对话传话工具从独立子插件并入；工具名与语义保持不变。
+  boot.host.inject(['tools', 'webServer', 'attachments'], (toolCtx) => {
+    const dispose = registerLittleWhaleChatTool({ host: boot.host, hostCtx: toolCtx, logger: boot.logger })
+    if (typeof dispose === 'function') boot.host.effect(toolCtx, dispose, 'dsh-little-whale: qq bridge tool')
   })
 }

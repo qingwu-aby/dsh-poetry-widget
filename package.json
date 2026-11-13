@@ -1,6 +1,6 @@
 {
   "name": "dsh-little-whale",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "DSH Web 界面里会自己长大的小鲸鱼：成长、记忆、自主生活，诗词与格律降权为二级菜单",
   "type": "module",
   "main": "index.js",

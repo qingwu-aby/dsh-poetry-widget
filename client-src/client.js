@@ -1,6 +1,7 @@
 import { clamp, isVideoMoodFile, num, readWindowHeight, readWindowWidth } from './base.js'
 import { createHooks } from './hooks.js'
 import { createPanelTabRouter } from './panel-tabs.js'
+import { createTwinOverlay } from './twin-overlay.js'
 import {
   SELF_TALK_PATH,
   SELF_TALK_RECENT_MAX,
@@ -5352,6 +5353,16 @@ window.__ModuleLoader__.load({
    { name: 'shell.overlay', id: WIDGET_ID, order: 80 },
    host,
   ))
+  // v0.2.0：镜像副浮层从独立子插件并入（只读，twin 关闭时自动隐藏）。
+  try {
+   const TwinOverlay = createTwinOverlay({ h, React })
+   ctx.slots.inject('shell.overlay', () => ctx.slots.register(
+    { name: 'shell.overlay', id: 'dsh-little-whale-twin', order: 81 },
+    TwinOverlay,
+   ))
+  } catch (error) {
+   try { ctx.logger && ctx.logger.warn && ctx.logger.warn('dsh-little-whale: 镜像浮层注册失败：' + String((error && error.message) || error)) } catch (_error) {}
+  }
   try {
    if (ctx.logger && typeof ctx.logger.info === 'function') {
     ctx.logger.info('dsh-little-whale: 已注册 shell.overlay 挂件')

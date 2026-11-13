@@ -15008,6 +15008,142 @@
     };
   }
 
+  // client-src/twin-overlay.js
+  var ROUTE = "/api/dsh-poetry/twin-state.json";
+  var ASSET_BASE = "/api/dsh-poetry/assets?f=";
+  var POLL_MS = 60 * 1e3;
+  var CACHE_KEY = "dshp-twin.cache.v1";
+  var STAGE_LABEL = {
+    working: "\u6B63\u5728\u505A",
+    waiting_user: "\u7B49\u4E3B\u4EBA\u56DE\u7B54",
+    waiting_mirror: "\u7B49\u5BF9\u65B9\u56DE\u4FE1",
+    blocked: "\u5361\u4F4F\u4E86",
+    idle: "\u6682\u65F6\u4E0D\u52A8"
+  };
+  function mascotUrl() {
+    return ASSET_BASE + encodeURIComponent("generated/dsh-whale-state-idle-cute.webp") + "&v=twin";
+  }
+  function createTwinOverlay(ctx = {}) {
+    const h = ctx.h;
+    const React = ctx.React;
+    function TwinWhale() {
+      const [state, setState] = React.useState(() => {
+        try {
+          const raw = window.localStorage.getItem(CACHE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch {
+          return null;
+        }
+      });
+      const [open, setOpen] = React.useState(false);
+      React.useEffect(() => {
+        let alive = true;
+        const load = () => {
+          fetch(ROUTE, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
+            if (!alive || !data || data.ok !== true) return;
+            setState(data);
+            try {
+              window.localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+            } catch {
+            }
+          }).catch(() => {
+          });
+        };
+        load();
+        const timer2 = setInterval(load, POLL_MS);
+        return () => {
+          alive = false;
+          clearInterval(timer2);
+        };
+      }, []);
+      if (state && state.enabled === false) return null;
+      const felt = state && state.state && typeof state.state.felt === "string" ? state.state.felt : "\u53E6\u4E00\u4E2A\u6211\u8FD8\u6CA1\u8BF4\u8BDD";
+      const project = state && state.project && typeof state.project === "object" ? state.project : null;
+      const primaryProject = state && state.primaryProject && typeof state.primaryProject === "object" ? state.primaryProject : null;
+      const stageLabel = (stage) => STAGE_LABEL[stage] || stage || "";
+      const projectStage = project && project.stage ? stageLabel(project.stage) : "";
+      const primaryStage = primaryProject && primaryProject.stage ? stageLabel(primaryProject.stage) : "";
+      const letters = state && Array.isArray(state.letters) ? state.letters.slice(-200).reverse() : [];
+      return h(
+        "div",
+        {
+          style: {
+            position: "fixed",
+            left: 18,
+            bottom: 18,
+            zIndex: 61,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-start",
+            gap: 8,
+            pointerEvents: "auto"
+          }
+        },
+        open ? h(
+          "div",
+          {
+            style: {
+              width: 420,
+              maxWidth: "92vw",
+              maxHeight: "82vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "var(--dsw-alias-bg-elevated, #fff)",
+              color: "var(--dsw-alias-text, #111)",
+              border: "1px solid var(--dsw-alias-border, #ddd)",
+              borderRadius: 12,
+              padding: 12,
+              boxShadow: "0 8px 24px rgba(0,0,0,.12)",
+              fontSize: 12,
+              lineHeight: 1.55
+            }
+          },
+          h("div", { style: { fontWeight: 700, marginBottom: 6, flexShrink: 0 } }, "\u5C0F\u9CB8\u9C7C \xB7 \u955C\u50CF \xB7 \u901A\u4FE1\u8BB0\u5F55\uFF08" + letters.length + "\uFF09"),
+          state && state.session ? h(
+            "div",
+            { style: { color: "#888", marginBottom: 6, flexShrink: 0, fontSize: 11 } },
+            state.session.closedAt ? "\u672C\u8F6E\u5DF2\u7ED3\u675F\uFF08" + (state.session.reason === "max_letters" ? "\u8FBE\u5230\u8F6E\u6B21\u4E0A\u9650" : "\u8FBE\u5230\u65F6\u95F4\u4E0A\u9650") + "\uFF09\uFF0C\u51B7\u5374\u4E2D" : "\u672C\u8F6E\u5DF2\u5199 " + state.session.letters + " \u5C01"
+          ) : null,
+          h("div", { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0 } }, felt),
+          project && project.title ? h(
+            "div",
+            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
+            "\u955C\u50CF\u5728\u505A\u7684\uFF1A" + project.title + (projectStage ? " \xB7 " + projectStage : "") + (project.attention && project.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + project.attention.question : "")
+          ) : null,
+          primaryProject && primaryProject.title ? h(
+            "div",
+            { style: { color: "var(--dsw-alias-text-secondary, #555)", marginBottom: 8, flexShrink: 0, fontSize: 11 } },
+            "\u539F\u4F53\u5728\u505A\u7684\uFF1A" + primaryProject.title + (primaryStage ? " \xB7 " + primaryStage : "") + (primaryProject.attention && primaryProject.attention.question ? " \xB7 \u60F3\u95EE\uFF1A" + primaryProject.attention.question : "")
+          ) : null,
+          h(
+            "div",
+            { style: { overflowY: "auto", minHeight: 0, maxHeight: "62vh", paddingRight: 6, WebkitOverflowScrolling: "touch" } },
+            letters.length > 0 ? letters.map(
+              (letter, index2) => h(
+                "div",
+                { key: letter.id || index2, style: { borderTop: "1px dashed #ddd", paddingTop: 6, marginTop: 6 } },
+                h("div", { style: { fontWeight: 600 } }, (letter.from === "twin" ? "\u955C\u50CF\u8BF4\uFF1A" : "\u539F\u4F53\u8BF4\uFF1A") + (letter.kind === "research" ? "\uFF08\u7814\u7A76\uFF09" : "")),
+                h("div", { style: { whiteSpace: "pre-wrap", wordBreak: "break-word" } }, String(letter.text || ""))
+              )
+            ) : h("div", { style: { color: "#888" } }, "\u8FD8\u6CA1\u6709\u4FE1\u4EF6\u3002")
+          ),
+          h("button", { type: "button", onClick: () => setOpen(false), style: { marginTop: 8, cursor: "pointer", flexShrink: 0 } }, "\u6536\u8D77")
+        ) : null,
+        h(
+          "button",
+          {
+            type: "button",
+            onClick: () => setOpen((value) => !value),
+            title: "\u6253\u5F00\u955C\u50CF\u9CB8\u9C7C",
+            style: { border: 0, background: "transparent", padding: 0, cursor: "pointer" }
+          },
+          h("img", { src: mascotUrl(), alt: "\u5C0F\u9CB8\u9C7C\u955C\u50CF", style: { width: 72, height: 72, objectFit: "contain", filter: "drop-shadow(0 4px 10px rgba(0,0,0,.18))" } })
+        )
+      );
+    }
+    return TwinWhale;
+  }
+
   // client-src/mood-engine.js
   var SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
   var MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
@@ -23395,7 +23531,7 @@
     const Z_INDEX = ctx.Z_INDEX;
     const WIDGET_ID = ctx.WIDGET_ID;
     const MASCOT_FILES = ctx.MASCOT_FILES;
-    const mascotUrl = ctx.mascotUrl;
+    const mascotUrl2 = ctx.mascotUrl;
     const detectPoem = ctx.detectPoem;
     const detectPoemText = ctx.detectPoemText;
     const parsePoemInput = ctx.parsePoemInput;
@@ -23788,7 +23924,7 @@
           },
           h("style", null, CSS),
           h("img", {
-            src: mascotUrl(MASCOT_FILES.celebrate),
+            src: mascotUrl2(MASCOT_FILES.celebrate),
             alt: "\u5C0F\u9CB8\u9C7C\u6302\u4EF6",
             width: 64,
             height: 64,
@@ -24407,7 +24543,7 @@
         throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
       const h = React.createElement;
-      const ROUTE = "/api/dsh-poetry/";
+      const ROUTE2 = "/api/dsh-poetry/";
       const SELF_PATH = "self.json";
       const SELF_POLL_MS = 60 * 1e3;
       const ACTION_SEEN_KEY = "dshp-action-seen-v1";
@@ -24428,10 +24564,10 @@
       const HEALTH_POLL_MS = 60 * 1e3;
       const MEMORY_BACKUP_PATH = "memory/backup.json";
       const MEMORY_POLL_MS = 60 * 1e3;
-      const ASSET_BASE = ROUTE + "assets?f=";
-      const SETTINGS_URL = ROUTE + "settings.json";
+      const ASSET_BASE2 = ROUTE2 + "assets?f=";
+      const SETTINGS_URL = ROUTE2 + "settings.json";
       const WIDGET_ID = "dsh-little-whale";
-      const CACHE_KEY = "dshp.firstscreen.v1";
+      const CACHE_KEY2 = "dshp.firstscreen.v1";
       const BASE_SIZE = 96;
       const MIN_SCALE = 0.6;
       const MAX_SCALE = 1.6;
@@ -24920,7 +25056,7 @@
           if (!result.ok && !aborted) feihuaFullCache[key] = { status: "error", at: Date.now() };
           return result;
         };
-        const url = ROUTE + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
+        const url = ROUTE2 + FEIHUA_FULL_PATH + "?char=" + encodeURIComponent(key);
         const task = Promise.resolve().then(() => fetch(url, controller ? { signal: controller.signal } : void 0)).then((response) => {
           if (!response || typeof response.ok !== "boolean" || !response.ok) {
             return { ok: false, reason: "http", status: response ? response.status : 0 };
@@ -25012,8 +25148,8 @@
       function mascotFileFor(stateKey) {
         return MASCOT_FILES[stateKey] || MASCOT_FILES.celebrate;
       }
-      function mascotUrl(file) {
-        return ASSET_BASE + MASCOT_DIR + file;
+      function mascotUrl2(file) {
+        return ASSET_BASE2 + MASCOT_DIR + file;
       }
       function weatherPoemTags(weather) {
         if (!weather || typeof weather !== "object") return [];
@@ -25241,7 +25377,7 @@
         return opts.pulseFile || opts.panelFile || opts.dizzyFile || opts.mealFile || opts.expressionFile || opts.wanderFile || opts.motionFile || opts.moodFile || "";
       }
       function petMediaUrl(file) {
-        return ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
+        return ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(String(file == null ? "" : file));
       }
       function normalizePetMediaCatalog(data) {
         if (!data || data.ok === false || !Array.isArray(data.entries)) return null;
@@ -25307,7 +25443,7 @@
           if (result && result.ok && Array.isArray(result.entries)) petMediaCache = result.entries;
           return result;
         };
-        const task = Promise.resolve().then(() => fetch(ROUTE + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
+        const task = Promise.resolve().then(() => fetch(ROUTE2 + PET_MEDIA_PATH + "?f=" + encodeURIComponent(PET_MEDIA_CATALOG_FILE), controller ? { signal: controller.signal } : void 0)).then((response) => {
           if (!response || typeof response.ok !== "boolean" || !response.ok) return { ok: false, entries: [], reason: "http" };
           return Promise.resolve(response.json()).then((data) => {
             const entries = normalizePetMediaCatalog(data);
@@ -25399,7 +25535,7 @@
             resolve({ ok: false, reason: "timeout" });
           }, MOOD_AI_TIMEOUT_MS);
         });
-        const request = Promise.resolve().then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+        const request = Promise.resolve().then(() => fetch(ROUTE2 + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
           if (!response || typeof response.ok !== "boolean" || !response.ok) {
             const status = response ? num(response.status, 0) : 0;
             return { ok: false, reason: status === 429 ? "rate" : "http", status };
@@ -25700,7 +25836,7 @@
             resolve({ ok: false, reason: "timeout" });
           }, SELF_TALK_TIMEOUT_MS);
         });
-        const request = Promise.resolve().then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+        const request = Promise.resolve().then(() => fetch(ROUTE2 + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
           if (!response || typeof response.ok !== "boolean" || !response.ok) {
             return { ok: false, reason: "http", status: response ? response.status : 0 };
           }
@@ -26003,7 +26139,7 @@
       let bootstrapCache = null;
       const resourceStore = createResourceStore({
         fetchJsonUrl,
-        route: ROUTE,
+        route: ROUTE2,
         assetDataFiles: ASSET_DATA_FILES,
         resourcePaths: RESOURCE_PATHS,
         assetUrlFor,
@@ -26013,7 +26149,7 @@
       });
       const { useViewportSize, useResource } = createHooks({ React, resourceStore });
       const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
-      const fetchJson = createFetchJson(ROUTE);
+      const fetchJson = createFetchJson(ROUTE2);
       function putSettings(patch) {
         const request = buildSettingsRequest(patch);
         return fetchJson("settings.json", request.init).then((data) => {
@@ -26024,8 +26160,8 @@
         });
       }
       const DEBUG = {
-        ROUTE,
-        ASSET_BASE,
+        ROUTE: ROUTE2,
+        ASSET_BASE: ASSET_BASE2,
         WIDGET_ID,
         STEPS,
         PANEL_TABS: panelTabs.tabs,
@@ -26124,7 +26260,7 @@
         MASCOT_FILES,
         mascotStateFor,
         mascotFileFor,
-        mascotUrl,
+        mascotUrl: mascotUrl2,
         weatherPoemTags,
         countWeatherTagHits,
         buildWeatherPoemPool,
@@ -27037,7 +27173,7 @@
             if (typeof window === "undefined" || typeof window.Image !== "function") return;
             for (const file of [MASCOT_FILES.celebrate, MASCOT_FILES.idle, MASCOT_FILES.night]) {
               const image = new window.Image();
-              image.src = mascotUrl(file);
+              image.src = mascotUrl2(file);
             }
           } catch (error) {
           }
@@ -27168,7 +27304,7 @@
             if (!file) continue;
             try {
               const image = new window.Image();
-              image.src = mascotUrl(file);
+              image.src = mascotUrl2(file);
             } catch (error) {
             }
           }
@@ -28659,7 +28795,7 @@
         function projectAction(action) {
           const current = selfStatus && selfStatus.project;
           if (!current || !current.id) return Promise.resolve({ ok: false });
-          return fetchJsonUrl(ROUTE + PROJECT_ACTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
+          return fetchJsonUrl(ROUTE2 + PROJECT_ACTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id: current.id }) }).then((data) => {
             if (data && data.ok === true) {
               showToastRef.current(action === "drop" ? "\u9879\u76EE\u5DF2\u653E\u4E0B" : action === "pause" ? "\u5148\u6682\u505C" : "\u7EE7\u7EED\u505A");
               return fetchJson(SELF_PATH).then((next) => {
@@ -28677,7 +28813,7 @@
         function attentionAction(id, action, text) {
           const payload = { action, id };
           if (typeof text === "string" && text.length > 0) payload.text = text;
-          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
+          return fetchJsonUrl(ROUTE2 + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((data) => {
             if (data && data.ok === true) {
               showToastRef.current(action === "send" ? "\u5DF2\u53D1\u51FA\u53BB" : "\u5148\u538B\u4E0B\u4E86");
             } else {
@@ -28691,7 +28827,7 @@
           });
         }
         function setAttentionMode(mode) {
-          return fetchJsonUrl(ROUTE + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode }) }).then((data) => {
+          return fetchJsonUrl(ROUTE2 + ATTENTION_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mode", mode }) }).then((data) => {
             if (data && data.ok === true) {
               showToastRef.current(data.mode === "auto" ? "\u4E3B\u52A8\u6D88\u606F\uFF1A\u81EA\u52A8" : "\u4E3B\u52A8\u6D88\u606F\uFF1A\u89C2\u5BDF\u4E2D");
             }
@@ -28699,7 +28835,7 @@
           }).catch(() => ({ ok: false }));
         }
         function backupMemory() {
-          return fetchJsonUrl(ROUTE + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
+          return fetchJsonUrl(ROUTE2 + MEMORY_BACKUP_PATH, { method: "POST" }).then((data) => {
             showToastRef.current("\u5DF2\u5907\u4EFD");
             setMemoryTick((tick) => tick + 1);
             return data;
@@ -28803,7 +28939,7 @@
               }) : h("img", {
                 key: stateKey,
                 className: "dshp-mascot-img dshp-mascot-swap",
-                src: mascotUrl(mascotFile),
+                src: mascotUrl2(mascotFile),
                 alt: "",
                 draggable: false,
                 loading: "lazy",
@@ -29232,7 +29368,7 @@
             Z_INDEX,
             WIDGET_ID,
             MASCOT_FILES,
-            mascotUrl,
+            mascotUrl: mascotUrl2,
             detectPoem,
             detectPoemText,
             parsePoemInput,
@@ -29254,6 +29390,18 @@
           { name: "shell.overlay", id: WIDGET_ID, order: 80 },
           host
         ));
+        try {
+          const TwinOverlay = createTwinOverlay({ h, React });
+          ctx.slots.inject("shell.overlay", () => ctx.slots.register(
+            { name: "shell.overlay", id: "dsh-little-whale-twin", order: 81 },
+            TwinOverlay
+          ));
+        } catch (error) {
+          try {
+            ctx.logger && ctx.logger.warn && ctx.logger.warn("dsh-little-whale: \u955C\u50CF\u6D6E\u5C42\u6CE8\u518C\u5931\u8D25\uFF1A" + String(error && error.message || error));
+          } catch (_error) {
+          }
+        }
         try {
           if (ctx.logger && typeof ctx.logger.info === "function") {
             ctx.logger.info("dsh-little-whale: \u5DF2\u6CE8\u518C shell.overlay \u6302\u4EF6");
