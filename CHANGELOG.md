@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.3.1 跨域 facade 100%**：剩余 22 条跨域 import 一次性收掉——为 8 个域生成**窄 facade**（只导出跨域需要的符号，不 `export *`），并把 22 条引用切过去；顺手用 `memory/facade.mjs` 解掉最后一个 self-being↔memory 循环。依赖检查：82/82 走 facade（100%）、0 循环、0 分层违规；`check-deps` 把 `facade.mjs` 也计为 facade。测试 565/565、state:audit 通过。
 - **v0.3.0 P2 运行时面板**：成长页新增「运行时」区（模型调用/心跳拍数/24h 模型失败 + 各心跳任务的下次运行、上次耗时、错误数）；health 快照新增 nextAt/lastDurationMs/consecutiveErrors/skippedRuns；health.json 在成长 tab 时也轮询（60s）。测试 565/565。
 - **v0.2.8 memory-recall 拆分（P1 第六步）**：`memory-recall.mjs` 717→399 行，拆出 `memory-recall-search.mjs`（journal/learning 读取、向量检索、关键词/二元组工具，337 行）；服务与 digest 格式化留在原文件并 re-export，测试 565/565。
 - **v0.2.7 mood-ai-core 拆分（P1 第五步）**：`mood-ai-core.mjs` 751→319 行，拆出 `mood-ai-shared.mjs`（图鉴/时间/常量/校验小工具，443 行）；prompt 构建与结果解析留在 core，原 API re-export，测试 565/565。

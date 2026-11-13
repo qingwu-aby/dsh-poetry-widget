@@ -122,3 +122,10 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - 新增 `npm run state:audit`：只读对比注册表与 `$DSH_HOME/.dsh-poetry` 实际 JSON，列出未注册项（`settings.json` 由 settings-store 单独管理）；
 - 跨域 import 迁移：82 条中 60 条（73.2%）改走各域 `index.mjs`；其余 22 条若改会形成循环或目标模块未导出，保留具体路径。
 - P1 清单完成：装配层、路由表、大文件、状态注册、facade 迁移（安全子集）。
+
+## 跨域 facade 100%（v0.3.1）
+
+- 为 8 个域新增**窄 facade** `lib/domain/<域>/facade.mjs`：只导出跨域需要的符号，不 `export *`，避免把整域拉进依赖环。
+- 剩余 22 条跨域 import 全部切到窄 facade；最后一个 `self-being ↔ memory` 环用 `memory/facade.mjs` 解开。
+- 结果：跨域依赖 82 条，82 条走 facade（100%）；模块 178 个，0 循环、0 分层违规。
+- `check-deps` 的 facade 判定同时接受 `index.mjs` 与 `facade.mjs`。

@@ -101,7 +101,7 @@ for (const [file, deps] of imports) {
     const to = domainOf(dep)
     if (to === null || to === from) continue
     crossDomain += 1
-    if (dep.endsWith('/index.mjs')) facadeImports += 1
+    if (dep.endsWith('/index.mjs') || dep.endsWith('/facade.mjs')) facadeImports += 1
     crossMatrix.set(`${from}→${to}`, (crossMatrix.get(`${from}→${to}`) ?? 0) + 1)
   }
 }
