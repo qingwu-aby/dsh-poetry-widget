@@ -26210,6 +26210,9 @@
     if (!runtime) throw new Error("dsh-little-whale: \u7EC4\u4EF6\u8FD0\u884C\u65F6\u5C1A\u672A\u521D\u59CB\u5316");
     return runtime;
   }
+  function getReact() {
+    return getRuntime().React;
+  }
   function h(type, props) {
     const create = getRuntime().h;
     const args = [type, props];
@@ -27063,6 +27066,1461 @@
     return FeihuaStep(props);
   }
 
+  // client-src/widget/hooks/use-toast.js
+  function useToast(deps) {
+    const React = getReact();
+    const {} = deps;
+    const { refs } = deps;
+    const {} = refs;
+    const [toast, setToast] = React.useState(null);
+    const toastTimer = React.useRef(null);
+    const showToast = React.useCallback((text, kind) => {
+      setToast({ text: String(text == null ? "" : text), kind: kind === "error" ? "error" : "info" });
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => {
+        toastTimer.current = null;
+        setToast(null);
+      }, 2600);
+    }, []);
+    return { toast, showToast, toastTimer };
+  }
+
+  // client-src/widget/hooks/use-settings.js
+  function useSettings(deps) {
+    const React = getReact();
+    const { cacheRef, showToast } = deps;
+    const { refs } = deps;
+    const { pressTimer, mascotTimerRef, mascotExprTimerRef } = refs;
+    const [settings, setSettings] = React.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
+    const settingsRef = React.useRef(settings);
+    settingsRef.current = settings;
+    const saverRef = React.useRef(null);
+    if (!saverRef.current) {
+      saverRef.current = createSettingsSaver({
+        delay: SAVE_DEBOUNCE_MS2,
+        put: (patch) => putSettings(patch),
+        onError: () => {
+          showToast("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u672C\u5730\u8BBE\u7F6E", "error");
+        }
+      });
+    }
+    React.useEffect(() => () => {
+      if (saverRef.current) saverRef.current.flush().catch(() => {
+      });
+      if (pressTimer.current) {
+        clearTimeout(pressTimer.current);
+        pressTimer.current = null;
+      }
+      if (mascotTimerRef.current) {
+        clearTimeout(mascotTimerRef.current);
+        mascotTimerRef.current = null;
+      }
+      if (mascotExprTimerRef.current) {
+        clearTimeout(mascotExprTimerRef.current);
+        mascotExprTimerRef.current = null;
+      }
+    }, []);
+    const updateSettings = React.useCallback((patch, options) => {
+      if (!patch || typeof patch !== "object") return settingsRef.current;
+      const previous = settingsRef.current;
+      const next = normalizeSettings(Object.assign({}, previous, patch));
+      settingsRef.current = next;
+      setSettings(next);
+      if (!(options && options.localOnly) && saverRef.current) {
+        const changed = {};
+        for (let i = 0; i < WRITE_KEYS.length; i++) {
+          const key = WRITE_KEYS[i];
+          if (hasOwn2(patch, key) && next[key] !== previous[key]) changed[key] = next[key];
+        }
+        if (Object.keys(changed).length) saverRef.current.save(changed);
+      }
+      refs.bridge.current.wakeSpontaneous(nextSpontEventDelay());
+      if (settingsRef.current.mood) refs.bridge.current.scheduleMoodAiRefresh();
+      return next;
+    }, []);
+    function resetSettings() {
+      updateSettings({
+        scale: DEFAULT_SETTINGS.scale,
+        showTones: DEFAULT_SETTINGS.showTones,
+        mode: DEFAULT_SETTINGS.mode,
+        autoplay: DEFAULT_SETTINGS.autoplay,
+        snap: DEFAULT_SETTINGS.snap,
+        script: DEFAULT_SETTINGS.script,
+        hidden: DEFAULT_SETTINGS.hidden,
+        theme: DEFAULT_SETTINGS.theme,
+        lastPoemId: DEFAULT_SETTINGS.lastPoemId,
+        tutorialSeen: DEFAULT_SETTINGS.tutorialSeen
+      });
+      showToast("\u5DF2\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E");
+    }
+    return { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings };
+  }
+
+  // client-src/widget/hooks/use-panel.js
+  function usePanel(deps) {
+    const React = getReact();
+    const { setStep, updateSettings, panelTabs } = deps;
+    const { refs } = deps;
+    const { lastInteractionRef, panelOpensRef } = refs;
+    const [panelOpen, setPanelOpen] = React.useState(false);
+    const [panelTab, setPanelTab] = React.useState("growth");
+    const [poetryTab, setPoetryTab] = React.useState("today");
+    function hideWidget() {
+      setPanelOpen(false);
+      setStep(-1);
+      updateSettings({ hidden: true });
+    }
+    function restoreWidget() {
+      updateSettings({ hidden: false });
+    }
+    function noteInteraction() {
+      lastInteractionRef.current = Date.now();
+    }
+    function openPanelTab(tabId) {
+      if (POETRY_TABS.some((item) => item.id === tabId)) {
+        setPanelTab("poetry");
+        setPoetryTab(tabId);
+        return;
+      }
+      if (tabId === "poetry") {
+        setPanelTab("poetry");
+        return;
+      }
+      if (panelTabs.isPanelTab(tabId)) {
+        setPanelTab(tabId);
+        return;
+      }
+      setPanelTab("growth");
+    }
+    function openPoetryModule() {
+      if (!POETRY_ENTRY_ENABLED) return;
+      openPanelTab("poetry");
+      setPanelOpen(true);
+    }
+    function openSettingsPanel() {
+      openPanelTab("settings");
+      setPanelOpen(true);
+    }
+    function openPanel(tab) {
+      noteInteraction();
+      panelOpensRef.current += 1;
+      if (tab === "settings" || tab === "growth" || tab === "poetry" || POETRY_TABS.some((item) => item.id === tab)) {
+        openPanelTab(tab);
+      } else {
+        openPanelTab("growth");
+      }
+      setPanelOpen(true);
+    }
+    return { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel };
+  }
+
+  // client-src/widget/hooks/use-weather.js
+  function useWeather(deps) {
+    const React = getReact();
+    const { settingsRef, settings } = deps;
+    const { refs } = deps;
+    const {} = refs;
+    const [weatherRes, setWeatherRes] = React.useState(() => {
+      const cached = weatherCache;
+      if (cached && cached.data && cached.data.ok) {
+        return { status: "ready", data: cached.data, error: null, at: cached.at };
+      }
+      return { status: "idle", data: null, error: null, at: 0 };
+    });
+    const weatherInFlightRef = React.useRef(null);
+    const weatherData = weatherRes.data && weatherRes.data.ok ? weatherRes.data : null;
+    const weather = weatherData && weatherData.weather ? weatherData.weather : null;
+    const refreshWeather = React.useCallback((force) => {
+      const current = settingsRef.current;
+      if (!(current.weatherPoem || current.mood)) return Promise.resolve(null);
+      const cached = weatherCache;
+      if (!force && cached && cached.data && cached.data.ok && cached.data.city === current.weatherCity && Date.now() - cached.at < WEATHER_STALE_MS) {
+        setWeatherRes({ status: "ready", data: cached.data, error: null, at: cached.at });
+        return Promise.resolve(cached.data);
+      }
+      if (weatherInFlightRef.current) return weatherInFlightRef.current;
+      setWeatherRes((previous) => ({ status: "loading", data: previous.data, error: null, at: previous.at }));
+      const request = requestWeather().then(
+        (data) => {
+          weatherInFlightRef.current = null;
+          setWeatherRes({ status: "ready", data, error: null, at: Date.now() });
+          return data;
+        },
+        (error) => {
+          weatherInFlightRef.current = null;
+          setWeatherRes((previous) => ({ status: "error", data: previous.data, error, at: previous.at }));
+          return null;
+        }
+      );
+      weatherInFlightRef.current = request;
+      return request;
+    }, []);
+    React.useEffect(() => {
+      if (!(settings.weatherPoem || settings.mood)) return void 0;
+      refreshWeather(false);
+      const timer2 = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
+      return () => clearInterval(timer2);
+    }, [settings.weatherPoem, settings.mood, settings.weatherCity, refreshWeather]);
+    return { weatherRes, refreshWeather, weatherData, weather };
+  }
+
+  // client-src/widget/hooks/use-data.js
+  function useData(deps) {
+    const React = getReact();
+    const { useViewportSize, settings, useResource, boot, panelOpen, panelTab, step, poetryTab, resourceStore, weatherRes } = deps;
+    const { refs } = deps;
+    const {} = refs;
+    const [ciBankWanted, setCiBankWanted] = React.useState(false);
+    const viewport = useViewportSize();
+    const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale));
+    const [poemsRes, reloadPoems] = useResource("poems", Boolean(boot.data));
+    const poetryOn = panelOpen && panelTab === "poetry";
+    const classActive = step === 2 || step === 4 || poetryOn && (poetryTab === "class" || poetryTab === "ci");
+    const yunActive = step === 3 || poetryOn && poetryTab === "yun";
+    const weatherNeedsCi = settings.weatherPoem && !resourceStore.get("ci") && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT;
+    const ciActive = step === 4 || step === 5 || weatherNeedsCi || poetryOn && (poetryTab === "ci" || poetryTab === "feihua" || poetryTab === "library");
+    const [knowledgeRes, reloadKnowledge] = useResource("knowledge", classActive);
+    const [yunRes, reloadYun] = useResource("yun", yunActive);
+    const [ciRes, reloadCi] = useResource("ci", ciActive);
+    const libraryActive = poetryOn && poetryTab === "library";
+    const feihuaOpen = poetryOn && poetryTab === "feihua" || step === 5;
+    const ciTabActive = poetryOn && poetryTab === "ci";
+    const extraPoolActive = libraryActive || feihuaOpen;
+    const [anthologyRes, reloadAnthology] = useResource("anthology", extraPoolActive);
+    const [bankRes, reloadBank] = useResource("bank", extraPoolActive);
+    const [pingshuiRes, reloadPingshui] = useResource("pingshui", libraryActive);
+    const [moodCatalogRes, reloadMoodCatalog] = useResource("moodCatalog", settings.mood);
+    const [ciBankRes, reloadCiBank] = useResource("ciBank", ciBankWanted || feihuaOpen);
+    return { viewport, mascotSize, ciBankWanted, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, reloadMoodCatalog, ciBankRes, reloadCiBank, libraryActive, feihuaOpen, ciTabActive, extraPoolActive };
+  }
+
+  // client-src/widget/hooks/use-spont.js
+  function useSpont(deps) {
+    const React = getReact();
+    const { setPanelOpen, setSelectedPoemId, openPanelTab, setLibraryFocus, settings, panelOpen, step, weather, noteInteraction } = deps;
+    const { refs } = deps;
+    const { recentSpokenRef, uiRef, selfStatusRef, moodViewRef, weatherRef, lastInteractionRef, userPickedPoemRef } = refs;
+    const [spontPoem, setSpontPoem] = React.useState(null);
+    const [spontPreview, setSpontPreview] = React.useState(false);
+    const [spontWake, setSpontWake] = React.useState(0);
+    const selfTalkNoveltyRef = React.useRef({ signature: "", at: 0 });
+    const spontWakeDelayRef = React.useRef(0);
+    const prevPanelOpenRef = React.useRef(false);
+    const prevStepRef = React.useRef(-1);
+    const prevCardRef = React.useRef(null);
+    const moodWakeSigRef = React.useRef("");
+    const weatherWakeSigRef = React.useRef("");
+    const spontPoemRef = React.useRef(null);
+    const spontReqRef = React.useRef(0);
+    const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] });
+    const wakeSpontaneous = React.useCallback((delay) => {
+      spontWakeDelayRef.current = Math.max(1e3, num(delay, nextSpontEventDelay()));
+      setSpontWake((tick) => tick + 1);
+    }, []);
+    function takeCachedSelfTalk(kind) {
+      const list = selfTalkCacheRef.current[kind];
+      if (Array.isArray(list) && list.length) return list.shift();
+      return "";
+    }
+    function rememberSpoken(card) {
+      if (!card || card.type !== "murmur" || !card.text) return;
+      const clean = String(card.text).trim();
+      if (!clean) return;
+      const list = recentSpokenRef.current.filter((value) => value !== clean);
+      list.push(clean);
+      recentSpokenRef.current = list.slice(-SELF_TALK_RECENT_MAX);
+    }
+    function spontPools() {
+      const ui = uiRef.current;
+      return {
+        poemsData: { items: ui.poemItems },
+        ciData: { items: ui.ciItems },
+        anthologyData: { items: ui.anthologyItems },
+        bankData: { items: ui.bankItems },
+        ciBankData: { items: ui.ciBankItems }
+      };
+    }
+    function murmurCardFromText(text) {
+      const value = String(text == null ? "" : text).trim();
+      return {
+        type: "murmur",
+        id: "model-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+        text: value,
+        line: value,
+        tags: [],
+        tag: "model",
+        title: "\u5B83\u8BF4\uFF1A"
+      };
+    }
+    function showSpontCard(card, options) {
+      if (!card) return null;
+      const opts = options || {};
+      if (opts.record === true && opts.state) {
+        writeSpontState(recordSpontShown(opts.state, card.id, Date.now(), card.type, card.tag || card.kind || ""));
+      }
+      if (opts.remember !== false) rememberSpoken(card);
+      setSpontPreview(opts.preview === true);
+      setSpontPoem(card);
+      return card;
+    }
+    function startSpontaneousCard(options) {
+      const opts = options && typeof options === "object" ? options : {};
+      const ui = uiRef.current;
+      const now2 = Date.now();
+      const state = readSpontState(now2);
+      const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== "ai" ? ui.moodView.key : "calm";
+      const preview = opts.preview === true;
+      const record = opts.record === true;
+      if (record && !preview) {
+        const signature = selfTalkNoveltySignature({
+          selfStatus: selfStatusRef.current,
+          mood: moodViewRef.current,
+          weather: weatherRef.current,
+          now: now2
+        });
+        const last = selfTalkNoveltyRef.current;
+        if (last.signature === signature && now2 - last.at < 20 * 60 * 1e3) return null;
+        if (last.signature === "" && last.at > 0 && now2 - last.at < 60 * 1e3) return null;
+        selfTalkNoveltyRef.current = { signature, at: now2 };
+      }
+      const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX);
+      const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state });
+      const cached = takeCachedSelfTalk("murmur");
+      if (cached) {
+        return showMurmur(cached);
+      }
+      const token = spontReqRef.current + 1;
+      spontReqRef.current = token;
+      setSpontPreview(preview);
+      setSpontPoem({ type: "thinking", title: "\u5B83\u6B63\u5728\u60F3\u2026", line: "", placeholder: true });
+      const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now2 - lastInteractionRef.current) / 6e4)) : 0;
+      const weatherValue = weatherRef.current ? String(weatherRef.current.category || weatherRef.current.label || "") : "";
+      const view = ui.moodView || null;
+      const moodLabel = view && typeof view.label === "string" ? view.label.trim() : "";
+      const moodReason = view && typeof view.reason === "string" ? view.reason.trim() : "";
+      const image = view && typeof view.image === "string" ? view.image.trim() : "";
+      const imageLabel = moodLabel;
+      requestSelfTalk({ kind: "murmur", moodKey, moodLabel, moodReason, image, imageLabel, weather: weatherValue, idleMinutes, recent }).then((result) => {
+        if (token !== spontReqRef.current) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          setSpontPoem((current) => current && current.type === "thinking" ? null : current);
+          return;
+        }
+        if (!result || !result.ok || !result.line) {
+          selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
+          setSpontPoem(null);
+          return;
+        }
+        if (recent.indexOf(result.line) >= 0) {
+          if (result.next && recent.indexOf(result.next) < 0) {
+            showMurmur(result.next);
+          } else {
+            setSpontPoem(null);
+          }
+          return;
+        }
+        if (result.next && recent.indexOf(result.next) < 0) {
+          const list = selfTalkCacheRef.current.murmur.concat([result.next]);
+          selfTalkCacheRef.current.murmur = list.slice(-2);
+        }
+        showMurmur(result.line);
+      }).catch(() => {
+        if (token !== spontReqRef.current) return;
+        selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
+        setSpontPoem(null);
+      });
+      return null;
+    }
+    function previewSpontaneousPoem() {
+      return startSpontaneousCard({ preview: true, record: false });
+    }
+    function readAnotherSpontaneous() {
+      return startSpontaneousCard({ preview: false, record: false });
+    }
+    function previewSpontaneousPoem(forceType) {
+      return startSpontaneousCard({ forceType, preview: true, record: false });
+    }
+    function readAnotherSpontaneous() {
+      const current = spontPoemRef.current;
+      const avoidType = current && current.type !== "thinking" ? current.type : "";
+      return startSpontaneousCard({ avoidType, preview: false, record: false });
+    }
+    function openSpontPoem() {
+      const picked = spontPoemRef.current;
+      if (!picked) return;
+      if (picked.type === "murmur") {
+        setSpontPoem(null);
+        return;
+      }
+      setSpontPreview(false);
+      setSpontPoem(null);
+      setPanelOpen(true);
+      if (picked.kind === "poem") {
+        userPickedPoemRef.current = true;
+        setSelectedPoemId(picked.id);
+        openPanelTab("today");
+      } else if (picked.kind === "ci") {
+        openPanelTab("ci");
+      } else {
+        setLibraryFocus({ id: picked.id, source: picked.kind, token: Date.now() });
+        openPanelTab("library");
+      }
+    }
+    function closeSpont(event) {
+      if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+      spontReqRef.current += 1;
+      selfTalkNoveltyRef.current = { signature: "", at: 0 };
+      setSpontPreview(false);
+      setSpontPoem(null);
+    }
+    React.useEffect(() => {
+      if (settings.hidden) {
+        spontReqRef.current += 1;
+        setSpontPoem(null);
+        return void 0;
+      }
+      if (!settings.spontaneousPoem) {
+        spontReqRef.current += 1;
+        setSpontPoem((current) => current && current.tag === "action" ? current : null);
+        return void 0;
+      }
+      let cancelled = false;
+      let timer2 = null;
+      const schedule = (delay) => {
+        if (timer2) clearTimeout(timer2);
+        if (!cancelled) timer2 = setTimeout(run, Math.max(1e3, delay));
+      };
+      const run = () => {
+        if (cancelled) return;
+        const ui = uiRef.current;
+        if (spontPoemRef.current) {
+          schedule(SPONT_CLOSE_RECHECK_MS);
+          return;
+        }
+        const ok = canShowSpontaneous({
+          enabled: ui.settings.spontaneousPoem === true,
+          hidden: ui.settings.hidden === true,
+          panelOpen: ui.panelOpen === true,
+          bubbleOpen: ui.step >= 0,
+          visible: typeof document === "undefined" ? true : document.visibilityState !== "hidden",
+          now: Date.now(),
+          lastInteractionAt: lastInteractionRef.current,
+          quietMs: SPONT_QUIET_MS
+        });
+        if (ok) {
+          startSpontaneousCard({ record: true });
+          schedule(nextSpontPollDelay());
+        } else {
+          schedule(SPONT_RETRY_MS);
+        }
+      };
+      const onWake = () => wakeSpontaneous(nextSpontEventDelay());
+      const onVisibility = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "visible") onWake();
+      };
+      const onFocus = () => onWake();
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
+      const initialDelay = spontWake > 0 ? num(spontWakeDelayRef.current, nextSpontEventDelay()) : nextSpontPollDelay();
+      schedule(initialDelay);
+      return () => {
+        cancelled = true;
+        if (timer2) clearTimeout(timer2);
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+        if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
+      };
+    }, [settings.spontaneousPoem, settings.hidden, spontWake, wakeSpontaneous]);
+    React.useEffect(() => {
+      if (panelOpen) {
+        prevPanelOpenRef.current = true;
+        return;
+      }
+      if (prevPanelOpenRef.current) {
+        prevPanelOpenRef.current = false;
+        wakeSpontaneous(nextSpontEventDelay());
+      }
+    }, [panelOpen, wakeSpontaneous]);
+    React.useEffect(() => {
+      if (step >= 0) {
+        prevStepRef.current = true;
+        return;
+      }
+      if (prevStepRef.current) {
+        prevStepRef.current = false;
+        wakeSpontaneous(nextSpontEventDelay());
+      }
+    }, [step, wakeSpontaneous]);
+    React.useEffect(() => {
+      if (!settings.spontaneousPoem) return;
+      if (spontPoem) {
+        prevCardRef.current = true;
+        return;
+      }
+      if (prevCardRef.current) {
+        prevCardRef.current = false;
+        wakeSpontaneous(SPONT_CLOSE_RECHECK_MS);
+      }
+    }, [spontPoem, settings.spontaneousPoem, wakeSpontaneous]);
+    React.useEffect(() => {
+      if (!settings.spontaneousPoem || !weather) return;
+      const signature = [weather.category, weather.label, weather.tempC].join("|");
+      if (weatherWakeSigRef.current && weatherWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
+      weatherWakeSigRef.current = signature;
+    }, [weather, settings.spontaneousPoem, wakeSpontaneous]);
+    React.useEffect(() => {
+      if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
+      const markActivity = () => noteInteraction();
+      document.addEventListener("pointerdown", markActivity, true);
+      document.addEventListener("keydown", markActivity, true);
+      document.addEventListener("input", markActivity, true);
+      return () => {
+        document.removeEventListener("pointerdown", markActivity, true);
+        document.removeEventListener("keydown", markActivity, true);
+        document.removeEventListener("input", markActivity, true);
+      };
+    }, []);
+    React.useEffect(() => {
+      if (!spontPoem) return void 0;
+      const timer2 = setTimeout(() => {
+        spontReqRef.current += 1;
+        setSpontPoem(null);
+      }, SPONT_AUTO_CLOSE_MS);
+      return () => clearTimeout(timer2);
+    }, [spontPoem]);
+    React.useEffect(() => {
+      if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
+        spontReqRef.current += 1;
+        setSpontPoem(null);
+      }
+    }, [panelOpen, step, settings.hidden, spontPoem, spontPreview]);
+    spontPoemRef.current = spontPoem;
+    refs.bridge.current.wakeSpontaneous = wakeSpontaneous;
+    return { spontPoem, setSpontPoem, spontPreview, setSpontPreview, wakeSpontaneous, startSpontaneousCard, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef };
+  }
+
+  // client-src/widget/hooks/use-self-status.js
+  function useSelfStatus(deps) {
+    const React = getReact();
+    const { showSpontCard } = deps;
+    const { refs } = deps;
+    const { selfStatusRef } = refs;
+    const [selfStatus, setSelfStatus] = React.useState(null);
+    const pendingActionRef = React.useRef(null);
+    const lastSeenActionIdRef = React.useRef(readSeenActionId());
+    function showSelfAction(action) {
+      if (!action || !action.id) return;
+      lastSeenActionIdRef.current = action.id;
+      writeSeenActionId(action.id);
+      showSpontCard(
+        { id: "action:" + action.id, type: "murmur", title: "\u81EA\u5DF1", line: String(action.text || action.label || ""), tag: "action" },
+        { preview: true, record: false, remember: false }
+      );
+    }
+    React.useEffect(() => {
+      let alive = true;
+      const load = () => {
+        if (!alive) return;
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        fetchJson(SELF_PATH).then((data) => {
+          if (alive) setSelfStatus(normalizeSelfStatus(data));
+        }).catch(() => {
+          if (alive) setSelfStatus(null);
+        });
+      };
+      load();
+      const timer2 = setInterval(load, SELF_POLL_MS);
+      const onVisibility = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        load();
+      };
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
+      return () => {
+        alive = false;
+        clearInterval(timer2);
+        if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
+      };
+    }, []);
+    React.useEffect(() => {
+      const latest = selfStatus && selfStatus.actions ? selfStatus.actions.latest : null;
+      if (!latest || !latest.id) return;
+      if (lastSeenActionIdRef.current === latest.id) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        pendingActionRef.current = latest;
+        return;
+      }
+      showSelfAction(latest);
+    }, [selfStatus]);
+    React.useEffect(() => {
+      if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
+      const onVisibility = () => {
+        if (document.visibilityState === "hidden") return;
+        const pending = pendingActionRef.current;
+        if (!pending) return;
+        pendingActionRef.current = null;
+        showSelfAction(pending);
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      return () => document.removeEventListener("visibilitychange", onVisibility);
+    }, []);
+    selfStatusRef.current = selfStatus;
+    return { selfStatus, setSelfStatus };
+  }
+
+  // client-src/widget/hooks/use-mood.js
+  function useMood(deps) {
+    const React = getReact();
+    const { settingsRef, moodCatalogRes, settings, weather, boot, panelTab, poetryTab, panelOpen, spontPoem, moodWakeSigRef, wakeSpontaneous } = deps;
+    const { refs } = deps;
+    const { moodViewRef, weatherRef, clicksRef, feihuaWinsRef, panelOpensRef, recentSpokenRef, feihuaLossesRef, lastInteractionRef, petMediaEntriesRef } = refs;
+    const [moodRes, setMoodRes] = React.useState(() => {
+      const cached = moodCache;
+      return cached && cached.data ? { status: "ready", data: cached.data, at: cached.at } : { status: "idle", data: null, at: 0 };
+    });
+    const [moodView, setMoodView] = React.useState(null);
+    const [moodSource, setMoodSource] = React.useState("");
+    const [moodAiFallback, setMoodAiFallback] = React.useState(false);
+    const [moodAiStale, setMoodAiStale] = React.useState(false);
+    const [moodAiFailure, setMoodAiFailure] = React.useState("");
+    const [moodAiFailureCode, setMoodAiFailureCode] = React.useState("");
+    const [petMediaRes, setPetMediaRes] = React.useState({ status: "idle", entries: [] });
+    const [moodTick, setMoodTick] = React.useState(0);
+    const moodStatsRef = React.useRef(emptyMoodStats());
+    const moodForceRef = React.useRef(false);
+    const moodSourceRef = React.useRef("");
+    const moodAiRef = React.useRef({ at: 0, lastRequestAt: 0, image: "" });
+    const moodAiSnapshotRef = React.useRef(null);
+    const moodAiTokenRef = React.useRef(0);
+    const moodAiInFlightRef = React.useRef(false);
+    const moodAiPendingRef = React.useRef(false);
+    const moodAiDebounceTimerRef = React.useRef(null);
+    const moodAiRetryTimerRef = React.useRef(null);
+    const moodAiRetryCountRef = React.useRef(0);
+    const moodStatsSnapshotRef = React.useRef(null);
+    const moodTimeBucketRef = React.useRef("");
+    const moodIdleRef = React.useRef(false);
+    const moodWeatherSigRef = React.useRef("");
+    const moodPrevPanelOpenRef = React.useRef(false);
+    const moodPrevPanelTabRef = React.useRef("today");
+    const moodPrevSpontRef = React.useRef(null);
+    const recentImagesRef = React.useRef([]);
+    const moodCatalogRef = React.useRef(null);
+    const applyMood = React.useCallback((force) => {
+      const current = settingsRef.current;
+      if (!current.mood && !current.spontaneousPoem) {
+        moodViewRef.current = null;
+        setMoodView(null);
+        return null;
+      }
+      const next = computeMood({
+        weather: weatherRef.current,
+        signals: {
+          now: Date.now(),
+          clicks: clicksRef.current,
+          feihuaWins: feihuaWinsRef.current,
+          feihuaLosses: 0,
+          panelOpens: panelOpensRef.current
+        }
+      });
+      const selected = throttleMoodSwitch(moodViewRef.current, next, Date.now(), force === true);
+      moodViewRef.current = selected;
+      setMoodView(selected);
+      return selected;
+    }, []);
+    const applyModelMood = React.useCallback((mood) => {
+      if (!mood || !mood.image) return null;
+      const view = Object.assign({}, mood, { changed: true, switchedAt: Date.now() });
+      moodSourceRef.current = "model";
+      moodViewRef.current = view;
+      setMoodSource("model");
+      setMoodAiFallback(false);
+      setMoodAiStale(false);
+      setMoodAiFailure("");
+      setMoodAiFailureCode("");
+      clearMoodAiRetry();
+      setMoodView(view);
+      moodAiRef.current = Object.assign({}, moodAiRef.current, { at: Date.now(), image: mood.image });
+      const images = recentImagesRef.current.filter((file) => file !== mood.image);
+      images.push(mood.image);
+      recentImagesRef.current = images.slice(-MOOD_AI_RECENT_IMAGES_MAX);
+      return view;
+    }, []);
+    const fallbackHeuristicMood = React.useCallback((force) => {
+      moodSourceRef.current = "heuristic";
+      setMoodSource("heuristic");
+      setMoodAiFallback(true);
+      return applyMood(force === true);
+    }, [applyMood]);
+    function clearMoodAiRetry() {
+      if (moodAiRetryTimerRef.current) {
+        clearTimeout(moodAiRetryTimerRef.current);
+        moodAiRetryTimerRef.current = null;
+      }
+      moodAiRetryCountRef.current = 0;
+    }
+    function scheduleMoodAiRetry() {
+      if (!settingsRef.current.mood || settingsRef.current.hidden) return;
+      if (moodAiRetryCountRef.current >= MOOD_AI_MAX_RETRIES) return;
+      if (moodAiRetryTimerRef.current) clearTimeout(moodAiRetryTimerRef.current);
+      moodAiRetryTimerRef.current = setTimeout(() => {
+        moodAiRetryTimerRef.current = null;
+        if (!settingsRef.current.mood || settingsRef.current.hidden) return;
+        if (moodAiInFlightRef.current) {
+          moodAiPendingRef.current = true;
+          return;
+        }
+        requestModelMood();
+      }, nextMoodAiRetryDelay());
+    }
+    function handleMoodAiFailure(result) {
+      const reason = normalizeMoodAiFailure(result);
+      const code = result && typeof result.code === "string" ? result.code : reason.indexOf("host:") === 0 ? reason.slice(5) : "";
+      setMoodAiFailure(reason);
+      setMoodAiFailureCode(code);
+      moodAiRetryCountRef.current += 1;
+      const keep = moodAiKeepDecision({ source: moodSourceRef.current, lastSuccessAt: moodAiRef.current.at, now: Date.now() });
+      if (keep) {
+        setMoodAiStale(true);
+        setMoodAiFallback(false);
+      } else {
+        setMoodAiStale(false);
+        fallbackHeuristicMood(true);
+      }
+      if (moodAiRetryCountRef.current < MOOD_AI_MAX_RETRIES) {
+        scheduleMoodAiRetry();
+      } else if (moodAiRetryTimerRef.current) {
+        clearTimeout(moodAiRetryTimerRef.current);
+        moodAiRetryTimerRef.current = null;
+      }
+    }
+    const requestModelMood = React.useCallback((options = {}) => {
+      const manual = options && options.manual === true;
+      const current = settingsRef.current;
+      if (!current.mood) return Promise.resolve({ ok: false, reason: "disabled" });
+      const catalog = moodCatalogRef.current;
+      if (!catalog) {
+        setMoodAiFallback(true);
+        return Promise.resolve({ ok: false, reason: "catalog" });
+      }
+      if (moodAiInFlightRef.current) {
+        moodAiPendingRef.current = true;
+        return Promise.resolve({ ok: false, reason: "inflight" });
+      }
+      const now2 = Date.now();
+      moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now2 });
+      const token = moodAiTokenRef.current + 1;
+      moodAiTokenRef.current = token;
+      moodAiInFlightRef.current = true;
+      const weather2 = weatherRef.current || null;
+      const currentMoodKey = moodViewRef.current && moodViewRef.current.key && moodViewRef.current.key !== "ai" ? moodViewRef.current.key : "calm";
+      const recent = recentSpokenRef.current.slice(-MOOD_AI_RECENT_MAX);
+      const recentImages = recentImagesRef.current.slice(-MOOD_AI_RECENT_IMAGES_MAX);
+      moodAiSnapshotRef.current = moodAiSnapshot(weather2, feihuaWinsRef.current, feihuaLossesRef.current);
+      const finish = () => {
+        if (token !== moodAiTokenRef.current) return;
+        moodAiInFlightRef.current = false;
+        if (moodAiPendingRef.current && settingsRef.current.mood) {
+          moodAiPendingRef.current = false;
+          scheduleMoodAiRefresh();
+        }
+      };
+      return requestMoodAi({
+        force: true,
+        manual,
+        moodKey: currentMoodKey,
+        weather: weather2 ? String(weather2.category || weather2.label || "") : "",
+        recent,
+        recentImages,
+        catalog
+      }).then((result) => {
+        finish();
+        if (token !== moodAiTokenRef.current) return result;
+        if (!settingsRef.current.mood) return result;
+        if (result && result.ok && result.mood) {
+          applyModelMood(result.mood);
+          return result;
+        }
+        handleMoodAiFailure(result);
+        return result;
+      }).catch(() => {
+        finish();
+        if (token === moodAiTokenRef.current && settingsRef.current.mood) handleMoodAiFailure({ reason: "network" });
+        return { ok: false };
+      });
+    }, [applyModelMood, fallbackHeuristicMood]);
+    const moodManualRef = React.useRef(false);
+    function scheduleMoodAiRefresh(options) {
+      const opts = options && typeof options === "object" ? options : {};
+      if (!settingsRef.current.mood || settingsRef.current.hidden) return;
+      if (moodAiRetryTimerRef.current) {
+        clearTimeout(moodAiRetryTimerRef.current);
+        moodAiRetryTimerRef.current = null;
+      }
+      if (moodAiDebounceTimerRef.current) clearTimeout(moodAiDebounceTimerRef.current);
+      const delay = opts.immediate === true ? 0 : moodAiEventDelay({ lastRequestAt: moodAiRef.current.lastRequestAt, now: Date.now() });
+      moodAiDebounceTimerRef.current = setTimeout(() => {
+        moodAiDebounceTimerRef.current = null;
+        if (!settingsRef.current.mood || settingsRef.current.hidden) return;
+        if (moodAiInFlightRef.current) {
+          moodAiPendingRef.current = true;
+          return;
+        }
+        const manual = moodManualRef.current;
+        moodManualRef.current = false;
+        requestModelMood({ manual });
+      }, Math.max(0, delay));
+    }
+    const refreshMoodNow = React.useCallback(() => {
+      moodForceRef.current = true;
+      moodManualRef.current = true;
+      scheduleMoodAiRefresh({ immediate: true });
+      setMoodTick((tick) => tick + 1);
+      return Promise.resolve({ ok: true });
+    }, [scheduleMoodAiRefresh]);
+    const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
+    const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
+    moodCatalogRef.current = moodCatalog;
+    const moodChip = settings.mood && moodView ? "\u5FC3\u60C5\uFF1A" + moodView.label : "";
+    const moodChipTitle = settings.mood && moodView ? String(moodView.reason || "") : "";
+    const moodBasis = moodBasisText(weather);
+    React.useEffect(() => {
+      if (!(settings.mood || settings.spontaneousPoem)) return void 0;
+      const timer2 = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
+      return () => clearInterval(timer2);
+    }, [settings.mood, settings.spontaneousPoem]);
+    React.useEffect(() => {
+      if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
+        moodAiTokenRef.current += 1;
+        moodAiInFlightRef.current = false;
+        moodAiPendingRef.current = false;
+        if (moodAiDebounceTimerRef.current) {
+          clearTimeout(moodAiDebounceTimerRef.current);
+          moodAiDebounceTimerRef.current = null;
+        }
+        moodSourceRef.current = "";
+        moodViewRef.current = null;
+        clearMoodAiRetry();
+        setMoodSource("");
+        setMoodAiFallback(false);
+        setMoodAiStale(false);
+        setMoodAiFailure("");
+        setMoodAiFailureCode("");
+        setMoodView(null);
+        return;
+      }
+      if (moodSourceRef.current === "model") return;
+      moodSourceRef.current = "heuristic";
+      setMoodSource("heuristic");
+      const force = moodForceRef.current;
+      moodForceRef.current = false;
+      applyMood(force);
+    }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood]);
+    React.useEffect(() => () => {
+      if (moodAiRetryTimerRef.current) {
+        clearTimeout(moodAiRetryTimerRef.current);
+        moodAiRetryTimerRef.current = null;
+      }
+    }, []);
+    React.useEffect(() => {
+      if (!settings.mood) {
+        setPetMediaRes({ status: "idle", entries: [] });
+        return void 0;
+      }
+      let alive = true;
+      setPetMediaRes({ status: "loading", entries: [] });
+      requestPetMediaCatalog().then((result) => {
+        if (!alive) return;
+        setPetMediaRes({ status: result && result.ok ? "ready" : "error", entries: result && result.ok ? result.entries : [] });
+      });
+      return () => {
+        alive = false;
+      };
+    }, [settings.mood, boot.data && boot.data.dataVersion]);
+    React.useEffect(() => {
+      if (!settings.mood || !moodCatalog) return;
+      if (petMediaRes.status === "loading" || petMediaRes.status === "idle") return;
+      if (moodAiRef.current.at > 0) return;
+      scheduleMoodAiRefresh();
+    }, [settings.mood, moodCatalog, petMediaRes.status]);
+    React.useEffect(() => {
+      if (!settings.mood) return void 0;
+      const timer2 = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        scheduleMoodAiRefresh();
+      }, MOOD_REFRESH_MS);
+      return () => clearInterval(timer2);
+    }, [settings.mood, scheduleMoodAiRefresh]);
+    React.useEffect(() => {
+      if (!settings.mood) return;
+      const currentTab = panelTab === "poetry" ? "poetry:" + poetryTab : panelTab;
+      const changed = moodPrevPanelOpenRef.current !== panelOpen || panelOpen && moodPrevPanelTabRef.current !== currentTab;
+      moodPrevPanelOpenRef.current = panelOpen;
+      moodPrevPanelTabRef.current = currentTab;
+      if (changed) scheduleMoodAiRefresh();
+    }, [panelOpen, panelTab, poetryTab, settings.mood]);
+    React.useEffect(() => {
+      if (!settings.mood) return;
+      const visible = Boolean(spontPoem);
+      const previous = Boolean(moodPrevSpontRef.current);
+      moodPrevSpontRef.current = visible;
+      if (visible !== previous) scheduleMoodAiRefresh();
+    }, [spontPoem, settings.mood]);
+    React.useEffect(() => {
+      if (!settings.mood) return;
+      const signature = weather ? [weather.category, weather.label, weather.tempC, weather.isDay].join("|") : "";
+      const previous = moodWeatherSigRef.current;
+      moodWeatherSigRef.current = signature;
+      if (previous && signature && previous !== signature) scheduleMoodAiRefresh();
+    }, [weather, settings.mood]);
+    React.useEffect(() => {
+      if (!settings.mood) return void 0;
+      const onVisible = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        scheduleMoodAiRefresh();
+      };
+      const onFocus = () => scheduleMoodAiRefresh();
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
+      return () => {
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
+        if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
+      };
+    }, [settings.mood]);
+    React.useEffect(() => {
+      if (!settings.mood) return;
+      const now2 = Date.now();
+      const last = lastInteractionRef.current;
+      const idle = last > 0 && now2 - last >= 30 * 60 * 1e3;
+      if (idle !== moodIdleRef.current) {
+        moodIdleRef.current = idle;
+        scheduleMoodAiRefresh();
+      }
+      const bucket = moodTimeBucket(now2);
+      if (moodTimeBucketRef.current && bucket !== moodTimeBucketRef.current) scheduleMoodAiRefresh();
+      moodTimeBucketRef.current = bucket;
+    }, [moodTick, settings.mood]);
+    React.useEffect(() => {
+      if (settings.mood && moodCatalogRes.status === "error") setMoodAiFallback(true);
+    }, [settings.mood, moodCatalogRes.status]);
+    React.useEffect(() => {
+      if (!moodCatalog) return;
+      if (typeof window === "undefined" || typeof window.Image !== "function") return;
+      const files = [
+        panelPeekFile(moodCatalog, "today"),
+        panelPeekFile(moodCatalog, "settings"),
+        panelPeekFile(moodCatalog, "other")
+      ].concat(moodCatalog.moodFiles.slice(0, 4));
+      for (const file of files) {
+        if (!file) continue;
+        try {
+          const image = new window.Image();
+          image.src = mascotUrl2(file);
+        } catch (error) {
+        }
+      }
+    }, [moodCatalog]);
+    React.useEffect(() => {
+      if (!settings.spontaneousPoem || !moodView) return;
+      const signature = [moodView.key, moodView.label, moodView.reason, moodView.source].join("|");
+      if (moodWakeSigRef.current && moodWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
+      moodWakeSigRef.current = signature;
+    }, [moodView, settings.spontaneousPoem, wakeSpontaneous]);
+    petMediaEntriesRef.current = petMediaRes.entries;
+    refs.bridge.current.scheduleMoodAiRefresh = scheduleMoodAiRefresh;
+    return { moodRes, moodView, moodSource, moodAiFallback, moodAiStale, moodAiFailure, moodAiFailureCode, petMediaRes, moodCatalog, moodChip, moodChipTitle, moodBasis, refreshMoodNow, scheduleMoodAiRefresh };
+  }
+
+  // client-src/widget/hooks/use-mascot.js
+  function useMascot(deps) {
+    const React = getReact();
+    const { wakeSpontaneous, scheduleMoodAiRefresh, settingsRef, noteInteraction, updateSettings, panelOpen, setPanelOpen, step, advanceStep, openPanel, mascotSize, viewport, restoreWidget, settings, petMediaRes, moodView } = deps;
+    const { refs } = deps;
+    const { feihuaWinsRef, feihuaLossesRef, lastInteractionRef, mascotTimerRef, mascotExprTimerRef, clicksRef, petMediaEntriesRef, uiRef, posRef, pressTimer, moodViewRef } = refs;
+    const [mascotPulse, setMascotPulse] = React.useState(null);
+    const [failedMascot, setFailedMascot] = React.useState("");
+    const [mascotExpression, setMascotExpression] = React.useState("");
+    const [motionFile, setMotionFile] = React.useState("");
+    const [dizzy, setDizzy] = React.useState(null);
+    const [mealActive, setMealActive] = React.useState(null);
+    const [pos, setPos] = React.useState(() => {
+      const stored = readStoredPosition();
+      const viewport2 = { w: readWindowWidth(), h: readWindowHeight() };
+      if (stored) return clampPosition(stored, BASE_SIZE, viewport2);
+      return { x: 16, y: Math.max(8, viewport2.h - BASE_SIZE - 24) };
+    });
+    const dragRef = React.useRef(null);
+    const wanderRef = React.useRef({ nextAt: 0, timer: null, walking: false });
+    const [walking, setWalking] = React.useState(false);
+    const [wanderFile, setWanderFile] = React.useState("");
+    const wanderFileRef = React.useRef("");
+    const mascotTapRef = React.useRef(0);
+    const mascotVideoRef = React.useRef(null);
+    const mascotPulseRef = React.useRef(null);
+    const mascotExpressionRef = React.useRef("");
+    const motionFileRef = React.useRef("");
+    const motionIndexRef = React.useRef(readMotionRotation());
+    const motionDelayTimerRef = React.useRef(null);
+    const motionStopTimerRef = React.useRef(null);
+    const motionFirstScheduledRef = React.useRef(false);
+    const motionFirstPendingRef = React.useRef(false);
+    const dizzyRef = React.useRef(null);
+    const dizzyTimerRef = React.useRef(null);
+    const mealActiveRef = React.useRef(null);
+    const mealTimerRef = React.useRef(null);
+    const mealPrevPanelRef = React.useRef(false);
+    const pulseMascot = React.useCallback((key) => {
+      if (!MASCOT_FILES[key]) return;
+      if (key === "gameWin") feihuaWinsRef.current += 1;
+      if (key === "gameLose") feihuaLossesRef.current += 1;
+      if (key === "gameWin" || key === "gameLose") {
+        wakeSpontaneous(nextSpontEventDelay());
+        scheduleMoodAiRefresh();
+      }
+      lastInteractionRef.current = Date.now();
+      setMascotPulse(key);
+      if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current);
+      mascotTimerRef.current = setTimeout(() => {
+        mascotTimerRef.current = null;
+        setMascotPulse(null);
+      }, MASCOT_TRANSIENT_MS);
+    }, []);
+    function showMascotExpression(file) {
+      if (!file) return;
+      setMascotExpression(file);
+      if (mascotExprTimerRef.current) clearTimeout(mascotExprTimerRef.current);
+      mascotExprTimerRef.current = setTimeout(() => {
+        mascotExprTimerRef.current = null;
+        setMascotExpression("");
+      }, MASCOT_EXPRESSION_MS);
+    }
+    function handleMascotTap() {
+      if (settingsRef.current.hidden) return;
+      const now2 = Date.now();
+      clicksRef.current += 1;
+      noteInteraction();
+      const eggState = readMascotEggState(now2);
+      if (shouldShowDailyGreet(eggState, now2)) {
+        writeMascotEggState(recordMascotEgg(eggState, { greet: true }, now2));
+        showMascotExpression(MASCOT_EXPRESSION_FILES[0]);
+      }
+      if (!settingsRef.current.tutorialSeen) updateSettings({ tutorialSeen: true });
+      if (panelOpen) {
+        setPanelOpen(false);
+        return;
+      }
+      if (step >= 0) {
+        advanceStep();
+        return;
+      }
+      openPanel("growth");
+    }
+    function handleMascotKeyDown(event) {
+      if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+        event.preventDefault();
+        handleMascotTap();
+      }
+    }
+    function triggerDizzy() {
+      if (settingsRef.current.hidden) return;
+      const entries = petMediaEntriesRef.current || [];
+      const entry = pickDizzyMedia(entries);
+      const file = entry && isVideoMoodFile(entry.file) ? entry.file : "";
+      if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
+      setDizzy({ file, label: entry ? String(entry.label || "") : "" });
+      clearMotionTimers();
+      if (motionFileRef.current) setMotionFile("");
+      dizzyTimerRef.current = setTimeout(() => {
+        dizzyTimerRef.current = null;
+        setDizzy(null);
+        if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
+          scheduleMotion(nextMotionDelay());
+        }
+      }, nextDizzyDuration());
+      noteInteraction();
+    }
+    function maybeTriggerMeal() {
+      if (!settingsRef.current || settingsRef.current.hidden) return;
+      if (mealActiveRef.current) return;
+      const now2 = Date.now();
+      const visible = typeof document === "undefined" ? true : document.visibilityState !== "hidden";
+      const state = readMealState(now2);
+      const moment = mealTriggerFor({ now: now2, hidden: settingsRef.current.hidden, panelOpen: uiRef.current.panelOpen, visible, state });
+      if (!moment) return;
+      writeMealState(markMealDone(state, moment.meal, now2));
+      const entry = pickMealMedia(petMediaEntriesRef.current || [], moment.meal);
+      const file = entry && entry.file ? entry.file : "dsh-whale-state-daily-eat.webp";
+      const text = moment.meal === "lunch" ? "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403\u5348\u996D\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002\u8FD9\u987F\u7528 token \u6362\u7684\u767D\u996D\u3002" : "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403" + moment.label + "\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002";
+      const active = { meal: moment.meal, label: moment.label, file, text };
+      mealActiveRef.current = active;
+      setMealActive(active);
+      clearMotionTimers();
+      if (motionFileRef.current) setMotionFile("");
+      if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
+      mealTimerRef.current = setTimeout(() => {
+        mealTimerRef.current = null;
+        mealActiveRef.current = null;
+        setMealActive(null);
+        if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
+          scheduleMotion(nextMotionDelay());
+        }
+      }, nextMealDuration());
+    }
+    function handlePointerDown(event) {
+      if (event.button !== void 0 && event.button !== 0) return;
+      setWalking(false);
+      wanderRef.current.walking = false;
+      setWanderFile("");
+      if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
+      wanderRef.current.timer = null;
+      wanderRef.current.nextAt = Date.now() + 10 * 60 * 1e3;
+      const pointerTime = typeof event.timeStamp === "number" && event.timeStamp > 0 ? event.timeStamp : Date.now();
+      dragRef.current = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        baseX: posRef.current.x,
+        baseY: posRef.current.y,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        lastT: pointerTime,
+        fast: false,
+        moved: false
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch (error) {
+      }
+      if (event.cancelable) event.preventDefault();
+    }
+    function handlePointerMove(event) {
+      const drag = dragRef.current;
+      if (!drag || drag.id !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.moved && Math.max(Math.abs(dx), Math.abs(dy)) > 3) drag.moved = true;
+      if (!drag.moved) return;
+      const pointerTime = typeof event.timeStamp === "number" && event.timeStamp > 0 ? event.timeStamp : Date.now();
+      if (detectFastDrag({ x: drag.lastX, y: drag.lastY, t: drag.lastT }, { x: event.clientX, y: event.clientY, t: pointerTime })) drag.fast = true;
+      drag.lastX = event.clientX;
+      drag.lastY = event.clientY;
+      drag.lastT = pointerTime;
+      setPos(clampPosition({ x: drag.baseX + dx, y: drag.baseY + dy }, mascotSize, viewport));
+    }
+    function finishPointer(event, cancelled) {
+      const drag = dragRef.current;
+      if (!drag || event && drag.id !== event.pointerId) return;
+      dragRef.current = null;
+      try {
+        if (event && event.currentTarget && event.currentTarget.releasePointerCapture) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      } catch (error) {
+      }
+      if (cancelled) return;
+      if (!drag.moved) {
+        handleMascotTap();
+        return;
+      }
+      if (drag.fast) triggerDizzy();
+      const current = posRef.current;
+      let snap = "free";
+      if (current.x <= 40) snap = "left";
+      else if (current.x + mascotSize >= viewport.w - 40) snap = "right";
+      const snapped = anchorPosition(snap, mascotSize, viewport, current);
+      if (snapped.x !== current.x || snapped.y !== current.y) setPos(snapped);
+      if (snap !== settingsRef.current.snap) updateSettings({ snap });
+    }
+    function handlePointerUp(event) {
+      finishPointer(event, false);
+    }
+    function handlePointerCancel(event) {
+      finishPointer(event, true);
+    }
+    function handleRestorePointerDown(event) {
+      if (event.button !== void 0 && event.button !== 0) return;
+      if (event.cancelable) event.preventDefault();
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+      pressTimer.current = setTimeout(() => {
+        pressTimer.current = null;
+        restoreWidget();
+      }, 1200);
+    }
+    function handleRestorePointerUp() {
+      if (pressTimer.current) {
+        clearTimeout(pressTimer.current);
+        pressTimer.current = null;
+      }
+    }
+    function clearMotionTimers() {
+      if (motionDelayTimerRef.current) {
+        clearTimeout(motionDelayTimerRef.current);
+        motionDelayTimerRef.current = null;
+      }
+      if (motionStopTimerRef.current) {
+        clearTimeout(motionStopTimerRef.current);
+        motionStopTimerRef.current = null;
+      }
+    }
+    function currentMoodImageFile() {
+      const view = moodViewRef.current;
+      return view && view.image ? String(view.image) : "";
+    }
+    function scheduleMotion(delay) {
+      if (motionDelayTimerRef.current) clearTimeout(motionDelayTimerRef.current);
+      motionDelayTimerRef.current = setTimeout(() => {
+        motionDelayTimerRef.current = null;
+        tryStartMotion();
+      }, Math.max(1e3, num(delay, nextMotionDelay())));
+    }
+    function scheduleInitialMotion() {
+      const first = !motionFirstScheduledRef.current;
+      const delay = nextMotionScheduleDelay({ first, moodImage: currentMoodImageFile() });
+      motionFirstScheduledRef.current = true;
+      motionFirstPendingRef.current = first && !isVideoMoodFile(currentMoodImageFile());
+      scheduleMotion(delay);
+    }
+    function tryStartMotion() {
+      const entries = petMediaEntriesRef.current;
+      const ui = uiRef.current;
+      if (!entries || !entries.length) return;
+      if (!ui.settings.mood || ui.settings.hidden) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (ui.panelOpen) return;
+      if (dizzyRef.current || mealActiveRef.current) {
+        scheduleMotion(nextMotionDelay());
+        return;
+      }
+      if (mascotPulseRef.current || mascotExpressionRef.current) {
+        scheduleMotion(nextMotionDelay());
+        return;
+      }
+      if (wanderRef.current.walking) {
+        scheduleMotion(nextMotionDelay());
+        return;
+      }
+      if (motionFileRef.current) return;
+      const picked = nextMotionEntry(entries, motionIndexRef.current);
+      if (!picked.entry) return;
+      motionIndexRef.current = picked.index;
+      motionFirstPendingRef.current = false;
+      writeMotionRotation(picked.index);
+      setMotionFile(picked.entry.file);
+      motionStopTimerRef.current = setTimeout(() => {
+        motionStopTimerRef.current = null;
+        setMotionFile("");
+        scheduleMotion(nextMotionDelay());
+      }, nextMotionDuration());
+    }
+    function handleMascotMediaError(file) {
+      if (dizzyRef.current && dizzyRef.current.file && file === dizzyRef.current.file) {
+        setDizzy((current) => current ? Object.assign({}, current, { file: "" }) : current);
+        return;
+      }
+      if (mealActiveRef.current && file === mealActiveRef.current.file) {
+        setMealActive((current) => current ? Object.assign({}, current, { file: "dsh-whale-state-daily-eat.webp" }) : current);
+        return;
+      }
+      if (wanderFileRef.current && file === wanderFileRef.current) {
+        if (file === WANDER_STATIC_FILE) {
+          setWanderFile("");
+        } else {
+          setWanderFile(WANDER_STATIC_FILE);
+        }
+        return;
+      }
+      if (motionFileRef.current && file === motionFileRef.current) {
+        if (motionStopTimerRef.current) {
+          clearTimeout(motionStopTimerRef.current);
+          motionStopTimerRef.current = null;
+        }
+        setMotionFile("");
+        scheduleMotion(nextMotionDelay());
+        return;
+      }
+      setFailedMascot(file);
+    }
+    const syncMascotVideoPlayback = React.useCallback(() => {
+      const video = mascotVideoRef.current;
+      if (!video) return;
+      const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+      const shouldPause = mascotVideoShouldPause({ hidden, panelOpen });
+      try {
+        if (shouldPause) {
+          if (typeof video.pause === "function") video.pause();
+        } else if (typeof video.play === "function") {
+          const played = video.play();
+          if (played && typeof played.catch === "function") played.catch(() => {
+          });
+        }
+      } catch (error) {
+      }
+    }, [panelOpen]);
+    React.useEffect(() => {
+      const timer2 = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        const ui = uiRef.current;
+        if (ui.panelOpen || ui.step >= 0 || ui.settings.hidden) return;
+        if (mascotExprTimerRef.current) return;
+        const now2 = Date.now();
+        const state = readMascotEggState(now2);
+        if (!canShowIdlePose(state, now2, lastInteractionRef.current)) return;
+        writeMascotEggState(recordMascotEgg(state, { idle: true }, now2));
+        showMascotExpression(pickMascotExpression());
+      }, MASCOT_IDLE_POLL_MS);
+      return () => clearInterval(timer2);
+    }, []);
+    React.useEffect(() => {
+      if (!WINDOW_WANDER_ENABLED) return void 0;
+      if (settings.hidden) return void 0;
+      if (!wanderRef.current.nextAt) {
+        wanderRef.current.nextAt = Date.now() + WANDER_FIRST_MIN_MS + Math.random() * (WANDER_FIRST_MAX_MS - WANDER_FIRST_MIN_MS);
+      }
+      const timer2 = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        const ui = uiRef.current;
+        if (ui.panelOpen || settingsRef.current.hidden) return;
+        if (dragRef.current) return;
+        const now2 = Date.now();
+        if (now2 - lastInteractionRef.current < WANDER_INTERACTION_PAUSE_MS) return;
+        if (now2 < wanderRef.current.nextAt) return;
+        const size = Math.max(40, Math.round(BASE_SIZE * settingsRef.current.scale));
+        const target = nextWanderTarget({
+          viewport: { w: readWindowWidth(), h: readWindowHeight() },
+          size,
+          current: posRef.current
+        });
+        wanderRef.current.nextAt = now2 + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS);
+        const picked = pickWanderMedia(petMediaEntriesRef.current || [], Math.random);
+        setWanderFile(picked.file);
+        setWalking(true);
+        wanderRef.current.walking = true;
+        setPos(target);
+        if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
+        wanderRef.current.timer = setTimeout(() => {
+          wanderRef.current.timer = null;
+          wanderRef.current.walking = false;
+          setWalking(false);
+          setWanderFile("");
+        }, WANDER_WALK_MS);
+      }, WANDER_TICK_MS);
+      return () => {
+        clearInterval(timer2);
+        if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
+        wanderRef.current.timer = null;
+      };
+    }, [settings.hidden]);
+    React.useEffect(() => {
+      setPos((previous) => {
+        const next = anchorPosition(settings.snap, mascotSize, viewport, previous);
+        return next.x === previous.x && next.y === previous.y ? previous : next;
+      });
+    }, [settings.snap, mascotSize, viewport.w, viewport.h]);
+    React.useEffect(() => {
+      const timer2 = setTimeout(() => {
+        writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap });
+      }, 250);
+      return () => clearTimeout(timer2);
+    }, [pos, settings.snap]);
+    React.useEffect(() => {
+      if (!settings.mood || settings.hidden || panelOpen || petMediaRes.status !== "ready" || !petMediaRes.entries.length) {
+        clearMotionTimers();
+        if (motionFileRef.current) setMotionFile("");
+        return void 0;
+      }
+      scheduleInitialMotion();
+      return () => {
+        clearMotionTimers();
+      };
+    }, [settings.mood, settings.hidden, panelOpen, petMediaRes.status, petMediaRes.entries.length]);
+    React.useEffect(() => {
+      if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
+      const onVisibility = () => {
+        if (document.visibilityState === "hidden") {
+          clearMotionTimers();
+          if (motionFileRef.current) setMotionFile("");
+          return;
+        }
+        if (settingsRef.current.mood && !uiRef.current.panelOpen && petMediaEntriesRef.current.length) {
+          scheduleMotion(nextMotionDelay());
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      return () => document.removeEventListener("visibilitychange", onVisibility);
+    }, []);
+    React.useEffect(() => {
+      if (!motionFirstPendingRef.current) return;
+      const image = currentMoodImageFile();
+      if (!isVideoMoodFile(image)) return;
+      motionFirstPendingRef.current = false;
+      clearMotionTimers();
+      scheduleMotion(nextMotionDelay());
+    }, [moodView]);
+    React.useEffect(() => {
+      if (!settings.hidden) {
+        maybeTriggerMeal();
+      }
+      const timer2 = setInterval(() => {
+        maybeTriggerMeal();
+      }, 60 * 1e3);
+      const onVisible = () => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        maybeTriggerMeal();
+      };
+      const onFocus = () => maybeTriggerMeal();
+      if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
+      return () => {
+        clearInterval(timer2);
+        if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
+        if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
+      };
+    }, [settings.hidden]);
+    React.useEffect(() => {
+      if (panelOpen) {
+        mealPrevPanelRef.current = true;
+        return;
+      }
+      if (mealPrevPanelRef.current) {
+        mealPrevPanelRef.current = false;
+        maybeTriggerMeal();
+      }
+    }, [panelOpen]);
+    React.useEffect(() => {
+      if (!(panelOpen || settings.hidden)) return;
+      if (dizzyTimerRef.current) {
+        clearTimeout(dizzyTimerRef.current);
+        dizzyTimerRef.current = null;
+      }
+      if (dizzyRef.current) setDizzy(null);
+      if (mealTimerRef.current) {
+        clearTimeout(mealTimerRef.current);
+        mealTimerRef.current = null;
+      }
+      if (mealActiveRef.current) {
+        setMealActive(null);
+        mealActiveRef.current = null;
+      }
+    }, [panelOpen, settings.hidden]);
+    React.useEffect(() => {
+      syncMascotVideoPlayback();
+    });
+    React.useEffect(() => {
+      if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
+      document.addEventListener("visibilitychange", syncMascotVideoPlayback);
+      return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
+    }, [syncMascotVideoPlayback]);
+    React.useEffect(() => {
+      if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
+      document.addEventListener("visibilitychange", syncMascotVideoPlayback);
+      return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
+    }, [syncMascotVideoPlayback]);
+    mascotPulseRef.current = mascotPulse;
+    mascotExpressionRef.current = mascotExpression;
+    motionFileRef.current = motionFile;
+    dizzyRef.current = dizzy;
+    mealActiveRef.current = mealActive;
+    return { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotTap, handleMascotKeyDown, triggerDizzy, maybeTriggerMeal, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef };
+  }
+
   // client-src/widget-plugin.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
@@ -27354,40 +28812,9 @@
           return { status: "loading", data: null, fromCache: false, stale: false, error: null };
         });
         const [reloadTick, setReloadTick] = React.useState(0);
-        const [settings, setSettings] = React.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
-        const settingsRef = React.useRef(settings);
-        settingsRef.current = settings;
         const [step, setStep] = React.useState(-1);
-        const [panelOpen, setPanelOpen] = React.useState(false);
-        const [panelTab, setPanelTab] = React.useState("growth");
-        const [poetryTab, setPoetryTab] = React.useState("today");
         const [selectedPoemId, setSelectedPoemId] = React.useState(null);
-        const [toast, setToast] = React.useState(null);
         const [feihuaLaunch, setFeihuaLaunch] = React.useState(0);
-        const [weatherRes, setWeatherRes] = React.useState(() => {
-          const cached = weatherCache;
-          if (cached && cached.data && cached.data.ok) {
-            return { status: "ready", data: cached.data, error: null, at: cached.at };
-          }
-          return { status: "idle", data: null, error: null, at: 0 };
-        });
-        const [mascotPulse, setMascotPulse] = React.useState(null);
-        const [failedMascot, setFailedMascot] = React.useState("");
-        const [moodRes, setMoodRes] = React.useState(() => {
-          const cached = moodCache;
-          return cached && cached.data ? { status: "ready", data: cached.data, at: cached.at } : { status: "idle", data: null, at: 0 };
-        });
-        const [moodView, setMoodView] = React.useState(null);
-        const [spontPoem, setSpontPoem] = React.useState(null);
-        const [spontPreview, setSpontPreview] = React.useState(false);
-        const [mascotExpression, setMascotExpression] = React.useState("");
-        const [moodSource, setMoodSource] = React.useState("");
-        const [moodAiFallback, setMoodAiFallback] = React.useState(false);
-        const [moodAiStale, setMoodAiStale] = React.useState(false);
-        const [moodAiFailure, setMoodAiFailure] = React.useState("");
-        const [moodAiFailureCode, setMoodAiFailureCode] = React.useState("");
-        const [petMediaRes, setPetMediaRes] = React.useState({ status: "idle", entries: [] });
-        const [selfStatus, setSelfStatus] = React.useState(null);
         const [memoryStatus, setMemoryStatus] = React.useState(null);
         const [healthStatus, setHealthStatus] = React.useState(null);
         const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
@@ -27396,112 +28823,44 @@
         const [projectDetail, setProjectDetail] = React.useState(null);
         const [twinRes, setTwinRes] = React.useState({ status: "idle", data: null });
         const [memoryTick, setMemoryTick] = React.useState(0);
-        const [motionFile, setMotionFile] = React.useState("");
-        const [dizzy, setDizzy] = React.useState(null);
-        const [mealActive, setMealActive] = React.useState(null);
         const [libraryFocus, setLibraryFocus] = React.useState(null);
-        const [ciBankWanted, setCiBankWanted] = React.useState(false);
         const [feihuaIndex, setFeihuaIndex] = React.useState(null);
         const [feihuaBuilding, setFeihuaBuilding] = React.useState(false);
-        const [moodTick, setMoodTick] = React.useState(0);
-        const [spontWake, setSpontWake] = React.useState(0);
-        const [pos, setPos] = React.useState(() => {
-          const stored = readStoredPosition();
-          const viewport2 = { w: readWindowWidth(), h: readWindowHeight() };
-          if (stored) return clampPosition(stored, BASE_SIZE, viewport2);
-          return { x: 16, y: Math.max(8, viewport2.h - BASE_SIZE - 24) };
-        });
-        const posRef = React.useRef(pos);
+        const refsRef = React.useRef(null);
+        if (!refsRef.current) {
+          refsRef.current = {
+            userPickedPoemRef: { current: false },
+            petMediaEntriesRef: { current: [] },
+            pressTimer: { current: null },
+            mascotTimerRef: { current: null },
+            mascotExprTimerRef: { current: null },
+            posRef: { current: null },
+            moodViewRef: { current: null },
+            selfStatusRef: { current: null },
+            clicksRef: { current: 0 },
+            panelOpensRef: { current: 0 },
+            lastInteractionRef: { current: 0 },
+            feihuaWinsRef: { current: 0 },
+            feihuaLossesRef: { current: 0 },
+            weatherRef: { current: null },
+            uiRef: { current: {} },
+            recentSpokenRef: { current: [] },
+            bridge: { current: {} }
+          };
+        }
+        const refs = refsRef.current;
+        const { userPickedPoemRef, petMediaEntriesRef, pressTimer, mascotTimerRef, mascotExprTimerRef, posRef, moodViewRef, selfStatusRef, clicksRef, panelOpensRef, lastInteractionRef, feihuaWinsRef, feihuaLossesRef, weatherRef, uiRef, recentSpokenRef, bridge } = refs;
+        const { toast, showToast, toastTimer } = useToast({ refs });
+        const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs });
+        const { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs });
+        const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings });
+        const { viewport, mascotSize, ciBankWanted, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, reloadMoodCatalog, ciBankRes, reloadCiBank, libraryActive, feihuaOpen, ciTabActive, extraPoolActive } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs });
+        const { spontPoem, setSpontPoem, spontPreview, setSpontPreview, wakeSpontaneous, startSpontaneousCard, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction });
+        const { selfStatus, setSelfStatus } = useSelfStatus({ showSpontCard, refs });
+        const { moodRes, moodView, moodSource, moodAiFallback, moodAiStale, moodAiFailure, moodAiFailureCode, petMediaRes, moodCatalog, moodChip, moodChipTitle, moodBasis, refreshMoodNow, scheduleMoodAiRefresh } = useMood({ settings, settingsRef, weather, moodCatalogRes, panelOpen, panelTab, poetryTab, spontPoem, refs, boot, moodWakeSigRef, wakeSpontaneous });
+        const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotTap, handleMascotKeyDown, triggerDizzy, maybeTriggerMeal, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget });
         posRef.current = pos;
-        const dragRef = React.useRef(null);
-        const pressTimer = React.useRef(null);
-        const toastTimer = React.useRef(null);
-        const mascotTimerRef = React.useRef(null);
-        const weatherInFlightRef = React.useRef(null);
-        const userPickedPoemRef = React.useRef(false);
-        const moodViewRef = React.useRef(null);
-        const selfStatusRef = React.useRef(null);
-        const selfTalkNoveltyRef = React.useRef({ signature: "", at: 0 });
-        const clicksRef = React.useRef(0);
-        const panelOpensRef = React.useRef(0);
-        const lastInteractionRef = React.useRef(0);
-        const wanderRef = React.useRef({ nextAt: 0, timer: null, walking: false });
-        const [walking, setWalking] = React.useState(false);
-        const [wanderFile, setWanderFile] = React.useState("");
-        const wanderFileRef = React.useRef("");
         wanderFileRef.current = wanderFile;
-        const feihuaWinsRef = React.useRef(0);
-        const feihuaLossesRef = React.useRef(0);
-        const moodStatsRef = React.useRef(emptyMoodStats());
-        const moodForceRef = React.useRef(false);
-        const moodSourceRef = React.useRef("");
-        const moodAiRef = React.useRef({ at: 0, lastRequestAt: 0, image: "" });
-        const moodAiSnapshotRef = React.useRef(null);
-        const moodAiTokenRef = React.useRef(0);
-        const moodAiInFlightRef = React.useRef(false);
-        const moodAiPendingRef = React.useRef(false);
-        const moodAiDebounceTimerRef = React.useRef(null);
-        const moodAiRetryTimerRef = React.useRef(null);
-        const moodAiRetryCountRef = React.useRef(0);
-        const moodStatsSnapshotRef = React.useRef(null);
-        const moodTimeBucketRef = React.useRef("");
-        const moodIdleRef = React.useRef(false);
-        const moodWeatherSigRef = React.useRef("");
-        const moodPrevPanelOpenRef = React.useRef(false);
-        const moodPrevPanelTabRef = React.useRef("today");
-        const moodPrevSpontRef = React.useRef(null);
-        const recentImagesRef = React.useRef([]);
-        const moodCatalogRef = React.useRef(null);
-        const spontWakeDelayRef = React.useRef(0);
-        const prevPanelOpenRef = React.useRef(false);
-        const prevStepRef = React.useRef(-1);
-        const prevCardRef = React.useRef(null);
-        const moodWakeSigRef = React.useRef("");
-        const weatherWakeSigRef = React.useRef("");
-        const weatherRef = React.useRef(null);
-        const spontPoemRef = React.useRef(null);
-        const uiRef = React.useRef({});
-        const mascotExprTimerRef = React.useRef(null);
-        const mascotTapRef = React.useRef(0);
-        const mascotVideoRef = React.useRef(null);
-        const mascotPulseRef = React.useRef(null);
-        const mascotExpressionRef = React.useRef("");
-        const petMediaEntriesRef = React.useRef([]);
-        const motionFileRef = React.useRef("");
-        const motionIndexRef = React.useRef(readMotionRotation());
-        const motionDelayTimerRef = React.useRef(null);
-        const motionStopTimerRef = React.useRef(null);
-        const motionFirstScheduledRef = React.useRef(false);
-        const motionFirstPendingRef = React.useRef(false);
-        const dizzyRef = React.useRef(null);
-        const dizzyTimerRef = React.useRef(null);
-        const mealActiveRef = React.useRef(null);
-        const mealTimerRef = React.useRef(null);
-        const mealPrevPanelRef = React.useRef(false);
-        const spontReqRef = React.useRef(0);
-        const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] });
-        const recentSpokenRef = React.useRef([]);
-        const pendingActionRef = React.useRef(null);
-        const lastSeenActionIdRef = React.useRef(readSeenActionId());
-        spontPoemRef.current = spontPoem;
-        mascotPulseRef.current = mascotPulse;
-        mascotExpressionRef.current = mascotExpression;
-        petMediaEntriesRef.current = petMediaRes.entries;
-        motionFileRef.current = motionFile;
-        dizzyRef.current = dizzy;
-        mealActiveRef.current = mealActive;
-        const wakeSpontaneous = React.useCallback((delay) => {
-          spontWakeDelayRef.current = Math.max(1e3, num(delay, nextSpontEventDelay()));
-          setSpontWake((tick) => tick + 1);
-        }, []);
-        const showToast = React.useCallback((text, kind) => {
-          setToast({ text: String(text == null ? "" : text), kind: kind === "error" ? "error" : "info" });
-          if (toastTimer.current) clearTimeout(toastTimer.current);
-          toastTimer.current = setTimeout(() => {
-            toastTimer.current = null;
-            setToast(null);
-          }, 2600);
-        }, []);
         const showToastRef = React.useRef(null);
         showToastRef.current = showToast;
         React.useEffect(() => () => {
@@ -27510,328 +28869,6 @@
             toastTimer.current = null;
           }
         }, []);
-        const saverRef = React.useRef(null);
-        if (!saverRef.current) {
-          saverRef.current = createSettingsSaver({
-            delay: SAVE_DEBOUNCE_MS2,
-            put: (patch) => putSettings(patch),
-            onError: () => {
-              if (showToastRef.current) showToastRef.current("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u672C\u5730\u8BBE\u7F6E", "error");
-            }
-          });
-        }
-        React.useEffect(() => () => {
-          if (saverRef.current) saverRef.current.flush().catch(() => {
-          });
-          if (pressTimer.current) {
-            clearTimeout(pressTimer.current);
-            pressTimer.current = null;
-          }
-          if (mascotTimerRef.current) {
-            clearTimeout(mascotTimerRef.current);
-            mascotTimerRef.current = null;
-          }
-          if (mascotExprTimerRef.current) {
-            clearTimeout(mascotExprTimerRef.current);
-            mascotExprTimerRef.current = null;
-          }
-        }, []);
-        const updateSettings = React.useCallback((patch, options) => {
-          if (!patch || typeof patch !== "object") return settingsRef.current;
-          const previous = settingsRef.current;
-          const next = normalizeSettings(Object.assign({}, previous, patch));
-          settingsRef.current = next;
-          setSettings(next);
-          if (!(options && options.localOnly) && saverRef.current) {
-            const changed = {};
-            for (let i = 0; i < WRITE_KEYS.length; i++) {
-              const key = WRITE_KEYS[i];
-              if (hasOwn2(patch, key) && next[key] !== previous[key]) changed[key] = next[key];
-            }
-            if (Object.keys(changed).length) saverRef.current.save(changed);
-          }
-          wakeSpontaneous(nextSpontEventDelay());
-          if (settingsRef.current.mood) scheduleMoodAiRefresh();
-          return next;
-        }, []);
-        const pulseMascot = React.useCallback((key) => {
-          if (!MASCOT_FILES[key]) return;
-          if (key === "gameWin") feihuaWinsRef.current += 1;
-          if (key === "gameLose") feihuaLossesRef.current += 1;
-          if (key === "gameWin" || key === "gameLose") {
-            wakeSpontaneous(nextSpontEventDelay());
-            scheduleMoodAiRefresh();
-          }
-          lastInteractionRef.current = Date.now();
-          setMascotPulse(key);
-          if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current);
-          mascotTimerRef.current = setTimeout(() => {
-            mascotTimerRef.current = null;
-            setMascotPulse(null);
-          }, MASCOT_TRANSIENT_MS);
-        }, []);
-        const refreshWeather = React.useCallback((force) => {
-          const current = settingsRef.current;
-          if (!(current.weatherPoem || current.mood)) return Promise.resolve(null);
-          const cached = weatherCache;
-          if (!force && cached && cached.data && cached.data.ok && cached.data.city === current.weatherCity && Date.now() - cached.at < WEATHER_STALE_MS) {
-            setWeatherRes({ status: "ready", data: cached.data, error: null, at: cached.at });
-            return Promise.resolve(cached.data);
-          }
-          if (weatherInFlightRef.current) return weatherInFlightRef.current;
-          setWeatherRes((previous) => ({ status: "loading", data: previous.data, error: null, at: previous.at }));
-          const request = requestWeather().then(
-            (data) => {
-              weatherInFlightRef.current = null;
-              setWeatherRes({ status: "ready", data, error: null, at: Date.now() });
-              return data;
-            },
-            (error) => {
-              weatherInFlightRef.current = null;
-              setWeatherRes((previous) => ({ status: "error", data: previous.data, error, at: previous.at }));
-              return null;
-            }
-          );
-          weatherInFlightRef.current = request;
-          return request;
-        }, []);
-        const applyMood = React.useCallback((force) => {
-          const current = settingsRef.current;
-          if (!current.mood && !current.spontaneousPoem) {
-            moodViewRef.current = null;
-            setMoodView(null);
-            return null;
-          }
-          const next = computeMood({
-            weather: weatherRef.current,
-            signals: {
-              now: Date.now(),
-              clicks: clicksRef.current,
-              feihuaWins: feihuaWinsRef.current,
-              feihuaLosses: 0,
-              panelOpens: panelOpensRef.current
-            }
-          });
-          const selected = throttleMoodSwitch(moodViewRef.current, next, Date.now(), force === true);
-          moodViewRef.current = selected;
-          setMoodView(selected);
-          return selected;
-        }, []);
-        const applyModelMood = React.useCallback((mood) => {
-          if (!mood || !mood.image) return null;
-          const view = Object.assign({}, mood, { changed: true, switchedAt: Date.now() });
-          moodSourceRef.current = "model";
-          moodViewRef.current = view;
-          setMoodSource("model");
-          setMoodAiFallback(false);
-          setMoodAiStale(false);
-          setMoodAiFailure("");
-          setMoodAiFailureCode("");
-          clearMoodAiRetry();
-          setMoodView(view);
-          moodAiRef.current = Object.assign({}, moodAiRef.current, { at: Date.now(), image: mood.image });
-          const images = recentImagesRef.current.filter((file) => file !== mood.image);
-          images.push(mood.image);
-          recentImagesRef.current = images.slice(-MOOD_AI_RECENT_IMAGES_MAX);
-          return view;
-        }, []);
-        const fallbackHeuristicMood = React.useCallback((force) => {
-          moodSourceRef.current = "heuristic";
-          setMoodSource("heuristic");
-          setMoodAiFallback(true);
-          return applyMood(force === true);
-        }, [applyMood]);
-        function clearMoodAiRetry() {
-          if (moodAiRetryTimerRef.current) {
-            clearTimeout(moodAiRetryTimerRef.current);
-            moodAiRetryTimerRef.current = null;
-          }
-          moodAiRetryCountRef.current = 0;
-        }
-        function scheduleMoodAiRetry() {
-          if (!settingsRef.current.mood || settingsRef.current.hidden) return;
-          if (moodAiRetryCountRef.current >= MOOD_AI_MAX_RETRIES) return;
-          if (moodAiRetryTimerRef.current) clearTimeout(moodAiRetryTimerRef.current);
-          moodAiRetryTimerRef.current = setTimeout(() => {
-            moodAiRetryTimerRef.current = null;
-            if (!settingsRef.current.mood || settingsRef.current.hidden) return;
-            if (moodAiInFlightRef.current) {
-              moodAiPendingRef.current = true;
-              return;
-            }
-            requestModelMood();
-          }, nextMoodAiRetryDelay());
-        }
-        function handleMoodAiFailure(result) {
-          const reason = normalizeMoodAiFailure(result);
-          const code = result && typeof result.code === "string" ? result.code : reason.indexOf("host:") === 0 ? reason.slice(5) : "";
-          setMoodAiFailure(reason);
-          setMoodAiFailureCode(code);
-          moodAiRetryCountRef.current += 1;
-          const keep = moodAiKeepDecision({ source: moodSourceRef.current, lastSuccessAt: moodAiRef.current.at, now: Date.now() });
-          if (keep) {
-            setMoodAiStale(true);
-            setMoodAiFallback(false);
-          } else {
-            setMoodAiStale(false);
-            fallbackHeuristicMood(true);
-          }
-          if (moodAiRetryCountRef.current < MOOD_AI_MAX_RETRIES) {
-            scheduleMoodAiRetry();
-          } else if (moodAiRetryTimerRef.current) {
-            clearTimeout(moodAiRetryTimerRef.current);
-            moodAiRetryTimerRef.current = null;
-          }
-        }
-        const requestModelMood = React.useCallback((options = {}) => {
-          const manual = options && options.manual === true;
-          const current = settingsRef.current;
-          if (!current.mood) return Promise.resolve({ ok: false, reason: "disabled" });
-          const catalog = moodCatalogRef.current;
-          if (!catalog) {
-            setMoodAiFallback(true);
-            return Promise.resolve({ ok: false, reason: "catalog" });
-          }
-          if (moodAiInFlightRef.current) {
-            moodAiPendingRef.current = true;
-            return Promise.resolve({ ok: false, reason: "inflight" });
-          }
-          const now2 = Date.now();
-          moodAiRef.current = Object.assign({}, moodAiRef.current, { lastRequestAt: now2 });
-          const token = moodAiTokenRef.current + 1;
-          moodAiTokenRef.current = token;
-          moodAiInFlightRef.current = true;
-          const weather2 = weatherRef.current || null;
-          const currentMoodKey = moodViewRef.current && moodViewRef.current.key && moodViewRef.current.key !== "ai" ? moodViewRef.current.key : "calm";
-          const recent = recentSpokenRef.current.slice(-MOOD_AI_RECENT_MAX);
-          const recentImages = recentImagesRef.current.slice(-MOOD_AI_RECENT_IMAGES_MAX);
-          moodAiSnapshotRef.current = moodAiSnapshot(weather2, feihuaWinsRef.current, feihuaLossesRef.current);
-          const finish = () => {
-            if (token !== moodAiTokenRef.current) return;
-            moodAiInFlightRef.current = false;
-            if (moodAiPendingRef.current && settingsRef.current.mood) {
-              moodAiPendingRef.current = false;
-              scheduleMoodAiRefresh();
-            }
-          };
-          return requestMoodAi({
-            force: true,
-            manual,
-            moodKey: currentMoodKey,
-            weather: weather2 ? String(weather2.category || weather2.label || "") : "",
-            recent,
-            recentImages,
-            catalog
-          }).then((result) => {
-            finish();
-            if (token !== moodAiTokenRef.current) return result;
-            if (!settingsRef.current.mood) return result;
-            if (result && result.ok && result.mood) {
-              applyModelMood(result.mood);
-              return result;
-            }
-            handleMoodAiFailure(result);
-            return result;
-          }).catch(() => {
-            finish();
-            if (token === moodAiTokenRef.current && settingsRef.current.mood) handleMoodAiFailure({ reason: "network" });
-            return { ok: false };
-          });
-        }, [applyModelMood, fallbackHeuristicMood]);
-        const moodManualRef = React.useRef(false);
-        function scheduleMoodAiRefresh(options) {
-          const opts = options && typeof options === "object" ? options : {};
-          if (!settingsRef.current.mood || settingsRef.current.hidden) return;
-          if (moodAiRetryTimerRef.current) {
-            clearTimeout(moodAiRetryTimerRef.current);
-            moodAiRetryTimerRef.current = null;
-          }
-          if (moodAiDebounceTimerRef.current) clearTimeout(moodAiDebounceTimerRef.current);
-          const delay = opts.immediate === true ? 0 : moodAiEventDelay({ lastRequestAt: moodAiRef.current.lastRequestAt, now: Date.now() });
-          moodAiDebounceTimerRef.current = setTimeout(() => {
-            moodAiDebounceTimerRef.current = null;
-            if (!settingsRef.current.mood || settingsRef.current.hidden) return;
-            if (moodAiInFlightRef.current) {
-              moodAiPendingRef.current = true;
-              return;
-            }
-            const manual = moodManualRef.current;
-            moodManualRef.current = false;
-            requestModelMood({ manual });
-          }, Math.max(0, delay));
-        }
-        const refreshMoodNow = React.useCallback(() => {
-          moodForceRef.current = true;
-          moodManualRef.current = true;
-          scheduleMoodAiRefresh({ immediate: true });
-          setMoodTick((tick) => tick + 1);
-          return Promise.resolve({ ok: true });
-        }, [scheduleMoodAiRefresh]);
-        function showMascotExpression(file) {
-          if (!file) return;
-          setMascotExpression(file);
-          if (mascotExprTimerRef.current) clearTimeout(mascotExprTimerRef.current);
-          mascotExprTimerRef.current = setTimeout(() => {
-            mascotExprTimerRef.current = null;
-            setMascotExpression("");
-          }, MASCOT_EXPRESSION_MS);
-        }
-        React.useEffect(() => {
-          const timer2 = setInterval(() => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            const ui = uiRef.current;
-            if (ui.panelOpen || ui.step >= 0 || ui.settings.hidden) return;
-            if (mascotExprTimerRef.current) return;
-            const now2 = Date.now();
-            const state = readMascotEggState(now2);
-            if (!canShowIdlePose(state, now2, lastInteractionRef.current)) return;
-            writeMascotEggState(recordMascotEgg(state, { idle: true }, now2));
-            showMascotExpression(pickMascotExpression());
-          }, MASCOT_IDLE_POLL_MS);
-          return () => clearInterval(timer2);
-        }, []);
-        React.useEffect(() => {
-          if (!WINDOW_WANDER_ENABLED) return void 0;
-          if (settings.hidden) return void 0;
-          if (!wanderRef.current.nextAt) {
-            wanderRef.current.nextAt = Date.now() + WANDER_FIRST_MIN_MS + Math.random() * (WANDER_FIRST_MAX_MS - WANDER_FIRST_MIN_MS);
-          }
-          const timer2 = setInterval(() => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            const ui = uiRef.current;
-            if (ui.panelOpen || settingsRef.current.hidden) return;
-            if (dragRef.current) return;
-            const now2 = Date.now();
-            if (now2 - lastInteractionRef.current < WANDER_INTERACTION_PAUSE_MS) return;
-            if (now2 < wanderRef.current.nextAt) return;
-            const size = Math.max(40, Math.round(BASE_SIZE * settingsRef.current.scale));
-            const target = nextWanderTarget({
-              viewport: { w: readWindowWidth(), h: readWindowHeight() },
-              size,
-              current: posRef.current
-            });
-            wanderRef.current.nextAt = now2 + WANDER_MIN_INTERVAL_MS + Math.random() * (WANDER_MAX_INTERVAL_MS - WANDER_MIN_INTERVAL_MS);
-            const picked = pickWanderMedia(petMediaEntriesRef.current || [], Math.random);
-            setWanderFile(picked.file);
-            setWalking(true);
-            wanderRef.current.walking = true;
-            setPos(target);
-            if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
-            wanderRef.current.timer = setTimeout(() => {
-              wanderRef.current.timer = null;
-              wanderRef.current.walking = false;
-              setWalking(false);
-              setWanderFile("");
-            }, WANDER_WALK_MS);
-          }, WANDER_TICK_MS);
-          return () => {
-            clearInterval(timer2);
-            if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
-            wanderRef.current.timer = null;
-          };
-        }, [settings.hidden]);
-        const viewport = useViewportSize();
-        const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale));
         React.useEffect(() => {
           let alive = true;
           fetchJson("bootstrap.json").then(
@@ -27872,41 +28909,10 @@
             return boot.data.today && boot.data.today.poemId ? boot.data.today.poemId : null;
           });
         }, [boot.data]);
-        React.useEffect(() => {
-          if (!(settings.weatherPoem || settings.mood)) return void 0;
-          refreshWeather(false);
-          const timer2 = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
-          return () => clearInterval(timer2);
-        }, [settings.weatherPoem, settings.mood, settings.weatherCity, refreshWeather]);
-        React.useEffect(() => {
-          if (!(settings.mood || settings.spontaneousPoem)) return void 0;
-          const timer2 = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
-          return () => clearInterval(timer2);
-        }, [settings.mood, settings.spontaneousPoem]);
-        const [poemsRes, reloadPoems] = useResource("poems", Boolean(boot.data));
-        const poetryOn = panelOpen && panelTab === "poetry";
-        const classActive = step === 2 || step === 4 || poetryOn && (poetryTab === "class" || poetryTab === "ci");
-        const yunActive = step === 3 || poetryOn && poetryTab === "yun";
-        const weatherNeedsCi = settings.weatherPoem && !resourceStore.get("ci") && weatherRes.data && weatherRes.data.ok && weatherRes.data.weather && buildWeatherPoemPool(poemsRes.data, null, weatherPoemTags(weatherRes.data.weather), WEATHER_POOL_LIMIT).length < WEATHER_POOL_LIMIT;
-        const ciActive = step === 4 || step === 5 || weatherNeedsCi || poetryOn && (poetryTab === "ci" || poetryTab === "feihua" || poetryTab === "library");
-        const [knowledgeRes, reloadKnowledge] = useResource("knowledge", classActive);
-        const [yunRes, reloadYun] = useResource("yun", yunActive);
-        const [ciRes, reloadCi] = useResource("ci", ciActive);
-        const libraryActive = poetryOn && poetryTab === "library";
-        const feihuaOpen = poetryOn && poetryTab === "feihua" || step === 5;
-        const ciTabActive = poetryOn && poetryTab === "ci";
-        const extraPoolActive = libraryActive || feihuaOpen;
-        const [anthologyRes, reloadAnthology] = useResource("anthology", extraPoolActive);
-        const [bankRes, reloadBank] = useResource("bank", extraPoolActive);
-        const [pingshuiRes, reloadPingshui] = useResource("pingshui", libraryActive);
-        const [moodCatalogRes, reloadMoodCatalog] = useResource("moodCatalog", settings.mood);
-        const [ciBankRes, reloadCiBank] = useResource("ciBank", ciBankWanted || feihuaOpen);
         const poemItems = poemsRes.data && Array.isArray(poemsRes.data.items) ? poemsRes.data.items : [];
         const bootstrapTodayPoemId = boot.data && boot.data.today ? boot.data.today.poemId : null;
         const cache = cacheRef.current;
         const cachedPoem = cache && cache.todayPoem ? cache.todayPoem : null;
-        const weatherData = weatherRes.data && weatherRes.data.ok ? weatherRes.data : null;
-        const weather = weatherData && weatherData.weather ? weatherData.weather : null;
         const weatherTags = React.useMemo(() => weatherPoemTags(weather), [weather]);
         const weatherPool = React.useMemo(
           () => buildWeatherPoemPool(poemsRes.data, ciRes.data, weatherTags, WEATHER_POOL_LIMIT, { anthology: anthologyRes.data, bank: bankRes.data, ciBank: ciBankRes.data }),
@@ -27925,13 +28931,6 @@
         const weatherChip = weatherActive && weatherData ? weatherChipText(weatherData.city, weather) : "";
         const weatherNote = weatherActive ? weatherExplainText(weather) : "";
         weatherRef.current = weather;
-        selfStatusRef.current = selfStatus;
-        const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
-        const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
-        moodCatalogRef.current = moodCatalog;
-        const moodChip = settings.mood && moodView ? "\u5FC3\u60C5\uFF1A" + moodView.label : "";
-        const moodChipTitle = settings.mood && moodView ? String(moodView.reason || "") : "";
-        const moodBasis = moodBasisText(weather);
         uiRef.current = {
           settings: settingsRef.current,
           panelOpen,
@@ -27989,263 +28988,6 @@
           }
         }, []);
         React.useEffect(() => {
-          if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
-            moodAiTokenRef.current += 1;
-            moodAiInFlightRef.current = false;
-            moodAiPendingRef.current = false;
-            if (moodAiDebounceTimerRef.current) {
-              clearTimeout(moodAiDebounceTimerRef.current);
-              moodAiDebounceTimerRef.current = null;
-            }
-            moodSourceRef.current = "";
-            moodViewRef.current = null;
-            clearMoodAiRetry();
-            setMoodSource("");
-            setMoodAiFallback(false);
-            setMoodAiStale(false);
-            setMoodAiFailure("");
-            setMoodAiFailureCode("");
-            setMoodView(null);
-            return;
-          }
-          if (moodSourceRef.current === "model") return;
-          moodSourceRef.current = "heuristic";
-          setMoodSource("heuristic");
-          const force = moodForceRef.current;
-          moodForceRef.current = false;
-          applyMood(force);
-        }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood]);
-        React.useEffect(() => () => {
-          if (moodAiRetryTimerRef.current) {
-            clearTimeout(moodAiRetryTimerRef.current);
-            moodAiRetryTimerRef.current = null;
-          }
-        }, []);
-        React.useEffect(() => {
-          if (!settings.mood) {
-            setPetMediaRes({ status: "idle", entries: [] });
-            return void 0;
-          }
-          let alive = true;
-          setPetMediaRes({ status: "loading", entries: [] });
-          requestPetMediaCatalog().then((result) => {
-            if (!alive) return;
-            setPetMediaRes({ status: result && result.ok ? "ready" : "error", entries: result && result.ok ? result.entries : [] });
-          });
-          return () => {
-            alive = false;
-          };
-        }, [settings.mood, boot.data && boot.data.dataVersion]);
-        React.useEffect(() => {
-          if (!settings.mood || !moodCatalog) return;
-          if (petMediaRes.status === "loading" || petMediaRes.status === "idle") return;
-          if (moodAiRef.current.at > 0) return;
-          scheduleMoodAiRefresh();
-        }, [settings.mood, moodCatalog, petMediaRes.status]);
-        React.useEffect(() => {
-          if (!settings.mood) return void 0;
-          const timer2 = setInterval(() => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            scheduleMoodAiRefresh();
-          }, MOOD_REFRESH_MS);
-          return () => clearInterval(timer2);
-        }, [settings.mood, scheduleMoodAiRefresh]);
-        React.useEffect(() => {
-          if (!settings.mood) return;
-          const currentTab = panelTab === "poetry" ? "poetry:" + poetryTab : panelTab;
-          const changed = moodPrevPanelOpenRef.current !== panelOpen || panelOpen && moodPrevPanelTabRef.current !== currentTab;
-          moodPrevPanelOpenRef.current = panelOpen;
-          moodPrevPanelTabRef.current = currentTab;
-          if (changed) scheduleMoodAiRefresh();
-        }, [panelOpen, panelTab, poetryTab, settings.mood]);
-        React.useEffect(() => {
-          if (!settings.mood) return;
-          const visible = Boolean(spontPoem);
-          const previous = Boolean(moodPrevSpontRef.current);
-          moodPrevSpontRef.current = visible;
-          if (visible !== previous) scheduleMoodAiRefresh();
-        }, [spontPoem, settings.mood]);
-        React.useEffect(() => {
-          if (!settings.mood) return;
-          const signature = weather ? [weather.category, weather.label, weather.tempC, weather.isDay].join("|") : "";
-          const previous = moodWeatherSigRef.current;
-          moodWeatherSigRef.current = signature;
-          if (previous && signature && previous !== signature) scheduleMoodAiRefresh();
-        }, [weather, settings.mood]);
-        React.useEffect(() => {
-          if (!settings.mood) return void 0;
-          const onVisible = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            scheduleMoodAiRefresh();
-          };
-          const onFocus = () => scheduleMoodAiRefresh();
-          if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
-          if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
-          return () => {
-            if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
-            if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
-          };
-        }, [settings.mood]);
-        React.useEffect(() => {
-          if (!settings.mood) return;
-          const now2 = Date.now();
-          const last = lastInteractionRef.current;
-          const idle = last > 0 && now2 - last >= 30 * 60 * 1e3;
-          if (idle !== moodIdleRef.current) {
-            moodIdleRef.current = idle;
-            scheduleMoodAiRefresh();
-          }
-          const bucket = moodTimeBucket(now2);
-          if (moodTimeBucketRef.current && bucket !== moodTimeBucketRef.current) scheduleMoodAiRefresh();
-          moodTimeBucketRef.current = bucket;
-        }, [moodTick, settings.mood]);
-        React.useEffect(() => {
-          if (settings.mood && moodCatalogRes.status === "error") setMoodAiFallback(true);
-        }, [settings.mood, moodCatalogRes.status]);
-        React.useEffect(() => {
-          if (!moodCatalog) return;
-          if (typeof window === "undefined" || typeof window.Image !== "function") return;
-          const files = [
-            panelPeekFile(moodCatalog, "today"),
-            panelPeekFile(moodCatalog, "settings"),
-            panelPeekFile(moodCatalog, "other")
-          ].concat(moodCatalog.moodFiles.slice(0, 4));
-          for (const file of files) {
-            if (!file) continue;
-            try {
-              const image = new window.Image();
-              image.src = mascotUrl2(file);
-            } catch (error) {
-            }
-          }
-        }, [moodCatalog]);
-        React.useEffect(() => {
-          if (settings.hidden) {
-            spontReqRef.current += 1;
-            setSpontPoem(null);
-            return void 0;
-          }
-          if (!settings.spontaneousPoem) {
-            spontReqRef.current += 1;
-            setSpontPoem((current) => current && current.tag === "action" ? current : null);
-            return void 0;
-          }
-          let cancelled = false;
-          let timer2 = null;
-          const schedule = (delay) => {
-            if (timer2) clearTimeout(timer2);
-            if (!cancelled) timer2 = setTimeout(run, Math.max(1e3, delay));
-          };
-          const run = () => {
-            if (cancelled) return;
-            const ui = uiRef.current;
-            if (spontPoemRef.current) {
-              schedule(SPONT_CLOSE_RECHECK_MS);
-              return;
-            }
-            const ok = canShowSpontaneous({
-              enabled: ui.settings.spontaneousPoem === true,
-              hidden: ui.settings.hidden === true,
-              panelOpen: ui.panelOpen === true,
-              bubbleOpen: ui.step >= 0,
-              visible: typeof document === "undefined" ? true : document.visibilityState !== "hidden",
-              now: Date.now(),
-              lastInteractionAt: lastInteractionRef.current,
-              quietMs: SPONT_QUIET_MS
-            });
-            if (ok) {
-              startSpontaneousCard({ record: true });
-              schedule(nextSpontPollDelay());
-            } else {
-              schedule(SPONT_RETRY_MS);
-            }
-          };
-          const onWake = () => wakeSpontaneous(nextSpontEventDelay());
-          const onVisibility = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "visible") onWake();
-          };
-          const onFocus = () => onWake();
-          if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
-          if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
-          const initialDelay = spontWake > 0 ? num(spontWakeDelayRef.current, nextSpontEventDelay()) : nextSpontPollDelay();
-          schedule(initialDelay);
-          return () => {
-            cancelled = true;
-            if (timer2) clearTimeout(timer2);
-            if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
-            if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
-          };
-        }, [settings.spontaneousPoem, settings.hidden, spontWake, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (panelOpen) {
-            prevPanelOpenRef.current = true;
-            return;
-          }
-          if (prevPanelOpenRef.current) {
-            prevPanelOpenRef.current = false;
-            wakeSpontaneous(nextSpontEventDelay());
-          }
-        }, [panelOpen, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (step >= 0) {
-            prevStepRef.current = true;
-            return;
-          }
-          if (prevStepRef.current) {
-            prevStepRef.current = false;
-            wakeSpontaneous(nextSpontEventDelay());
-          }
-        }, [step, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (!settings.spontaneousPoem) return;
-          if (spontPoem) {
-            prevCardRef.current = true;
-            return;
-          }
-          if (prevCardRef.current) {
-            prevCardRef.current = false;
-            wakeSpontaneous(SPONT_CLOSE_RECHECK_MS);
-          }
-        }, [spontPoem, settings.spontaneousPoem, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (!settings.spontaneousPoem || !moodView) return;
-          const signature = [moodView.key, moodView.label, moodView.reason, moodView.source].join("|");
-          if (moodWakeSigRef.current && moodWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
-          moodWakeSigRef.current = signature;
-        }, [moodView, settings.spontaneousPoem, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (!settings.spontaneousPoem || !weather) return;
-          const signature = [weather.category, weather.label, weather.tempC].join("|");
-          if (weatherWakeSigRef.current && weatherWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
-          weatherWakeSigRef.current = signature;
-        }, [weather, settings.spontaneousPoem, wakeSpontaneous]);
-        React.useEffect(() => {
-          if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
-          const markActivity = () => noteInteraction();
-          document.addEventListener("pointerdown", markActivity, true);
-          document.addEventListener("keydown", markActivity, true);
-          document.addEventListener("input", markActivity, true);
-          return () => {
-            document.removeEventListener("pointerdown", markActivity, true);
-            document.removeEventListener("keydown", markActivity, true);
-            document.removeEventListener("input", markActivity, true);
-          };
-        }, []);
-        React.useEffect(() => {
-          if (!spontPoem) return void 0;
-          const timer2 = setTimeout(() => {
-            spontReqRef.current += 1;
-            setSpontPoem(null);
-          }, SPONT_AUTO_CLOSE_MS);
-          return () => clearTimeout(timer2);
-        }, [spontPoem]);
-        React.useEffect(() => {
-          if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
-            spontReqRef.current += 1;
-            setSpontPoem(null);
-          }
-        }, [panelOpen, step, settings.hidden, spontPoem, spontPreview]);
-        React.useEffect(() => {
           if (!feihuaOpen) {
             setFeihuaBuilding(false);
             setFeihuaIndex(null);
@@ -28283,18 +29025,6 @@
           };
         }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status]);
         React.useEffect(() => {
-          setPos((previous) => {
-            const next = anchorPosition(settings.snap, mascotSize, viewport, previous);
-            return next.x === previous.x && next.y === previous.y ? previous : next;
-          });
-        }, [settings.snap, mascotSize, viewport.w, viewport.h]);
-        React.useEffect(() => {
-          const timer2 = setTimeout(() => {
-            writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap });
-          }, 250);
-          return () => clearTimeout(timer2);
-        }, [pos, settings.snap]);
-        React.useEffect(() => {
           const seconds = num(settings.autoplay, 0);
           if (!seconds || step < 0 || panelOpen || settings.hidden) return void 0;
           const timer2 = setTimeout(() => {
@@ -28324,76 +29054,9 @@
           document.addEventListener("dblclick", onDoubleClick, true);
           return () => document.removeEventListener("dblclick", onDoubleClick, true);
         }, [settings.hidden]);
-        function hideWidget() {
-          setPanelOpen(false);
-          setStep(-1);
-          updateSettings({ hidden: true });
-        }
-        function restoreWidget() {
-          updateSettings({ hidden: false });
-        }
-        function noteInteraction() {
-          lastInteractionRef.current = Date.now();
-        }
-        function openPanelTab(tabId) {
-          if (POETRY_TABS.some((item) => item.id === tabId)) {
-            setPanelTab("poetry");
-            setPoetryTab(tabId);
-            return;
-          }
-          if (tabId === "poetry") {
-            setPanelTab("poetry");
-            return;
-          }
-          if (panelTabs.isPanelTab(tabId)) {
-            setPanelTab(tabId);
-            return;
-          }
-          setPanelTab("growth");
-        }
-        function openPoetryModule() {
-          if (!POETRY_ENTRY_ENABLED) return;
-          openPanelTab("poetry");
-          setPanelOpen(true);
-        }
-        function openSettingsPanel() {
-          openPanelTab("settings");
-          setPanelOpen(true);
-        }
-        function openPanel(tab) {
-          noteInteraction();
-          panelOpensRef.current += 1;
-          if (tab === "settings" || tab === "growth" || tab === "poetry" || POETRY_TABS.some((item) => item.id === tab)) {
-            openPanelTab(tab);
-          } else {
-            openPanelTab("growth");
-          }
-          setPanelOpen(true);
-        }
         function advanceStep() {
           setStep((current) => current < 0 ? 0 : current >= STEPS.length - 1 ? -1 : current + 1);
           wakeSpontaneous(nextSpontEventDelay());
-        }
-        function handleMascotTap() {
-          if (settingsRef.current.hidden) return;
-          const now2 = Date.now();
-          clicksRef.current += 1;
-          noteInteraction();
-          const eggState = readMascotEggState(now2);
-          if (shouldShowDailyGreet(eggState, now2)) {
-            writeMascotEggState(recordMascotEgg(eggState, { greet: true }, now2));
-            showMascotExpression(MASCOT_EXPRESSION_FILES[0]);
-          }
-          if (!settingsRef.current.tutorialSeen) updateSettings({ tutorialSeen: true });
-          if (panelOpen) {
-            setPanelOpen(false);
-            return;
-          }
-          if (step >= 0) {
-            advanceStep();
-            return;
-          }
-          openPanel("growth");
         }
         function startPoetryTour() {
           noteInteraction();
@@ -28404,143 +29067,6 @@
               document.documentElement.scrollTop = document.documentElement.scrollTop;
             } catch {
             }
-          }
-        }
-        function handleMascotKeyDown(event) {
-          if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
-            event.preventDefault();
-            handleMascotTap();
-          }
-        }
-        function triggerDizzy() {
-          if (settingsRef.current.hidden) return;
-          const entries = petMediaEntriesRef.current || [];
-          const entry = pickDizzyMedia(entries);
-          const file = entry && isVideoMoodFile(entry.file) ? entry.file : "";
-          if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
-          setDizzy({ file, label: entry ? String(entry.label || "") : "" });
-          clearMotionTimers();
-          if (motionFileRef.current) setMotionFile("");
-          dizzyTimerRef.current = setTimeout(() => {
-            dizzyTimerRef.current = null;
-            setDizzy(null);
-            if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
-              scheduleMotion(nextMotionDelay());
-            }
-          }, nextDizzyDuration());
-          noteInteraction();
-        }
-        function maybeTriggerMeal() {
-          if (!settingsRef.current || settingsRef.current.hidden) return;
-          if (mealActiveRef.current) return;
-          const now2 = Date.now();
-          const visible = typeof document === "undefined" ? true : document.visibilityState !== "hidden";
-          const state = readMealState(now2);
-          const moment = mealTriggerFor({ now: now2, hidden: settingsRef.current.hidden, panelOpen: uiRef.current.panelOpen, visible, state });
-          if (!moment) return;
-          writeMealState(markMealDone(state, moment.meal, now2));
-          const entry = pickMealMedia(petMediaEntriesRef.current || [], moment.meal);
-          const file = entry && entry.file ? entry.file : "dsh-whale-state-daily-eat.webp";
-          const text = moment.meal === "lunch" ? "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403\u5348\u996D\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002\u8FD9\u987F\u7528 token \u6362\u7684\u767D\u996D\u3002" : "\u5230\u996D\u70B9\u5566\uFF0C\u6211\u53BB\u5403" + moment.label + "\uFF0C\u4F60\u4E5F\u8BB0\u5F97\u5403\u3002";
-          const active = { meal: moment.meal, label: moment.label, file, text };
-          mealActiveRef.current = active;
-          setMealActive(active);
-          clearMotionTimers();
-          if (motionFileRef.current) setMotionFile("");
-          if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
-          mealTimerRef.current = setTimeout(() => {
-            mealTimerRef.current = null;
-            mealActiveRef.current = null;
-            setMealActive(null);
-            if (settingsRef.current.mood && petMediaEntriesRef.current.length && !uiRef.current.panelOpen) {
-              scheduleMotion(nextMotionDelay());
-            }
-          }, nextMealDuration());
-        }
-        function handlePointerDown(event) {
-          if (event.button !== void 0 && event.button !== 0) return;
-          setWalking(false);
-          wanderRef.current.walking = false;
-          setWanderFile("");
-          if (wanderRef.current.timer) clearTimeout(wanderRef.current.timer);
-          wanderRef.current.timer = null;
-          wanderRef.current.nextAt = Date.now() + 10 * 60 * 1e3;
-          const pointerTime = typeof event.timeStamp === "number" && event.timeStamp > 0 ? event.timeStamp : Date.now();
-          dragRef.current = {
-            id: event.pointerId,
-            startX: event.clientX,
-            startY: event.clientY,
-            baseX: posRef.current.x,
-            baseY: posRef.current.y,
-            lastX: event.clientX,
-            lastY: event.clientY,
-            lastT: pointerTime,
-            fast: false,
-            moved: false
-          };
-          try {
-            event.currentTarget.setPointerCapture(event.pointerId);
-          } catch (error) {
-          }
-          if (event.cancelable) event.preventDefault();
-        }
-        function handlePointerMove(event) {
-          const drag = dragRef.current;
-          if (!drag || drag.id !== event.pointerId) return;
-          const dx = event.clientX - drag.startX;
-          const dy = event.clientY - drag.startY;
-          if (!drag.moved && Math.max(Math.abs(dx), Math.abs(dy)) > 3) drag.moved = true;
-          if (!drag.moved) return;
-          const pointerTime = typeof event.timeStamp === "number" && event.timeStamp > 0 ? event.timeStamp : Date.now();
-          if (detectFastDrag({ x: drag.lastX, y: drag.lastY, t: drag.lastT }, { x: event.clientX, y: event.clientY, t: pointerTime })) drag.fast = true;
-          drag.lastX = event.clientX;
-          drag.lastY = event.clientY;
-          drag.lastT = pointerTime;
-          setPos(clampPosition({ x: drag.baseX + dx, y: drag.baseY + dy }, mascotSize, viewport));
-        }
-        function finishPointer(event, cancelled) {
-          const drag = dragRef.current;
-          if (!drag || event && drag.id !== event.pointerId) return;
-          dragRef.current = null;
-          try {
-            if (event && event.currentTarget && event.currentTarget.releasePointerCapture) {
-              event.currentTarget.releasePointerCapture(event.pointerId);
-            }
-          } catch (error) {
-          }
-          if (cancelled) return;
-          if (!drag.moved) {
-            handleMascotTap();
-            return;
-          }
-          if (drag.fast) triggerDizzy();
-          const current = posRef.current;
-          let snap = "free";
-          if (current.x <= 40) snap = "left";
-          else if (current.x + mascotSize >= viewport.w - 40) snap = "right";
-          const snapped = anchorPosition(snap, mascotSize, viewport, current);
-          if (snapped.x !== current.x || snapped.y !== current.y) setPos(snapped);
-          if (snap !== settingsRef.current.snap) updateSettings({ snap });
-        }
-        function handlePointerUp(event) {
-          finishPointer(event, false);
-        }
-        function handlePointerCancel(event) {
-          finishPointer(event, true);
-        }
-        function handleRestorePointerDown(event) {
-          if (event.button !== void 0 && event.button !== 0) return;
-          if (event.cancelable) event.preventDefault();
-          if (pressTimer.current) clearTimeout(pressTimer.current);
-          pressTimer.current = setTimeout(() => {
-            pressTimer.current = null;
-            restoreWidget();
-          }, 1200);
-        }
-        function handleRestorePointerUp() {
-          if (pressTimer.current) {
-            clearTimeout(pressTimer.current);
-            pressTimer.current = null;
           }
         }
         function changePoem() {
@@ -28586,21 +29112,6 @@
           setSelectedPoemId(activeTodayPoemId);
           if (settingsRef.current.mode === "random") saverRef.current.save({ lastPoemId: activeTodayPoemId });
         }
-        function resetSettings() {
-          updateSettings({
-            scale: DEFAULT_SETTINGS.scale,
-            showTones: DEFAULT_SETTINGS.showTones,
-            mode: DEFAULT_SETTINGS.mode,
-            autoplay: DEFAULT_SETTINGS.autoplay,
-            snap: DEFAULT_SETTINGS.snap,
-            script: DEFAULT_SETTINGS.script,
-            hidden: DEFAULT_SETTINGS.hidden,
-            theme: DEFAULT_SETTINGS.theme,
-            lastPoemId: DEFAULT_SETTINGS.lastPoemId,
-            tutorialSeen: DEFAULT_SETTINGS.tutorialSeen
-          });
-          showToast("\u5DF2\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E");
-        }
         function retryBootstrap() {
           setReloadTick((tick) => tick + 1);
         }
@@ -28609,134 +29120,6 @@
           setPanelOpen(true);
           setFeihuaLaunch((token) => token + 1);
           pulseMascot("gameThink");
-        }
-        function takeCachedSelfTalk(kind) {
-          const list = selfTalkCacheRef.current[kind];
-          if (Array.isArray(list) && list.length) return list.shift();
-          return "";
-        }
-        function rememberSpoken(card) {
-          if (!card || card.type !== "murmur" || !card.text) return;
-          const clean = String(card.text).trim();
-          if (!clean) return;
-          const list = recentSpokenRef.current.filter((value) => value !== clean);
-          list.push(clean);
-          recentSpokenRef.current = list.slice(-SELF_TALK_RECENT_MAX);
-        }
-        function spontPools() {
-          const ui = uiRef.current;
-          return {
-            poemsData: { items: ui.poemItems },
-            ciData: { items: ui.ciItems },
-            anthologyData: { items: ui.anthologyItems },
-            bankData: { items: ui.bankItems },
-            ciBankData: { items: ui.ciBankItems }
-          };
-        }
-        function murmurCardFromText(text) {
-          const value = String(text == null ? "" : text).trim();
-          return {
-            type: "murmur",
-            id: "model-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-            text: value,
-            line: value,
-            tags: [],
-            tag: "model",
-            title: "\u5B83\u8BF4\uFF1A"
-          };
-        }
-        function showSpontCard(card, options) {
-          if (!card) return null;
-          const opts = options || {};
-          if (opts.record === true && opts.state) {
-            writeSpontState(recordSpontShown(opts.state, card.id, Date.now(), card.type, card.tag || card.kind || ""));
-          }
-          if (opts.remember !== false) rememberSpoken(card);
-          setSpontPreview(opts.preview === true);
-          setSpontPoem(card);
-          return card;
-        }
-        function startSpontaneousCard(options) {
-          const opts = options && typeof options === "object" ? options : {};
-          const ui = uiRef.current;
-          const now2 = Date.now();
-          const state = readSpontState(now2);
-          const moodKey = ui.moodView && ui.moodView.key && ui.moodView.key !== "ai" ? ui.moodView.key : "calm";
-          const preview = opts.preview === true;
-          const record = opts.record === true;
-          if (record && !preview) {
-            const signature = selfTalkNoveltySignature({
-              selfStatus: selfStatusRef.current,
-              mood: moodViewRef.current,
-              weather: weatherRef.current,
-              now: now2
-            });
-            const last = selfTalkNoveltyRef.current;
-            if (last.signature === signature && now2 - last.at < 20 * 60 * 1e3) return null;
-            if (last.signature === "" && last.at > 0 && now2 - last.at < 60 * 1e3) return null;
-            selfTalkNoveltyRef.current = { signature, at: now2 };
-          }
-          const recent = recentSpokenRef.current.slice(-SELF_TALK_RECENT_MAX);
-          const showMurmur = (line) => showSpontCard(murmurCardFromText(line), { preview, record, state });
-          const cached = takeCachedSelfTalk("murmur");
-          if (cached) {
-            return showMurmur(cached);
-          }
-          const token = spontReqRef.current + 1;
-          spontReqRef.current = token;
-          setSpontPreview(preview);
-          setSpontPoem({ type: "thinking", title: "\u5B83\u6B63\u5728\u60F3\u2026", line: "", placeholder: true });
-          const idleMinutes = lastInteractionRef.current > 0 ? Math.max(0, Math.floor((now2 - lastInteractionRef.current) / 6e4)) : 0;
-          const weatherValue = weatherRef.current ? String(weatherRef.current.category || weatherRef.current.label || "") : "";
-          const view = ui.moodView || null;
-          const moodLabel = view && typeof view.label === "string" ? view.label.trim() : "";
-          const moodReason = view && typeof view.reason === "string" ? view.reason.trim() : "";
-          const image = view && typeof view.image === "string" ? view.image.trim() : "";
-          const imageLabel = moodLabel;
-          requestSelfTalk({ kind: "murmur", moodKey, moodLabel, moodReason, image, imageLabel, weather: weatherValue, idleMinutes, recent }).then((result) => {
-            if (token !== spontReqRef.current) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-              setSpontPoem((current) => current && current.type === "thinking" ? null : current);
-              return;
-            }
-            if (!result || !result.ok || !result.line) {
-              selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
-              setSpontPoem(null);
-              return;
-            }
-            if (recent.indexOf(result.line) >= 0) {
-              if (result.next && recent.indexOf(result.next) < 0) {
-                showMurmur(result.next);
-              } else {
-                setSpontPoem(null);
-              }
-              return;
-            }
-            if (result.next && recent.indexOf(result.next) < 0) {
-              const list = selfTalkCacheRef.current.murmur.concat([result.next]);
-              selfTalkCacheRef.current.murmur = list.slice(-2);
-            }
-            showMurmur(result.line);
-          }).catch(() => {
-            if (token !== spontReqRef.current) return;
-            selfTalkNoveltyRef.current = { signature: "", at: Date.now() };
-            setSpontPoem(null);
-          });
-          return null;
-        }
-        function previewSpontaneousPoem() {
-          return startSpontaneousCard({ preview: true, record: false });
-        }
-        function readAnotherSpontaneous() {
-          return startSpontaneousCard({ preview: false, record: false });
-        }
-        function previewSpontaneousPoem(forceType) {
-          return startSpontaneousCard({ forceType, preview: true, record: false });
-        }
-        function readAnotherSpontaneous() {
-          const current = spontPoemRef.current;
-          const avoidType = current && current.type !== "thinking" ? current.type : "";
-          return startSpontaneousCard({ avoidType, preview: false, record: false });
         }
         function requestCiBank() {
           setCiBankWanted(true);
@@ -28757,258 +29140,14 @@
           setPanelOpen(true);
           noteInteraction();
         }
-        function openSpontPoem() {
-          const picked = spontPoemRef.current;
-          if (!picked) return;
-          if (picked.type === "murmur") {
-            setSpontPoem(null);
-            return;
-          }
-          setSpontPreview(false);
-          setSpontPoem(null);
-          setPanelOpen(true);
-          if (picked.kind === "poem") {
-            userPickedPoemRef.current = true;
-            setSelectedPoemId(picked.id);
-            openPanelTab("today");
-          } else if (picked.kind === "ci") {
-            openPanelTab("ci");
-          } else {
-            setLibraryFocus({ id: picked.id, source: picked.kind, token: Date.now() });
-            openPanelTab("library");
-          }
-        }
         function consumeFeihuaLaunch() {
           setFeihuaLaunch(0);
         }
         const dateSeed = boot.data && boot.data.today && boot.data.today.date || "";
         const dateLabel = formatDateLabel(dateSeed);
-        function clearMotionTimers() {
-          if (motionDelayTimerRef.current) {
-            clearTimeout(motionDelayTimerRef.current);
-            motionDelayTimerRef.current = null;
-          }
-          if (motionStopTimerRef.current) {
-            clearTimeout(motionStopTimerRef.current);
-            motionStopTimerRef.current = null;
-          }
-        }
-        function currentMoodImageFile() {
-          const view = moodViewRef.current;
-          return view && view.image ? String(view.image) : "";
-        }
-        function scheduleMotion(delay) {
-          if (motionDelayTimerRef.current) clearTimeout(motionDelayTimerRef.current);
-          motionDelayTimerRef.current = setTimeout(() => {
-            motionDelayTimerRef.current = null;
-            tryStartMotion();
-          }, Math.max(1e3, num(delay, nextMotionDelay())));
-        }
-        function scheduleInitialMotion() {
-          const first = !motionFirstScheduledRef.current;
-          const delay = nextMotionScheduleDelay({ first, moodImage: currentMoodImageFile() });
-          motionFirstScheduledRef.current = true;
-          motionFirstPendingRef.current = first && !isVideoMoodFile(currentMoodImageFile());
-          scheduleMotion(delay);
-        }
-        function tryStartMotion() {
-          const entries = petMediaEntriesRef.current;
-          const ui = uiRef.current;
-          if (!entries || !entries.length) return;
-          if (!ui.settings.mood || ui.settings.hidden) return;
-          if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-          if (ui.panelOpen) return;
-          if (dizzyRef.current || mealActiveRef.current) {
-            scheduleMotion(nextMotionDelay());
-            return;
-          }
-          if (mascotPulseRef.current || mascotExpressionRef.current) {
-            scheduleMotion(nextMotionDelay());
-            return;
-          }
-          if (wanderRef.current.walking) {
-            scheduleMotion(nextMotionDelay());
-            return;
-          }
-          if (motionFileRef.current) return;
-          const picked = nextMotionEntry(entries, motionIndexRef.current);
-          if (!picked.entry) return;
-          motionIndexRef.current = picked.index;
-          motionFirstPendingRef.current = false;
-          writeMotionRotation(picked.index);
-          setMotionFile(picked.entry.file);
-          motionStopTimerRef.current = setTimeout(() => {
-            motionStopTimerRef.current = null;
-            setMotionFile("");
-            scheduleMotion(nextMotionDelay());
-          }, nextMotionDuration());
-        }
-        function handleMascotMediaError(file) {
-          if (dizzyRef.current && dizzyRef.current.file && file === dizzyRef.current.file) {
-            setDizzy((current) => current ? Object.assign({}, current, { file: "" }) : current);
-            return;
-          }
-          if (mealActiveRef.current && file === mealActiveRef.current.file) {
-            setMealActive((current) => current ? Object.assign({}, current, { file: "dsh-whale-state-daily-eat.webp" }) : current);
-            return;
-          }
-          if (wanderFileRef.current && file === wanderFileRef.current) {
-            if (file === WANDER_STATIC_FILE) {
-              setWanderFile("");
-            } else {
-              setWanderFile(WANDER_STATIC_FILE);
-            }
-            return;
-          }
-          if (motionFileRef.current && file === motionFileRef.current) {
-            if (motionStopTimerRef.current) {
-              clearTimeout(motionStopTimerRef.current);
-              motionStopTimerRef.current = null;
-            }
-            setMotionFile("");
-            scheduleMotion(nextMotionDelay());
-            return;
-          }
-          setFailedMascot(file);
-        }
-        React.useEffect(() => {
-          if (!settings.mood || settings.hidden || panelOpen || petMediaRes.status !== "ready" || !petMediaRes.entries.length) {
-            clearMotionTimers();
-            if (motionFileRef.current) setMotionFile("");
-            return void 0;
-          }
-          scheduleInitialMotion();
-          return () => {
-            clearMotionTimers();
-          };
-        }, [settings.mood, settings.hidden, panelOpen, petMediaRes.status, petMediaRes.entries.length]);
-        React.useEffect(() => {
-          if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
-          const onVisibility = () => {
-            if (document.visibilityState === "hidden") {
-              clearMotionTimers();
-              if (motionFileRef.current) setMotionFile("");
-              return;
-            }
-            if (settingsRef.current.mood && !uiRef.current.panelOpen && petMediaEntriesRef.current.length) {
-              scheduleMotion(nextMotionDelay());
-            }
-          };
-          document.addEventListener("visibilitychange", onVisibility);
-          return () => document.removeEventListener("visibilitychange", onVisibility);
-        }, []);
-        React.useEffect(() => {
-          if (!motionFirstPendingRef.current) return;
-          const image = currentMoodImageFile();
-          if (!isVideoMoodFile(image)) return;
-          motionFirstPendingRef.current = false;
-          clearMotionTimers();
-          scheduleMotion(nextMotionDelay());
-        }, [moodView]);
-        React.useEffect(() => {
-          if (!settings.hidden) {
-            maybeTriggerMeal();
-          }
-          const timer2 = setInterval(() => {
-            maybeTriggerMeal();
-          }, 60 * 1e3);
-          const onVisible = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            maybeTriggerMeal();
-          };
-          const onFocus = () => maybeTriggerMeal();
-          if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisible);
-          if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("focus", onFocus);
-          return () => {
-            clearInterval(timer2);
-            if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisible);
-            if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
-          };
-        }, [settings.hidden]);
-        React.useEffect(() => {
-          if (panelOpen) {
-            mealPrevPanelRef.current = true;
-            return;
-          }
-          if (mealPrevPanelRef.current) {
-            mealPrevPanelRef.current = false;
-            maybeTriggerMeal();
-          }
-        }, [panelOpen]);
-        React.useEffect(() => {
-          if (!(panelOpen || settings.hidden)) return;
-          if (dizzyTimerRef.current) {
-            clearTimeout(dizzyTimerRef.current);
-            dizzyTimerRef.current = null;
-          }
-          if (dizzyRef.current) setDizzy(null);
-          if (mealTimerRef.current) {
-            clearTimeout(mealTimerRef.current);
-            mealTimerRef.current = null;
-          }
-          if (mealActiveRef.current) {
-            setMealActive(null);
-            mealActiveRef.current = null;
-          }
-        }, [panelOpen, settings.hidden]);
         React.useEffect(() => () => {
           if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
           if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
-        }, []);
-        React.useEffect(() => {
-          let alive = true;
-          const load = () => {
-            if (!alive) return;
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            fetchJson(SELF_PATH).then((data) => {
-              if (alive) setSelfStatus(normalizeSelfStatus(data));
-            }).catch(() => {
-              if (alive) setSelfStatus(null);
-            });
-          };
-          load();
-          const timer2 = setInterval(load, SELF_POLL_MS);
-          const onVisibility = () => {
-            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-            load();
-          };
-          if (typeof document !== "undefined" && typeof document.addEventListener === "function") document.addEventListener("visibilitychange", onVisibility);
-          return () => {
-            alive = false;
-            clearInterval(timer2);
-            if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
-          };
-        }, []);
-        function showSelfAction(action) {
-          if (!action || !action.id) return;
-          lastSeenActionIdRef.current = action.id;
-          writeSeenActionId(action.id);
-          showSpontCard(
-            { id: "action:" + action.id, type: "murmur", title: "\u81EA\u5DF1", line: String(action.text || action.label || ""), tag: "action" },
-            { preview: true, record: false, remember: false }
-          );
-        }
-        React.useEffect(() => {
-          const latest = selfStatus && selfStatus.actions ? selfStatus.actions.latest : null;
-          if (!latest || !latest.id) return;
-          if (lastSeenActionIdRef.current === latest.id) return;
-          if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-            pendingActionRef.current = latest;
-            return;
-          }
-          showSelfAction(latest);
-        }, [selfStatus]);
-        React.useEffect(() => {
-          if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
-          const onVisibility = () => {
-            if (document.visibilityState === "hidden") return;
-            const pending = pendingActionRef.current;
-            if (!pending) return;
-            pendingActionRef.current = null;
-            showSelfAction(pending);
-          };
-          document.addEventListener("visibilitychange", onVisibility);
-          return () => document.removeEventListener("visibilitychange", onVisibility);
         }, []);
         React.useEffect(() => {
           if (!panelOpen || panelTab !== "growth" || settings.hidden) {
@@ -29237,30 +29376,6 @@
             return { ok: false };
           });
         }
-        const syncMascotVideoPlayback = React.useCallback(() => {
-          const video = mascotVideoRef.current;
-          if (!video) return;
-          const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-          const shouldPause = mascotVideoShouldPause({ hidden, panelOpen });
-          try {
-            if (shouldPause) {
-              if (typeof video.pause === "function") video.pause();
-            } else if (typeof video.play === "function") {
-              const played = video.play();
-              if (played && typeof played.catch === "function") played.catch(() => {
-              });
-            }
-          } catch (error) {
-          }
-        }, [panelOpen]);
-        React.useEffect(() => {
-          syncMascotVideoPlayback();
-        });
-        React.useEffect(() => {
-          if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
-          document.addEventListener("visibilitychange", syncMascotVideoPlayback);
-          return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
-        }, [syncMascotVideoPlayback]);
         React.useEffect(() => () => {
           const video = mascotVideoRef.current;
           if (video && typeof video.pause === "function") {
@@ -29358,13 +29473,6 @@
             return h2(TodayTab, { api });
           }
           return h2(GrowthTab, { api });
-        }
-        function closeSpont(event) {
-          if (event && typeof event.stopPropagation === "function") event.stopPropagation();
-          spontReqRef.current += 1;
-          selfTalkNoveltyRef.current = { signature: "", at: 0 };
-          setSpontPreview(false);
-          setSpontPoem(null);
         }
         const stepContent = StepContent({
           step,
