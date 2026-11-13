@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.2.6 memory-layers 拆分（P1 第四步）**：`memory-layers.mjs` 756→314 行，拆出 `memory-layers-core.mjs`（常量/小工具，56 行）与 `memory-consolidator.mjs`（每日整合服务，410 行）；原 API 由 memory-layers re-export 保持兼容，测试 565/565。
 - **v0.2.5 大文件拆分（P1 第三步）**：`self-growth.mjs` 780→636 行，抽出 `self-growth-topics.mjs`（话题采样/重复主题检测，102 行）与 `self-growth-log.mjs`（自学/试探日志与 probe 状态，60 行）；行为不变，测试 565/565。
 - **v0.2.4 路由表拆分（P1 第二步）**：`domain/integration/routes.mjs` 从 681 行降到约 350 行，路由条目按职责拆成 5 个模块：base-routes（health/bootstrap/数据/about/记忆备份）、settings-weather-routes、mood-routes（mood-ai）、feihua-routes、self-talk-routes；公共 helper 仍在 routes.mjs，行为与契约不变，测试 565/565。
 - **v0.2.3 装配层拆分（P1 第一步）**：`domain-services` 从 565 行降到约 415 行，按域拆出 4 个装配模块：memory-knowledge-services（记忆/知识/情绪底座）、language-mood-services（声音/自说/心情/规则/动作策略）、chat-entry-services（聊天/推送/手动阅读）、learning-being-services（哲学/成长/道德/规则总结）。行为不变，测试 565/565。

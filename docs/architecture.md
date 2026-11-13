@@ -93,3 +93,11 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 
 - `self-growth.mjs` 780 → 636 行；抽出 `self-growth-topics.mjs`（readTopics / 重复主题 / 哲学/历史/随机话题采样）与 `self-growth-log.mjs`（自学日志、试探历史、probe 状态、试探日志）。
 - 后续顺序：`memory-layers`（756）→ `mood-ai-core`（751）→ `memory-recall`（717）。
+
+## memory-layers 拆分（v0.2.6）
+
+- `memory-layers.mjs` 756 → 314 行：只保留分层记忆存储（episode/selfFacts）与读取；
+- `memory-layers-core.mjs`：常量与小工具；
+- `memory-consolidator.mjs`：每日整合服务、consolidation prompt/parse、journal 计数/读取；
+- 原导出由 `memory-layers.mjs` re-export，外部行为不变。
+- 后续：`mood-ai-core`（751）→ `memory-recall`（717）。
