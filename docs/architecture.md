@@ -88,3 +88,8 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 | `self-talk-routes.mjs` | self-talk 聚合上下文 |
 
 后续 P1：`self-growth`（780）、`memory-layers`（756）、`mood-ai-core`（751）、`memory-recall`（717）按职责拆。
+
+## 大文件拆分（v0.2.5）
+
+- `self-growth.mjs` 780 → 636 行；抽出 `self-growth-topics.mjs`（readTopics / 重复主题 / 哲学/历史/随机话题采样）与 `self-growth-log.mjs`（自学日志、试探历史、probe 状态、试探日志）。
+- 后续顺序：`memory-layers`（756）→ `mood-ai-core`（751）→ `memory-recall`（717）。
