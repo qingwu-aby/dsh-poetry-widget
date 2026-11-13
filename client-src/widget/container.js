@@ -53,6 +53,18 @@ export function PoetryWidget(props) {
   if (!cacheLoadedRef.current) {
    cacheLoadedRef.current = true
    cacheRef.current = readFirstScreenCache()
+   // v3.0.1：旧版本首屏缓存可能缺字段，直接丢弃，避免升级后主组件在缓存路径上崩掉。
+   const cachedBootstrap = cacheRef.current && cacheRef.current.bootstrap
+   const usableBootstrap =
+    cachedBootstrap &&
+    cachedBootstrap.ok === true &&
+    cachedBootstrap.today &&
+    typeof cachedBootstrap.today.poemId === 'string' &&
+    typeof cachedBootstrap.dataVersion === 'string'
+   if (cacheRef.current && !usableBootstrap) {
+    cacheRef.current = null
+    try { clearFirstScreenCache() } catch (_error) {}
+   }
   }
 
   const [boot, setBoot] = React.useState(() => {

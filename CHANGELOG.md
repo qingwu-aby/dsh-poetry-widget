@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.5.1 首屏缓存兼容**：`container` 读取旧版 `dshp.firstscreen.v1` 时校验 bootstrap 必需字段（ok/today.poemId/dataVersion），不兼容则丢弃并清理缓存，避免升级后主挂件在缓存路径上崩溃。
 - **去掉旧限制声明**：README「已知限制」移除“她不做真实世界操作”和“依赖宿主 0.2.1-rc.x、升级需按 plugin-test 回归”两条；保留音频输入/输出限制。
 - **v0.5.0 客户端组件架构重构**：`widget-plugin.js`（4.8k 行巨型闭包）删除，改为 `widget/` 组件架构：register（入口/DEBUG 契约）+ container（容器状态/effects/事件）+ hooks（9 个：settings/panel/weather/data/spont/self-status/mood/mascot/toast）+ view（纯 props 视图，含 6 张 step 卡）+ models（常量/天气/立绘/心情/自我/飞花令/API）。`client-src/client.js` 仅 2 行；565/565 测试与 `check` 全绿；debug 契约 100+ 字段保留。
 - **v3.0 客户端组件架构重构**：`client-src/widget-plugin.js`（4.8k 行单文件闭包）拆为 `client-src/widget/`：`register.js`（ModuleLoader/DEBUG/资源/overlay 注册）、`container.js`（容器组件：状态/effects/组合）、`hooks/`（settings/panel/weather/data/spont/self-status/mood/mascot/toast 九个 hook，共享实例级 refs + bridge）、`view/`（primitives、steps 六张卡、bubble/panel/mascot/spont/toast/meal/restore/widget-root，纯 props 视图）、`models/`（常量/工具/api/feihua/weather/mascot/mood/self/spont 纯逻辑）。`client-src/client.js` 仅 `import './widget/register.js'`；`globalThis.__dshPoetryDebug` 契约字段全部保留。测试 565/565、`npm run check` 0 失败。

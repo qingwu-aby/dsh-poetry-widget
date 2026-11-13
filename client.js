@@ -28417,6 +28417,15 @@
     if (!cacheLoadedRef.current) {
       cacheLoadedRef.current = true;
       cacheRef.current = readFirstScreenCache();
+      const cachedBootstrap = cacheRef.current && cacheRef.current.bootstrap;
+      const usableBootstrap = cachedBootstrap && cachedBootstrap.ok === true && cachedBootstrap.today && typeof cachedBootstrap.today.poemId === "string" && typeof cachedBootstrap.dataVersion === "string";
+      if (cacheRef.current && !usableBootstrap) {
+        cacheRef.current = null;
+        try {
+          clearFirstScreenCache();
+        } catch (_error) {
+        }
+      }
     }
     const [boot, setBoot] = React2.useState(() => {
       const cached = cacheRef.current;
