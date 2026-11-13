@@ -74,3 +74,17 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 | `domain-services.mjs` | 只保留跨域编排、顺序与引用（selfDrive/philosophy/growthArc 的 getter） |
 
 后续 P1：把 `self-growth`、`memory-layers`、`mood-ai-core`、`routes` 等大文件继续按职责拆分。
+
+## 路由表拆分（v0.2.4）
+
+`lib/domain/integration/routes.mjs` 由 681 行降到约 350 行，只保留 helper 与 orchestrator；路由条目按组拆到 `lib/domain/integration/routes/`：
+
+| 模块 | 负责 |
+|---|---|
+| `base-routes.mjs` | health / bootstrap / poems·ci·yun·knowledge / memory backup / about |
+| `settings-weather-routes.mjs` | settings GET·PUT / weather |
+| `mood-routes.mjs` | mood-ai（含 recentImages 解析与缓存） |
+| `feihua-routes.mjs` | feihua-full 分片 + gzip |
+| `self-talk-routes.mjs` | self-talk 聚合上下文 |
+
+后续 P1：`self-growth`（780）、`memory-layers`（756）、`mood-ai-core`（751）、`memory-recall`（717）按职责拆。
