@@ -212,3 +212,36 @@ test('关系记忆按 peer 隔离：不同人的偏好/约定不串', async () =
   assert.match(friendDigest, /早起跑步/)
   assert.ok(!friendDigest.includes('晚上做事'))
 })
+
+
+test('成长弧挂统一心跳：注册 24h 任务，health 可观测', async () => {
+  const dir = tmpDir()
+  const added = []
+  const heartbeat = {
+    add(name, run, options) {
+      added.push({ name, run, options })
+      return true
+    },
+  }
+  const service = createGrowthArc({
+    env: {},
+    home: dir,
+    settingsDir: path.join(dir, 'state'),
+    memoryDir: dir,
+    journalPath: path.join(dir, 'journal.jsonl'),
+    learningLogPath: path.join(dir, 'learning-log.md'),
+    statePath: path.join(dir, 'state', 'growth-arc.json'),
+    autobiographyPath: path.join(dir, 'autobiography.md'),
+    journal: { append: async () => {} },
+    heartbeat,
+    now: () => 30 * DAY,
+  })
+  service.start()
+  assert.equal(added.length, 1)
+  assert.equal(added[0].name, '成长弧')
+  assert.equal(added[0].options.everyMs, DAY)
+  assert.equal(added[0].options.offsetMs, 3 * 60 * 1000)
+  await added[0].run()
+  assert.ok(fs.existsSync(path.join(dir, 'state', 'growth-arc.json')))
+  service.dispose()
+})

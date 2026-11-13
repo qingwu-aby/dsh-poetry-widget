@@ -85,6 +85,41 @@ for (const [file, deps] of imports) {
   }
 }
 
+// 4) 跨域依赖画像：facade 比例（暂时只报告不拦截；目标是把比例逐步拉起来）。
+const domainOf = (file) => {
+  if (!file.startsWith('lib/domain/')) return null
+  const parts = file.split('/')
+  return parts.length >= 4 ? parts[2] : null
+}
+let crossDomain = 0
+let facadeImports = 0
+const crossMatrix = new Map()
+for (const [file, deps] of imports) {
+  const from = domainOf(file)
+  if (from === null) continue
+  for (const dep of deps) {
+    const to = domainOf(dep)
+    if (to === null || to === from) continue
+    crossDomain += 1
+    if (dep.endsWith('/index.mjs')) facadeImports += 1
+    crossMatrix.set(`${from}→${to}`, (crossMatrix.get(`${from}→${to}`) ?? 0) + 1)
+  }
+}
+const facadeRatio = crossDomain === 0 ? 1 : facadeImports / crossDomain
+const topCross = [...crossMatrix.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+console.log(
+  `跨域依赖：${crossDomain} 条，走 facade ${facadeImports} 条（${(facadeRatio * 100).toFixed(1)}%）；Top：${topCross
+    .map(([key, count]) => `${key}×${count}`)
+    .join('、')}`,
+)
+if (process.env.STRICT_FACADE === '1' && facadeRatio < 0.5) {
+  violations.push({
+    type: 'facade',
+    file: 'lib/domain/*',
+    detail: `跨域 facade 比例 ${(facadeRatio * 100).toFixed(1)}% 低于 50%（STRICT_FACADE=1）`,
+  })
+}
+
 if (violations.length > 0) {
   console.error(`依赖检查失败（${violations.length} 项）：`)
   for (const item of violations) console.error(`- [${item.type}] ${item.detail}`)

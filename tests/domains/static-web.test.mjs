@@ -684,7 +684,12 @@ test('heartbeat v1.82：单一定时器、按 everyMs/offset 触发、失败隔�
   let snap = heartbeat.snapshot()
   assert.equal(snap.pulses, 1)
   assert.equal(snap.jobs.length, 3)
-  assert.equal(snap.jobs.find((job) => job.name === 'boom').errors, 1)
+  const okJob = snap.jobs.find((job) => job.name === 'ok')
+  const boomJob = snap.jobs.find((job) => job.name === 'boom')
+  assert.equal(boomJob.errors, 1)
+  assert.equal(boomJob.consecutiveErrors, 1)
+  assert.ok(Number.isFinite(okJob.nextAt), 'snapshot 要暴露下一次运行时间')
+  assert.ok(Number.isFinite(okJob.lastDurationMs), 'snapshot 要暴露上次耗时')
   // 同一时刻再次 pulse：任务还没到期，不重复执行
   heartbeat.pulse()
   assert.equal(fired, 1)

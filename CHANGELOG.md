@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.2.2 调度可观测（P0）**：①心跳任务快照新增 nextAt、lastDurationMs、consecutiveErrors、skippedRuns，health.runtime.heartbeat 能直接看“上次何时跑/下次何时跑/连续失败/上次耗时”；②成长弧从自带 setInterval 迁到统一心跳（每 24h，首跑 3 分钟），不再出现“首次运行后不再更新”；③check-deps 新增跨域 facade 比例报告（当前 75 条 / 0% facade，Top: learning→memory×10、chat→voice×6），支持 STRICT_FACADE=1 逐步收紧。测试 565/565。
 - **v0.2.1 子插件开关**：设置页新增「子插件」区：QQ/对话传话工具、镜像浮层、镜像主体三个开关（`qqBridge`/`twinOverlay`/`twinSystem`）。镜像浮层即时生效；QQ 工具与镜像主体在启动时读取，改后重启 DSH 生效。
 - **v0.2.0 子插件合并**：`dsh-little-whale-qq` 与 `dsh-little-whale-twin` 并入主包（一个安装项）。
   - QQ 传话工具 `little_whale_chat` 与两个 preset（`little-whale-qq` / `little-whale-chat`）进入主包，工具名、preset id、peerId 不变；
