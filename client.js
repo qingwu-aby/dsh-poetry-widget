@@ -2043,13 +2043,13 @@
     }
   }
   function resolveSettings(settings) {
-    return assign2({}, DEFAULT_SETTINGS, settings);
+    return assign2({}, DEFAULT_SETTINGS2, settings);
   }
-  var DEFAULT_SETTINGS;
+  var DEFAULT_SETTINGS2;
   var init_sigma_settings_esm = __esm({
     "node_modules/sigma/settings/dist/sigma-settings.esm.js"() {
       init_data_733c2ee0_esm();
-      DEFAULT_SETTINGS = {
+      DEFAULT_SETTINGS2 = {
         // Performance
         hideEdgesOnMove: false,
         hideLabelsOnMove: false,
@@ -9735,7 +9735,7 @@
       })(TypedEventEmitter);
       MOUSE_SETTINGS_KEYS = ["doubleClickTimeout", "doubleClickZoomingDuration", "doubleClickZoomingRatio", "dragTimeout", "draggedEventsTolerance", "enableCameraMouseRotation", "gestureTarget", "inertiaDuration", "inertiaRatio", "zoomDuration", "zoomingRatio"];
       DEFAULT_MOUSE_SETTINGS = MOUSE_SETTINGS_KEYS.reduce(function(iter, key) {
-        return _objectSpread2(_objectSpread2({}, iter), {}, _defineProperty({}, key, DEFAULT_SETTINGS[key]));
+        return _objectSpread2(_objectSpread2({}, iter), {}, _defineProperty({}, key, DEFAULT_SETTINGS2[key]));
       }, {});
       MouseCaptor = /* @__PURE__ */ (function(_Captor) {
         function MouseCaptor2(container, renderer) {
@@ -10042,7 +10042,7 @@
       })(Captor);
       TOUCH_SETTINGS_KEYS = ["dragTimeout", "gestureTarget", "inertiaDuration", "inertiaRatio", "doubleClickTimeout", "doubleClickZoomingRatio", "doubleClickZoomingDuration", "tapMoveTolerance"];
       DEFAULT_TOUCH_SETTINGS = TOUCH_SETTINGS_KEYS.reduce(function(iter, key) {
-        return _objectSpread2(_objectSpread2({}, iter), {}, _defineProperty({}, key, DEFAULT_SETTINGS[key]));
+        return _objectSpread2(_objectSpread2({}, iter), {}, _defineProperty({}, key, DEFAULT_SETTINGS2[key]));
       }, {});
       TouchCaptor = /* @__PURE__ */ (function(_Captor) {
         function TouchCaptor2(container, renderer) {
@@ -15152,6 +15152,595 @@
     return TwinWhale;
   }
 
+  // client-src/health-model.js
+  function normalizeHealthStatus(raw) {
+    const data = raw && typeof raw === "object" ? raw : {};
+    const runtime = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
+    if (!runtime) return null;
+    const budget = runtime.budget && typeof runtime.budget === "object" ? runtime.budget : null;
+    const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === "object" ? runtime.heartbeat : null;
+    const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === "object" ? runtime.modelErrors : null;
+    const consolidate = runtime.consolidate && typeof runtime.consolidate === "object" ? runtime.consolidate : null;
+    const growth = runtime.growthMetrics && typeof runtime.growthMetrics === "object" ? runtime.growthMetrics : null;
+    const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === "object" ? consolidate.backlog : null;
+    const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
+    const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
+    const roleCounts = Object.keys(counts).map((role) => ({ role, count: num(counts[role], 0) })).filter((item) => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 6);
+    return {
+      version: data.version || "",
+      day: budget && typeof budget.day === "string" ? budget.day : "",
+      total: budget ? num(budget.total, 0) : 0,
+      totalLimit: budget ? num(budget.totalLimit, 0) : 0,
+      roleCounts,
+      jobs: jobs.map((job) => ({
+        name: String(job.name || ""),
+        runs: num(job.runs, 0),
+        errors: num(job.errors, 0),
+        consecutiveErrors: num(job.consecutiveErrors, 0),
+        skippedRuns: num(job.skippedRuns, 0),
+        running: job.running === true,
+        nextAt: typeof job.nextAt === "number" ? job.nextAt : null,
+        lastStartedAt: typeof job.lastStartedAt === "number" ? job.lastStartedAt : null,
+        lastDurationMs: typeof job.lastDurationMs === "number" ? job.lastDurationMs : null,
+        lastError: typeof job.lastError === "string" ? job.lastError : ""
+      })),
+      activeJobs: num(heartbeat && heartbeat.pulses, 0),
+      modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
+      memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
+      memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === "number" ? memoryBacklog.oldestAt : null,
+      growthMetrics: growth ? {
+        daysAlive: num(growth.daysAlive, 0),
+        journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
+        episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
+        coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
+        learning: growth.learning ? num(growth.learning.sections, 0) : 0,
+        repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
+        project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
+      } : null,
+      modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a2, b) => b.count - a2.count).slice(0, 4) : []
+    };
+  }
+
+  // client-src/settings-model.js
+  var MIN_SCALE = 0.6;
+  var MAX_SCALE = 1.6;
+  var SAVE_DEBOUNCE_MS = 450;
+  var SETTINGS_URL = "/api/dsh-poetry/settings.json";
+  var WRITE_KEYS = [
+    "scale",
+    "showTones",
+    "mode",
+    "autoplay",
+    "snap",
+    "script",
+    "hidden",
+    "theme",
+    "weatherCity",
+    "weatherPoem",
+    "mood",
+    "spontaneousPoem",
+    "qqBridge",
+    "twinOverlay",
+    "twinSystem",
+    "lastPoemId",
+    "tutorialSeen"
+  ];
+  var DEFAULT_SETTINGS = Object.freeze({
+    schemaVersion: 1,
+    scale: 1,
+    showTones: true,
+    mode: "daily",
+    autoplay: 0,
+    snap: "left",
+    script: "simplified",
+    hidden: false,
+    theme: "auto",
+    weatherCity: "\u5317\u4EAC",
+    weatherPoem: true,
+    mood: true,
+    spontaneousPoem: true,
+    qqBridge: true,
+    twinOverlay: true,
+    twinSystem: true,
+    lastPoemId: null,
+    tutorialSeen: false,
+    updatedAt: 0
+  });
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+  function normalizeSettings(raw) {
+    const src = raw && typeof raw === "object" ? raw : {};
+    const pickEnum = (value, allowed, fallback) => allowed.indexOf(value) >= 0 ? value : fallback;
+    const scale2 = Math.round(clamp(num(src.scale, DEFAULT_SETTINGS.scale), MIN_SCALE, MAX_SCALE) * 100) / 100;
+    const autoplayValue = num(src.autoplay, 0);
+    const autoplay = [0, 30, 60, 300].indexOf(autoplayValue) >= 0 ? autoplayValue : 0;
+    const lastPoemId = typeof src.lastPoemId === "string" && src.lastPoemId.length ? src.lastPoemId : null;
+    const weatherCityRaw = typeof src.weatherCity === "string" ? src.weatherCity.trim() : "";
+    const weatherCity = weatherCityRaw.length >= 1 && weatherCityRaw.length <= 20 ? weatherCityRaw : DEFAULT_SETTINGS.weatherCity;
+    return {
+      schemaVersion: 1,
+      scale: scale2,
+      showTones: typeof src.showTones === "boolean" ? src.showTones : DEFAULT_SETTINGS.showTones,
+      mode: pickEnum(src.mode, ["daily", "random"], DEFAULT_SETTINGS.mode),
+      autoplay,
+      snap: pickEnum(src.snap, ["left", "right", "free"], DEFAULT_SETTINGS.snap),
+      script: pickEnum(src.script, ["simplified", "original"], DEFAULT_SETTINGS.script),
+      hidden: typeof src.hidden === "boolean" ? src.hidden : DEFAULT_SETTINGS.hidden,
+      theme: pickEnum(src.theme, ["auto", "light", "dark"], DEFAULT_SETTINGS.theme),
+      weatherCity,
+      weatherPoem: typeof src.weatherPoem === "boolean" ? src.weatherPoem : DEFAULT_SETTINGS.weatherPoem,
+      mood: typeof src.mood === "boolean" ? src.mood : DEFAULT_SETTINGS.mood,
+      spontaneousPoem: typeof src.spontaneousPoem === "boolean" ? src.spontaneousPoem : DEFAULT_SETTINGS.spontaneousPoem,
+      qqBridge: typeof src.qqBridge === "boolean" ? src.qqBridge : DEFAULT_SETTINGS.qqBridge,
+      twinOverlay: typeof src.twinOverlay === "boolean" ? src.twinOverlay : DEFAULT_SETTINGS.twinOverlay,
+      twinSystem: typeof src.twinSystem === "boolean" ? src.twinSystem : DEFAULT_SETTINGS.twinSystem,
+      lastPoemId,
+      tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
+      updatedAt: num(src.updatedAt, 0)
+    };
+  }
+  function settingsPatch(input) {
+    const src = input && typeof input === "object" ? input : {};
+    const normalized = normalizeSettings(src);
+    const out = {};
+    for (let i = 0; i < WRITE_KEYS.length; i++) {
+      const key = WRITE_KEYS[i];
+      if (hasOwn(src, key)) out[key] = normalized[key];
+    }
+    return out;
+  }
+  function buildSettingsRequest(patch) {
+    return {
+      url: SETTINGS_URL,
+      init: {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settingsPatch(patch)),
+        keepalive: true
+      }
+    };
+  }
+  function createSettingsSaver(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const put = typeof opts.put === "function" ? opts.put : () => Promise.resolve();
+    const delay = Math.max(0, num(opts.delay, SAVE_DEBOUNCE_MS));
+    const onError = typeof opts.onError === "function" ? opts.onError : null;
+    const onSaved = typeof opts.onSaved === "function" ? opts.onSaved : null;
+    let timer2 = null;
+    let pending = null;
+    let disposed = false;
+    function flush() {
+      if (timer2) {
+        clearTimeout(timer2);
+        timer2 = null;
+      }
+      if (!pending) return Promise.resolve();
+      const body = pending;
+      pending = null;
+      let request;
+      try {
+        request = Promise.resolve(put(body));
+      } catch (error) {
+        request = Promise.reject(error);
+      }
+      return request.then(
+        (result) => {
+          if (onSaved) {
+            try {
+              onSaved(result);
+            } catch (error) {
+            }
+          }
+          return result;
+        },
+        (error) => {
+          if (onError) {
+            try {
+              onError(error);
+            } catch (ignored) {
+            }
+          }
+          throw error;
+        }
+      );
+    }
+    function save(patch) {
+      if (disposed) return;
+      if (patch && typeof patch === "object") {
+        pending = Object.assign({}, pending || {}, patch);
+      }
+      if (timer2) clearTimeout(timer2);
+      timer2 = setTimeout(() => {
+        timer2 = null;
+        flush().catch(() => {
+        });
+      }, delay);
+    }
+    function dispose() {
+      disposed = true;
+      if (timer2) {
+        clearTimeout(timer2);
+        timer2 = null;
+      }
+      pending = null;
+    }
+    return { save, flush, dispose };
+  }
+  function selectNextPoemId(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const items = (Array.isArray(opts.items) ? opts.items : []).filter((item) => item && item.id);
+    if (!items.length) return null;
+    const mode = opts.mode === "random" ? "random" : "daily";
+    const currentId = opts.currentId || null;
+    const todayId = opts.todayId || null;
+    if (mode === "random") {
+      const random = typeof opts.random === "function" ? opts.random : Math.random;
+      let index2 = Math.floor(num(random(), 0) * items.length);
+      if (!Number.isFinite(index2) || index2 < 0) index2 = 0;
+      if (index2 >= items.length) index2 = items.length - 1;
+      if (items.length > 1 && items[index2].id === currentId) index2 = (index2 + 1) % items.length;
+      return items[index2].id;
+    }
+    if (todayId && currentId !== todayId && items.some((item) => item.id === todayId)) {
+      return todayId;
+    }
+    const currentIndex = items.findIndex((item) => item.id === currentId);
+    return items[(currentIndex + 1) % items.length].id;
+  }
+
+  // client-src/poetry-engine.js
+  var TONE_QUATRAINS = {
+    "\u4EC4\u8D77\u4E0D\u5165\u97F5": ["\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73"],
+    "\u4EC4\u8D77\u5165\u97F5": ["\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73"],
+    "\u5E73\u8D77\u4E0D\u5165\u97F5": ["\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73"],
+    "\u5E73\u8D77\u5165\u97F5": ["\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73"]
+  };
+  var TONE_ANY_CHARS = "\u25CB\u3007";
+  var PUNCTUATION = "\uFF0C\u3002\uFF01\uFF1F\uFF1B\u3001\uFF1A,.!?;:\u300C\u300D\u300E\u300F\uFF08\uFF09()\u300A\u300B\u3008\u3009\u201C\u201D\u2018\u2019\u2014\u2026\xB7";
+  function isPunctuation(ch) {
+    if (!ch) return true;
+    if (ch === " " || ch === "	" || ch === "\n" || ch === "\u3000") return true;
+    return PUNCTUATION.indexOf(ch) >= 0;
+  }
+  function toneKindOf(tone) {
+    if (tone === "\u5E73") return "ping";
+    if (tone === "\u4EC4") return "ze";
+    if (tone && TONE_ANY_CHARS.indexOf(tone) >= 0) return "any";
+    if (tone && TONE_QUESTION_CHARS.indexOf(tone) >= 0) return "unknown";
+    return "unknown";
+  }
+  function buildToneCells(line, toneLine, options) {
+    const opts = options || {};
+    const showTones = opts.showTones !== false;
+    const rhymeLine = opts.rhymeLine === true;
+    const chars = Array.from(String(line == null ? "" : line));
+    const tones = Array.from(String(toneLine == null ? "" : toneLine));
+    let lastCharIndex = -1;
+    for (let i = 0; i < chars.length; i++) {
+      if (!isPunctuation(chars[i])) lastCharIndex = i;
+    }
+    const cells = [];
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      const punctuation = isPunctuation(ch);
+      const kind = punctuation ? "punct" : toneKindOf(tones[i] || "");
+      const annotated = showTones && !punctuation && (kind === "ping" || kind === "ze" || kind === "any");
+      const rhyme = rhymeLine && i === lastCharIndex;
+      const classes = ["dshp-ch"];
+      if (punctuation) classes.push("dshp-ch-punct");
+      if (annotated) classes.push("dshp-ch-" + kind);
+      if (rhyme) classes.push("dshp-ch-rhyme");
+      cells.push({
+        ch,
+        tone: annotated ? tones[i] || "" : "",
+        kind,
+        punctuation,
+        rhyme,
+        index: i,
+        className: classes.join(" ")
+      });
+    }
+    return cells;
+  }
+  function selectPoemText(poem, script) {
+    const src = poem && typeof poem === "object" ? poem : {};
+    const original = script === "original";
+    const lines = original && Array.isArray(src.linesOriginal) && src.linesOriginal.length ? src.linesOriginal : Array.isArray(src.lines) ? src.lines : [];
+    const title = original && src.titleOriginal ? src.titleOriginal : src.title || "";
+    const author = original && src.authorOriginal ? src.authorOriginal : src.author || "";
+    return {
+      title: String(title || ""),
+      author: String(author || ""),
+      lines: lines.map((line) => typeof line === "string" ? line : "")
+    };
+  }
+  function selectCiText(ci) {
+    const src = ci && typeof ci === "object" ? ci : {};
+    return {
+      title: String(src.title || src.rhythmic || ""),
+      author: String(src.author || ""),
+      lines: (Array.isArray(src.lines) ? src.lines : []).map((line) => typeof line === "string" ? line : "")
+    };
+  }
+  function poemRhymeLines(poem) {
+    const src = poem && typeof poem === "object" ? poem : {};
+    if (Array.isArray(src.rhymeIdx) && src.rhymeIdx.length) {
+      return src.rhymeIdx.filter((i) => Number.isInteger(i) && i >= 0);
+    }
+    const count = Array.isArray(src.lines) ? src.lines.length : 0;
+    const fallback = [];
+    for (let i = 1; i < count; i += 2) fallback.push(i);
+    return fallback;
+  }
+  function buildPingshuiIndex(raw) {
+    const sourceCategories = raw && Array.isArray(raw.categories) ? raw.categories : [];
+    const categories = sourceCategories.map((cat, index2) => {
+      const value = cat && typeof cat === "object" ? cat : {};
+      return {
+        index: index2,
+        name: String(value.name || value.short || "\u97F5\u90E8" + (index2 + 1)),
+        short: String(value.short || value.name || "\u97F5\u90E8" + (index2 + 1)),
+        tone: String(value.tone || "").toLowerCase() === "ping" || value.tone === "\u5E73" ? "\u5E73" : "\u4EC4",
+        chars: String(value.chars == null ? "" : value.chars)
+      };
+    });
+    const charMap = {};
+    const addChar = (ch, index2) => {
+      if (!ch) return;
+      const list = charMap[ch] || (charMap[ch] = []);
+      if (list.indexOf(index2) < 0) list.push(index2);
+    };
+    const rawIndex = raw && raw.charIndex && typeof raw.charIndex === "object" ? raw.charIndex : null;
+    if (rawIndex) {
+      for (const ch of Object.keys(rawIndex)) {
+        const arr = Array.isArray(rawIndex[ch]) ? rawIndex[ch] : [];
+        for (const index2 of arr) if (Number.isInteger(index2) && categories[index2]) addChar(ch, index2);
+      }
+    }
+    for (const cat of categories) for (const ch of Array.from(cat.chars)) addChar(ch, cat.index);
+    function charInfo(ch) {
+      const indices = charMap[ch] || [];
+      const cats = indices.map((index2) => categories[index2]).filter(Boolean);
+      const tones = [];
+      for (const cat of cats) if (tones.indexOf(cat.tone) < 0) tones.push(cat.tone);
+      const rhymes = [];
+      for (const cat of cats) if (cat.tone === "\u5E73" && rhymes.indexOf(cat.short) < 0) rhymes.push(cat.short);
+      const candidates = [];
+      for (const cat of cats) candidates.push({ tone: cat.tone, name: cat.short });
+      return { ch, tones, rhymes, candidates };
+    }
+    return { categories, charMap, charInfo, ready: categories.length > 0 };
+  }
+  function tonesFromToneChar(toneChar) {
+    if (toneChar === "\u5E73") return ["\u5E73"];
+    if (toneChar === "\u4EC4") return ["\u4EC4"];
+    if (toneChar === "\u25CB" || toneChar === "\u3007") return ["\u5E73", "\u4EC4"];
+    return [];
+  }
+  function annotatePoemLines(lines, tones, pingshui) {
+    const out = [];
+    const toneLines = Array.isArray(tones) ? tones : [];
+    for (let lineIndex = 0; lineIndex < (Array.isArray(lines) ? lines.length : 0); lineIndex += 1) {
+      const lineChars = Array.from(String(lines[lineIndex] == null ? "" : lines[lineIndex]));
+      const toneChars = Array.from(String(toneLines[lineIndex] == null ? "" : toneLines[lineIndex]));
+      const cells = [];
+      for (let index2 = 0; index2 < lineChars.length; index2 += 1) {
+        const ch = lineChars[index2];
+        if (isPunctuation(ch)) continue;
+        const rawTone = toneChars[index2] || "";
+        const info = pingshui && typeof pingshui.charInfo === "function" ? pingshui.charInfo(ch) : { tones: [], rhymes: [], candidates: [] };
+        const allowed = rawTone ? tonesFromToneChar(rawTone) : info.tones || [];
+        cells.push({
+          ch,
+          allowed,
+          tone: allowed.length === 0 ? "\uFF1F" : allowed.length > 1 ? "\u25CB" : allowed[0],
+          rhymes: info.rhymes || [],
+          candidates: info.candidates || []
+        });
+      }
+      out.push(cells);
+    }
+    return out;
+  }
+  function patternForShape(form, start, firstRhyme) {
+    const key = start + (firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
+    const five = TONE_QUATRAINS[key] || TONE_QUATRAINS["\u5E73\u8D77\u4E0D\u5165\u97F5"];
+    const size = form && form.charAt(0) === "\u4E03" ? 7 : 5;
+    const base = size === 7 ? five.map((line) => (line.charAt(0) === "\u5E73" ? "\u4EC4\u4EC4" : "\u5E73\u5E73") + line) : five.slice();
+    const lines = form && form.charAt(1) === "\u5F8B" ? base.concat(base) : base;
+    return lines;
+  }
+  function allowedRelation(cellA, cellB, relation) {
+    const listA = cellA && Array.isArray(cellA.allowed) ? cellA.allowed : [];
+    const listB = cellB && Array.isArray(cellB.allowed) ? cellB.allowed : [];
+    if (!listA.length || !listB.length) return null;
+    for (const a2 of listA) {
+      for (const b of listB) {
+        if (relation === "dui" ? a2 !== b : a2 === b) return true;
+      }
+    }
+    return false;
+  }
+  function rhymeSetOf(cell) {
+    const names = cell && Array.isArray(cell.rhymes) ? cell.rhymes : [];
+    return names;
+  }
+  function detectMetre(annotation, pingshui) {
+    const report = {
+      ok: true,
+      errors: [],
+      form: "",
+      start: "",
+      firstRhyme: false,
+      meter: "",
+      weakTones: !pingshui || !pingshui.ready,
+      rhymeError: "",
+      rhymeLines: [],
+      rhymeGroup: [],
+      violations: [],
+      sticky: [],
+      sanPing: [],
+      guPing: [],
+      summary: ""
+    };
+    const lineCount = Array.isArray(annotation) ? annotation.length : 0;
+    const size = lineCount ? annotation[0].length : 0;
+    if (![4, 8].includes(lineCount) || ![5, 7].includes(size) || annotation.some((line) => line.length !== size)) {
+      report.ok = false;
+      report.errors.push("\u9700\u8981 4 \u53E5\u6216 8 \u53E5\u3001\u6BCF\u53E5 5 \u6216 7 \u4E2A\u5B57\uFF08\u5F53\u524D " + lineCount + " \u53E5 / \u9996\u53E5 " + size + " \u5B57\uFF09");
+      return report;
+    }
+    report.form = (size === 5 ? "\u4E94" : "\u4E03") + (lineCount === 4 ? "\u7EDD" : "\u5F8B");
+    const firstLine = annotation[0];
+    const startOptions = [];
+    const secondTones = firstLine[1] ? firstLine[1].allowed : [];
+    if (secondTones.indexOf("\u5E73") >= 0) startOptions.push("\u5E73\u8D77");
+    if (secondTones.indexOf("\u4EC4") >= 0) startOptions.push("\u4EC4\u8D77");
+    if (!startOptions.length) startOptions.push("\u5E73\u8D77", "\u4EC4\u8D77");
+    const lastTones = firstLine[firstLine.length - 1] ? firstLine[firstLine.length - 1].allowed : [];
+    const rhymeOptions = lastTones.indexOf("\u5E73") >= 0 ? [true] : lastTones.length ? [false] : [true, false];
+    if (lastTones.indexOf("\u5E73") >= 0 && lastTones.indexOf("\u4EC4") >= 0) rhymeOptions.length = 0;
+    if (rhymeOptions.length === 0) rhymeOptions.push(true, false);
+    const mandatory = size === 5 ? [1, 3] : [1, 3, 5];
+    let best = null;
+    for (const start of startOptions) {
+      for (const firstRhyme of rhymeOptions) {
+        const pattern2 = patternForShape(report.form, start, firstRhyme);
+        let violations = 0;
+        for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+          for (const position of mandatory) {
+            const cell = annotation[lineIndex][position];
+            const expected = pattern2[lineIndex] ? pattern2[lineIndex].charAt(position) : "";
+            if (!cell || !cell.allowed.length || !expected) continue;
+            if (cell.allowed.indexOf(expected) < 0) violations += 1;
+          }
+        }
+        if (!best || violations < best.violations) best = { start, firstRhyme, pattern: pattern2, violations };
+      }
+    }
+    report.start = best.start;
+    report.firstRhyme = best.firstRhyme;
+    report.meter = best.start + "\u9996\u53E5" + (best.firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
+    const pattern = best.pattern;
+    const rhymeIndexes = [];
+    for (let lineIndex = 1; lineIndex < lineCount; lineIndex += 2) rhymeIndexes.push(lineIndex);
+    if (best.firstRhyme) rhymeIndexes.unshift(0);
+    rhymeIndexes.sort((a2, b) => a2 - b);
+    for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+      for (const position of mandatory) {
+        const cell = annotation[lineIndex][position];
+        const expected = pattern[lineIndex] ? pattern[lineIndex].charAt(position) : "";
+        if (!cell || !cell.allowed.length || !expected) continue;
+        if (cell.allowed.indexOf(expected) < 0) {
+          report.violations.push({ line: lineIndex + 1, position: position + 1, ch: cell.ch, expected, actual: cell.tone });
+        }
+      }
+    }
+    const rhymeSets = [];
+    for (const lineIndex of rhymeIndexes) {
+      const cell = annotation[lineIndex][annotation[lineIndex].length - 1];
+      const isPing = cell && cell.allowed.indexOf("\u5E73") >= 0;
+      if (!isPing) report.violations.push({ line: lineIndex + 1, position: annotation[lineIndex].length, ch: cell ? cell.ch : "", expected: "\u5E73", actual: cell ? cell.tone : "\uFF1F", rhyme: true });
+      rhymeSets.push({ line: lineIndex, cell, names: rhymeSetOf(cell) });
+    }
+    if (report.weakTones) {
+      report.rhymeError = "\u7F3A\u5C11\u5E73\u6C34\u97F5\u6570\u636E\uFF0C\u97F5\u90E8\u5224\u5B9A\u5DF2\u8DF3\u8FC7";
+    } else {
+      const mainSets = rhymeSets.filter((entry) => entry.line !== 0);
+      const anchor = mainSets.length ? mainSets[0].names : rhymeSets[0] ? rhymeSets[0].names : [];
+      const group = [];
+      for (const name of anchor) {
+        if (mainSets.every((entry) => entry.names.indexOf(name) >= 0)) group.push(name);
+      }
+      report.rhymeGroup = group;
+      for (const entry of rhymeSets) {
+        const borrowed = entry.line === 0 && !entry.names.some((name) => group.indexOf(name) >= 0);
+        report.rhymeLines.push({
+          line: entry.line + 1,
+          ch: entry.cell ? entry.cell.ch : "",
+          names: entry.names,
+          borrowed: Boolean(borrowed && best.firstRhyme)
+        });
+        if (!group.length) continue;
+        if (borrowed) continue;
+        if (!entry.names.some((name) => group.indexOf(name) >= 0)) report.rhymeError = "\u7B2C " + (entry.line + 1) + " \u53E5\u97F5\u811A\u51FA\u97F5\uFF08" + (entry.names.join("/") || "\u672A\u77E5") + "\uFF09";
+      }
+      if (!group.length) report.rhymeError = report.rhymeError || "\u97F5\u811A\u6CA1\u6709\u5171\u540C\u97F5\u90E8\uFF08\u53EF\u80FD\u51FA\u97F5\u6216\u5E73\u6C34\u97F5\u6570\u636E\u7F3A\u5931\uFF09";
+    }
+    for (let lineIndex = 0; lineIndex + 1 < lineCount; lineIndex += 1) {
+      const relation = lineIndex % 2 === 0 ? "dui" : "nian";
+      for (const position of mandatory) {
+        const ok = allowedRelation(annotation[lineIndex][position], annotation[lineIndex + 1][position], relation);
+        if (ok === false) {
+          report.sticky.push({ pair: lineIndex + 1 + "-" + (lineIndex + 2), type: relation === "dui" ? "\u5BF9" : "\u7C98", position: position + 1 });
+        }
+      }
+    }
+    for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
+      const cells = annotation[lineIndex];
+      if (cells.length >= 3) {
+        const tail = cells.slice(-3);
+        if (tail.every((cell) => cell.allowed.indexOf("\u5E73") >= 0)) report.sanPing.push(lineIndex + 1);
+      }
+      const expectedLine = pattern[lineIndex] || "";
+      const lonelyPattern = size === 5 ? "\u5E73\u5E73\u4EC4\u4EC4\u5E73" : "\u4EC4\u4EC4\u5E73\u5E73\u4EC4\u4EC4\u5E73";
+      if (expectedLine === lonelyPattern) {
+        const position = size === 5 ? 0 : 2;
+        const cell = cells[position];
+        if (cell && cell.allowed.length === 1 && cell.allowed[0] === "\u4EC4") report.guPing.push(lineIndex + 1);
+      }
+    }
+    report.annotation = annotation;
+    const rhymeText = report.rhymeLines.map((entry) => entry.ch + (entry.names.length ? "\uFF08" + entry.names.join("/") + "\uFF09" : "") + (entry.borrowed ? "[\u501F\u97F5]" : "")).join("\u3001");
+    report.summary = report.form + "\uFF0C" + report.meter + "\uFF1B\u97F5\u811A\uFF1A" + (rhymeText || "\u2014") + (report.rhymeGroup.length ? "\uFF0C\u97F5\u90E8 " + report.rhymeGroup.join("/") : "") + (report.rhymeError ? "\uFF1B" + report.rhymeError : "") + "\uFF1B\u7C98\u5BF9" + (report.sticky.length ? "\u6709 " + report.sticky.length + " \u5904\u5931\u7C98/\u5931\u5BF9" : "\u6210\u7ACB") + "\uFF1B\u62D7\u5B57 " + report.violations.filter((item) => !item.rhyme).length + " \u5904" + (report.sanPing.length ? "\uFF1B\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5" : "") + (report.guPing.length ? "\uFF1B\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5" : "");
+    return report;
+  }
+  function detectPoem(poem, pingshui) {
+    const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
+    const tones = poem && Array.isArray(poem.tones) ? poem.tones : null;
+    return detectMetre(annotatePoemLines(lines, tones, pingshui), pingshui);
+  }
+  function parsePoemInput(text) {
+    const source = String(text == null ? "" : text).trim();
+    if (!source) return { error: "\u8BF7\u8F93\u5165\u8BD7\u53E5" };
+    const clauses = [];
+    for (const row of source.split(/[\n\r]+/)) {
+      for (const part of String(row).split(/[，,。.！!？?；;：:、\s]+/)) {
+        const chars = Array.from(part.replace(/[^\u4e00-\u9fff]/g, ""));
+        if (chars.length) clauses.push({ raw: part.trim(), chars });
+      }
+    }
+    if (![4, 8].includes(clauses.length)) return { error: "\u9700\u8981 4 \u53E5\u6216 8 \u53E5\uFF08\u5F53\u524D " + clauses.length + " \u53E5\uFF09\uFF0C\u8BF7\u7528\u6362\u884C\u6216\u6807\u70B9\u5206\u9694" };
+    const size = clauses[0].chars.length;
+    if (![5, 7].includes(size)) return { error: "\u6BCF\u53E5\u9700\u8981 5 \u6216 7 \u4E2A\u5B57\uFF08\u9996\u53E5\u4E3A " + size + " \u5B57\uFF09" };
+    for (let index2 = 0; index2 < clauses.length; index2 += 1) {
+      if (clauses[index2].chars.length !== size) return { error: "\u7B2C " + (index2 + 1) + " \u53E5\u4E3A " + clauses[index2].chars.length + " \u5B57\uFF0C\u4E0E\u524D\u53E5 " + size + " \u5B57\u4E0D\u4E00\u81F4" };
+    }
+    return { lines: clauses };
+  }
+  function detectPoemText(text, pingshui) {
+    const parsed = parsePoemInput(text);
+    if (parsed.error) return { ok: false, errors: [parsed.error], summary: parsed.error };
+    const annotation = parsed.lines.map((clause) => annotatePoemLines([clause.raw], null, pingshui)[0]);
+    return detectMetre(annotation, pingshui);
+  }
+  function formatDetectionReport(report) {
+    if (!report) return "";
+    const lines = ["\u3010\u683C\u5F8B\u68C0\u6D4B\u3011" + (report.summary || "")];
+    for (const error of report.errors || []) lines.push("\u26A0 " + error);
+    for (const item of report.violations || []) lines.push("\xB7 \u7B2C " + item.line + " \u53E5\u7B2C " + item.position + " \u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645 " + item.actual + "\uFF09");
+    for (const item of report.sticky || []) lines.push("\xB7 \u7B2C " + item.pair + " \u53E5\u5931" + item.type + "\uFF08\u7B2C " + item.position + " \u5B57\uFF09");
+    for (const line of report.sanPing || []) lines.push("\xB7 \u7B2C " + line + " \u53E5\u7591\u4F3C\u4E09\u5E73\u8C03");
+    for (const line of report.guPing || []) lines.push("\xB7 \u7B2C " + line + " \u53E5\u7591\u4F3C\u5B64\u5E73");
+    return lines.join("\n");
+  }
+  function detectionRhymeIndexes(report) {
+    const set2 = {};
+    for (const item of report && report.rhymeLines || []) set2[item.line - 1] = true;
+    return set2;
+  }
+
   // client-src/mood-engine.js
   var SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1e3;
   var MOOD_SWITCH_MIN_MS = 20 * 60 * 1e3;
@@ -15651,7 +16240,7 @@
     const AnalysisBody = ctx.AnalysisBody;
     const KnowledgeCardView = ctx.KnowledgeCardView;
     const describeDataError = ctx.describeDataError;
-    const normalizeSettings = ctx.normalizeSettings;
+    const normalizeSettings2 = ctx.normalizeSettings;
     const cx = ctx.cx;
     const switchNode = ctx.switchNode;
     const num2 = ctx.num;
@@ -16054,7 +16643,7 @@
     }
     function PoetrySettingsTab(props) {
       const api = props.api || {};
-      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
+      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
       const update = api.updateSettings || (() => {
       });
       const seg = (options, current, onPick) => h(
@@ -16130,7 +16719,7 @@
     const React = ctx.React;
     const h = ctx.h;
     const cx = ctx.cx;
-    const normalizeSettings = ctx.normalizeSettings;
+    const normalizeSettings2 = ctx.normalizeSettings;
     const num2 = ctx.num;
     const switchNode = ctx.switchNode;
     const growthMetricsTree = ctx.growthMetricsTree;
@@ -16140,7 +16729,7 @@
     const moodAiFailureLabel2 = ctx.moodAiFailureLabel;
     function SettingsTab(props) {
       const api = props.api || {};
-      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings();
+      const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
       const [confirmReset, setConfirmReset] = React.useState(false);
       const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
       React.useEffect(() => {
@@ -23071,8 +23660,8 @@
     const EmptyState = ctx.EmptyState;
     const LoadingState = ctx.LoadingState;
     const ToneLine = ctx.ToneLine;
-    const detectionRhymeIndexes = ctx.detectionRhymeIndexes;
-    const formatDetectionReport = ctx.formatDetectionReport;
+    const detectionRhymeIndexes2 = ctx.detectionRhymeIndexes;
+    const formatDetectionReport2 = ctx.formatDetectionReport;
     const describeDataError = ctx.describeDataError;
     const getFeihuaIndex = ctx.getFeihuaIndex;
     const pickDefaultFeihuaChar = ctx.pickDefaultFeihuaChar;
@@ -23430,7 +24019,7 @@
       const api = props.api || {};
       if (!report) return null;
       const annotation = Array.isArray(report.annotation) ? report.annotation : [];
-      const rhymeIndexes = detectionRhymeIndexes(report);
+      const rhymeIndexes = detectionRhymeIndexes2(report);
       const lines = [];
       for (let lineIndex = 0; lineIndex < annotation.length; lineIndex += 1) {
         const cells = annotation[lineIndex];
@@ -23467,7 +24056,7 @@
             type: "button",
             className: "dshp-btn dshp-btn-small",
             onClick: () => {
-              const text = formatDetectionReport(report);
+              const text = formatDetectionReport2(report);
               try {
                 if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
                   navigator.clipboard.writeText(text).catch(() => {
@@ -23590,10 +24179,10 @@
     const WIDGET_ID = ctx.WIDGET_ID;
     const MASCOT_FILES = ctx.MASCOT_FILES;
     const mascotUrl2 = ctx.mascotUrl;
-    const detectPoem = ctx.detectPoem;
-    const detectPoemText = ctx.detectPoemText;
-    const parsePoemInput = ctx.parsePoemInput;
-    const buildPingshuiIndex = ctx.buildPingshuiIndex;
+    const detectPoem2 = ctx.detectPoem;
+    const detectPoemText2 = ctx.detectPoemText;
+    const parsePoemInput2 = ctx.parsePoemInput;
+    const buildPingshuiIndex2 = ctx.buildPingshuiIndex;
     function LibraryTab(props) {
       const api = props.api || {};
       const anthologyRes = api.anthologyRes || {};
@@ -23652,7 +24241,7 @@
         }
         if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
       }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]);
-      const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex(pingshuiRes.data) : null, [pingshuiRes.data]);
+      const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex2(pingshuiRes.data) : null, [pingshuiRes.data]);
       const items = React.useMemo(
         () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
         [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]
@@ -23675,7 +24264,7 @@
       );
       const shown = libraryPage(filtered, visible);
       const poemReport = React.useMemo(
-        () => detail && detector === "poem" && pingshui ? detectPoem(detail, pingshui) : null,
+        () => detail && detector === "poem" && pingshui ? detectPoem2(detail, pingshui) : null,
         [detail, detector, pingshui]
       );
       const pingshuiError = pingshuiRes.status === "error";
@@ -23689,7 +24278,7 @@
           });
           return;
         }
-        setInputReport(detectPoemText(inputText, pingshui));
+        setInputReport(detectPoemText2(inputText, pingshui));
       }
       if (loading) {
         if (anthologyRes.status === "error" && bankRes.status === "error") {
@@ -24591,7 +25180,7 @@
     };
   }
 
-  // client-src/client.js
+  // client-src/widget-plugin.js
   window.__ModuleLoader__.load({
     id: "dsh-little-whale",
     factory: (require2) => {
@@ -24623,14 +25212,14 @@
       const MEMORY_BACKUP_PATH = "memory/backup.json";
       const MEMORY_POLL_MS = 60 * 1e3;
       const ASSET_BASE2 = ROUTE2 + "assets?f=";
-      const SETTINGS_URL = ROUTE2 + "settings.json";
+      const SETTINGS_URL2 = ROUTE2 + "settings.json";
       const WIDGET_ID = "dsh-little-whale";
       const CACHE_KEY2 = "dshp.firstscreen.v1";
       const BASE_SIZE = 96;
-      const MIN_SCALE = 0.6;
-      const MAX_SCALE = 1.6;
+      const MIN_SCALE2 = 0.6;
+      const MAX_SCALE2 = 1.6;
       const Z_INDEX = 60;
-      const SAVE_DEBOUNCE_MS = 450;
+      const SAVE_DEBOUNCE_MS2 = 450;
       const STEPS = ["\u4ECA\u65E5\u4E00\u8BD7", "\u683C\u5F8B\u89E3\u6790", "\u4ECA\u65E5\u77E5\u8BC6\u5361", "\u58F0\u5F8B\u542F\u8499", "\u8BCD\u724C\u540D\u7BC7", "\u98DE\u82B1\u4EE4"];
       const POETRY_ENTRY_ENABLED = false;
       const POETRY_TABS = [
@@ -24743,52 +25332,6 @@
         "dsh-whale-state-festival-mid-autumn.webp",
         "dsh-whale-state-festival-christmas.webp"
       ];
-      const TONE_QUATRAINS = {
-        "\u4EC4\u8D77\u4E0D\u5165\u97F5": ["\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73"],
-        "\u4EC4\u8D77\u5165\u97F5": ["\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73"],
-        "\u5E73\u8D77\u4E0D\u5165\u97F5": ["\u5E73\u5E73\u5E73\u4EC4\u4EC4", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73"],
-        "\u5E73\u8D77\u5165\u97F5": ["\u5E73\u5E73\u4EC4\u4EC4\u5E73", "\u4EC4\u4EC4\u4EC4\u5E73\u5E73", "\u4EC4\u4EC4\u5E73\u5E73\u4EC4", "\u5E73\u5E73\u4EC4\u4EC4\u5E73"]
-      };
-      const WRITE_KEYS = [
-        "scale",
-        "showTones",
-        "mode",
-        "autoplay",
-        "snap",
-        "script",
-        "hidden",
-        "theme",
-        "weatherCity",
-        "weatherPoem",
-        "mood",
-        "spontaneousPoem",
-        "qqBridge",
-        "twinOverlay",
-        "twinSystem",
-        "lastPoemId",
-        "tutorialSeen"
-      ];
-      const DEFAULT_SETTINGS2 = Object.freeze({
-        schemaVersion: 1,
-        scale: 1,
-        showTones: true,
-        mode: "daily",
-        autoplay: 0,
-        snap: "left",
-        script: "simplified",
-        hidden: false,
-        theme: "auto",
-        weatherCity: "\u5317\u4EAC",
-        weatherPoem: true,
-        mood: true,
-        spontaneousPoem: true,
-        qqBridge: true,
-        twinOverlay: true,
-        twinSystem: true,
-        lastPoemId: null,
-        tutorialSeen: false,
-        updatedAt: 0
-      });
       const RESOURCE_PATHS = {
         poems: "poems.json",
         ci: "ci.json",
@@ -24804,7 +25347,7 @@
         }
         return out;
       }
-      function hasOwn(obj, key) {
+      function hasOwn2(obj, key) {
         return Object.prototype.hasOwnProperty.call(obj, key);
       }
       function hashString(input) {
@@ -24822,223 +25365,7 @@
         const now2 = /* @__PURE__ */ new Date();
         return now2.getMonth() + 1 + " \u6708 " + now2.getDate() + " \u65E5";
       }
-      const PUNCTUATION = "\uFF0C\u3002\uFF01\uFF1F\uFF1B\u3001\uFF1A,.!?;:\u300C\u300D\u300E\u300F\uFF08\uFF09()\u300A\u300B\u3008\u3009\u201C\u201D\u2018\u2019\u2014\u2026\xB7";
-      const TONE_ANY_CHARS = "\u25CB\u3007";
-      const TONE_QUESTION_CHARS = "\uFF1F?";
-      function isPunctuation(ch) {
-        if (!ch) return true;
-        if (ch === " " || ch === "	" || ch === "\n" || ch === "\u3000") return true;
-        return PUNCTUATION.indexOf(ch) >= 0;
-      }
-      function toneKindOf(tone) {
-        if (tone === "\u5E73") return "ping";
-        if (tone === "\u4EC4") return "ze";
-        if (tone && TONE_ANY_CHARS.indexOf(tone) >= 0) return "any";
-        if (tone && TONE_QUESTION_CHARS.indexOf(tone) >= 0) return "unknown";
-        return "unknown";
-      }
-      function buildToneCells(line, toneLine, options) {
-        const opts = options || {};
-        const showTones = opts.showTones !== false;
-        const rhymeLine = opts.rhymeLine === true;
-        const chars = Array.from(String(line == null ? "" : line));
-        const tones = Array.from(String(toneLine == null ? "" : toneLine));
-        let lastCharIndex = -1;
-        for (let i = 0; i < chars.length; i++) {
-          if (!isPunctuation(chars[i])) lastCharIndex = i;
-        }
-        const cells = [];
-        for (let i = 0; i < chars.length; i++) {
-          const ch = chars[i];
-          const punctuation = isPunctuation(ch);
-          const kind = punctuation ? "punct" : toneKindOf(tones[i] || "");
-          const annotated = showTones && !punctuation && (kind === "ping" || kind === "ze" || kind === "any");
-          const rhyme = rhymeLine && i === lastCharIndex;
-          const classes = ["dshp-ch"];
-          if (punctuation) classes.push("dshp-ch-punct");
-          if (annotated) classes.push("dshp-ch-" + kind);
-          if (rhyme) classes.push("dshp-ch-rhyme");
-          cells.push({
-            ch,
-            tone: annotated ? tones[i] || "" : "",
-            kind,
-            punctuation,
-            rhyme,
-            index: i,
-            className: classes.join(" ")
-          });
-        }
-        return cells;
-      }
-      function selectPoemText(poem, script) {
-        const src = poem && typeof poem === "object" ? poem : {};
-        const original = script === "original";
-        const lines = original && Array.isArray(src.linesOriginal) && src.linesOriginal.length ? src.linesOriginal : Array.isArray(src.lines) ? src.lines : [];
-        const title = original && src.titleOriginal ? src.titleOriginal : src.title || "";
-        const author = original && src.authorOriginal ? src.authorOriginal : src.author || "";
-        return {
-          title: String(title || ""),
-          author: String(author || ""),
-          lines: lines.map((line) => typeof line === "string" ? line : "")
-        };
-      }
-      function selectCiText(ci) {
-        const src = ci && typeof ci === "object" ? ci : {};
-        return {
-          title: String(src.title || src.rhythmic || ""),
-          author: String(src.author || ""),
-          lines: (Array.isArray(src.lines) ? src.lines : []).map((line) => typeof line === "string" ? line : "")
-        };
-      }
-      function poemRhymeLines(poem) {
-        const src = poem && typeof poem === "object" ? poem : {};
-        if (Array.isArray(src.rhymeIdx) && src.rhymeIdx.length) {
-          return src.rhymeIdx.filter((i) => Number.isInteger(i) && i >= 0);
-        }
-        const count = Array.isArray(src.lines) ? src.lines.length : 0;
-        const fallback = [];
-        for (let i = 1; i < count; i += 2) fallback.push(i);
-        return fallback;
-      }
-      function normalizeSettings(raw) {
-        const src = raw && typeof raw === "object" ? raw : {};
-        const pickEnum = (value, allowed, fallback) => allowed.indexOf(value) >= 0 ? value : fallback;
-        const scale2 = Math.round(clamp(num(src.scale, DEFAULT_SETTINGS2.scale), MIN_SCALE, MAX_SCALE) * 100) / 100;
-        const autoplayValue = num(src.autoplay, 0);
-        const autoplay = [0, 30, 60, 300].indexOf(autoplayValue) >= 0 ? autoplayValue : 0;
-        const lastPoemId = typeof src.lastPoemId === "string" && src.lastPoemId.length ? src.lastPoemId : null;
-        const weatherCityRaw = typeof src.weatherCity === "string" ? src.weatherCity.trim() : "";
-        const weatherCity = weatherCityRaw.length >= 1 && weatherCityRaw.length <= 20 ? weatherCityRaw : DEFAULT_SETTINGS2.weatherCity;
-        return {
-          schemaVersion: 1,
-          scale: scale2,
-          showTones: typeof src.showTones === "boolean" ? src.showTones : DEFAULT_SETTINGS2.showTones,
-          mode: pickEnum(src.mode, ["daily", "random"], DEFAULT_SETTINGS2.mode),
-          autoplay,
-          snap: pickEnum(src.snap, ["left", "right", "free"], DEFAULT_SETTINGS2.snap),
-          script: pickEnum(src.script, ["simplified", "original"], DEFAULT_SETTINGS2.script),
-          hidden: typeof src.hidden === "boolean" ? src.hidden : DEFAULT_SETTINGS2.hidden,
-          theme: pickEnum(src.theme, ["auto", "light", "dark"], DEFAULT_SETTINGS2.theme),
-          weatherCity,
-          weatherPoem: typeof src.weatherPoem === "boolean" ? src.weatherPoem : DEFAULT_SETTINGS2.weatherPoem,
-          mood: typeof src.mood === "boolean" ? src.mood : DEFAULT_SETTINGS2.mood,
-          spontaneousPoem: typeof src.spontaneousPoem === "boolean" ? src.spontaneousPoem : DEFAULT_SETTINGS2.spontaneousPoem,
-          qqBridge: typeof src.qqBridge === "boolean" ? src.qqBridge : DEFAULT_SETTINGS2.qqBridge,
-          twinOverlay: typeof src.twinOverlay === "boolean" ? src.twinOverlay : DEFAULT_SETTINGS2.twinOverlay,
-          twinSystem: typeof src.twinSystem === "boolean" ? src.twinSystem : DEFAULT_SETTINGS2.twinSystem,
-          lastPoemId,
-          tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS2.tutorialSeen,
-          updatedAt: num(src.updatedAt, 0)
-        };
-      }
-      function settingsPatch(input) {
-        const src = input && typeof input === "object" ? input : {};
-        const normalized = normalizeSettings(src);
-        const out = {};
-        for (let i = 0; i < WRITE_KEYS.length; i++) {
-          const key = WRITE_KEYS[i];
-          if (hasOwn(src, key)) out[key] = normalized[key];
-        }
-        return out;
-      }
-      function buildSettingsRequest(patch) {
-        return {
-          url: SETTINGS_URL,
-          init: {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(settingsPatch(patch)),
-            keepalive: true
-          }
-        };
-      }
-      function createSettingsSaver(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const put = typeof opts.put === "function" ? opts.put : () => Promise.resolve();
-        const delay = Math.max(0, num(opts.delay, SAVE_DEBOUNCE_MS));
-        const onError = typeof opts.onError === "function" ? opts.onError : null;
-        const onSaved = typeof opts.onSaved === "function" ? opts.onSaved : null;
-        let timer2 = null;
-        let pending = null;
-        let disposed = false;
-        function flush() {
-          if (timer2) {
-            clearTimeout(timer2);
-            timer2 = null;
-          }
-          if (!pending) return Promise.resolve();
-          const body = pending;
-          pending = null;
-          let request;
-          try {
-            request = Promise.resolve(put(body));
-          } catch (error) {
-            request = Promise.reject(error);
-          }
-          return request.then(
-            (result) => {
-              if (onSaved) {
-                try {
-                  onSaved(result);
-                } catch (error) {
-                }
-              }
-              return result;
-            },
-            (error) => {
-              if (onError) {
-                try {
-                  onError(error);
-                } catch (ignored) {
-                }
-              }
-              throw error;
-            }
-          );
-        }
-        function save(patch) {
-          if (disposed) return;
-          if (patch && typeof patch === "object") {
-            pending = Object.assign({}, pending || {}, patch);
-          }
-          if (timer2) clearTimeout(timer2);
-          timer2 = setTimeout(() => {
-            timer2 = null;
-            flush().catch(() => {
-            });
-          }, delay);
-        }
-        function dispose() {
-          disposed = true;
-          if (timer2) {
-            clearTimeout(timer2);
-            timer2 = null;
-          }
-          pending = null;
-        }
-        return { save, flush, dispose };
-      }
-      function selectNextPoemId(options) {
-        const opts = options && typeof options === "object" ? options : {};
-        const items = (Array.isArray(opts.items) ? opts.items : []).filter((item) => item && item.id);
-        if (!items.length) return null;
-        const mode = opts.mode === "random" ? "random" : "daily";
-        const currentId = opts.currentId || null;
-        const todayId = opts.todayId || null;
-        if (mode === "random") {
-          const random = typeof opts.random === "function" ? opts.random : Math.random;
-          let index2 = Math.floor(num(random(), 0) * items.length);
-          if (!Number.isFinite(index2) || index2 < 0) index2 = 0;
-          if (index2 >= items.length) index2 = items.length - 1;
-          if (items.length > 1 && items[index2].id === currentId) index2 = (index2 + 1) % items.length;
-          return items[index2].id;
-        }
-        if (todayId && currentId !== todayId && items.some((item) => item.id === todayId)) {
-          return todayId;
-        }
-        const currentIndex = items.findIndex((item) => item.id === currentId);
-        return items[(currentIndex + 1) % items.length].id;
-      }
+      const TONE_QUESTION_CHARS2 = "\uFF1F?";
       function clampPosition(position, size, viewport) {
         const maxX = Math.max(8, viewport.w - size - 8);
         const maxY = Math.max(8, viewport.h - size - 8);
@@ -25796,53 +26123,6 @@
         } : null;
         return { enabled: true, project };
       }
-      function normalizeHealthStatus(raw) {
-        const data = raw && typeof raw === "object" ? raw : {};
-        const runtime = data.runtime && typeof data.runtime === "object" ? data.runtime : null;
-        if (!runtime) return null;
-        const budget = runtime.budget && typeof runtime.budget === "object" ? runtime.budget : null;
-        const heartbeat = runtime.heartbeat && typeof runtime.heartbeat === "object" ? runtime.heartbeat : null;
-        const modelErrors = runtime.modelErrors && typeof runtime.modelErrors === "object" ? runtime.modelErrors : null;
-        const consolidate = runtime.consolidate && typeof runtime.consolidate === "object" ? runtime.consolidate : null;
-        const growth = runtime.growthMetrics && typeof runtime.growthMetrics === "object" ? runtime.growthMetrics : null;
-        const memoryBacklog = consolidate && consolidate.backlog && typeof consolidate.backlog === "object" ? consolidate.backlog : null;
-        const jobs = Array.isArray(heartbeat && heartbeat.jobs) ? heartbeat.jobs : [];
-        const counts = budget && budget.counts && typeof budget.counts === "object" ? budget.counts : {};
-        const roleCounts = Object.keys(counts).map((role) => ({ role, count: num(counts[role], 0) })).filter((item) => item.count > 0).sort((left, right) => right.count - left.count).slice(0, 6);
-        return {
-          version: data.version || "",
-          day: budget && typeof budget.day === "string" ? budget.day : "",
-          total: budget ? num(budget.total, 0) : 0,
-          totalLimit: budget ? num(budget.totalLimit, 0) : 0,
-          roleCounts,
-          jobs: jobs.map((job) => ({
-            name: String(job.name || ""),
-            runs: num(job.runs, 0),
-            errors: num(job.errors, 0),
-            consecutiveErrors: num(job.consecutiveErrors, 0),
-            skippedRuns: num(job.skippedRuns, 0),
-            running: job.running === true,
-            nextAt: typeof job.nextAt === "number" ? job.nextAt : null,
-            lastStartedAt: typeof job.lastStartedAt === "number" ? job.lastStartedAt : null,
-            lastDurationMs: typeof job.lastDurationMs === "number" ? job.lastDurationMs : null,
-            lastError: typeof job.lastError === "string" ? job.lastError : ""
-          })),
-          activeJobs: num(heartbeat && heartbeat.pulses, 0),
-          modelErrorTotal: modelErrors ? num(modelErrors.total, 0) : 0,
-          memoryBacklog: memoryBacklog ? num(memoryBacklog.entries, 0) : null,
-          memoryBacklogOldestAt: memoryBacklog && typeof memoryBacklog.oldestAt === "number" ? memoryBacklog.oldestAt : null,
-          growthMetrics: growth ? {
-            daysAlive: num(growth.daysAlive, 0),
-            journalTotal: growth.journal ? num(growth.journal.total, 0) : 0,
-            episodes: growth.memory ? num(growth.memory.episodes, 0) : 0,
-            coverage: growth.memory ? num(growth.memory.coverage, 0) : 0,
-            learning: growth.learning ? num(growth.learning.sections, 0) : 0,
-            repetition: growth.repetition ? num(growth.repetition.maxSimilarity, 0) : 0,
-            project: growth.project && typeof growth.project.current === "string" ? growth.project.current : ""
-          } : null,
-          modelErrorsByRole: modelErrors && modelErrors.byRole && typeof modelErrors.byRole === "object" ? Object.keys(modelErrors.byRole).map((role) => ({ role, count: num(modelErrors.byRole[role], 0) })).sort((a2, b) => b.count - a2.count).slice(0, 4) : []
-        };
-      }
       function switchNode(checked, onChange, label) {
         return h("button", {
           type: "button",
@@ -25924,273 +26204,6 @@
         if (!file) return "";
         return "/api/dsh-poetry/assets?f=" + file + "&v=" + encodeURIComponent(String(version == null ? "" : version));
       }
-      function buildPingshuiIndex(raw) {
-        const sourceCategories = raw && Array.isArray(raw.categories) ? raw.categories : [];
-        const categories = sourceCategories.map((cat, index2) => {
-          const value = cat && typeof cat === "object" ? cat : {};
-          return {
-            index: index2,
-            name: String(value.name || value.short || "\u97F5\u90E8" + (index2 + 1)),
-            short: String(value.short || value.name || "\u97F5\u90E8" + (index2 + 1)),
-            tone: String(value.tone || "").toLowerCase() === "ping" || value.tone === "\u5E73" ? "\u5E73" : "\u4EC4",
-            chars: String(value.chars == null ? "" : value.chars)
-          };
-        });
-        const charMap = {};
-        const addChar = (ch, index2) => {
-          if (!ch) return;
-          const list = charMap[ch] || (charMap[ch] = []);
-          if (list.indexOf(index2) < 0) list.push(index2);
-        };
-        const rawIndex = raw && raw.charIndex && typeof raw.charIndex === "object" ? raw.charIndex : null;
-        if (rawIndex) {
-          for (const ch of Object.keys(rawIndex)) {
-            const arr = Array.isArray(rawIndex[ch]) ? rawIndex[ch] : [];
-            for (const index2 of arr) if (Number.isInteger(index2) && categories[index2]) addChar(ch, index2);
-          }
-        }
-        for (const cat of categories) for (const ch of Array.from(cat.chars)) addChar(ch, cat.index);
-        function charInfo(ch) {
-          const indices = charMap[ch] || [];
-          const cats = indices.map((index2) => categories[index2]).filter(Boolean);
-          const tones = [];
-          for (const cat of cats) if (tones.indexOf(cat.tone) < 0) tones.push(cat.tone);
-          const rhymes = [];
-          for (const cat of cats) if (cat.tone === "\u5E73" && rhymes.indexOf(cat.short) < 0) rhymes.push(cat.short);
-          const candidates = [];
-          for (const cat of cats) candidates.push({ tone: cat.tone, name: cat.short });
-          return { ch, tones, rhymes, candidates };
-        }
-        return { categories, charMap, charInfo, ready: categories.length > 0 };
-      }
-      function tonesFromToneChar(toneChar) {
-        if (toneChar === "\u5E73") return ["\u5E73"];
-        if (toneChar === "\u4EC4") return ["\u4EC4"];
-        if (toneChar === "\u25CB" || toneChar === "\u3007") return ["\u5E73", "\u4EC4"];
-        return [];
-      }
-      function annotatePoemLines(lines, tones, pingshui) {
-        const out = [];
-        const toneLines = Array.isArray(tones) ? tones : [];
-        for (let lineIndex = 0; lineIndex < (Array.isArray(lines) ? lines.length : 0); lineIndex += 1) {
-          const lineChars = Array.from(String(lines[lineIndex] == null ? "" : lines[lineIndex]));
-          const toneChars = Array.from(String(toneLines[lineIndex] == null ? "" : toneLines[lineIndex]));
-          const cells = [];
-          for (let index2 = 0; index2 < lineChars.length; index2 += 1) {
-            const ch = lineChars[index2];
-            if (isPunctuation(ch)) continue;
-            const rawTone = toneChars[index2] || "";
-            const info = pingshui && typeof pingshui.charInfo === "function" ? pingshui.charInfo(ch) : { tones: [], rhymes: [], candidates: [] };
-            const allowed = rawTone ? tonesFromToneChar(rawTone) : info.tones || [];
-            cells.push({
-              ch,
-              allowed,
-              tone: allowed.length === 0 ? "\uFF1F" : allowed.length > 1 ? "\u25CB" : allowed[0],
-              rhymes: info.rhymes || [],
-              candidates: info.candidates || []
-            });
-          }
-          out.push(cells);
-        }
-        return out;
-      }
-      function patternForShape(form, start, firstRhyme) {
-        const key = start + (firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
-        const five = TONE_QUATRAINS[key] || TONE_QUATRAINS["\u5E73\u8D77\u4E0D\u5165\u97F5"];
-        const size = form && form.charAt(0) === "\u4E03" ? 7 : 5;
-        const base = size === 7 ? five.map((line) => (line.charAt(0) === "\u5E73" ? "\u4EC4\u4EC4" : "\u5E73\u5E73") + line) : five.slice();
-        const lines = form && form.charAt(1) === "\u5F8B" ? base.concat(base) : base;
-        return lines;
-      }
-      function allowedRelation(cellA, cellB, relation) {
-        const listA = cellA && Array.isArray(cellA.allowed) ? cellA.allowed : [];
-        const listB = cellB && Array.isArray(cellB.allowed) ? cellB.allowed : [];
-        if (!listA.length || !listB.length) return null;
-        for (const a2 of listA) {
-          for (const b of listB) {
-            if (relation === "dui" ? a2 !== b : a2 === b) return true;
-          }
-        }
-        return false;
-      }
-      function rhymeSetOf(cell) {
-        const names = cell && Array.isArray(cell.rhymes) ? cell.rhymes : [];
-        return names;
-      }
-      function detectMetre(annotation, pingshui) {
-        const report = {
-          ok: true,
-          errors: [],
-          form: "",
-          start: "",
-          firstRhyme: false,
-          meter: "",
-          weakTones: !pingshui || !pingshui.ready,
-          rhymeError: "",
-          rhymeLines: [],
-          rhymeGroup: [],
-          violations: [],
-          sticky: [],
-          sanPing: [],
-          guPing: [],
-          summary: ""
-        };
-        const lineCount = Array.isArray(annotation) ? annotation.length : 0;
-        const size = lineCount ? annotation[0].length : 0;
-        if (![4, 8].includes(lineCount) || ![5, 7].includes(size) || annotation.some((line) => line.length !== size)) {
-          report.ok = false;
-          report.errors.push("\u9700\u8981 4 \u53E5\u6216 8 \u53E5\u3001\u6BCF\u53E5 5 \u6216 7 \u4E2A\u5B57\uFF08\u5F53\u524D " + lineCount + " \u53E5 / \u9996\u53E5 " + size + " \u5B57\uFF09");
-          return report;
-        }
-        report.form = (size === 5 ? "\u4E94" : "\u4E03") + (lineCount === 4 ? "\u7EDD" : "\u5F8B");
-        const firstLine = annotation[0];
-        const startOptions = [];
-        const secondTones = firstLine[1] ? firstLine[1].allowed : [];
-        if (secondTones.indexOf("\u5E73") >= 0) startOptions.push("\u5E73\u8D77");
-        if (secondTones.indexOf("\u4EC4") >= 0) startOptions.push("\u4EC4\u8D77");
-        if (!startOptions.length) startOptions.push("\u5E73\u8D77", "\u4EC4\u8D77");
-        const lastTones = firstLine[firstLine.length - 1] ? firstLine[firstLine.length - 1].allowed : [];
-        const rhymeOptions = lastTones.indexOf("\u5E73") >= 0 ? [true] : lastTones.length ? [false] : [true, false];
-        if (lastTones.indexOf("\u5E73") >= 0 && lastTones.indexOf("\u4EC4") >= 0) rhymeOptions.length = 0;
-        if (rhymeOptions.length === 0) rhymeOptions.push(true, false);
-        const mandatory = size === 5 ? [1, 3] : [1, 3, 5];
-        let best = null;
-        for (const start of startOptions) {
-          for (const firstRhyme of rhymeOptions) {
-            const pattern2 = patternForShape(report.form, start, firstRhyme);
-            let violations = 0;
-            for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
-              for (const position of mandatory) {
-                const cell = annotation[lineIndex][position];
-                const expected = pattern2[lineIndex] ? pattern2[lineIndex].charAt(position) : "";
-                if (!cell || !cell.allowed.length || !expected) continue;
-                if (cell.allowed.indexOf(expected) < 0) violations += 1;
-              }
-            }
-            if (!best || violations < best.violations) best = { start, firstRhyme, pattern: pattern2, violations };
-          }
-        }
-        report.start = best.start;
-        report.firstRhyme = best.firstRhyme;
-        report.meter = best.start + "\u9996\u53E5" + (best.firstRhyme ? "\u5165\u97F5" : "\u4E0D\u5165\u97F5");
-        const pattern = best.pattern;
-        const rhymeIndexes = [];
-        for (let lineIndex = 1; lineIndex < lineCount; lineIndex += 2) rhymeIndexes.push(lineIndex);
-        if (best.firstRhyme) rhymeIndexes.unshift(0);
-        rhymeIndexes.sort((a2, b) => a2 - b);
-        for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
-          for (const position of mandatory) {
-            const cell = annotation[lineIndex][position];
-            const expected = pattern[lineIndex] ? pattern[lineIndex].charAt(position) : "";
-            if (!cell || !cell.allowed.length || !expected) continue;
-            if (cell.allowed.indexOf(expected) < 0) {
-              report.violations.push({ line: lineIndex + 1, position: position + 1, ch: cell.ch, expected, actual: cell.tone });
-            }
-          }
-        }
-        const rhymeSets = [];
-        for (const lineIndex of rhymeIndexes) {
-          const cell = annotation[lineIndex][annotation[lineIndex].length - 1];
-          const isPing = cell && cell.allowed.indexOf("\u5E73") >= 0;
-          if (!isPing) report.violations.push({ line: lineIndex + 1, position: annotation[lineIndex].length, ch: cell ? cell.ch : "", expected: "\u5E73", actual: cell ? cell.tone : "\uFF1F", rhyme: true });
-          rhymeSets.push({ line: lineIndex, cell, names: rhymeSetOf(cell) });
-        }
-        if (report.weakTones) {
-          report.rhymeError = "\u7F3A\u5C11\u5E73\u6C34\u97F5\u6570\u636E\uFF0C\u97F5\u90E8\u5224\u5B9A\u5DF2\u8DF3\u8FC7";
-        } else {
-          const mainSets = rhymeSets.filter((entry) => entry.line !== 0);
-          const anchor = mainSets.length ? mainSets[0].names : rhymeSets[0] ? rhymeSets[0].names : [];
-          const group = [];
-          for (const name of anchor) {
-            if (mainSets.every((entry) => entry.names.indexOf(name) >= 0)) group.push(name);
-          }
-          report.rhymeGroup = group;
-          for (const entry of rhymeSets) {
-            const borrowed = entry.line === 0 && !entry.names.some((name) => group.indexOf(name) >= 0);
-            report.rhymeLines.push({
-              line: entry.line + 1,
-              ch: entry.cell ? entry.cell.ch : "",
-              names: entry.names,
-              borrowed: Boolean(borrowed && best.firstRhyme)
-            });
-            if (!group.length) continue;
-            if (borrowed) continue;
-            if (!entry.names.some((name) => group.indexOf(name) >= 0)) report.rhymeError = "\u7B2C " + (entry.line + 1) + " \u53E5\u97F5\u811A\u51FA\u97F5\uFF08" + (entry.names.join("/") || "\u672A\u77E5") + "\uFF09";
-          }
-          if (!group.length) report.rhymeError = report.rhymeError || "\u97F5\u811A\u6CA1\u6709\u5171\u540C\u97F5\u90E8\uFF08\u53EF\u80FD\u51FA\u97F5\u6216\u5E73\u6C34\u97F5\u6570\u636E\u7F3A\u5931\uFF09";
-        }
-        for (let lineIndex = 0; lineIndex + 1 < lineCount; lineIndex += 1) {
-          const relation = lineIndex % 2 === 0 ? "dui" : "nian";
-          for (const position of mandatory) {
-            const ok = allowedRelation(annotation[lineIndex][position], annotation[lineIndex + 1][position], relation);
-            if (ok === false) {
-              report.sticky.push({ pair: lineIndex + 1 + "-" + (lineIndex + 2), type: relation === "dui" ? "\u5BF9" : "\u7C98", position: position + 1 });
-            }
-          }
-        }
-        for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
-          const cells = annotation[lineIndex];
-          if (cells.length >= 3) {
-            const tail = cells.slice(-3);
-            if (tail.every((cell) => cell.allowed.indexOf("\u5E73") >= 0)) report.sanPing.push(lineIndex + 1);
-          }
-          const expectedLine = pattern[lineIndex] || "";
-          const lonelyPattern = size === 5 ? "\u5E73\u5E73\u4EC4\u4EC4\u5E73" : "\u4EC4\u4EC4\u5E73\u5E73\u4EC4\u4EC4\u5E73";
-          if (expectedLine === lonelyPattern) {
-            const position = size === 5 ? 0 : 2;
-            const cell = cells[position];
-            if (cell && cell.allowed.length === 1 && cell.allowed[0] === "\u4EC4") report.guPing.push(lineIndex + 1);
-          }
-        }
-        report.annotation = annotation;
-        const rhymeText = report.rhymeLines.map((entry) => entry.ch + (entry.names.length ? "\uFF08" + entry.names.join("/") + "\uFF09" : "") + (entry.borrowed ? "[\u501F\u97F5]" : "")).join("\u3001");
-        report.summary = report.form + "\uFF0C" + report.meter + "\uFF1B\u97F5\u811A\uFF1A" + (rhymeText || "\u2014") + (report.rhymeGroup.length ? "\uFF0C\u97F5\u90E8 " + report.rhymeGroup.join("/") : "") + (report.rhymeError ? "\uFF1B" + report.rhymeError : "") + "\uFF1B\u7C98\u5BF9" + (report.sticky.length ? "\u6709 " + report.sticky.length + " \u5904\u5931\u7C98/\u5931\u5BF9" : "\u6210\u7ACB") + "\uFF1B\u62D7\u5B57 " + report.violations.filter((item) => !item.rhyme).length + " \u5904" + (report.sanPing.length ? "\uFF1B\u4E09\u5E73\u8C03\uFF1A\u7B2C " + report.sanPing.join("\u3001") + " \u53E5" : "") + (report.guPing.length ? "\uFF1B\u5B64\u5E73\uFF1A\u7B2C " + report.guPing.join("\u3001") + " \u53E5" : "");
-        return report;
-      }
-      function detectPoem(poem, pingshui) {
-        const lines = poem && Array.isArray(poem.lines) ? poem.lines : [];
-        const tones = poem && Array.isArray(poem.tones) ? poem.tones : null;
-        return detectMetre(annotatePoemLines(lines, tones, pingshui), pingshui);
-      }
-      function parsePoemInput(text) {
-        const source = String(text == null ? "" : text).trim();
-        if (!source) return { error: "\u8BF7\u8F93\u5165\u8BD7\u53E5" };
-        const clauses = [];
-        for (const row of source.split(/[\n\r]+/)) {
-          for (const part of String(row).split(/[，,。.！!？?；;：:、\s]+/)) {
-            const chars = Array.from(part.replace(/[^\u4e00-\u9fff]/g, ""));
-            if (chars.length) clauses.push({ raw: part.trim(), chars });
-          }
-        }
-        if (![4, 8].includes(clauses.length)) return { error: "\u9700\u8981 4 \u53E5\u6216 8 \u53E5\uFF08\u5F53\u524D " + clauses.length + " \u53E5\uFF09\uFF0C\u8BF7\u7528\u6362\u884C\u6216\u6807\u70B9\u5206\u9694" };
-        const size = clauses[0].chars.length;
-        if (![5, 7].includes(size)) return { error: "\u6BCF\u53E5\u9700\u8981 5 \u6216 7 \u4E2A\u5B57\uFF08\u9996\u53E5\u4E3A " + size + " \u5B57\uFF09" };
-        for (let index2 = 0; index2 < clauses.length; index2 += 1) {
-          if (clauses[index2].chars.length !== size) return { error: "\u7B2C " + (index2 + 1) + " \u53E5\u4E3A " + clauses[index2].chars.length + " \u5B57\uFF0C\u4E0E\u524D\u53E5 " + size + " \u5B57\u4E0D\u4E00\u81F4" };
-        }
-        return { lines: clauses };
-      }
-      function detectPoemText(text, pingshui) {
-        const parsed = parsePoemInput(text);
-        if (parsed.error) return { ok: false, errors: [parsed.error], summary: parsed.error };
-        const annotation = parsed.lines.map((clause) => annotatePoemLines([clause.raw], null, pingshui)[0]);
-        return detectMetre(annotation, pingshui);
-      }
-      function formatDetectionReport(report) {
-        if (!report) return "";
-        const lines = ["\u3010\u683C\u5F8B\u68C0\u6D4B\u3011" + (report.summary || "")];
-        for (const error of report.errors || []) lines.push("\u26A0 " + error);
-        for (const item of report.violations || []) lines.push("\xB7 \u7B2C " + item.line + " \u53E5\u7B2C " + item.position + " \u5B57\u300C" + item.ch + "\u300D\u5B9C" + item.expected + "\uFF08\u5B9E\u9645 " + item.actual + "\uFF09");
-        for (const item of report.sticky || []) lines.push("\xB7 \u7B2C " + item.pair + " \u53E5\u5931" + item.type + "\uFF08\u7B2C " + item.position + " \u5B57\uFF09");
-        for (const line of report.sanPing || []) lines.push("\xB7 \u7B2C " + line + " \u53E5\u7591\u4F3C\u4E09\u5E73\u8C03");
-        for (const line of report.guPing || []) lines.push("\xB7 \u7B2C " + line + " \u53E5\u7591\u4F3C\u5B64\u5E73");
-        return lines.join("\n");
-      }
-      function detectionRhymeIndexes(report) {
-        const set2 = {};
-        for (const item of report && report.rhymeLines || []) set2[item.line - 1] = true;
-        return set2;
-      }
       function shouldShowDailyGreet(state, now2) {
         return !normalizeMascotEggState(state, now2).greeted;
       }
@@ -26238,7 +26251,7 @@
         STEPS,
         PANEL_TABS: panelTabs.tabs,
         POETRY_TABS,
-        DEFAULT_SETTINGS: DEFAULT_SETTINGS2,
+        DEFAULT_SETTINGS,
         buildToneCells,
         selectPoemText,
         selectCiText,
@@ -26775,7 +26788,7 @@
         const saverRef = React.useRef(null);
         if (!saverRef.current) {
           saverRef.current = createSettingsSaver({
-            delay: SAVE_DEBOUNCE_MS,
+            delay: SAVE_DEBOUNCE_MS2,
             put: (patch) => putSettings(patch),
             onError: () => {
               if (showToastRef.current) showToastRef.current("\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u672C\u5730\u8BBE\u7F6E", "error");
@@ -26808,7 +26821,7 @@
             const changed = {};
             for (let i = 0; i < WRITE_KEYS.length; i++) {
               const key = WRITE_KEYS[i];
-              if (hasOwn(patch, key) && next[key] !== previous[key]) changed[key] = next[key];
+              if (hasOwn2(patch, key) && next[key] !== previous[key]) changed[key] = next[key];
             }
             if (Object.keys(changed).length) saverRef.current.save(changed);
           }
@@ -27850,16 +27863,16 @@
         }
         function resetSettings() {
           updateSettings({
-            scale: DEFAULT_SETTINGS2.scale,
-            showTones: DEFAULT_SETTINGS2.showTones,
-            mode: DEFAULT_SETTINGS2.mode,
-            autoplay: DEFAULT_SETTINGS2.autoplay,
-            snap: DEFAULT_SETTINGS2.snap,
-            script: DEFAULT_SETTINGS2.script,
-            hidden: DEFAULT_SETTINGS2.hidden,
-            theme: DEFAULT_SETTINGS2.theme,
-            lastPoemId: DEFAULT_SETTINGS2.lastPoemId,
-            tutorialSeen: DEFAULT_SETTINGS2.tutorialSeen
+            scale: DEFAULT_SETTINGS.scale,
+            showTones: DEFAULT_SETTINGS.showTones,
+            mode: DEFAULT_SETTINGS.mode,
+            autoplay: DEFAULT_SETTINGS.autoplay,
+            snap: DEFAULT_SETTINGS.snap,
+            script: DEFAULT_SETTINGS.script,
+            hidden: DEFAULT_SETTINGS.hidden,
+            theme: DEFAULT_SETTINGS.theme,
+            lastPoemId: DEFAULT_SETTINGS.lastPoemId,
+            tutorialSeen: DEFAULT_SETTINGS.tutorialSeen
           });
           showToast("\u5DF2\u6062\u590D\u9ED8\u8BA4\u8BBE\u7F6E");
         }
