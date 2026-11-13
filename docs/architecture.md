@@ -56,6 +56,7 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - **统一心跳**：`lib/domain/host/heartbeat.mjs` 每 60s 一拍；任务按 `everyMs/offsetMs` 到点触发，失败隔离。
   `health.runtime.heartbeat.jobs` 现包含 `nextAt / lastDurationMs / consecutiveErrors / skippedRuns`。
 - **已迁移**：成长弧（`成长弧`，每 24h，首跑 3min）从自带定时器迁到心跳；哲学/溜达/读小说/看大家说话等原本就在心跳上。
-- **仍独立定时的服务**（后续 P1 继续迁）：心情、碎碎念、学习评价、日常、镜像、自训练等；迁移目标是把“所有循环”变成心跳注册表里的可观测任务。
+- **已迁移**：自训练、日常、学习评价、道德实践也已改为心跳任务；心跳注册表现有 13 个作业。
+- **仍独立定时的服务**（后续 P1 继续迁）：心情、碎碎念、镜像、夜间整合（部分已由心跳 tick 驱动）等。
 - **跨域耦合**：`node scripts/check-deps.mjs` 会打印跨域依赖与 facade 比例；当前 75 条跨域边、0% 走 facade（历史债）。`STRICT_FACADE=1` 时低于 50% 会失败，用于逐步收紧。
 - **推荐方向**：跨域改走各域 `index.mjs` facade；`domain-services` 按域拆装配函数；状态文件收敛到 StateStore。
