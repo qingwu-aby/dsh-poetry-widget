@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.2.8 memory-recall 拆分（P1 第六步）**：`memory-recall.mjs` 717→399 行，拆出 `memory-recall-search.mjs`（journal/learning 读取、向量检索、关键词/二元组工具，337 行）；服务与 digest 格式化留在原文件并 re-export，测试 565/565。
 - **v0.2.7 mood-ai-core 拆分（P1 第五步）**：`mood-ai-core.mjs` 751→319 行，拆出 `mood-ai-shared.mjs`（图鉴/时间/常量/校验小工具，443 行）；prompt 构建与结果解析留在 core，原 API re-export，测试 565/565。
 - **v0.2.6 memory-layers 拆分（P1 第四步）**：`memory-layers.mjs` 756→314 行，拆出 `memory-layers-core.mjs`（常量/小工具，56 行）与 `memory-consolidator.mjs`（每日整合服务，410 行）；原 API 由 memory-layers re-export 保持兼容，测试 565/565。
 - **v0.2.5 大文件拆分（P1 第三步）**：`self-growth.mjs` 780→636 行，抽出 `self-growth-topics.mjs`（话题采样/重复主题检测，102 行）与 `self-growth-log.mjs`（自学/试探日志与 probe 状态，60 行）；行为不变，测试 565/565。

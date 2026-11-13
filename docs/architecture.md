@@ -108,3 +108,10 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - `mood-ai-shared.mjs`：常量、心情词库、时间/日期、图鉴解析与候选选择；
 - 原导出由 core re-export，`mood-ai.mjs` / 客户端 / 测试无需改 import。
 - 后续：`memory-recall`（717）→ 状态收敛 → facade 迁移。
+
+## memory-recall 拆分（v0.2.8）
+
+- `memory-recall.mjs` 717 → 399 行：只保留检索服务与 digest 格式化；
+- `memory-recall-search.mjs`：journal/learning 读取、向量索引与检索、关键词/二元组工具；
+- 原导出由 `memory-recall.mjs` re-export，调用方无需改。
+- 大文件拆分清单已全部完成；下一步：状态收敛 → cross-domain facade 迁移。
