@@ -220,6 +220,39 @@ function GrowthTab(props) {
     )),
    )
    : null,
+  (() => {
+   const health = api.healthStatus
+   if (!health) return null
+   const jobs = Array.isArray(health.jobs) ? health.jobs.slice(0, 12) : []
+   const fmtNext = (ts) => {
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—'
+    const diff = ts - Date.now()
+    if (diff <= 0) return '马上'
+    if (diff < 60000) return Math.round(diff / 1000) + ' 秒后'
+    if (diff < 3600000) return Math.round(diff / 60000) + ' 分钟后'
+    return Math.round(diff / 3600000) + ' 小时后'
+   }
+   const fmtDuration = (ms) => (typeof ms === 'number' && ms >= 0 ? (ms < 1000 ? Math.round(ms) + 'ms' : (ms / 1000).toFixed(1) + 's') : '—')
+   return h(
+    'div',
+    { className: 'dshp-growth-section' },
+    h('div', { className: 'dshp-growth-section-head' }, '运行时'),
+    h('div', { className: 'dshp-growth-empty' }, '模型调用 ' + health.total + (health.totalLimit > 0 ? '/' + health.totalLimit : '') + ' · 心跳 ' + (health.activeJobs || 0) + ' 拍 · 24h 模型失败 ' + health.modelErrorTotal),
+    jobs.length > 0
+     ? h(
+       'div',
+       { style: { marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 } },
+       ...jobs.map((job, index) => h(
+        'div',
+        { key: 'runtime-job-' + index, style: { display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 11.5, opacity: job.errors > 0 ? 1 : 0.8 } },
+        h('span', { style: { minWidth: 70 } }, job.name),
+        h('span', { style: { opacity: 0.55, flex: 1 } }, '下次 ' + fmtNext(job.nextAt) + ' · 上次 ' + fmtDuration(job.lastDurationMs)),
+        job.errors > 0 ? h('span', { style: { color: '#d97373' } }, '错 ' + job.errors) : null,
+       )),
+      )
+     : h('div', { className: 'dshp-growth-empty' }, '心跳未注册'),
+   )
+  })(),
   h(
    'div',
    { className: 'dshp-growth-section dshp-growth-journey' },

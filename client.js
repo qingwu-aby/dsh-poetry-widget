@@ -16614,6 +16614,37 @@
             h("div", { className: "dshp-work-time" }, weatherUpdatedLabel(work.createdAt) || "--:--")
           ))
         ) : null,
+        (() => {
+          const health = api.healthStatus;
+          if (!health) return null;
+          const jobs = Array.isArray(health.jobs) ? health.jobs.slice(0, 12) : [];
+          const fmtNext = (ts) => {
+            if (typeof ts !== "number" || !Number.isFinite(ts)) return "\u2014";
+            const diff = ts - Date.now();
+            if (diff <= 0) return "\u9A6C\u4E0A";
+            if (diff < 6e4) return Math.round(diff / 1e3) + " \u79D2\u540E";
+            if (diff < 36e5) return Math.round(diff / 6e4) + " \u5206\u949F\u540E";
+            return Math.round(diff / 36e5) + " \u5C0F\u65F6\u540E";
+          };
+          const fmtDuration = (ms) => typeof ms === "number" && ms >= 0 ? ms < 1e3 ? Math.round(ms) + "ms" : (ms / 1e3).toFixed(1) + "s" : "\u2014";
+          return h(
+            "div",
+            { className: "dshp-growth-section" },
+            h("div", { className: "dshp-growth-section-head" }, "\u8FD0\u884C\u65F6"),
+            h("div", { className: "dshp-growth-empty" }, "\u6A21\u578B\u8C03\u7528 " + health.total + (health.totalLimit > 0 ? "/" + health.totalLimit : "") + " \xB7 \u5FC3\u8DF3 " + (health.activeJobs || 0) + " \u62CD \xB7 24h \u6A21\u578B\u5931\u8D25 " + health.modelErrorTotal),
+            jobs.length > 0 ? h(
+              "div",
+              { style: { marginTop: 6, display: "flex", flexDirection: "column", gap: 3 } },
+              ...jobs.map((job, index2) => h(
+                "div",
+                { key: "runtime-job-" + index2, style: { display: "flex", gap: 8, alignItems: "baseline", fontSize: 11.5, opacity: job.errors > 0 ? 1 : 0.8 } },
+                h("span", { style: { minWidth: 70 } }, job.name),
+                h("span", { style: { opacity: 0.55, flex: 1 } }, "\u4E0B\u6B21 " + fmtNext(job.nextAt) + " \xB7 \u4E0A\u6B21 " + fmtDuration(job.lastDurationMs)),
+                job.errors > 0 ? h("span", { style: { color: "#d97373" } }, "\u9519 " + job.errors) : null
+              ))
+            ) : h("div", { className: "dshp-growth-empty" }, "\u5FC3\u8DF3\u672A\u6CE8\u518C")
+          );
+        })(),
         h(
           "div",
           { className: "dshp-growth-section dshp-growth-journey" },
@@ -25788,7 +25819,12 @@
             name: String(job.name || ""),
             runs: num(job.runs, 0),
             errors: num(job.errors, 0),
+            consecutiveErrors: num(job.consecutiveErrors, 0),
+            skippedRuns: num(job.skippedRuns, 0),
             running: job.running === true,
+            nextAt: typeof job.nextAt === "number" ? job.nextAt : null,
+            lastStartedAt: typeof job.lastStartedAt === "number" ? job.lastStartedAt : null,
+            lastDurationMs: typeof job.lastDurationMs === "number" ? job.lastDurationMs : null,
             lastError: typeof job.lastError === "string" ? job.lastError : ""
           })),
           activeJobs: num(heartbeat && heartbeat.pulses, 0),
@@ -28801,7 +28837,7 @@
           };
         }, [panelOpen, panelTab, settings.hidden]);
         React.useEffect(() => {
-          if (!panelOpen || panelTab !== "settings" || settings.hidden) {
+          if (!panelOpen || panelTab !== "settings" && panelTab !== "growth" || settings.hidden) {
             setHealthStatus(null);
             return void 0;
           }

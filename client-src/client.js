@@ -1578,7 +1578,12 @@ window.__ModuleLoader__.load({
      name: String(job.name || ''),
      runs: num(job.runs, 0),
      errors: num(job.errors, 0),
+     consecutiveErrors: num(job.consecutiveErrors, 0),
+     skippedRuns: num(job.skippedRuns, 0),
      running: job.running === true,
+     nextAt: typeof job.nextAt === 'number' ? job.nextAt : null,
+     lastStartedAt: typeof job.lastStartedAt === 'number' ? job.lastStartedAt : null,
+     lastDurationMs: typeof job.lastDurationMs === 'number' ? job.lastDurationMs : null,
      lastError: typeof job.lastError === 'string' ? job.lastError : '',
     })),
     activeJobs: num(heartbeat && heartbeat.pulses, 0),
@@ -4723,7 +4728,7 @@ window.__ModuleLoader__.load({
 
   // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
   React.useEffect(() => {
-   if (!panelOpen || panelTab !== 'settings' || settings.hidden) {
+   if (!panelOpen || (panelTab !== 'settings' && panelTab !== 'growth') || settings.hidden) {
     setHealthStatus(null)
     return undefined
    }
