@@ -60,3 +60,17 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - **仍独立定时的服务**（后续 P1 继续迁）：心情、碎碎念、镜像、夜间整合（部分已由心跳 tick 驱动）等。
 - **跨域耦合**：`node scripts/check-deps.mjs` 会打印跨域依赖与 facade 比例；当前 75 条跨域边、0% 走 facade（历史债）。`STRICT_FACADE=1` 时低于 50% 会失败，用于逐步收紧。
 - **推荐方向**：跨域改走各域 `index.mjs` facade；`domain-services` 按域拆装配函数；状态文件收敛到 StateStore。
+
+## 装配层拆分（v0.2.3）
+
+`lib/composition/domain-services.mjs` 原来 565 行，现按域拆成 5 个装配模块（约 415 + 各子模块）：
+
+| 模块 | 负责 |
+|---|---|
+| `memory-knowledge-services.mjs` | 分层记忆、认知图谱、affect/情绪事件、世界观、记忆整合、阅读提示 |
+| `language-mood-services.mjs` | 声音档案、自说、心情 AI、内部规则、动作策略、飞花令全量 |
+| `chat-entry-services.mjs` | 聊天运行时、推送/outbox、手动阅读、chat token |
+| `learning-being-services.mjs` | 哲学阅读、思维链/方法账本、成长弧、道德实践、规则总结 |
+| `domain-services.mjs` | 只保留跨域编排、顺序与引用（selfDrive/philosophy/growthArc 的 getter） |
+
+后续 P1：把 `self-growth`、`memory-layers`、`mood-ai-core`、`routes` 等大文件继续按职责拆分。
