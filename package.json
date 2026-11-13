@@ -1,6 +1,6 @@
 {
   "name": "dsh-little-whale",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "DSH Web 界面里会自己长大的小鲸鱼：成长、记忆、自主生活，诗词与格律降权为二级菜单",
   "type": "module",
   "main": "index.js",
@@ -96,6 +96,7 @@
     "ops:install:force": "node scripts/ops/install.mjs --force",
     "eval:turing": "node scripts/eval/turing/run-chat.mjs",
     "eval:turing:score": "node scripts/eval/turing/score.mjs",
-    "eval:turing:judge": "node scripts/eval/turing/judge.mjs"
+    "eval:turing:judge": "node scripts/eval/turing/judge.mjs",
+    "state:audit": "node scripts/audit-state.mjs"
   }
 }

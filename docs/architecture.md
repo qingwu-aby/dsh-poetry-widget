@@ -115,3 +115,10 @@ index.js（插件入口：38 行，只做 bootstrap + host.inject）
 - `memory-recall-search.mjs`：journal/learning 读取、向量索引与检索、关键词/二元组工具；
 - 原导出由 `memory-recall.mjs` re-export，调用方无需改。
 - 大文件拆分清单已全部完成；下一步：状态收敛 → cross-domain facade 迁移。
+
+## 状态与 facade（v0.2.9）
+
+- `state-specs` 32→42：补齐 affect/appraisal/internal-rules/knowledge-graph-state/methods/moral/nightly-consolidation/philosophy/positions；
+- 新增 `npm run state:audit`：只读对比注册表与 `$DSH_HOME/.dsh-poetry` 实际 JSON，列出未注册项（`settings.json` 由 settings-store 单独管理）；
+- 跨域 import 迁移：82 条中 60 条（73.2%）改走各域 `index.mjs`；其余 22 条若改会形成循环或目标模块未导出，保留具体路径。
+- P1 清单完成：装配层、路由表、大文件、状态注册、facade 迁移（安全子集）。

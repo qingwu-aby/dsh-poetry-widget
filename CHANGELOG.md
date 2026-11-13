@@ -281,3 +281,5 @@ data 42 / host 196 / client 118 = **356 / 356 pass**；`node --check` 全过。
 - 天气诗词：Open-Meteo 实时天气（城市可设），按晴/云/雨/雪/雷/风/冷/夜推荐诗词。
 - 心情系统：按会话活跃/工作强度/天气/时段/饭点/闲置/飞花战绩计算 9 种心情，切换 92 张本地立绘；低频「想读的诗」彩蛋。
 - 全部离线：诗词/立绘本地随包；设置持久化；路由信任栅栏；零凭据。
+
+- **v0.2.9 状态注册 + facade 迁移（P1 收尾）**：①state-specs 从 32→42 项，补齐 affect/appraisal/internal-rules/knowledge-graph-state/methods/moral/nightly-consolidation/philosophy/positions；新增 `npm run state:audit` 审计未注册状态文件；②跨域 import 安全迁移到各域 `index.mjs` facade：60/82（73.2%），依赖检查保持 0 循环、0 分层违规；剩余 22 条因会形成循环或目标未导出而保留具体路径。测试 565/565。
