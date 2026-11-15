@@ -101,6 +101,10 @@
       {
         "kind": "exact",
         "path": "/api/dsh-poetry/twin-state.json"
+      },
+      {
+        "kind": "exact",
+        "path": "/api/dsh-poetry/game-decide.json"
       }
     ]
   }
