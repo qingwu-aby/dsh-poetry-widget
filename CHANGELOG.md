@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.6.4 建造记忆 + 建造校验**：游戏记忆新增 `build` 分类（选址/材料/进度）；决策新增 `build` 动作；bot 建房前先找树/探路，放置后逐块校验，达不到 60% 不再误报“房子盖好了”。
 - **v0.6.3 别一直站着**：决策 prompt 引导她优先活动（idle 只用于真想安静时，不确定选 wander）；bot 增加连续两次 idle 自动转 wander，保证她不会长时间静止。
 - **v0.6.2 自由活动**：动作白名单扩到 wander/explore/mine/collect/place/attack/plan；bot 接入 mineflayer-pathfinder 自主寻路；模型可自由决定走动、探索、挖自然方块、捡掉落物、放方块、打敌对生物、记下自己的计划；玩家附近自动避免拆放方块，不攻击玩家。
 - **v0.6.1 游戏记忆分类 + Minecraft 一键开关**：新增独立 `game-memory.json`（五类：world/player/session/event/plan，只在游戏决策 prompt 读取，不混入聊天/日记/学习记忆）；新增 `POST /api/dsh-poetry/game-memory.json` 与 `GET/POST /api/dsh-poetry/minecraft-control.json`；设置页新增 Minecraft 卡片：一键启动/停止、后台启动开关、状态刷新。570+ 测试。

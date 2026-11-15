@@ -10,6 +10,7 @@ test('游戏记忆：五类固定分类，互不混用', () => {
   memory.record({ category: 'session', text: '今天一起在出生点附近走了走' })
   memory.record({ category: 'event', text: '第一次见面时她跟了过去' })
   memory.record({ category: 'plan', text: '想学会砍树' })
+  memory.record({ category: 'build', text: '选址 -14 91 29' })
   for (const category of GAME_MEMORY_CATEGORIES) {
     const items = memory.digest({ category })
     assert.equal(items.length, 1, category)
