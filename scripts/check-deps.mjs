@@ -121,7 +121,9 @@ console.log(
     .join('、')}`,
 )
 // facade 禁止 export *：否则会把整域模块拖进依赖图，重新制造循环。
-for (const [file, content] of [...imports.keys()].filter((name) => name.endsWith('/facade.mjs')).map((name) => [name, readFileSync(path.join(ROOT, name), 'utf8')])) {
+for (const [file, content] of [...imports.keys()]
+  .filter((name) => name.endsWith('/facade.mjs'))
+  .map((name) => [name, readFileSync(path.join(ROOT, name), 'utf8')])) {
   if (/export\s+\*\s+from/.test(content)) {
     violations.push({ type: 'facade', file, detail: `${file} 不允许 export *（会拉入整域并可能成环）` })
   }
