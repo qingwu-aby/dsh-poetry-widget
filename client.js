@@ -15807,7 +15807,7 @@
 
   // client-src/tabs-poetry.js
   function createPoetryTabs(ctx = {}) {
-    const React2 = ctx.React;
+    const React = ctx.React;
     const h3 = ctx.h;
     const EmptyState2 = ctx.EmptyState;
     const LoadingState2 = ctx.LoadingState;
@@ -15875,7 +15875,7 @@
     }
     function ClassTab2(props) {
       const api = props.api || {};
-      const [index2, setIndex] = React2.useState(0);
+      const [index2, setIndex] = React.useState(0);
       const resource = api.knowledgeRes || {};
       if (resource.status === "error") {
         return h3(EmptyState2, {
@@ -15935,7 +15935,7 @@
     }
     function YunTab2(props) {
       const api = props.api || {};
-      const [expanded, setExpanded] = React2.useState(null);
+      const [expanded, setExpanded] = React.useState(null);
       const resource = api.yunRes || {};
       if (resource.status === "error") {
         return h3(EmptyState2, {
@@ -15999,16 +15999,16 @@
     }
     function CiTab2(props) {
       const api = props.api || {};
-      const [subTab, setSubTab] = React2.useState("poems");
-      const [query, setQuery] = React2.useState("");
-      const [rhythmic, setRhythmic] = React2.useState("");
-      const [visible, setVisible] = React2.useState(40);
-      const [openId, setOpenId] = React2.useState(null);
+      const [subTab, setSubTab] = React.useState("poems");
+      const [query, setQuery] = React.useState("");
+      const [rhythmic, setRhythmic] = React.useState("");
+      const [visible, setVisible] = React.useState(40);
+      const [openId, setOpenId] = React.useState(null);
       const knowledge = api.knowledgeRes || {};
       const ciRes = api.ciRes || {};
       const ciCards = knowledge.data && Array.isArray(knowledge.data.ciCards) ? knowledge.data.ciCards : [];
       const items = ciRes.data && Array.isArray(ciRes.data.items) ? ciRes.data.items : [];
-      const ciBankCounts = React2.useMemo(() => {
+      const ciBankCounts = React.useMemo(() => {
         const map = {};
         const bankItems = api.ciBankRes && api.ciBankRes.data && Array.isArray(api.ciBankRes.data.items) ? api.ciBankRes.data.items : [];
         for (const item of bankItems) {
@@ -16016,21 +16016,21 @@
         }
         return map;
       }, [api.ciBankRes]);
-      const ciSelectedCounts = React2.useMemo(() => {
+      const ciSelectedCounts = React.useMemo(() => {
         const map = {};
         for (const item of items) {
           if (item && item.rhythmic) map[item.rhythmic] = (map[item.rhythmic] || 0) + 1;
         }
         return map;
       }, [items]);
-      const rhythms = React2.useMemo(() => {
+      const rhythms = React.useMemo(() => {
         const seen = {};
         items.forEach((item) => {
           if (item && item.rhythmic) seen[item.rhythmic] = true;
         });
         return Object.keys(seen).sort((a2, b) => a2.localeCompare(b, "zh"));
       }, [items]);
-      const filtered = React2.useMemo(() => {
+      const filtered = React.useMemo(() => {
         const keyword = query.trim();
         return items.filter((item) => {
           if (!item) return false;
@@ -16040,7 +16040,7 @@
           return haystack.indexOf(keyword) >= 0;
         });
       }, [items, query, rhythmic]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         setVisible(40);
       }, [query, rhythmic]);
       if (knowledge.status === "error") {
@@ -16291,7 +16291,7 @@
 
   // client-src/tabs-settings.js
   function createSettingsTab(ctx = {}) {
-    const React2 = ctx.React;
+    const React = ctx.React;
     const h3 = ctx.h;
     const cx2 = ctx.cx;
     const normalizeSettings2 = ctx.normalizeSettings;
@@ -16305,9 +16305,9 @@
     function SettingsTab2(props) {
       const api = props.api || {};
       const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
-      const [confirmReset, setConfirmReset] = React2.useState(false);
-      const [cityDraft, setCityDraft] = React2.useState(settings.weatherCity || "\u5317\u4EAC");
-      React2.useEffect(() => {
+      const [confirmReset, setConfirmReset] = React.useState(false);
+      const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
+      React.useEffect(() => {
         setCityDraft(settings.weatherCity || "\u5317\u4EAC");
       }, [settings.weatherCity]);
       const update = api.updateSettings || (() => {
@@ -22088,30 +22088,30 @@
   }
   function createGraphTab(ctx = {}) {
     const h3 = ctx.h;
-    const React2 = ctx.React;
+    const React = ctx.React;
     function GraphTab2() {
-      const [data, setData] = React2.useState(null);
-      const [error, setError] = React2.useState("");
-      const [selected, setSelected] = React2.useState(null);
-      const [hovered, setHovered] = React2.useState(null);
-      const [query, setQuery] = React2.useState("");
-      const [rotateMode, setRotateMode] = React2.useState(false);
-      const [view3d, setView3d] = React2.useState(false);
-      const [reloadKey, setReloadKey] = React2.useState(0);
-      const [stats, setStats] = React2.useState({ nodes: 0, edges: 0, big: false });
-      const containerRef = React2.useRef(null);
-      const rendererRef = React2.useRef(null);
-      const fingerprintRef = React2.useRef("");
-      const layoutRef = React2.useRef(null);
-      const rotateModeRef = React2.useRef(false);
+      const [data, setData] = React.useState(null);
+      const [error, setError] = React.useState("");
+      const [selected, setSelected] = React.useState(null);
+      const [hovered, setHovered] = React.useState(null);
+      const [query, setQuery] = React.useState("");
+      const [rotateMode, setRotateMode] = React.useState(false);
+      const [view3d, setView3d] = React.useState(false);
+      const [reloadKey, setReloadKey] = React.useState(0);
+      const [stats, setStats] = React.useState({ nodes: 0, edges: 0, big: false });
+      const containerRef = React.useRef(null);
+      const rendererRef = React.useRef(null);
+      const fingerprintRef = React.useRef("");
+      const layoutRef = React.useRef(null);
+      const rotateModeRef = React.useRef(false);
       rotateModeRef.current = rotateMode;
-      const view3dRef = React2.useRef(false);
+      const view3dRef = React.useRef(false);
       view3dRef.current = view3d;
-      const applyCameraRef = React2.useRef(null);
-      const cameraRef = React2.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 });
-      const viewRef = React2.useRef({ selected: null, hovered: null, query: "" });
+      const applyCameraRef = React.useRef(null);
+      const cameraRef = React.useRef({ on: false, pitch: 0, yaw: 0, focal: 620 });
+      const viewRef = React.useRef({ selected: null, hovered: null, query: "" });
       viewRef.current = { selected, hovered, query };
-      React2.useEffect(() => {
+      React.useEffect(() => {
         let alive = true;
         const load = () => {
           fetch("/api/dsh-poetry/graph.json", { cache: "no-store" }).then((res) => {
@@ -22139,7 +22139,7 @@
           clearInterval(timer2);
         };
       }, [reloadKey]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         const container = containerRef.current;
         if (!container || !data) return void 0;
         let cancelled = false;
@@ -22494,7 +22494,7 @@
           cleanup();
         };
       }, [data, reloadKey]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         const camera = cameraRef.current;
         camera.on = view3d;
         if (view3d) {
@@ -22510,7 +22510,7 @@
         } catch {
         }
       }, [view3d]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         try {
           rendererRef.current && rendererRef.current.refresh();
         } catch {
@@ -23229,7 +23229,7 @@
 
   // client-src/tabs-feihua.js
   function createFeihuaTab(ctx = {}) {
-    const React2 = ctx.React;
+    const React = ctx.React;
     const h3 = ctx.h;
     const cx2 = ctx.cx;
     const EmptyState2 = ctx.EmptyState;
@@ -23258,18 +23258,18 @@
       const index2 = api.feihuaIndex || getFeihuaIndex2(poemsRes.data, ciRes.data, api.anthologyRes && api.anthologyRes.data, api.bankRes && api.bankRes.data);
       const feihuaBuilding = api.feihuaBuilding === true || Boolean(api.ciBankRes && api.ciBankRes.status === "loading");
       const ciBankFailed = Boolean(api.ciBankRes && api.ciBankRes.status === "error");
-      const [char, setChar] = React2.useState(null);
-      const [mode, setMode] = React2.useState("chain");
-      const [game, setGame] = React2.useState(null);
-      const [inputText, setInputText] = React2.useState("");
-      const [atlasLimit, setAtlasLimit] = React2.useState(FEIHUA_ATLAS_PAGE2);
-      const [best, setBest] = React2.useState(() => readFeihuaBest2());
-      const bestRef = React2.useRef(best);
+      const [char, setChar] = React.useState(null);
+      const [mode, setMode] = React.useState("chain");
+      const [game, setGame] = React.useState(null);
+      const [inputText, setInputText] = React.useState("");
+      const [atlasLimit, setAtlasLimit] = React.useState(FEIHUA_ATLAS_PAGE2);
+      const [best, setBest] = React.useState(() => readFeihuaBest2());
+      const bestRef = React.useRef(best);
       bestRef.current = best;
       const launch = num(api.feihuaLaunch, 0);
-      const launchRef = React2.useRef(0);
+      const launchRef = React.useRef(0);
       const activeChar = index2 ? char || pickDefaultFeihuaChar2(index2, api.poem) : null;
-      React2.useEffect(() => {
+      React.useEffect(() => {
         if (!index2 || !activeChar) return;
         if (launch > 0 && launch !== launchRef.current) {
           launchRef.current = launch;
@@ -23278,9 +23278,9 @@
           if (typeof api.consumeFeihuaLaunch === "function") api.consumeFeihuaLaunch();
         }
       }, [launch, index2, activeChar]);
-      const [fullInfo, setFullInfo] = React2.useState({ char: "", status: "idle", count: 0 });
-      const fullTokenRef = React2.useRef(0);
-      React2.useEffect(() => {
+      const [fullInfo, setFullInfo] = React.useState({ char: "", status: "idle", count: 0 });
+      const fullTokenRef = React.useRef(0);
+      React.useEffect(() => {
         if (!index2 || !activeChar) return void 0;
         const target = activeChar;
         const cached = readFeihuaFullCache2(target);
@@ -23742,7 +23742,7 @@
   // client-src/tabs-library.js
   function createLibraryTab(ctx = {}) {
     const LIBRARY_CATEGORIES2 = ctx.LIBRARY_CATEGORIES;
-    const React2 = ctx.React;
+    const React = ctx.React;
     const h3 = ctx.h;
     const cx2 = ctx.cx;
     const EmptyState2 = ctx.EmptyState;
@@ -23765,31 +23765,31 @@
       const pingshuiRes = api.pingshuiRes || {};
       const ciBankRes = api.ciBankRes || {};
       const ciRes = api.ciRes || {};
-      const [category, setCategory] = React2.useState("all");
-      const [ciRhythmic, setCiRhythmic] = React2.useState("");
-      const [searchScope, setSearchScope] = React2.useState("category");
-      const [ciSearchScope, setCiSearchScope] = React2.useState("selected");
-      const [query, setQuery] = React2.useState("");
-      const [debounced, setDebounced] = React2.useState("");
-      const [visible, setVisible] = React2.useState(LIBRARY_PAGE);
-      const [detail, setDetail] = React2.useState(null);
-      const [detector, setDetector] = React2.useState("");
-      const [inputText, setInputText] = React2.useState("");
-      const [inputReport, setInputReport] = React2.useState(null);
+      const [category, setCategory] = React.useState("all");
+      const [ciRhythmic, setCiRhythmic] = React.useState("");
+      const [searchScope, setSearchScope] = React.useState("category");
+      const [ciSearchScope, setCiSearchScope] = React.useState("selected");
+      const [query, setQuery] = React.useState("");
+      const [debounced, setDebounced] = React.useState("");
+      const [visible, setVisible] = React.useState(LIBRARY_PAGE);
+      const [detail, setDetail] = React.useState(null);
+      const [detector, setDetector] = React.useState("");
+      const [inputText, setInputText] = React.useState("");
+      const [inputReport, setInputReport] = React.useState(null);
       const ciMode = category === "ci-selected" || category === "ci-bank";
-      React2.useEffect(() => {
+      React.useEffect(() => {
         const timer2 = setTimeout(() => setDebounced(query), 300);
         return () => clearTimeout(timer2);
       }, [query]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         setVisible(LIBRARY_PAGE);
       }, [category, debounced, ciRhythmic, ciSearchScope]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         if (category === "ci-bank" || ciMode && ciSearchScope === "allCi") {
           if (typeof api.requestCiBank === "function") api.requestCiBank();
         }
       }, [category, ciMode, ciSearchScope, api.requestCiBank]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         const focus = api.libraryFocus;
         if (!focus || !focus.token) return;
         if (focus.type === "ci") {
@@ -23816,13 +23816,13 @@
         }
         if (typeof api.consumeLibraryFocus === "function") api.consumeLibraryFocus();
       }, [api.libraryFocus, anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]);
-      const pingshui = React2.useMemo(() => pingshuiRes.data ? buildPingshuiIndex2(pingshuiRes.data) : null, [pingshuiRes.data]);
-      const items = React2.useMemo(
+      const pingshui = React.useMemo(() => pingshuiRes.data ? buildPingshuiIndex2(pingshuiRes.data) : null, [pingshuiRes.data]);
+      const items = React.useMemo(
         () => buildLibraryItems(anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data),
         [anthologyRes.data, bankRes.data, ciBankRes.data, ciRes.data]
       );
-      const ciSelectedRhythmicsList = React2.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
-      const ciFullRhythmics = React2.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
+      const ciSelectedRhythmicsList = React.useMemo(() => ciSelectedRhythmics(ciRes.data), [ciRes.data]);
+      const ciFullRhythmics = React.useMemo(() => ciBankRhythmics(ciBankRes.data), [ciBankRes.data]);
       const ciRhythmics = category === "ci-bank" ? ciFullRhythmics : ciSelectedRhythmicsList;
       const ciSelectedCount = items.filter((entry) => entry.categoryId === "ci-selected").length;
       let filterCategory = category;
@@ -23833,12 +23833,12 @@
       } else if (searchScope === "all") {
         filterCategory = "all";
       }
-      const filtered = React2.useMemo(
+      const filtered = React.useMemo(
         () => filterLibraryItems(items, filterCategory, debounced, filterRhythmic),
         [items, filterCategory, filterRhythmic, debounced]
       );
       const shown = libraryPage(filtered, visible);
-      const poemReport = React2.useMemo(
+      const poemReport = React.useMemo(
         () => detail && detector === "poem" && pingshui ? detectPoem2(detail, pingshui) : null,
         [detail, detector, pingshui]
       );
@@ -24106,7 +24106,7 @@
         ) : null
       );
     }
-    class WidgetBoundary2 extends React2.Component {
+    class WidgetBoundary2 extends React.Component {
       constructor(props) {
         super(props);
         this.state = { failed: false };
@@ -25495,7 +25495,7 @@
   var graphTabFactory = null;
   function ensureGraphTab() {
     if (graphTabFactory === null) {
-      graphTabFactory = createGraphTab({ React, h: h2 });
+      graphTabFactory = createGraphTab({ React: getRuntime().React, h: h2 });
     }
     return graphTabFactory;
   }
@@ -25569,8 +25569,8 @@
   var sectionBoundaryClass = null;
   function ensureSectionBoundary() {
     if (sectionBoundaryClass === null) {
-      const React2 = getRuntime().React;
-      sectionBoundaryClass = class SectionBoundary extends React2.Component {
+      const React = getRuntime().React;
+      sectionBoundaryClass = class SectionBoundary extends React.Component {
         constructor(props) {
           super(props);
           this.state = { failed: false };
@@ -26908,11 +26908,11 @@
 
   // client-src/widget/hooks/use-toast.js
   function useToast(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { refs } = deps;
-    const [toast, setToast] = React2.useState(null);
-    const toastTimer = React2.useRef(null);
-    const showToast = React2.useCallback((text, kind) => {
+    const [toast, setToast] = React.useState(null);
+    const toastTimer = React.useRef(null);
+    const showToast = React.useCallback((text, kind) => {
       setToast({ text: String(text == null ? "" : text), kind: kind === "error" ? "error" : "info" });
       if (toastTimer.current) clearTimeout(toastTimer.current);
       toastTimer.current = setTimeout(() => {
@@ -26925,14 +26925,14 @@
 
   // client-src/widget/hooks/use-settings.js
   function useSettings(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { cacheRef, showToast } = deps;
     const { refs } = deps;
     const { pressTimer, mascotTimerRef, mascotExprTimerRef } = refs;
-    const [settings, setSettings] = React2.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
-    const settingsRef = React2.useRef(settings);
+    const [settings, setSettings] = React.useState(() => normalizeSettings(cacheRef.current && cacheRef.current.settings));
+    const settingsRef = React.useRef(settings);
     settingsRef.current = settings;
-    const saverRef = React2.useRef(null);
+    const saverRef = React.useRef(null);
     if (!saverRef.current) {
       saverRef.current = createSettingsSaver({
         delay: SAVE_DEBOUNCE_MS2,
@@ -26942,7 +26942,7 @@
         }
       });
     }
-    React2.useEffect(() => () => {
+    React.useEffect(() => () => {
       if (saverRef.current) saverRef.current.flush().catch(() => {
       });
       if (pressTimer.current) {
@@ -26958,7 +26958,7 @@
         mascotExprTimerRef.current = null;
       }
     }, []);
-    const updateSettings = React2.useCallback((patch, options) => {
+    const updateSettings = React.useCallback((patch, options) => {
       if (!patch || typeof patch !== "object") return settingsRef.current;
       const previous = settingsRef.current;
       const next = normalizeSettings(Object.assign({}, previous, patch));
@@ -26996,13 +26996,13 @@
 
   // client-src/widget/hooks/use-panel.js
   function usePanel(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { setStep, updateSettings, panelTabs } = deps;
     const { refs } = deps;
     const { lastInteractionRef, panelOpensRef } = refs;
-    const [panelOpen, setPanelOpen] = React2.useState(false);
-    const [panelTab, setPanelTab] = React2.useState("growth");
-    const [poetryTab, setPoetryTab] = React2.useState("today");
+    const [panelOpen, setPanelOpen] = React.useState(false);
+    const [panelTab, setPanelTab] = React.useState("growth");
+    const [poetryTab, setPoetryTab] = React.useState("today");
     function hideWidget() {
       setPanelOpen(false);
       setStep(-1);
@@ -27054,20 +27054,20 @@
 
   // client-src/widget/hooks/use-weather.js
   function useWeather(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { settingsRef, settings } = deps;
     const { refs } = deps;
-    const [weatherRes, setWeatherRes] = React2.useState(() => {
+    const [weatherRes, setWeatherRes] = React.useState(() => {
       const cached = weatherCache;
       if (cached && cached.data && cached.data.ok) {
         return { status: "ready", data: cached.data, error: null, at: cached.at };
       }
       return { status: "idle", data: null, error: null, at: 0 };
     });
-    const weatherInFlightRef = React2.useRef(null);
+    const weatherInFlightRef = React.useRef(null);
     const weatherData = weatherRes.data && weatherRes.data.ok ? weatherRes.data : null;
     const weather = weatherData && weatherData.weather ? weatherData.weather : null;
-    const refreshWeather = React2.useCallback((force) => {
+    const refreshWeather = React.useCallback((force) => {
       const current = settingsRef.current;
       if (!(current.weatherPoem || current.mood)) return Promise.resolve(null);
       const cached = weatherCache;
@@ -27092,7 +27092,7 @@
       weatherInFlightRef.current = request;
       return request;
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!(settings.weatherPoem || settings.mood)) return void 0;
       refreshWeather(false);
       const timer2 = setInterval(() => refreshWeather(true), WEATHER_REFRESH_MS);
@@ -27103,10 +27103,10 @@
 
   // client-src/widget/hooks/use-data.js
   function useData(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { useViewportSize, settings, useResource, boot, panelOpen, panelTab, step, poetryTab, resourceStore, weatherRes } = deps;
     const { refs } = deps;
-    const [ciBankWanted, setCiBankWanted] = React2.useState(false);
+    const [ciBankWanted, setCiBankWanted] = React.useState(false);
     const viewport = useViewportSize();
     const mascotSize = Math.max(40, Math.round(BASE_SIZE * settings.scale));
     const [poemsRes, reloadPoems] = useResource("poems", Boolean(boot.data));
@@ -27177,24 +27177,24 @@
 
   // client-src/widget/hooks/use-spont.js
   function useSpont(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { setPanelOpen, setSelectedPoemId, openPanelTab, setLibraryFocus, settings, panelOpen, step, weather, noteInteraction } = deps;
     const { refs } = deps;
     const { recentSpokenRef, uiRef, selfStatusRef, moodViewRef, weatherRef, lastInteractionRef, userPickedPoemRef } = refs;
-    const [spontPoem, setSpontPoem] = React2.useState(null);
-    const [spontPreview, setSpontPreview] = React2.useState(false);
-    const [spontWake, setSpontWake] = React2.useState(0);
-    const selfTalkNoveltyRef = React2.useRef({ signature: "", at: 0 });
-    const spontWakeDelayRef = React2.useRef(0);
-    const prevPanelOpenRef = React2.useRef(false);
-    const prevStepRef = React2.useRef(-1);
-    const prevCardRef = React2.useRef(null);
-    const moodWakeSigRef = React2.useRef("");
-    const weatherWakeSigRef = React2.useRef("");
-    const spontPoemRef = React2.useRef(null);
-    const spontReqRef = React2.useRef(0);
-    const selfTalkCacheRef = React2.useRef({ murmur: [], intro: [] });
-    const wakeSpontaneous = React2.useCallback((delay) => {
+    const [spontPoem, setSpontPoem] = React.useState(null);
+    const [spontPreview, setSpontPreview] = React.useState(false);
+    const [spontWake, setSpontWake] = React.useState(0);
+    const selfTalkNoveltyRef = React.useRef({ signature: "", at: 0 });
+    const spontWakeDelayRef = React.useRef(0);
+    const prevPanelOpenRef = React.useRef(false);
+    const prevStepRef = React.useRef(-1);
+    const prevCardRef = React.useRef(null);
+    const moodWakeSigRef = React.useRef("");
+    const weatherWakeSigRef = React.useRef("");
+    const spontPoemRef = React.useRef(null);
+    const spontReqRef = React.useRef(0);
+    const selfTalkCacheRef = React.useRef({ murmur: [], intro: [] });
+    const wakeSpontaneous = React.useCallback((delay) => {
       spontWakeDelayRef.current = Math.max(1e3, num(delay, nextSpontEventDelay()));
       setSpontWake((tick) => tick + 1);
     }, []);
@@ -27354,7 +27354,7 @@
       setSpontPreview(false);
       setSpontPoem(null);
     }
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (settings.hidden) {
         spontReqRef.current += 1;
         setSpontPoem(null);
@@ -27411,7 +27411,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.spontaneousPoem, settings.hidden, spontWake, wakeSpontaneous]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (panelOpen) {
         prevPanelOpenRef.current = true;
         return;
@@ -27421,7 +27421,7 @@
         wakeSpontaneous(nextSpontEventDelay());
       }
     }, [panelOpen, wakeSpontaneous]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (step >= 0) {
         prevStepRef.current = true;
         return;
@@ -27431,7 +27431,7 @@
         wakeSpontaneous(nextSpontEventDelay());
       }
     }, [step, wakeSpontaneous]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.spontaneousPoem) return;
       if (spontPoem) {
         prevCardRef.current = true;
@@ -27442,13 +27442,13 @@
         wakeSpontaneous(SPONT_CLOSE_RECHECK_MS);
       }
     }, [spontPoem, settings.spontaneousPoem, wakeSpontaneous]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.spontaneousPoem || !weather) return;
       const signature = [weather.category, weather.label, weather.tempC].join("|");
       if (weatherWakeSigRef.current && weatherWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
       weatherWakeSigRef.current = signature;
     }, [weather, settings.spontaneousPoem, wakeSpontaneous]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const markActivity = () => noteInteraction();
       document.addEventListener("pointerdown", markActivity, true);
@@ -27460,7 +27460,7 @@
         document.removeEventListener("input", markActivity, true);
       };
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!spontPoem) return void 0;
       const timer2 = setTimeout(() => {
         spontReqRef.current += 1;
@@ -27468,7 +27468,7 @@
       }, SPONT_AUTO_CLOSE_MS);
       return () => clearTimeout(timer2);
     }, [spontPoem]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (spontPoem && !spontPreview && (panelOpen || step >= 0 || settings.hidden)) {
         spontReqRef.current += 1;
         setSpontPoem(null);
@@ -27481,13 +27481,13 @@
 
   // client-src/widget/hooks/use-self-status.js
   function useSelfStatus(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { showSpontCard } = deps;
     const { refs } = deps;
     const { selfStatusRef } = refs;
-    const [selfStatus, setSelfStatus] = React2.useState(null);
-    const pendingActionRef = React2.useRef(null);
-    const lastSeenActionIdRef = React2.useRef(readSeenActionId());
+    const [selfStatus, setSelfStatus] = React.useState(null);
+    const pendingActionRef = React.useRef(null);
+    const lastSeenActionIdRef = React.useRef(readSeenActionId());
     function showSelfAction(action) {
       if (!action || !action.id) return;
       lastSeenActionIdRef.current = action.id;
@@ -27497,7 +27497,7 @@
         { preview: true, record: false, remember: false }
       );
     }
-    React2.useEffect(() => {
+    React.useEffect(() => {
       let alive = true;
       const load = () => {
         if (!alive) return;
@@ -27521,7 +27521,7 @@
         if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
       };
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       const latest = selfStatus && selfStatus.actions ? selfStatus.actions.latest : null;
       if (!latest || !latest.id) return;
       if (lastSeenActionIdRef.current === latest.id) return;
@@ -27531,7 +27531,7 @@
       }
       showSelfAction(latest);
     }, [selfStatus]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const onVisibility = () => {
         if (document.visibilityState === "hidden") return;
@@ -27591,43 +27591,43 @@
 
   // client-src/widget/hooks/use-mood.js
   function useMood(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { settingsRef, moodCatalogRes, settings, weather, boot, panelTab, poetryTab, panelOpen, spontPoem, moodWakeSigRef, wakeSpontaneous } = deps;
     const { refs } = deps;
     const { moodViewRef, weatherRef, clicksRef, feihuaWinsRef, panelOpensRef, recentSpokenRef, feihuaLossesRef, lastInteractionRef, petMediaEntriesRef } = refs;
-    const [moodRes, setMoodRes] = React2.useState(() => {
+    const [moodRes, setMoodRes] = React.useState(() => {
       const cached = moodCache;
       return cached && cached.data ? { status: "ready", data: cached.data, at: cached.at } : { status: "idle", data: null, at: 0 };
     });
-    const [moodView, setMoodView] = React2.useState(null);
-    const [moodSource, setMoodSource] = React2.useState("");
-    const [moodAiFallback, setMoodAiFallback] = React2.useState(false);
-    const [moodAiStale, setMoodAiStale] = React2.useState(false);
-    const [moodAiFailure, setMoodAiFailure] = React2.useState("");
-    const [moodAiFailureCode, setMoodAiFailureCode] = React2.useState("");
-    const [petMediaRes, setPetMediaRes] = React2.useState({ status: "idle", entries: [] });
-    const [moodTick, setMoodTick] = React2.useState(0);
-    const moodStatsRef = React2.useRef(emptyMoodStats());
-    const moodForceRef = React2.useRef(false);
-    const moodSourceRef = React2.useRef("");
-    const moodAiRef = React2.useRef({ at: 0, lastRequestAt: 0, image: "" });
-    const moodAiSnapshotRef = React2.useRef(null);
-    const moodAiTokenRef = React2.useRef(0);
-    const moodAiInFlightRef = React2.useRef(false);
-    const moodAiPendingRef = React2.useRef(false);
-    const moodAiDebounceTimerRef = React2.useRef(null);
-    const moodAiRetryTimerRef = React2.useRef(null);
-    const moodAiRetryCountRef = React2.useRef(0);
-    const moodStatsSnapshotRef = React2.useRef(null);
-    const moodTimeBucketRef = React2.useRef("");
-    const moodIdleRef = React2.useRef(false);
-    const moodWeatherSigRef = React2.useRef("");
-    const moodPrevPanelOpenRef = React2.useRef(false);
-    const moodPrevPanelTabRef = React2.useRef("today");
-    const moodPrevSpontRef = React2.useRef(null);
-    const recentImagesRef = React2.useRef([]);
-    const moodCatalogRef = React2.useRef(null);
-    const applyMood = React2.useCallback((force) => {
+    const [moodView, setMoodView] = React.useState(null);
+    const [moodSource, setMoodSource] = React.useState("");
+    const [moodAiFallback, setMoodAiFallback] = React.useState(false);
+    const [moodAiStale, setMoodAiStale] = React.useState(false);
+    const [moodAiFailure, setMoodAiFailure] = React.useState("");
+    const [moodAiFailureCode, setMoodAiFailureCode] = React.useState("");
+    const [petMediaRes, setPetMediaRes] = React.useState({ status: "idle", entries: [] });
+    const [moodTick, setMoodTick] = React.useState(0);
+    const moodStatsRef = React.useRef(emptyMoodStats());
+    const moodForceRef = React.useRef(false);
+    const moodSourceRef = React.useRef("");
+    const moodAiRef = React.useRef({ at: 0, lastRequestAt: 0, image: "" });
+    const moodAiSnapshotRef = React.useRef(null);
+    const moodAiTokenRef = React.useRef(0);
+    const moodAiInFlightRef = React.useRef(false);
+    const moodAiPendingRef = React.useRef(false);
+    const moodAiDebounceTimerRef = React.useRef(null);
+    const moodAiRetryTimerRef = React.useRef(null);
+    const moodAiRetryCountRef = React.useRef(0);
+    const moodStatsSnapshotRef = React.useRef(null);
+    const moodTimeBucketRef = React.useRef("");
+    const moodIdleRef = React.useRef(false);
+    const moodWeatherSigRef = React.useRef("");
+    const moodPrevPanelOpenRef = React.useRef(false);
+    const moodPrevPanelTabRef = React.useRef("today");
+    const moodPrevSpontRef = React.useRef(null);
+    const recentImagesRef = React.useRef([]);
+    const moodCatalogRef = React.useRef(null);
+    const applyMood = React.useCallback((force) => {
       const current = settingsRef.current;
       if (!current.mood && !current.spontaneousPoem) {
         moodViewRef.current = null;
@@ -27649,7 +27649,7 @@
       setMoodView(selected);
       return selected;
     }, []);
-    const applyModelMood = React2.useCallback((mood) => {
+    const applyModelMood = React.useCallback((mood) => {
       if (!mood || !mood.image) return null;
       const view = Object.assign({}, mood, { changed: true, switchedAt: Date.now() });
       moodSourceRef.current = "model";
@@ -27667,7 +27667,7 @@
       recentImagesRef.current = images.slice(-MOOD_AI_RECENT_IMAGES_MAX);
       return view;
     }, []);
-    const fallbackHeuristicMood = React2.useCallback((force) => {
+    const fallbackHeuristicMood = React.useCallback((force) => {
       moodSourceRef.current = "heuristic";
       setMoodSource("heuristic");
       setMoodAiFallback(true);
@@ -27715,7 +27715,7 @@
         moodAiRetryTimerRef.current = null;
       }
     }
-    const requestModelMood = React2.useCallback((options = {}) => {
+    const requestModelMood = React.useCallback((options = {}) => {
       const manual = options && options.manual === true;
       const current = settingsRef.current;
       if (!current.mood) return Promise.resolve({ ok: false, reason: "disabled" });
@@ -27770,7 +27770,7 @@
         return { ok: false };
       });
     }, [applyModelMood, fallbackHeuristicMood]);
-    const moodManualRef = React2.useRef(false);
+    const moodManualRef = React.useRef(false);
     function scheduleMoodAiRefresh(options) {
       const opts = options && typeof options === "object" ? options : {};
       if (!settingsRef.current.mood || settingsRef.current.hidden) return;
@@ -27792,25 +27792,25 @@
         requestModelMood({ manual });
       }, Math.max(0, delay));
     }
-    const refreshMoodNow = React2.useCallback(() => {
+    const refreshMoodNow = React.useCallback(() => {
       moodForceRef.current = true;
       moodManualRef.current = true;
       scheduleMoodAiRefresh({ immediate: true });
       setMoodTick((tick) => tick + 1);
       return Promise.resolve({ ok: true });
     }, [scheduleMoodAiRefresh]);
-    const moodCatalogBase = React2.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
-    const moodCatalog = React2.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
+    const moodCatalogBase = React.useMemo(() => normalizeMoodCatalog(moodCatalogRes.data), [moodCatalogRes.data]);
+    const moodCatalog = React.useMemo(() => mergePetMediaIntoCatalog(moodCatalogBase, petMediaRes.entries), [moodCatalogBase, petMediaRes.entries]);
     moodCatalogRef.current = moodCatalog;
     const moodChip = settings.mood && moodView ? "\u5FC3\u60C5\uFF1A" + moodView.label : "";
     const moodChipTitle = settings.mood && moodView ? String(moodView.reason || "") : "";
     const moodBasis = moodBasisText(weather);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!(settings.mood || settings.spontaneousPoem)) return void 0;
       const timer2 = setInterval(() => setMoodTick((tick) => tick + 1), MOOD_TICK_MS);
       return () => clearInterval(timer2);
     }, [settings.mood, settings.spontaneousPoem]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settingsRef.current.mood && !settingsRef.current.spontaneousPoem) {
         moodAiTokenRef.current += 1;
         moodAiInFlightRef.current = false;
@@ -27837,13 +27837,13 @@
       moodForceRef.current = false;
       applyMood(force);
     }, [moodRes, weather, settings.mood, settings.spontaneousPoem, moodTick, applyMood]);
-    React2.useEffect(() => () => {
+    React.useEffect(() => () => {
       if (moodAiRetryTimerRef.current) {
         clearTimeout(moodAiRetryTimerRef.current);
         moodAiRetryTimerRef.current = null;
       }
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) {
         setPetMediaRes({ status: "idle", entries: [] });
         return void 0;
@@ -27858,13 +27858,13 @@
         alive = false;
       };
     }, [settings.mood, boot.data && boot.data.dataVersion]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood || !moodCatalog) return;
       if (petMediaRes.status === "loading" || petMediaRes.status === "idle") return;
       if (moodAiRef.current.at > 0) return;
       scheduleMoodAiRefresh();
     }, [settings.mood, moodCatalog, petMediaRes.status]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return void 0;
       const timer2 = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -27872,7 +27872,7 @@
       }, MOOD_REFRESH_MS);
       return () => clearInterval(timer2);
     }, [settings.mood, scheduleMoodAiRefresh]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return;
       const currentTab = panelTab === "poetry" ? "poetry:" + poetryTab : panelTab;
       const changed = moodPrevPanelOpenRef.current !== panelOpen || panelOpen && moodPrevPanelTabRef.current !== currentTab;
@@ -27880,21 +27880,21 @@
       moodPrevPanelTabRef.current = currentTab;
       if (changed) scheduleMoodAiRefresh();
     }, [panelOpen, panelTab, poetryTab, settings.mood]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return;
       const visible = Boolean(spontPoem);
       const previous = Boolean(moodPrevSpontRef.current);
       moodPrevSpontRef.current = visible;
       if (visible !== previous) scheduleMoodAiRefresh();
     }, [spontPoem, settings.mood]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return;
       const signature = weather ? [weather.category, weather.label, weather.tempC, weather.isDay].join("|") : "";
       const previous = moodWeatherSigRef.current;
       moodWeatherSigRef.current = signature;
       if (previous && signature && previous !== signature) scheduleMoodAiRefresh();
     }, [weather, settings.mood]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return void 0;
       const onVisible = () => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -27908,7 +27908,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.mood]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood) return;
       const now2 = Date.now();
       const last = lastInteractionRef.current;
@@ -27921,10 +27921,10 @@
       if (moodTimeBucketRef.current && bucket !== moodTimeBucketRef.current) scheduleMoodAiRefresh();
       moodTimeBucketRef.current = bucket;
     }, [moodTick, settings.mood]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (settings.mood && moodCatalogRes.status === "error") setMoodAiFallback(true);
     }, [settings.mood, moodCatalogRes.status]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!moodCatalog) return;
       if (typeof window === "undefined" || typeof window.Image !== "function") return;
       const files = [
@@ -27941,7 +27941,7 @@
         }
       }
     }, [moodCatalog]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.spontaneousPoem || !moodView) return;
       const signature = [moodView.key, moodView.label, moodView.reason, moodView.source].join("|");
       if (moodWakeSigRef.current && moodWakeSigRef.current !== signature) wakeSpontaneous(nextSpontEventDelay());
@@ -27954,43 +27954,43 @@
 
   // client-src/widget/hooks/use-mascot.js
   function useMascot(deps) {
-    const React2 = getReact();
+    const React = getReact();
     const { wakeSpontaneous, scheduleMoodAiRefresh, settingsRef, noteInteraction, updateSettings, panelOpen, setPanelOpen, step, advanceStep, openPanel, mascotSize, viewport, restoreWidget, settings, petMediaRes, moodView } = deps;
     const { refs } = deps;
     const { feihuaWinsRef, feihuaLossesRef, lastInteractionRef, mascotTimerRef, mascotExprTimerRef, clicksRef, petMediaEntriesRef, uiRef, posRef, pressTimer, moodViewRef } = refs;
-    const [mascotPulse, setMascotPulse] = React2.useState(null);
-    const [failedMascot, setFailedMascot] = React2.useState("");
-    const [mascotExpression, setMascotExpression] = React2.useState("");
-    const [motionFile, setMotionFile] = React2.useState("");
-    const [dizzy, setDizzy] = React2.useState(null);
-    const [mealActive, setMealActive] = React2.useState(null);
-    const [pos, setPos] = React2.useState(() => {
+    const [mascotPulse, setMascotPulse] = React.useState(null);
+    const [failedMascot, setFailedMascot] = React.useState("");
+    const [mascotExpression, setMascotExpression] = React.useState("");
+    const [motionFile, setMotionFile] = React.useState("");
+    const [dizzy, setDizzy] = React.useState(null);
+    const [mealActive, setMealActive] = React.useState(null);
+    const [pos, setPos] = React.useState(() => {
       const stored = readStoredPosition();
       const viewport2 = { w: readWindowWidth(), h: readWindowHeight() };
       if (stored) return clampPosition(stored, BASE_SIZE, viewport2);
       return { x: 16, y: Math.max(8, viewport2.h - BASE_SIZE - 24) };
     });
-    const dragRef = React2.useRef(null);
-    const wanderRef = React2.useRef({ nextAt: 0, timer: null, walking: false });
-    const [walking, setWalking] = React2.useState(false);
-    const [wanderFile, setWanderFile] = React2.useState("");
-    const wanderFileRef = React2.useRef("");
-    const mascotTapRef = React2.useRef(0);
-    const mascotVideoRef = React2.useRef(null);
-    const mascotPulseRef = React2.useRef(null);
-    const mascotExpressionRef = React2.useRef("");
-    const motionFileRef = React2.useRef("");
-    const motionIndexRef = React2.useRef(readMotionRotation());
-    const motionDelayTimerRef = React2.useRef(null);
-    const motionStopTimerRef = React2.useRef(null);
-    const motionFirstScheduledRef = React2.useRef(false);
-    const motionFirstPendingRef = React2.useRef(false);
-    const dizzyRef = React2.useRef(null);
-    const dizzyTimerRef = React2.useRef(null);
-    const mealActiveRef = React2.useRef(null);
-    const mealTimerRef = React2.useRef(null);
-    const mealPrevPanelRef = React2.useRef(false);
-    const pulseMascot = React2.useCallback((key) => {
+    const dragRef = React.useRef(null);
+    const wanderRef = React.useRef({ nextAt: 0, timer: null, walking: false });
+    const [walking, setWalking] = React.useState(false);
+    const [wanderFile, setWanderFile] = React.useState("");
+    const wanderFileRef = React.useRef("");
+    const mascotTapRef = React.useRef(0);
+    const mascotVideoRef = React.useRef(null);
+    const mascotPulseRef = React.useRef(null);
+    const mascotExpressionRef = React.useRef("");
+    const motionFileRef = React.useRef("");
+    const motionIndexRef = React.useRef(readMotionRotation());
+    const motionDelayTimerRef = React.useRef(null);
+    const motionStopTimerRef = React.useRef(null);
+    const motionFirstScheduledRef = React.useRef(false);
+    const motionFirstPendingRef = React.useRef(false);
+    const dizzyRef = React.useRef(null);
+    const dizzyTimerRef = React.useRef(null);
+    const mealActiveRef = React.useRef(null);
+    const mealTimerRef = React.useRef(null);
+    const mealPrevPanelRef = React.useRef(false);
+    const pulseMascot = React.useCallback((key) => {
       if (!MASCOT_FILES[key]) return;
       if (key === "gameWin") feihuaWinsRef.current += 1;
       if (key === "gameLose") feihuaLossesRef.current += 1;
@@ -28261,7 +28261,7 @@
       }
       setFailedMascot(file);
     }
-    const syncMascotVideoPlayback = React2.useCallback(() => {
+    const syncMascotVideoPlayback = React.useCallback(() => {
       const video = mascotVideoRef.current;
       if (!video) return;
       const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
@@ -28277,7 +28277,7 @@
       } catch (error) {
       }
     }, [panelOpen]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       const timer2 = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         const ui = uiRef.current;
@@ -28291,7 +28291,7 @@
       }, MASCOT_IDLE_POLL_MS);
       return () => clearInterval(timer2);
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!WINDOW_WANDER_ENABLED) return void 0;
       if (settings.hidden) return void 0;
       if (!wanderRef.current.nextAt) {
@@ -28331,19 +28331,19 @@
         wanderRef.current.timer = null;
       };
     }, [settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       setPos((previous) => {
         const next = anchorPosition(settings.snap, mascotSize, viewport, previous);
         return next.x === previous.x && next.y === previous.y ? previous : next;
       });
     }, [settings.snap, mascotSize, viewport.w, viewport.h]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       const timer2 = setTimeout(() => {
         writeStoredPosition({ x: pos.x, y: pos.y, snap: settingsRef.current.snap });
       }, 250);
       return () => clearTimeout(timer2);
     }, [pos, settings.snap]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.mood || settings.hidden || panelOpen || petMediaRes.status !== "ready" || !petMediaRes.entries.length) {
         clearMotionTimers();
         if (motionFileRef.current) setMotionFile("");
@@ -28354,7 +28354,7 @@
         clearMotionTimers();
       };
     }, [settings.mood, settings.hidden, panelOpen, petMediaRes.status, petMediaRes.entries.length]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       const onVisibility = () => {
         if (document.visibilityState === "hidden") {
@@ -28369,7 +28369,7 @@
       document.addEventListener("visibilitychange", onVisibility);
       return () => document.removeEventListener("visibilitychange", onVisibility);
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!motionFirstPendingRef.current) return;
       const image = currentMoodImageFile();
       if (!isVideoMoodFile(image)) return;
@@ -28377,7 +28377,7 @@
       clearMotionTimers();
       scheduleMotion(nextMotionDelay());
     }, [moodView]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.hidden) {
         maybeTriggerMeal();
       }
@@ -28397,7 +28397,7 @@
         if (typeof window !== "undefined" && typeof window.removeEventListener === "function") window.removeEventListener("focus", onFocus);
       };
     }, [settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (panelOpen) {
         mealPrevPanelRef.current = true;
         return;
@@ -28407,7 +28407,7 @@
         maybeTriggerMeal();
       }
     }, [panelOpen]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!(panelOpen || settings.hidden)) return;
       if (dizzyTimerRef.current) {
         clearTimeout(dizzyTimerRef.current);
@@ -28423,15 +28423,15 @@
         mealActiveRef.current = null;
       }
     }, [panelOpen, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       syncMascotVideoPlayback();
     });
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       document.addEventListener("visibilitychange", syncMascotVideoPlayback);
       return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
     }, [syncMascotVideoPlayback]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (typeof document === "undefined" || typeof document.addEventListener !== "function") return void 0;
       document.addEventListener("visibilitychange", syncMascotVideoPlayback);
       return () => document.removeEventListener("visibilitychange", syncMascotVideoPlayback);
@@ -28446,12 +28446,12 @@
 
   // client-src/widget/container.js
   function PoetryWidget(props) {
-    const React2 = getReact();
+    const React = getReact();
     const h3 = getRuntime().h;
     const { resourceStore, useViewportSize, useResource, panelTabs } = getRuntime();
     const ctx = props && props.ctx;
-    const cacheRef = React2.useRef(null);
-    const cacheLoadedRef = React2.useRef(false);
+    const cacheRef = React.useRef(null);
+    const cacheLoadedRef = React.useRef(false);
     if (!cacheLoadedRef.current) {
       cacheLoadedRef.current = true;
       cacheRef.current = readFirstScreenCache();
@@ -28465,29 +28465,29 @@
         }
       }
     }
-    const [boot, setBoot] = React2.useState(() => {
+    const [boot, setBoot] = React.useState(() => {
       const cached = cacheRef.current;
       if (cached && cached.bootstrap) {
         return { status: "ready", data: cached.bootstrap, fromCache: true, stale: true, error: null };
       }
       return { status: "loading", data: null, fromCache: false, stale: false, error: null };
     });
-    const [reloadTick, setReloadTick] = React2.useState(0);
-    const [step, setStep] = React2.useState(-1);
-    const [selectedPoemId, setSelectedPoemId] = React2.useState(null);
-    const [feihuaLaunch, setFeihuaLaunch] = React2.useState(0);
-    const [memoryStatus, setMemoryStatus] = React2.useState(null);
-    const [healthStatus, setHealthStatus] = React2.useState(null);
-    const [worksRes, setWorksRes] = React2.useState({ status: "idle", data: null });
-    const [growthRes, setGrowthRes] = React2.useState({ status: "idle", data: null });
-    const [attentionRes, setAttentionRes] = React2.useState({ status: "idle", data: null });
-    const [projectDetail, setProjectDetail] = React2.useState(null);
-    const [twinRes, setTwinRes] = React2.useState({ status: "idle", data: null });
-    const [memoryTick, setMemoryTick] = React2.useState(0);
-    const [libraryFocus, setLibraryFocus] = React2.useState(null);
-    const [feihuaIndex, setFeihuaIndex] = React2.useState(null);
-    const [feihuaBuilding, setFeihuaBuilding] = React2.useState(false);
-    const refsRef = React2.useRef(null);
+    const [reloadTick, setReloadTick] = React.useState(0);
+    const [step, setStep] = React.useState(-1);
+    const [selectedPoemId, setSelectedPoemId] = React.useState(null);
+    const [feihuaLaunch, setFeihuaLaunch] = React.useState(0);
+    const [memoryStatus, setMemoryStatus] = React.useState(null);
+    const [healthStatus, setHealthStatus] = React.useState(null);
+    const [worksRes, setWorksRes] = React.useState({ status: "idle", data: null });
+    const [growthRes, setGrowthRes] = React.useState({ status: "idle", data: null });
+    const [attentionRes, setAttentionRes] = React.useState({ status: "idle", data: null });
+    const [projectDetail, setProjectDetail] = React.useState(null);
+    const [twinRes, setTwinRes] = React.useState({ status: "idle", data: null });
+    const [memoryTick, setMemoryTick] = React.useState(0);
+    const [libraryFocus, setLibraryFocus] = React.useState(null);
+    const [feihuaIndex, setFeihuaIndex] = React.useState(null);
+    const [feihuaBuilding, setFeihuaBuilding] = React.useState(false);
+    const refsRef = React.useRef(null);
     if (!refsRef.current) {
       refsRef.current = {
         userPickedPoemRef: { current: false },
@@ -28522,15 +28522,15 @@
     const { mascotPulse, failedMascot, mascotExpression, motionFile, dizzy, mealActive, walking, wanderFile, pos, mascotVideoRef, showMascotExpression, pulseMascot, handleMascotKeyDown, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, handleRestorePointerDown, handleRestorePointerUp, handleMascotMediaError, wanderFileRef, dizzyTimerRef, mealTimerRef } = useMascot({ settings, settingsRef, weather, moodView, moodCatalog, petMediaRes, panelOpen, step, advanceStep, updateSettings, noteInteraction, openPanel, openPanelTab, setPanelOpen, viewport, mascotSize, refs, wakeSpontaneous, scheduleMoodAiRefresh, restoreWidget });
     posRef.current = pos;
     wanderFileRef.current = wanderFile;
-    const showToastRef = React2.useRef(null);
+    const showToastRef = React.useRef(null);
     showToastRef.current = showToast;
-    React2.useEffect(() => () => {
+    React.useEffect(() => () => {
       if (toastTimer.current) {
         clearTimeout(toastTimer.current);
         toastTimer.current = null;
       }
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       let alive = true;
       fetchJson("bootstrap.json").then(
         (data) => {
@@ -28561,7 +28561,7 @@
         alive = false;
       };
     }, [reloadTick]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!boot.data) return;
       setSelectedPoemId((previous) => {
         if (previous) return previous;
@@ -28574,12 +28574,12 @@
     const bootstrapTodayPoemId = boot.data && boot.data.today ? boot.data.today.poemId : null;
     const cache = cacheRef.current;
     const cachedPoem = cache && cache.todayPoem ? cache.todayPoem : null;
-    const weatherTags = React2.useMemo(() => weatherPoemTags(weather), [weather]);
-    const weatherPool = React2.useMemo(
+    const weatherTags = React.useMemo(() => weatherPoemTags(weather), [weather]);
+    const weatherPool = React.useMemo(
       () => buildWeatherPoemPool(poemsRes.data, ciRes.data, weatherTags, WEATHER_POOL_LIMIT, { anthology: anthologyRes.data, bank: bankRes.data, ciBank: ciBankRes.data }),
       [poemsRes.data, ciRes.data, weatherTags, anthologyRes.data, bankRes.data, ciBankRes.data]
     );
-    const weatherEntry = React2.useMemo(() => {
+    const weatherEntry = React.useMemo(() => {
       if (!settings.weatherPoem || !weather) return null;
       return selectWeatherPoemEntry(weatherPool, {
         date: boot.data && boot.data.today ? boot.data.today.date : "",
@@ -28604,7 +28604,7 @@
       ciBankItems: ciBankRes.data && Array.isArray(ciBankRes.data.items) ? ciBankRes.data.items : [],
       moodRes
     };
-    const poem = React2.useMemo(() => {
+    const poem = React.useMemo(() => {
       if (weatherActive && weatherEntry && (!selectedPoemId || selectedPoemId === weatherEntry.id)) return weatherEntry.item || null;
       const weatherPick = weatherActive && selectedPoemId ? weatherPool.find((entry) => entry.id === selectedPoemId) : null;
       if (weatherPick) return weatherPick.item || null;
@@ -28614,13 +28614,13 @@
       if (cachedPoem && (!selectedPoemId || cachedPoem.id === selectedPoemId || cachedPoem.id === activeTodayPoemId)) return cachedPoem;
       return null;
     }, [poemItems, selectedPoemId, activeTodayPoemId, cachedPoem, boot.data, weatherActive, weatherEntry, weatherPool]);
-    const todayPoem = React2.useMemo(() => {
+    const todayPoem = React.useMemo(() => {
       if (weatherActive && weatherEntry && weatherEntry.id === activeTodayPoemId) return weatherEntry.item || null;
       if (poem && poem.id === activeTodayPoemId) return poem;
       if (cachedPoem && cachedPoem.id === activeTodayPoemId) return cachedPoem;
       return poemItems.find((item) => item && item.id === activeTodayPoemId) || null;
     }, [poem, cachedPoem, activeTodayPoemId, poemItems]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!boot.data) return;
       const record = {
         dataVersion: boot.data.dataVersion || "",
@@ -28631,14 +28631,14 @@
       cacheRef.current = record;
       writeFirstScreenCache(record);
     }, [boot.data, settings, todayPoem]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       userPickedPoemRef.current = false;
     }, [weatherChip]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!weatherActive || userPickedPoemRef.current) return;
       setSelectedPoemId(activeTodayPoemId);
     }, [weatherActive, activeTodayPoemId]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       try {
         if (typeof window === "undefined" || typeof window.Image !== "function") return;
         for (const file of [MASCOT_FILES.celebrate, MASCOT_FILES.idle, MASCOT_FILES.night]) {
@@ -28648,7 +28648,7 @@
       } catch (error) {
       }
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!feihuaOpen) {
         setFeihuaBuilding(false);
         setFeihuaIndex(null);
@@ -28685,7 +28685,7 @@
         if (timer2) clearTimeout(timer2);
       };
     }, [feihuaOpen, poemsRes.data, ciRes.data, anthologyRes.data, bankRes.data, ciBankRes.data, ciBankRes.status]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       const seconds = num(settings.autoplay, 0);
       if (!seconds || step < 0 || panelOpen || settings.hidden) return void 0;
       const timer2 = setTimeout(() => {
@@ -28693,7 +28693,7 @@
       }, seconds * 1e3);
       return () => clearTimeout(timer2);
     }, [settings.autoplay, step, panelOpen, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen && step < 0) return void 0;
       const onKeyDown = (event) => {
         if (event.key !== "Escape") return;
@@ -28703,7 +28703,7 @@
       document.addEventListener("keydown", onKeyDown);
       return () => document.removeEventListener("keydown", onKeyDown);
     }, [panelOpen, step]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!settings.hidden) return void 0;
       const onDoubleClick = (event) => {
         const target = event.target;
@@ -28806,11 +28806,11 @@
     }
     const dateSeed = boot.data && boot.data.today && boot.data.today.date || "";
     const dateLabel = formatDateLabel(dateSeed);
-    React2.useEffect(() => () => {
+    React.useEffect(() => () => {
       if (dizzyTimerRef.current) clearTimeout(dizzyTimerRef.current);
       if (mealTimerRef.current) clearTimeout(mealTimerRef.current);
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || panelTab !== "growth" || settings.hidden) {
         setMemoryStatus(null);
         return void 0;
@@ -28838,7 +28838,7 @@
         if (typeof document !== "undefined" && typeof document.removeEventListener === "function") document.removeEventListener("visibilitychange", onVisibility);
       };
     }, [panelOpen, panelTab, settings.hidden, memoryTick]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       let lastAt = 0;
       const send = (kind) => {
         const now2 = Date.now();
@@ -28869,7 +28869,7 @@
         if (typeof window !== "undefined") window.removeEventListener("keydown", onKey);
       };
     }, []);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || panelTab !== "growth" || settings.hidden) {
         setWorksRes({ status: "idle", data: null });
         return void 0;
@@ -28891,7 +28891,7 @@
         clearInterval(timer2);
       };
     }, [panelOpen, panelTab, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || panelTab !== "growth" || settings.hidden) {
         setGrowthRes({ status: "idle", data: null });
         return void 0;
@@ -28913,7 +28913,7 @@
         clearInterval(timer2);
       };
     }, [panelOpen, panelTab, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || settings.hidden) {
         setAttentionRes({ status: "idle", data: null });
         return void 0;
@@ -28935,7 +28935,7 @@
         clearInterval(timer2);
       };
     }, [panelOpen, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || panelTab !== "growth" || settings.hidden) {
         setTwinRes({ status: "idle", data: null });
         return void 0;
@@ -28957,7 +28957,7 @@
         clearInterval(timer2);
       };
     }, [panelOpen, panelTab, settings.hidden]);
-    React2.useEffect(() => {
+    React.useEffect(() => {
       if (!panelOpen || panelTab !== "settings" && panelTab !== "growth" || settings.hidden) {
         setHealthStatus(null);
         return void 0;
@@ -29037,7 +29037,7 @@
         return { ok: false };
       });
     }
-    React2.useEffect(() => () => {
+    React.useEffect(() => () => {
       const video = mascotVideoRef.current;
       if (video && typeof video.pause === "function") {
         try {
@@ -29256,10 +29256,10 @@
   }
 
   // client-src/hooks.js
-  function createHooks({ React: React2, resourceStore }) {
+  function createHooks({ React, resourceStore }) {
     function useViewportSize() {
-      const [size, setSize] = React2.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
-      React2.useEffect(() => {
+      const [size, setSize] = React.useState(() => ({ w: readWindowWidth(), h: readWindowHeight() }));
+      React.useEffect(() => {
         const onResize = () => setSize({ w: readWindowWidth(), h: readWindowHeight() });
         window.addEventListener("resize", onResize);
         return () => window.removeEventListener("resize", onResize);
@@ -29267,18 +29267,18 @@
       return size;
     }
     function useResource(kind, active) {
-      const [state, setState] = React2.useState(() => ({
+      const [state, setState] = React.useState(() => ({
         status: resourceStore.get(kind) ? "ready" : "idle",
         data: resourceStore.get(kind) || null,
         error: null
       }));
-      const alive = React2.useRef(true);
-      const statusRef = React2.useRef(state.status);
+      const alive = React.useRef(true);
+      const statusRef = React.useRef(state.status);
       statusRef.current = state.status;
-      React2.useEffect(() => () => {
+      React.useEffect(() => () => {
         alive.current = false;
       }, []);
-      const reload = React2.useCallback(() => {
+      const reload = React.useCallback(() => {
         if (statusRef.current === "loading") return Promise.resolve();
         statusRef.current = "loading";
         setState((previous) => ({ status: "loading", data: previous.data, error: null }));
@@ -29295,7 +29295,7 @@
           }
         );
       }, [kind]);
-      React2.useEffect(() => {
+      React.useEffect(() => {
         if (active && statusRef.current === "idle") reload().catch(() => {
         });
       }, [active, reload]);
@@ -29341,9 +29341,9 @@
   }
   function createTwinOverlay(ctx = {}) {
     const h3 = ctx.h;
-    const React2 = ctx.React;
+    const React = ctx.React;
     function TwinWhale() {
-      const [state, setState] = React2.useState(() => {
+      const [state, setState] = React.useState(() => {
         try {
           const raw = window.localStorage.getItem(CACHE_KEY);
           return raw ? JSON.parse(raw) : null;
@@ -29351,9 +29351,9 @@
           return null;
         }
       });
-      const [open, setOpen] = React2.useState(false);
-      const [settings, setSettings] = React2.useState(null);
-      React2.useEffect(() => {
+      const [open, setOpen] = React.useState(false);
+      const [settings, setSettings] = React.useState(null);
+      React.useEffect(() => {
         let alive = true;
         const load = () => {
           fetch(ROUTE2, { cache: "no-store" }).then((res) => res.ok ? res.json() : null).then((data) => {
@@ -29531,12 +29531,12 @@
     id: "dsh-little-whale",
     factory: (require2) => {
       "use strict";
-      const React2 = require2("react");
-      if (!React2 || typeof React2.createElement !== "function") {
+      const React = require2("react");
+      if (!React || typeof React.createElement !== "function") {
         throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
-      const h3 = React2.createElement;
-      setRuntime({ React: React2, h: h3 });
+      const h3 = React.createElement;
+      setRuntime({ React, h: h3 });
       const resourceStore = createResourceStore({
         fetchJsonUrl,
         route: ROUTE,
@@ -29547,9 +29547,9 @@
         clearFeihuaFullCache,
         clearPetMediaCache
       });
-      const { useViewportSize, useResource } = createHooks({ React: React2, resourceStore });
+      const { useViewportSize, useResource } = createHooks({ React, resourceStore });
       const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
-      setRuntime({ React: React2, h: h3, resourceStore, useViewportSize, useResource, panelTabs });
+      setRuntime({ React, h: h3, resourceStore, useViewportSize, useResource, panelTabs });
       const DEBUG = {
         ROUTE,
         ASSET_BASE,
@@ -29809,7 +29809,7 @@
           host
         ));
         try {
-          const TwinOverlay = createTwinOverlay({ h: h3, React: React2 });
+          const TwinOverlay = createTwinOverlay({ h: h3, React });
           ctx.slots.inject("shell.overlay", () => ctx.slots.register(
             { name: "shell.overlay", id: "dsh-little-whale-twin", order: 81 },
             TwinOverlay

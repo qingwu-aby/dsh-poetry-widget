@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.5.4 图谱 tab 修复**：`widget/tabs.js` 创建 GraphTab 时引用了未定义的 `React`（真实宿主没有全局 React，开发探针的全局 React 掩盖了它）；改为 `getRuntime().React`。图谱现在正常加载，SectionBoundary 仍作为兜底。已用 ESLint no-undef 扫过全部 client-src。
 - **v0.5.3 面板区域错误边界**：Growth/图谱/设置/诗词内容区外包 `SectionBoundary`，某个 tab（尤其图谱 WebGL）渲染异常时只降级该区域并提供重试，不再把主挂件一起带走。
 - **v0.5.2 降级形象可见性**：`WidgetBoundary` 降级形象加 `data-dsh-whale-fallback`，z-index 提到镜像浮层之上（Z_INDEX+2），避免主组件渲染异常时被镜像盖住，只剩镜像。
 - **v0.5.1 首屏缓存兼容**：`container` 读取旧版 `dshp.firstscreen.v1` 时校验 bootstrap 必需字段（ok/today.poemId/dataVersion），不兼容则丢弃并清理缓存，避免升级后主挂件在缓存路径上崩溃。

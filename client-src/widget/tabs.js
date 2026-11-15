@@ -98,7 +98,7 @@ import { AnalysisBody, EmptyState, KnowledgeCardView, LoadingState, PoemBody, To
   let graphTabFactory = null
   function ensureGraphTab() {
    if (graphTabFactory === null) {
-    graphTabFactory = createGraphTab({ React, h })
+    graphTabFactory = createGraphTab({ React: getRuntime().React, h })
    }
    return graphTabFactory
   }
