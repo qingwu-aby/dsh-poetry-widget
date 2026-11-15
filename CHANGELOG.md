@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.5.2 降级形象可见性**：`WidgetBoundary` 降级形象加 `data-dsh-whale-fallback`，z-index 提到镜像浮层之上（Z_INDEX+2），避免主组件渲染异常时被镜像盖住，只剩镜像。
 - **v0.5.1 首屏缓存兼容**：`container` 读取旧版 `dshp.firstscreen.v1` 时校验 bootstrap 必需字段（ok/today.poemId/dataVersion），不兼容则丢弃并清理缓存，避免升级后主挂件在缓存路径上崩溃。
 - **去掉旧限制声明**：README「已知限制」移除“她不做真实世界操作”和“依赖宿主 0.2.1-rc.x、升级需按 plugin-test 回归”两条；保留音频输入/输出限制。
 - **v0.5.0 客户端组件架构重构**：`widget-plugin.js`（4.8k 行巨型闭包）删除，改为 `widget/` 组件架构：register（入口/DEBUG 契约）+ container（容器状态/effects/事件）+ hooks（9 个：settings/panel/weather/data/spont/self-status/mood/mascot/toast）+ view（纯 props 视图，含 6 张 step 卡）+ models（常量/天气/立绘/心情/自我/飞花令/API）。`client-src/client.js` 仅 2 行；565/565 测试与 `check` 全绿；debug 契约 100+ 字段保留。

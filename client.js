@@ -24130,12 +24130,14 @@
           "div",
           {
             "data-dsh-little-whale": "root",
+            "data-dsh-whale-fallback": "true",
             className: "dshp-root",
             style: {
               position: "fixed",
               left: "16px",
               bottom: "24px",
-              zIndex: Z_INDEX2,
+              // v0.5.2：降级形象必须高于镜像浮层（order 81 / z-index 61），否则会被盖住。
+              zIndex: Z_INDEX2 + 2,
               pointerEvents: "auto",
               display: "flex",
               flexDirection: "column",
