@@ -165,6 +165,39 @@ import { AnalysisBody, EmptyState, KnowledgeCardView, LoadingState, PoemBody, To
    return libraryTabFactory
   }
   export function LibraryTab(props) { return ensureLibraryTab().LibraryTab(props) }
+  // v0.5.3：面板内容区单独错误边界——某个 tab（如图谱 WebGL）崩了，只降级该区域，
+  // 不能把整个挂件/浮层一起带走。
+  let sectionBoundaryClass = null
+  function ensureSectionBoundary() {
+   if (sectionBoundaryClass === null) {
+    const React = getRuntime().React
+    sectionBoundaryClass = class SectionBoundary extends React.Component {
+     constructor(props) {
+      super(props)
+      this.state = { failed: false }
+      this.retry = () => this.setState({ failed: false })
+     }
+     static getDerivedStateFromError() {
+      return { failed: true }
+     }
+     componentDidCatch(error) {
+      try { console.warn('[dsh-little-whale] 面板区域渲染异常：', error) } catch (_error) {}
+     }
+     render() {
+      if (!this.state.failed) return this.props.children
+      return h('div', { className: 'dshp-growth-empty', style: { padding: 12, lineHeight: 1.6 } },
+       '这块内容加载失败了。',
+       h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', style: { marginLeft: 8 }, onClick: this.retry }, '重试'))
+     }
+    }
+   }
+   return sectionBoundaryClass
+  }
+  export function SectionBoundary(props) {
+   const Boundary = ensureSectionBoundary()
+   return h(Boundary, null, props && props.children)
+  }
+
   // WidgetBoundary 是 class 组件，不能直接当函数调用；用函数包装成正常 React 组件。
   export function WidgetBoundary(props) {
    const Boundary = ensureLibraryTab().WidgetBoundary

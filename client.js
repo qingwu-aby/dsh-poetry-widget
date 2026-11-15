@@ -25566,6 +25566,42 @@
   function LibraryTab(props) {
     return ensureLibraryTab().LibraryTab(props);
   }
+  var sectionBoundaryClass = null;
+  function ensureSectionBoundary() {
+    if (sectionBoundaryClass === null) {
+      const React2 = getRuntime().React;
+      sectionBoundaryClass = class SectionBoundary extends React2.Component {
+        constructor(props) {
+          super(props);
+          this.state = { failed: false };
+          this.retry = () => this.setState({ failed: false });
+        }
+        static getDerivedStateFromError() {
+          return { failed: true };
+        }
+        componentDidCatch(error) {
+          try {
+            console.warn("[dsh-little-whale] \u9762\u677F\u533A\u57DF\u6E32\u67D3\u5F02\u5E38\uFF1A", error);
+          } catch (_error) {
+          }
+        }
+        render() {
+          if (!this.state.failed) return this.props.children;
+          return h2(
+            "div",
+            { className: "dshp-growth-empty", style: { padding: 12, lineHeight: 1.6 } },
+            "\u8FD9\u5757\u5185\u5BB9\u52A0\u8F7D\u5931\u8D25\u4E86\u3002",
+            h2("button", { type: "button", className: "dshp-btn dshp-btn-small", style: { marginLeft: 8 }, onClick: this.retry }, "\u91CD\u8BD5")
+          );
+        }
+      };
+    }
+    return sectionBoundaryClass;
+  }
+  function SectionBoundary(props) {
+    const Boundary = ensureSectionBoundary();
+    return h2(Boundary, null, props && props.children);
+  }
   function WidgetBoundary(props) {
     const Boundary = ensureLibraryTab().WidgetBoundary;
     return h2(Boundary, null, props && props.children);
@@ -29190,7 +29226,7 @@
         poetryTab,
         boot,
         panelTabs,
-        panelBody: renderPanelTab(),
+        panelBody: h3(SectionBoundary, null, renderPanelTab()),
         setPanelOpen,
         setPoetryTab,
         openPanelTab,
