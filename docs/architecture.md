@@ -147,3 +147,10 @@ client-src/widget/
 - 视图函数纯 props-in/element-out，不读 localStorage/fetch；数据/网络/持久化在 models/hooks。
 - 既有 `settings-model.js`、`health-model.js`、`poetry-engine.js` 保留在 `client-src/` 根并继续被引用。
 - `globalThis.__dshPoetryDebug` 全量保留，客户端测试 565/565。
+
+## facade 规则收尾（v0.5.5）
+
+- **强制**：任何跨域 import 必须走目标域的 `index.mjs` 或 `facade.mjs`；直接 import 具体文件会让 `check-deps` 失败。
+- **窄 facade**：`facade.mjs` 只导出跨域真正需要的符号，禁止 `export *`（避免把整域拖入依赖图再次成环）。
+- **当前基线**：82 条跨域依赖 82 条走 facade（100%），178 个模块，0 循环、0 分层违规。
+- 新增跨域能力时：先在目标域 `facade.mjs` 加一行导出，再改调用方；不要直接引具体模块。

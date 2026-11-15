@@ -85,7 +85,7 @@ for (const [file, deps] of imports) {
   }
 }
 
-// 4) 跨域依赖画像：facade 比例（暂时只报告不拦截；目标是把比例逐步拉起来）。
+// 4) 跨域依赖：必须走目标域的 index.mjs 或窄 facade.mjs；facade 自身禁止 export *（防再次成环）。
 const domainOf = (file) => {
   if (!file.startsWith('lib/domain/')) return null
   const parts = file.split('/')
@@ -101,7 +101,15 @@ for (const [file, deps] of imports) {
     const to = domainOf(dep)
     if (to === null || to === from) continue
     crossDomain += 1
-    if (dep.endsWith('/index.mjs') || dep.endsWith('/facade.mjs')) facadeImports += 1
+    const isFacade = dep.endsWith('/index.mjs') || dep.endsWith('/facade.mjs')
+    if (isFacade) facadeImports += 1
+    else {
+      violations.push({
+        type: 'facade',
+        file,
+        detail: `${file} -> ${dep}（跨域必须走 ${to}/index.mjs 或 ${to}/facade.mjs）`,
+      })
+    }
     crossMatrix.set(`${from}→${to}`, (crossMatrix.get(`${from}→${to}`) ?? 0) + 1)
   }
 }
@@ -112,12 +120,11 @@ console.log(
     .map(([key, count]) => `${key}×${count}`)
     .join('、')}`,
 )
-if (process.env.STRICT_FACADE === '1' && facadeRatio < 0.5) {
-  violations.push({
-    type: 'facade',
-    file: 'lib/domain/*',
-    detail: `跨域 facade 比例 ${(facadeRatio * 100).toFixed(1)}% 低于 50%（STRICT_FACADE=1）`,
-  })
+// facade 禁止 export *：否则会把整域模块拖进依赖图，重新制造循环。
+for (const [file, content] of [...imports.keys()].filter((name) => name.endsWith('/facade.mjs')).map((name) => [name, readFileSync(path.join(ROOT, name), 'utf8')])) {
+  if (/export\s+\*\s+from/.test(content)) {
+    violations.push({ type: 'facade', file, detail: `${file} 不允许 export *（会拉入整域并可能成环）` })
+  }
 }
 
 if (violations.length > 0) {
