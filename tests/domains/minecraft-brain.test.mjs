@@ -10,7 +10,7 @@ test('Minecraft 决策 prompt：带观察、玩家与安全约束', () => {
   )
   assert.match(prompt, /只输出一个 JSON 对象/)
   assert.match(prompt, /Yuan_JY/)
-  assert.match(prompt, /不要主动攻击玩家/)
+  assert.match(prompt, /不攻击玩家/)
   assert.match(prompt, /有点好奇/)
 })
 
@@ -23,9 +23,17 @@ test('Minecraft 动作解析：idle/chat/move/look/follow', () => {
   assert.deepEqual(parseMinecraftAction('{"action":"follow","player":"Yuan_JY"}', { players: ['Yuan_JY'] }), { action: 'follow', player: 'Yuan_JY' })
 })
 
+test('Minecraft 自主动作：wander/explore/mine/plan 都合法', () => {
+  assert.deepEqual(parseMinecraftAction('{"action":"wander"}'), { action: 'wander' })
+  assert.deepEqual(parseMinecraftAction('{"action":"mine"}'), { action: 'mine' })
+  assert.deepEqual(parseMinecraftAction('{"action":"explore"}'), { action: 'explore' })
+  assert.deepEqual(parseMinecraftAction('{"action":"plan","text":"想去看看海"}'), { action: 'plan', text: '想去看看海' })
+  assert.equal(parseMinecraftAction('{"action":"plan","text":""}'), null)
+})
+
 test('Minecraft 动作解析：模型不听话时安全回退', () => {
   assert.equal(parseMinecraftAction('我在想要不要过去。'), null)
-  assert.equal(parseMinecraftAction('{"action":"attack"}'), null)
+  assert.equal(parseMinecraftAction('{"action":"fly"}'), null)
   assert.equal(parseMinecraftAction('{"action":"follow","player":"NotHere"}', { players: ['Yuan_JY'] }), null)
   assert.equal(parseMinecraftAction('{"action":"chat","say":""}'), null)
   assert.deepEqual(parseMinecraftAction(JSON.stringify({ action: MINECRAFT_ACTIONS[0] })), { action: 'idle' })
