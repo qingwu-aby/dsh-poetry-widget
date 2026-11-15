@@ -754,6 +754,17 @@ export function PoetryWidget(props) {
    }
   }, [])
 
+  function minecraftStatus() {
+   return fetchJson('minecraft-control.json')
+  }
+  function minecraftControl(action, background) {
+   return fetchJson('minecraft-control.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, background: background !== false }),
+   })
+  }
+
   function renderPanelTab() {
    const api = {
     settings: settingsRef.current,
@@ -830,6 +841,8 @@ export function PoetryWidget(props) {
     reloadBank,
     reloadPingshui,
     libraryFocus,
+    minecraftStatus,
+    minecraftControl,
    }
    if (panelTab !== 'poetry') return h(panelTabs.componentFor(panelTab), { api })
    if (panelTab === 'poetry') {

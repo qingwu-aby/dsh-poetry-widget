@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.6.1 游戏记忆分类 + Minecraft 一键开关**：新增独立 `game-memory.json`（五类：world/player/session/event/plan，只在游戏决策 prompt 读取，不混入聊天/日记/学习记忆）；新增 `POST /api/dsh-poetry/game-memory.json` 与 `GET/POST /api/dsh-poetry/minecraft-control.json`；设置页新增 Minecraft 卡片：一键启动/停止、后台启动开关、状态刷新。570+ 测试。
 - **v0.6.0 Minecraft 自主行动**：新增 `lib/domain/play/minecraft-brain.mjs` 与 `POST /api/dsh-poetry/game-decide.json`（chat token 保护）：把位置/血量/饥饿/附近玩家/方块/背包/最近聊天 + 她此刻状态交给她的模型，只接受白名单动作 JSON（idle/chat/look/jump/move/follow/eat），非法输出安全回退 idle；不写 journal/聊天历史。550/550 测试 + 3 条新测试。
 - **v0.5.5 facade 收尾**：`check-deps` 从“报告比例”改为强制规则——跨域 import 必须走目标域 `index.mjs` 或窄 `facade.mjs`，且 facade 禁止 `export *`；当前 82/82（100%）、0 循环、0 分层违规，任何新增绕过都会让 `npm run check` 直接失败。
 - **v0.5.4 图谱 tab 修复**：`widget/tabs.js` 创建 GraphTab 时引用了未定义的 `React`（真实宿主没有全局 React，开发探针的全局 React 掩盖了它）；改为 `getRuntime().React`。图谱现在正常加载，SectionBoundary 仍作为兜底。已用 ESLint no-undef 扫过全部 client-src。

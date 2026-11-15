@@ -16307,6 +16307,16 @@
       const settings = api.settings && typeof api.settings === "object" ? api.settings : normalizeSettings2();
       const [confirmReset, setConfirmReset] = React.useState(false);
       const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || "\u5317\u4EAC");
+      const [mcStatus, setMcStatus] = React.useState(null);
+      const [mcBusy, setMcBusy] = React.useState("");
+      const [mcBackground, setMcBackground] = React.useState(true);
+      const mcRefresh = () => {
+        if (!api.minecraftStatus) return;
+        api.minecraftStatus().then((data2) => setMcStatus(data2)).catch(() => setMcStatus(null));
+      };
+      React.useEffect(() => {
+        mcRefresh();
+      }, []);
       React.useEffect(() => {
         setCityDraft(settings.weatherCity || "\u5317\u4EAC");
       }, [settings.weatherCity]);
@@ -16462,6 +16472,56 @@
               }
             }, "\u5237\u65B0\u5929\u6C14")
           )
+        ),
+        h3(
+          "div",
+          { className: "dshp-field" },
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "Minecraft"), h3("small", null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? "\u670D\u52A1\u5668\u8FD0\u884C\u4E2D \xB7 \u5979\u5728\u91CC\u9762\u81EA\u5DF1\u73A9" : "\u4E00\u952E\u542F\u52A8\u670D\u52A1\u5668 / \u4EE3\u7406 / \u5979")),
+          h3(
+            "div",
+            { className: "dshp-field-control" },
+            h3("button", {
+              type: "button",
+              className: "dshp-btn",
+              disabled: mcBusy !== "",
+              onClick: () => {
+                if (!api.minecraftControl) return;
+                setMcBusy("start");
+                api.minecraftControl("start", mcBackground).then((data2) => {
+                  setMcStatus(data2);
+                  if (api.showToast) api.showToast("Minecraft \u670D\u52A1\u5DF2\u542F\u52A8");
+                }).catch(() => {
+                  if (api.showToast) api.showToast("\u542F\u52A8\u5931\u8D25", "error");
+                }).finally(() => setMcBusy(""));
+              }
+            }, mcBusy === "start" ? "\u542F\u52A8\u4E2D\u2026" : "\u4E00\u952E\u542F\u52A8"),
+            h3("button", {
+              type: "button",
+              className: "dshp-btn",
+              disabled: mcBusy !== "",
+              onClick: () => {
+                if (!api.minecraftControl) return;
+                setMcBusy("stop");
+                api.minecraftControl("stop", mcBackground).then((data2) => {
+                  setMcStatus(data2);
+                  if (api.showToast) api.showToast("Minecraft \u670D\u52A1\u5DF2\u505C\u6B62");
+                }).catch(() => {
+                  if (api.showToast) api.showToast("\u505C\u6B62\u5931\u8D25", "error");
+                }).finally(() => setMcBusy(""));
+              }
+            }, mcBusy === "stop" ? "\u505C\u6B62\u4E2D\u2026" : "\u505C\u6B62"),
+            h3("button", {
+              type: "button",
+              className: "dshp-btn dshp-btn-small",
+              onClick: mcRefresh
+            }, "\u5237\u65B0\u72B6\u6001")
+          )
+        ),
+        h3(
+          "div",
+          { className: "dshp-field" },
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u540E\u53F0\u542F\u52A8"), h3("small", null, "\u5F00\u542F\uFF1Alaunchd \u5E38\u9A7B\uFF0C\u5173\u6389 DSH \u4E5F\u7EE7\u7EED\uFF1B\u5173\u95ED\uFF1A\u4EC5\u5F53\u524D DSH \u8FDB\u7A0B\u5185\u8FD0\u884C")),
+          switchNode2(mcBackground, () => setMcBackground(!mcBackground), "Minecraft \u540E\u53F0\u542F\u52A8\u5F00\u5173")
         ),
         h3(
           "div",
@@ -29046,6 +29106,16 @@
         }
       }
     }, []);
+    function minecraftStatus() {
+      return fetchJson("minecraft-control.json");
+    }
+    function minecraftControl(action, background) {
+      return fetchJson("minecraft-control.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, background: background !== false })
+      });
+    }
     function renderPanelTab() {
       const api = {
         settings: settingsRef.current,
@@ -29121,7 +29191,9 @@
         reloadAnthology,
         reloadBank,
         reloadPingshui,
-        libraryFocus
+        libraryFocus,
+        minecraftStatus,
+        minecraftControl
       };
       if (panelTab !== "poetry") return h3(panelTabs.componentFor(panelTab), { api });
       if (panelTab === "poetry") {

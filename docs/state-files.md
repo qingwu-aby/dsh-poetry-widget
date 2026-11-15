@@ -86,3 +86,11 @@
 3. 写入前统一 `writeJsonAtomic`（临时文件 + rename），迁移前 `.bak-<ts>`；
 4. jsonl 追加型（journal/daily-life/model-errors/letters）保持追加，不做整体重写；备份按大小轮转；
 5. 迁移执行方式：启动后 60s dry-run 日志 → 默认执行（可用 `DSH_POETRY_MIGRATE=off` 关闭）。
+
+## game-memory.json（v0.6.1）
+
+Minecraft 游戏记忆，**独立分类存储**，与 journal/learning/memory-layers 隔离：
+
+- 文件：`$DSH_HOME/.dsh-poetry/game-memory.json`
+- 分类：`world` / `player` / `session` / `event` / `plan`
+- 读取：仅 `game-decide.json` 的决策 prompt；不进入普通对话/日记/学习记忆。

@@ -30,3 +30,31 @@
 - 日志：`~/Library/Logs/whale-minecraft-{server,proxy,bot}.log`
 - 世界：`~/dsh-workspace/minecraft-bot/server261/world`
 - 玩家连入（26.3）：`localhost:25568`（ViaProxy → 26.1）
+
+## 游戏记忆（v0.6.1）
+
+独立文件：`$DSH_HOME/.dsh-poetry/game-memory.json`，与 chat journal / learning / memory-layers **物理隔离**。
+
+固定五类，互不混用：
+
+| 分类 | 内容 | 用途 |
+|---|---|---|
+| `world` | 世界/服务器设定（端口、出生点） | 进游戏时知道在哪 |
+| `player` | 一起玩的人、称呼、偏好 | 认人、不叫错 |
+| `session` | 一次游玩的经过 | 记得上次一起做了什么 |
+| `event` | 值得记住的瞬间（第一次见面、死亡、送东西） | 具体回忆 |
+| `plan` | 她在游戏里想做的事 | 下一步目标 |
+
+- 只在 `game-decide` 的 prompt 里以「你记得的：…」出现，**不会进入普通聊天/日记/学习记忆**；
+- 每类有上限（world 40 / player 80 / session 120 / event 200 / plan 40），同分类去重；
+- bot 在出生、玩家说话、她说话、跟随玩家时自动 `POST /game-memory.json`。
+
+## 一键开关
+
+设置页「Minecraft」卡片：
+
+- **一键启动 / 停止**：启动服务器 + 代理 + 她；
+- **后台启动**：开 = launchd 常驻（关 DSH 也继续）；关 = 仅当前 DSH 进程内运行；
+- **刷新状态**：显示服务器/代理端口与她的位置。
+
+接口：`GET/POST /api/dsh-poetry/minecraft-control.json`（GET 状态；POST `{action:'start'|'stop', background:boolean}`）。

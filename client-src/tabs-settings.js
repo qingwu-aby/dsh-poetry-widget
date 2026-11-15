@@ -19,6 +19,14 @@ const api = props.api || {}
 const settings = (api.settings && typeof api.settings === 'object') ? api.settings : normalizeSettings()
 const [confirmReset, setConfirmReset] = React.useState(false)
 const [cityDraft, setCityDraft] = React.useState(settings.weatherCity || '北京')
+const [mcStatus, setMcStatus] = React.useState(null)
+const [mcBusy, setMcBusy] = React.useState('')
+const [mcBackground, setMcBackground] = React.useState(true)
+const mcRefresh = () => {
+ if (!api.minecraftStatus) return
+ api.minecraftStatus().then((data) => setMcStatus(data)).catch(() => setMcStatus(null))
+}
+React.useEffect(() => { mcRefresh() }, [])
 React.useEffect(() => {
  setCityDraft(settings.weatherCity || '北京')
 }, [settings.weatherCity])
@@ -194,6 +202,46 @@ return h(
    },
   }, '刷新天气'),
   ),
+ ),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, 'Minecraft'), h('small', null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? '服务器运行中 · 她在里面自己玩' : '一键启动服务器 / 代理 / 她')),
+  h(
+   'div',
+   { className: 'dshp-field-control' },
+   h('button', {
+    type: 'button',
+    className: 'dshp-btn',
+    disabled: mcBusy !== '',
+    onClick: () => {
+     if (!api.minecraftControl) return
+     setMcBusy('start')
+     api.minecraftControl('start', mcBackground).then((data) => { setMcStatus(data); if (api.showToast) api.showToast('Minecraft 服务已启动') }).catch(() => { if (api.showToast) api.showToast('启动失败', 'error') }).finally(() => setMcBusy(''))
+    },
+   }, mcBusy === 'start' ? '启动中…' : '一键启动'),
+   h('button', {
+    type: 'button',
+    className: 'dshp-btn',
+    disabled: mcBusy !== '',
+    onClick: () => {
+     if (!api.minecraftControl) return
+     setMcBusy('stop')
+     api.minecraftControl('stop', mcBackground).then((data) => { setMcStatus(data); if (api.showToast) api.showToast('Minecraft 服务已停止') }).catch(() => { if (api.showToast) api.showToast('停止失败', 'error') }).finally(() => setMcBusy(''))
+    },
+   }, mcBusy === 'stop' ? '停止中…' : '停止'),
+   h('button', {
+    type: 'button',
+    className: 'dshp-btn dshp-btn-small',
+    onClick: mcRefresh,
+   }, '刷新状态'),
+  ),
+ ),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, '后台启动'), h('small', null, '开启：launchd 常驻，关掉 DSH 也继续；关闭：仅当前 DSH 进程内运行')),
+  switchNode(mcBackground, () => setMcBackground(!mcBackground), 'Minecraft 后台启动开关'),
  ),
  h(
   'div',
