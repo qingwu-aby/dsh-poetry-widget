@@ -60,3 +60,10 @@
 - **刷新状态**：显示服务器/代理端口与她的位置。
 
 接口：`GET/POST /api/dsh-poetry/minecraft-control.json`（GET 状态；POST `{action:'start'|'stop', background:boolean}`）。
+
+## 单一注意力（v0.7.0）
+
+- 状态文件：`$DSH_HOME/.dsh-poetry/focus.json`，`focus=idle|chat|game|build`；
+- bot 出生/每次决策向 `/api/dsh-poetry/game-focus.json` 报 `active=true`，2 分钟无刷新自动过期；
+- 游戏/建造进行中，GUI 聊天**不再并行调用聊天模型**：返回一句「我在游戏里，手上正忙着，等会儿回你。」并把消息放进 `deferred` 队列；
+- 这样她同一时刻只有一个专注，不会“聊天一个她、游戏一个她”。

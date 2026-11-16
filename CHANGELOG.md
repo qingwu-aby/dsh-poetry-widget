@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.7.0 单一注意力**：新增 `focus.json` 与 `GET/POST /api/dsh-poetry/game-focus.json`；她在 Minecraft（game/build）时，聊天不再并发调用模型，改为固定短句 + 把消息排队（deferred），bob 每次决策刷新 focus，2 分钟无心跳自动回到 idle；避免“聊天的小鲸鱼和游戏里的小鲸鱼同时存在”。
 - **v0.6.5 可复用方法记忆**：游戏记忆新增 `method` 分类；建造过程把“区块加载→找树→选址→逐块放置→读回校验→失败重试”写成可复用方法条目，决策 prompt 会带上这些方法；新增 `docs/minecraft-playbook.md` 记录参考文档与踩坑。
 - **v0.6.4 建造记忆 + 建造校验**：游戏记忆新增 `build` 分类（选址/材料/进度）；决策新增 `build` 动作；bot 建房前先找树/探路，放置后逐块校验，达不到 60% 不再误报“房子盖好了”。
 - **v0.6.3 别一直站着**：决策 prompt 引导她优先活动（idle 只用于真想安静时，不确定选 wander）；bot 增加连续两次 idle 自动转 wander，保证她不会长时间静止。
