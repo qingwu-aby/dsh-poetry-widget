@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.8.0 Minecraft 自学**：新增 `POST /api/dsh-poetry/game-learn.json`：她遇到死亡/卡住/定期会自己上网查资料（DuckDuckGo HTML），让模型整理成 lesson/steps/happy，写入 `method`/`plan` 记忆；bot 每 10 分钟可学一个主题（第一天生存/建屋/农田/玩得开心），下一次决策自动带上方法。
 - **v0.7.1 专注队列不丢消息**：focus 回到 idle 时保留 deferred 队列；游戏结束后的第一条聊天会把「你玩游戏时收到的留言」带给模型并清空队列。
 - **v0.7.0 单一注意力**：新增 `focus.json` 与 `GET/POST /api/dsh-poetry/game-focus.json`；她在 Minecraft（game/build）时，聊天不再并发调用模型，改为固定短句 + 把消息排队（deferred），bob 每次决策刷新 focus，2 分钟无心跳自动回到 idle；避免“聊天的小鲸鱼和游戏里的小鲸鱼同时存在”。
 - **v0.6.5 可复用方法记忆**：游戏记忆新增 `method` 分类；建造过程把“区块加载→找树→选址→逐块放置→读回校验→失败重试”写成可复用方法条目，决策 prompt 会带上这些方法；新增 `docs/minecraft-playbook.md` 记录参考文档与踩坑。
