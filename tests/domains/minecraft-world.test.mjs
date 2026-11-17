@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { buildWorldPrompt, createMinecraftWorld, parseWorldCommand } from '../../lib/domain/play/minecraft-world.mjs'
+import { registerGameRoute } from '../../lib/composition/interactive-routes.mjs'
 import { createGameMemoryWorkspace } from '../../lib/domain/play/game-memory-workspace.mjs'
 
 function fakeReq(method, body) {
@@ -86,4 +87,25 @@ test('文件记忆：写入分类文件、短画像与 Git', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('World 路由注册的是 handler 函数，不是 World 对象', () => {
+  const handlers = new Map()
+  const fakeWebServer = { register: (route) => { handlers.set(route.path, route.handler); return () => {} } }
+  const world = { handler: async () => {}, snapshot: () => ({}) }
+  registerGameRoute({
+    webServer: fakeWebServer,
+    disposers: [],
+    gameBrain: {},
+    gameMemory: {},
+    gameFocus: {},
+    gameLearning: { handler: async () => {} },
+    minecraftWorld: world,
+    minecraftService: {},
+    chatTokenFile: '/tmp/none-token',
+    fence: null,
+    logger: { info() {} },
+  })
+  assert.equal(typeof handlers.get('/api/dsh-poetry/game-world.json'), 'function')
+  assert.equal(handlers.get('/api/dsh-poetry/game-world.json'), world.handler)
 })
