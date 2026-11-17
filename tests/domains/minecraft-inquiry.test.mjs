@@ -32,3 +32,12 @@ test('World 工具：mc_inquire 是合法工具', () => {
   assert.equal(cmd.arguments.problem, '放不上方块')
   assert.equal(parseWorldCommand('{"tool":"mc_inquire","arguments":{}}'), null)
 })
+
+test('实践循环：没有证据时不空想，有失败回执才复盘', async () => {
+  const { createPracticeLoop } = await import('../../lib/domain/play/practice-loop.mjs')
+  const loop = createPracticeLoop({ methodMemory: { digest: () => [] }, journal: null, stateFile: '' })
+  assert.deepEqual(await loop.reflect({}), { ok: false, skipped: true, reason: 'no_evidence' })
+  const skipped = await loop.maybeRun({ problem: '' })
+  assert.equal(skipped.skipped, true)
+  assert.equal(skipped.reason, 'no_failure')
+})
