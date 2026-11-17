@@ -10747,7 +10747,7 @@
           }
         }, {
           key: "request",
-          value: function request() {
+          value: function request2() {
             if (this.killed || !this.active || !this.lastEvent) return;
             if (this.fence) {
               this.dirty = true;
@@ -12182,15 +12182,15 @@
           });
           _defineProperty(_this, "nodeBaseDepth", {});
           _defineProperty(_this, "edgeBaseDepth", {});
-          var primitives = options.primitives, styles = options.styles, _options$settings = options.settings, settings = _options$settings === void 0 ? {} : _options$settings, nodeReducer = options.nodeReducer, edgeReducer = options.edgeReducer, customNodeState = options.customNodeState, customEdgeState = options.customEdgeState, customGraphState = options.customGraphState;
+          var primitives = options.primitives, styles2 = options.styles, _options$settings = options.settings, settings = _options$settings === void 0 ? {} : _options$settings, nodeReducer = options.nodeReducer, edgeReducer = options.edgeReducer, customNodeState = options.customNodeState, customEdgeState = options.customEdgeState, customGraphState = options.customGraphState;
           _this.stateManager = new StateManager(function() {
             return _this.scheduleStateRefresh();
           }, customNodeState, customEdgeState, customGraphState);
           var resolvedPrimitives = primitives !== null && primitives !== void 0 ? primitives : DEFAULT_PRIMITIVES2;
-          _this.stylesDeclaration = styles ? {
-            nodes: (_styles$nodes = styles.nodes) !== null && _styles$nodes !== void 0 ? _styles$nodes : DEFAULT_STYLES$1.nodes,
-            edges: (_styles$edges = styles.edges) !== null && _styles$edges !== void 0 ? _styles$edges : DEFAULT_STYLES$1.edges,
-            stage: styles.stage
+          _this.stylesDeclaration = styles2 ? {
+            nodes: (_styles$nodes = styles2.nodes) !== null && _styles$nodes !== void 0 ? _styles$nodes : DEFAULT_STYLES$1.nodes,
+            edges: (_styles$edges = styles2.edges) !== null && _styles$edges !== void 0 ? _styles$edges : DEFAULT_STYLES$1.edges,
+            stage: styles2.stage
           } : DEFAULT_STYLES$1;
           _this.nodeReducer = nodeReducer !== null && nodeReducer !== void 0 ? nodeReducer : null;
           _this.edgeReducer = edgeReducer !== null && edgeReducer !== void 0 ? edgeReducer : null;
@@ -12223,10 +12223,10 @@
             return _this.emit(event, payload);
           });
           _this.depthLayers = (_resolvedPrimitives$d = resolvedPrimitives.depthLayers) !== null && _resolvedPrimitives$d !== void 0 ? _resolvedPrimitives$d : _toConsumableArray(DEFAULT_DEPTH_LAYERS);
-          if (!(styles !== null && styles !== void 0 && styles.nodes) && !DEFAULT_NODE_DEPTH_LAYERS.every(function(layer) {
+          if (!(styles2 !== null && styles2 !== void 0 && styles2.nodes) && !DEFAULT_NODE_DEPTH_LAYERS.every(function(layer) {
             return _this.depthLayers.includes(layer);
           })) throw new Error("Sigma: depthLayers must include ".concat(DEFAULT_NODE_DEPTH_LAYERS.join(", "), " for the built-in node styles."));
-          if (!(styles !== null && styles !== void 0 && styles.edges) && !DEFAULT_EDGE_DEPTH_LAYERS.every(function(layer) {
+          if (!(styles2 !== null && styles2 !== void 0 && styles2.edges) && !DEFAULT_EDGE_DEPTH_LAYERS.every(function(layer) {
             return _this.depthLayers.includes(layer);
           })) throw new Error("Sigma: depthLayers must include ".concat(DEFAULT_EDGE_DEPTH_LAYERS.join(", "), " for the built-in edge styles."));
           _this.itemBuckets = {
@@ -15076,13 +15076,13 @@
       if (!pending) return Promise.resolve();
       const body = pending;
       pending = null;
-      let request;
+      let request2;
       try {
-        request = Promise.resolve(put(body));
+        request2 = Promise.resolve(put(body));
       } catch (error) {
-        request = Promise.reject(error);
+        request2 = Promise.reject(error);
       }
-      return request.then(
+      return request2.then(
         (result) => {
           if (onSaved) {
             try {
@@ -24677,8 +24677,8 @@
   }
   var fetchJson = createFetchJson(ROUTE);
   function putSettings(patch) {
-    const request = buildSettingsRequest(patch);
-    return fetchJson("settings.json", request.init).then((data) => {
+    const request2 = buildSettingsRequest(patch);
+    return fetchJson("settings.json", request2.init).then((data) => {
       if (bootstrapCache && data && data.settings) {
         bootstrapCache = Object.assign({}, bootstrapCache, { settings: data.settings });
       }
@@ -27165,7 +27165,7 @@
       }
       if (weatherInFlightRef.current) return weatherInFlightRef.current;
       setWeatherRes((previous) => ({ status: "loading", data: previous.data, error: null, at: previous.at }));
-      const request = requestWeather().then(
+      const request2 = requestWeather().then(
         (data) => {
           weatherInFlightRef.current = null;
           setWeatherRes({ status: "ready", data, error: null, at: Date.now() });
@@ -27177,8 +27177,8 @@
           return null;
         }
       );
-      weatherInFlightRef.current = request;
-      return request;
+      weatherInFlightRef.current = request2;
+      return request2;
     }, []);
     React.useEffect(() => {
       if (!(settings.weatherPoem || settings.mood)) return void 0;
@@ -27251,13 +27251,13 @@
         resolve({ ok: false, reason: "timeout" });
       }, SELF_TALK_TIMEOUT_MS);
     });
-    const request = Promise.resolve().then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+    const request2 = Promise.resolve().then(() => fetch(ROUTE + selfTalkQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
       if (!response || typeof response.ok !== "boolean" || !response.ok) {
         return { ok: false, reason: "http", status: response ? response.status : 0 };
       }
       return Promise.resolve(response.json()).then((data) => parseSelfTalkResponse(data)).catch(() => ({ ok: false, reason: "json" }));
     }).catch(() => ({ ok: false, reason: "network" }));
-    return Promise.race([request, timeout]).then((result) => {
+    return Promise.race([request2, timeout]).then((result) => {
       if (timer2) clearTimeout(timer2);
       return result;
     });
@@ -27651,7 +27651,7 @@
         resolve({ ok: false, reason: "timeout" });
       }, MOOD_AI_TIMEOUT_MS);
     });
-    const request = Promise.resolve().then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
+    const request2 = Promise.resolve().then(() => fetch(ROUTE + moodAiQuery(opts), controller ? { signal: controller.signal } : void 0)).then((response) => {
       if (!response || typeof response.ok !== "boolean" || !response.ok) {
         const status = response ? num(response.status, 0) : 0;
         return { ok: false, reason: status === 429 ? "rate" : "http", status };
@@ -27671,7 +27671,7 @@
         return parsed;
       }).catch(() => ({ ok: false, reason: "json" }));
     }).catch(() => ({ ok: false, reason: "network" }));
-    return Promise.race([request, timeout]).then((result) => {
+    return Promise.race([request2, timeout]).then((result) => {
       if (timer2) clearTimeout(timer2);
       return result;
     });
@@ -29583,6 +29583,128 @@
     return TwinWhale;
   }
 
+  // client-src/whale-settings-page.js
+  var API = "/api/dsh-poetry";
+  function request(path, init) {
+    const options = Object.assign({ credentials: "same-origin" }, init || {});
+    return fetch(API + path, options).then(async (response) => {
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.ok === false) {
+        const detail = data && data.error ? data.error.message || data.error.code : "HTTP " + response.status;
+        throw new Error(detail || "\u8BF7\u6C42\u5931\u8D25");
+      }
+      return data;
+    });
+  }
+  var styles = {
+    page: { padding: "18px 22px", maxWidth: 760, color: "var(--dsw-alias-label-primary, #1f2329)", fontSize: 13 },
+    card: { border: "1px solid var(--dsw-alias-border-l2, #e5e6eb)", borderRadius: 10, padding: "14px 16px", marginBottom: 12, background: "var(--dsw-alias-bg-base-platform, #fff)" },
+    title: { fontSize: 15, fontWeight: 600, marginBottom: 10 },
+    row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px dashed var(--dsw-alias-border-l2, #eef0f2)" },
+    label: { display: "flex", flexDirection: "column", gap: 2 },
+    hint: { fontSize: 11, opacity: 0.62 },
+    button: { border: "1px solid var(--dsw-alias-border-l2, #d0d3d9)", background: "var(--dsw-alias-bg-base-platform, #fff)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 },
+    primary: { background: "#1f6feb", borderColor: "#1f6feb", color: "#fff" },
+    select: { borderRadius: 8, border: "1px solid var(--dsw-alias-border-l2, #d0d3d9)", padding: "5px 8px", fontSize: 12, background: "var(--dsw-alias-bg-base-platform, #fff)", color: "inherit" },
+    status: { fontSize: 12, opacity: 0.72, marginLeft: 8 }
+  };
+  function createWhaleSettingsPage(React, h3) {
+    return function WhaleSettingsPage() {
+      const [settings, setSettings] = React.useState(null);
+      const [mc, setMc] = React.useState(null);
+      const [busy, setBusy] = React.useState("");
+      const [message, setMessage] = React.useState("");
+      const refresh = React.useCallback(() => {
+        request("/settings.json").then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {
+        });
+        request("/minecraft-control.json").then((data) => setMc(data)).catch(() => {
+        });
+      }, []);
+      React.useEffect(() => {
+        refresh();
+      }, [refresh]);
+      function save(patch, key) {
+        setBusy(key);
+        request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
+          setSettings(normalizeSettings(data.settings));
+          setMessage("\u5DF2\u4FDD\u5B58");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setMessage("\u4FDD\u5B58\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
+      }
+      function toggle(key) {
+        if (!settings) return;
+        save({ [key]: !settings[key] }, key);
+      }
+      function minecraft(action, extra) {
+        setBusy(action);
+        request("/minecraft-control.json", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ action }, extra || {})) }).then((data) => {
+          setMc(data);
+          setMessage(action === "start" ? "\u6B63\u5728\u542F\u52A8 Minecraft" : action === "stop" ? "\u6B63\u5728\u505C\u6B62 Minecraft" : "\u5DF2\u66F4\u65B0");
+        }).catch((error) => setMessage("\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
+      }
+      if (!settings) return h3 ? h3("div", { style: styles.page }, "\u6B63\u5728\u8BFB\u53D6\u5C0F\u9CB8\u9C7C\u7684\u8BBE\u7F6E\u2026") : null;
+      const row = (title, hint, control) => h3(
+        "div",
+        { style: styles.row, key: title },
+        h3("div", { style: styles.label }, h3("b", null, title), hint ? h3("span", { style: styles.hint }, hint) : null),
+        control
+      );
+      const checkbox = (key, label) => h3(
+        "label",
+        { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer" } },
+        h3("input", { type: "checkbox", checked: Boolean(settings[key]), disabled: busy !== "", onChange: () => toggle(key) }),
+        label
+      );
+      const world = mc && mc.world ? mc.world : null;
+      const running = Boolean(mc && mc.ports && mc.ports.server);
+      return h3(
+        "div",
+        { style: styles.page },
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "\u5C0F\u9CB8\u9C7C"),
+          row("\u5927\u5C0F", "\u6302\u4EF6\u7F29\u653E 60%\u2013160%", h3("input", { type: "range", min: 60, max: 160, step: 5, value: Math.round(settings.scale * 100), onChange: (event) => save({ scale: Number(event.target.value) / 100 }, "scale") })),
+          row("\u9690\u85CF\u6302\u4EF6", "\u9690\u85CF\u540E\u4ECD\u53EF\u901A\u8FC7\u53CC\u51FB\u7A7A\u767D\u5904\u6062\u590D", checkbox("hidden")),
+          row("\u5FC3\u60C5", "\u8BA9\u5979\u5BF9\u5929\u6C14/\u65F6\u95F4\u6709\u81EA\u5DF1\u7684\u5FC3\u60C5", checkbox("mood")),
+          row("\u81EA\u8A00\u81EA\u8BED", "\u6BCF\u9694\u4E00\u4E24\u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5", checkbox("spontaneousPoem")),
+          row("\u955C\u50CF\u6D6E\u5C42", "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C", checkbox("twinOverlay")),
+          row("\u955C\u50CF\u4E3B\u4F53", "\u72EC\u7ACB\u72B6\u6001\u4E0E\u4FE1\u4EF6\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548", checkbox("twinSystem"))
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "Minecraft"),
+          row(
+            "\u670D\u52A1",
+            running ? "\u670D\u52A1\u5668\u8FD0\u884C\u4E2D \xB7 \u5979\u5728\u91CC\u9762\u81EA\u5DF1\u73A9" : world ? "\u670D\u52A1\u5668\u672A\u8FD0\u884C" : "\u72B6\u6001\u672A\u77E5",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: Object.assign({}, styles.button, running ? null : styles.primary), disabled: busy !== "", onClick: () => minecraft("start", { background: true }) }, busy === "start" ? "\u542F\u52A8\u4E2D\u2026" : "\u4E00\u952E\u542F\u52A8"),
+              h3("button", { type: "button", style: styles.button, disabled: busy !== "" || !running, onClick: () => minecraft("stop", { background: true }) }, busy === "stop" ? "\u505C\u6B62\u4E2D\u2026" : "\u505C\u6B62")
+            )
+          ),
+          row("\u5979", world ? `${world.lastReceipt && world.lastReceipt.facts && world.lastReceipt.facts.position || "\u4F4D\u7F6E\u672A\u77E5"} \xB7 \u6700\u8FD1 ${world.lastCommand && world.lastCommand.tool || "\u65E0\u52A8\u4F5C"}` : "\u5C1A\u672A\u8FDB\u5165\u6E38\u620F", null),
+          row("\u6E38\u620F\u64CD\u4F5C\u6743\u9650", "\u63A7\u5236 = \u5141\u8BB8\u52A8\u624B\uFF1B\u53EA\u89C2\u5BDF = \u53EA\u770B", h3(
+            "select",
+            {
+              style: styles.select,
+              value: world && world.permission || "control",
+              onChange: (event) => minecraft("permission", { level: event.target.value })
+            },
+            h3("option", { value: "control" }, "\u63A7\u5236"),
+            h3("option", { value: "observe" }, "\u53EA\u89C2\u5BDF"),
+            h3("option", { value: "ask-once" }, "\u5148\u95EE\u4E00\u6B21\uFF0830 \u5206\u949F\uFF09"),
+            h3("option", { value: "never" }, "\u4ECE\u4E0D\u63A7\u5236")
+          )),
+          world && world.permission === "ask-once" && !world.granted ? row("\u6388\u6743", "\u5141\u8BB8\u5979\u64CD\u4F5C 30 \u5206\u949F", h3("button", { type: "button", style: styles.primary, onClick: () => minecraft("grant", { minutes: 30 }) }, "\u5141\u8BB8 30 \u5206\u949F")) : null
+        ),
+        message ? h3("div", { style: { fontSize: 12, opacity: 0.8 } }, message) : null
+      );
+    };
+  }
+
   // client-src/resources.js
   var RESOURCE_CACHE_KEYS = ["poems", "ci", "yun", "knowledge", "anthology", "bank", "pingshui", "ciBank", "moodCatalog"];
   function createResourceStore(deps) {
@@ -29652,6 +29774,7 @@
         throw new Error("dsh-little-whale: React \u8FD0\u884C\u65F6\u4E0D\u53EF\u7528");
       }
       const h3 = React.createElement;
+      const WhaleSettingsPage = createWhaleSettingsPage(React, h3);
       setRuntime({ React, h: h3 });
       const resourceStore = createResourceStore({
         fetchJsonUrl,
@@ -29924,6 +30047,17 @@
           { name: "shell.overlay", id: WIDGET_ID, order: 80 },
           host
         ));
+        try {
+          ctx.slots.inject("settings.section", () => ctx.slots.register(
+            { name: "settings.section", id: "dsh-little-whale", order: 30, label: "\u5C0F\u9CB8\u9C7C" },
+            WhaleSettingsPage
+          ));
+        } catch (error) {
+          try {
+            ctx.logger && ctx.logger.warn && ctx.logger.warn("dsh-little-whale: \u8BBE\u7F6E\u5206\u533A\u6CE8\u518C\u5931\u8D25\uFF1A" + String(error && error.message || error));
+          } catch (_error) {
+          }
+        }
         try {
           const TwinOverlay = createTwinOverlay({ h: h3, React });
           ctx.slots.inject("shell.overlay", () => ctx.slots.register(

@@ -458,8 +458,8 @@ test('factory 注册 shell.overlay：id=dsh-little-whale、order=80、组件为�
   }
   mod.apply(ctx)
 
-  assertDeep(injections, ['shell.overlay', 'shell.overlay'])
-  assert.equal(registrations.length, 2)
+  assertDeep(injections, ['shell.overlay', 'settings.section', 'shell.overlay'])
+  assert.equal(registrations.length, 3)
   const mainRegistration = registrations.find((item) => item.options.id === 'dsh-little-whale')
   const twinRegistration = registrations.find((item) => item.options.id === 'dsh-little-whale-twin')
   assert.ok(mainRegistration, '主鲸鱼浮层要注册')
@@ -471,6 +471,10 @@ test('factory 注册 shell.overlay：id=dsh-little-whale、order=80、组件为�
   assert.equal(typeof component, 'function')
   assert.equal(twinRegistration.options.order, 81)
   assert.equal(typeof twinRegistration.component, 'function')
+  const settingsRegistration = registrations.find((item) => item.options.id === 'dsh-little-whale' && item.options.name === 'settings.section')
+  assert.ok(settingsRegistration, '设置分区要注册到插件设置页')
+  assert.equal(settingsRegistration.options.label, '小鲸鱼')
+  assert.equal(typeof settingsRegistration.component, 'function')
 
   const hostElement = component({})
   assert.equal(typeof hostElement.type, 'function', '注册组件必须返回错误边界包裹的 React 元素')

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.12.0 插件设置页**：参照 dsh-bili-scroll，用 `settings.section` 把「小鲸鱼」设置搬到 DSH 设置 → 插件页；包含外观/心情/自言自语/镜像、Minecraft 启停/权限/状态，不必再从挂件气泡打开重设置面板；客户端测试同步契约。
 - **v0.11.1 真·互联网搜索**：DuckDuckGo/Bing 在本机被反爬/串结果，新增百度 HTML 搜索为主、DDG 为备、维基百科兜底；过滤广告/下载类结果，清洗摘要；调研不再 sourceCount=0。
 - **v0.11.0 实践循环贯穿生活**：新增 `practice-loop`：心跳每 6 小时检查一次最近失败回执/问题，有证据才做“原因→假设→验证→复盘”，写全局 `method` 账本与 journal；Minecraft 调研也写入全局方法；聊天 prompt 会带她用过的方法。没有证据时不空想。
 - **v0.10.1 调研服务接线修复**：`createMinecraftInquiry` 没有创建/传入 World，线上 `inquire` 返回 unavailable；现已接入。

@@ -19,6 +19,7 @@ import { isVideoMoodFile } from '../base.js'
 import { createHooks } from '../hooks.js'
 import { createPanelTabRouter } from '../panel-tabs.js'
 import { createTwinOverlay } from '../twin-overlay.js'
+import { createWhaleSettingsPage } from '../whale-settings-page.js'
 import { normalizeHealthStatus } from '../health-model.js'
 import { DEFAULT_SETTINGS, normalizeSettings, settingsPatch, buildSettingsRequest, createSettingsSaver, selectNextPoemId } from '../settings-model.js'
 import { TONE_QUATRAINS, buildToneCells, selectPoemText, selectCiText, poemRhymeLines, buildPingshuiIndex, annotatePoemLines, patternForShape, detectMetre, detectPoem, parsePoemInput, detectPoemText, formatDetectionReport, detectionRhymeIndexes } from '../poetry-engine.js'
@@ -50,6 +51,7 @@ window.__ModuleLoader__.load({
   throw new Error('dsh-little-whale: React 运行时不可用')
   }
   const h = React.createElement
+  const WhaleSettingsPage = createWhaleSettingsPage(React, h)
   setRuntime({ React, h })
 
   const resourceStore = createResourceStore({
@@ -159,6 +161,16 @@ window.__ModuleLoader__.load({
    { name: 'shell.overlay', id: WIDGET_ID, order: 80 },
    host,
   ))
+  // v0.12.0：设置页放到 DSH「设置 → 插件」里，不再只能从挂件气泡打开。
+  try {
+   ctx.slots.inject('settings.section', () => ctx.slots.register(
+    { name: 'settings.section', id: 'dsh-little-whale', order: 30, label: '小鲸鱼' },
+    WhaleSettingsPage,
+   ))
+  } catch (error) {
+   try { ctx.logger && ctx.logger.warn && ctx.logger.warn('dsh-little-whale: 设置分区注册失败：' + String((error && error.message) || error)) } catch (_error) {}
+  }
+
   // v0.2.0：镜像副浮层从独立子插件并入（只读，twin 关闭时自动隐藏）。
   try {
    const TwinOverlay = createTwinOverlay({ h, React })
