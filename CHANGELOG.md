@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.11.1 真·互联网搜索**：DuckDuckGo/Bing 在本机被反爬/串结果，新增百度 HTML 搜索为主、DDG 为备、维基百科兜底；过滤广告/下载类结果，清洗摘要；调研不再 sourceCount=0。
 - **v0.11.0 实践循环贯穿生活**：新增 `practice-loop`：心跳每 6 小时检查一次最近失败回执/问题，有证据才做“原因→假设→验证→复盘”，写全局 `method` 账本与 journal；Minecraft 调研也写入全局方法；聊天 prompt 会带她用过的方法。没有证据时不空想。
 - **v0.10.1 调研服务接线修复**：`createMinecraftInquiry` 没有创建/传入 World，线上 `inquire` 返回 unavailable；现已接入。
 - **v0.10.0 科学实践循环**：新增 `mc_inquire` 工具与 World `inquire` 动作：她把失败/回执/方法记忆拿出来，自己上网查资料、分析原因、提出可验证假设和实验，结果写入 `inquiry` 记忆；是否使用由她决定，不强制固定步骤。
