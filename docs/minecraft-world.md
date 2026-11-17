@@ -72,3 +72,28 @@ archive/
 - 结构：3×3、两格高墙、留门、平屋顶；地板跳过玩家脚下；
 - 放置：逐块 `placeBlock` + 读回方块校验，≥80% 才算完成；
 - 建造阶段不做长距离寻路，避免 keepalive 超时；线上实测 24/25 块。
+
+## 科学实践循环（v0.10.0）
+
+她可以自己选择 `mc_inquire`，把最近失败、回执、方法记忆交给调研服务：
+
+```json
+{"action":"inquire","problem":"房子只放上一半"}
+```
+
+调研返回、并写入 `inquiry` 记忆：
+
+```json
+{
+  "problem": "重新表述的问题",
+  "cause": "她判断的原因",
+  "hypothesis": "一个可验证的假设",
+  "experiment": { "tool": "mc_place", "arguments": { "block": "dirt" } },
+  "success": "怎样算验证成功",
+  "next": "验证后下一步"
+}
+```
+
+- 工具是**可选项**，World prompt 只陈列事实与工具，是否停下来调研由她判断；
+- 调研结果进入 `method` / `plan` / `inquiry`，下一次决策会带上；
+- 不强制固定“先观察再假设”的流程，基础设施只提供材料与回执。

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.10.0 科学实践循环**：新增 `mc_inquire` 工具与 World `inquire` 动作：她把失败/回执/方法记忆拿出来，自己上网查资料、分析原因、提出可验证假设和实验，结果写入 `inquiry` 记忆；是否使用由她决定，不强制固定步骤。
 - **v0.9.4 建造器稳定化**：修正地板与玩家身体重叠、选址 3×3 空气检查、按存量选材料、清掉占地方块；建造改为本地清场/取材，避免长距离寻路触发 keepalive 超时；线上实测 24/25 块，回执与真实方块一致。
 - **v0.9.3 World 线上验收修复**：修复 bot `worldTick` 里未定义变量导致 World 不执行；`game-world` 路由使用 `world.handler`；`mc_build` 默认返回失败回执（建造器未启用），避免拖死 bot；客户端重建。
 - **v0.9.2 World 路由修复**：`game-world.json` 注册的是 World 对象而不是它的 handler，真实宿主下返回 400；改为 `minecraftWorld.handler`。

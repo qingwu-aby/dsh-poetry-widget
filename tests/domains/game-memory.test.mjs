@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createGameMemory, GAME_MEMORY_CATEGORIES, normalizeGameMemory } from '../../lib/domain/play/game-memory.mjs'
 
-test('游戏记忆：七类固定分类，互不混用', () => {
+test('游戏记忆：八类固定分类，互不混用', () => {
   const memory = createGameMemory({ seed: null, now: () => 1000 })
   memory.record({ category: 'world', text: '在 25566 的新世界玩' })
   memory.record({ category: 'player', text: 'Yuan_JY 是常一起玩的人' })
@@ -12,12 +12,13 @@ test('游戏记忆：七类固定分类，互不混用', () => {
   memory.record({ category: 'plan', text: '想学会砍树' })
   memory.record({ category: 'build', text: '选址 -14 91 29' })
   memory.record({ category: 'method', text: '放方块前先看目标，放完读回方块确认' })
+  memory.record({ category: 'inquiry', text: '问题：放置失败｜假设：身体挡住目标' })
   for (const category of GAME_MEMORY_CATEGORIES) {
     const items = memory.digest({ category })
     assert.equal(items.length, 1, category)
     assert.equal(items[0].category, category)
   }
-  assert.equal(memory.digest({ category: 'nope', limit: 20 }).length, 7)
+  assert.equal(memory.digest({ category: 'nope', limit: 20 }).length, 8)
 })
 
 test('游戏记忆：同分类去重、跨分类不合并', () => {
