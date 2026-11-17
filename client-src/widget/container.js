@@ -757,6 +757,13 @@ export function PoetryWidget(props) {
   function minecraftStatus() {
    return fetchJson('minecraft-control.json')
   }
+  function minecraftPermission(level) {
+   return fetchJson('minecraft-control.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'permission', level }),
+   })
+  }
   function minecraftControl(action, background) {
    return fetchJson('minecraft-control.json', {
     method: 'POST',
@@ -843,6 +850,7 @@ export function PoetryWidget(props) {
     libraryFocus,
     minecraftStatus,
     minecraftControl,
+    minecraftPermission,
    }
    if (panelTab !== 'poetry') return h(panelTabs.componentFor(panelTab), { api })
    if (panelTab === 'poetry') {

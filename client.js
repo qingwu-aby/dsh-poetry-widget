@@ -16476,7 +16476,13 @@
         h3(
           "div",
           { className: "dshp-field" },
-          h3("div", { className: "dshp-field-label" }, h3("b", null, "Minecraft"), h3("small", null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? "\u670D\u52A1\u5668\u8FD0\u884C\u4E2D \xB7 \u5979\u5728\u91CC\u9762\u81EA\u5DF1\u73A9" : "\u4E00\u952E\u542F\u52A8\u670D\u52A1\u5668 / \u4EE3\u7406 / \u5979")),
+          h3(
+            "div",
+            { className: "dshp-field-label" },
+            h3("b", null, "Minecraft"),
+            h3("small", null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? "\u670D\u52A1\u5668\u8FD0\u884C\u4E2D \xB7 \u5979\u5728\u91CC\u9762\u81EA\u5DF1\u73A9" : "\u4E00\u952E\u542F\u52A8\u670D\u52A1\u5668 / \u4EE3\u7406 / \u5979"),
+            mcStatus && mcStatus.world ? h3("small", null, `\u5979\uFF1A${mcStatus.world.lastReceipt && mcStatus.world.lastReceipt.facts && mcStatus.world.lastReceipt.facts.position || "\u672A\u77E5\u4F4D\u7F6E"} \xB7 \u6700\u8FD1 ${mcStatus.world.lastCommand && mcStatus.world.lastCommand.tool || "\u65E0\u52A8\u4F5C"}`) : null
+          ),
           h3(
             "div",
             { className: "dshp-field-control" },
@@ -16522,6 +16528,26 @@
           { className: "dshp-field" },
           h3("div", { className: "dshp-field-label" }, h3("b", null, "\u540E\u53F0\u542F\u52A8"), h3("small", null, "\u5F00\u542F\uFF1Alaunchd \u5E38\u9A7B\uFF0C\u5173\u6389 DSH \u4E5F\u7EE7\u7EED\uFF1B\u5173\u95ED\uFF1A\u4EC5\u5F53\u524D DSH \u8FDB\u7A0B\u5185\u8FD0\u884C")),
           switchNode2(mcBackground, () => setMcBackground(!mcBackground), "Minecraft \u540E\u53F0\u542F\u52A8\u5F00\u5173")
+        ),
+        h3(
+          "div",
+          { className: "dshp-field" },
+          h3("div", { className: "dshp-field-label" }, h3("b", null, "\u6E38\u620F\u64CD\u4F5C\u6743\u9650"), h3("small", null, "\u89C2\u5BDF\u53EA\u5141\u8BB8\u770B\uFF1B\u63A7\u5236\u5141\u8BB8\u5979\u52A8\u624B")),
+          h3(
+            "div",
+            { className: "dshp-field-control" },
+            h3("select", {
+              className: "dshp-input",
+              value: mcStatus && mcStatus.world && mcStatus.world.permission || "control",
+              onChange: (event) => {
+                const level = event.target.value;
+                if (!api.minecraftPermission) return;
+                api.minecraftPermission(level).then(mcRefresh).catch(() => {
+                  if (api.showToast) api.showToast("\u6743\u9650\u66F4\u65B0\u5931\u8D25", "error");
+                });
+              }
+            }, h3("option", { value: "control" }, "\u63A7\u5236"), h3("option", { value: "observe" }, "\u53EA\u89C2\u5BDF"))
+          )
         ),
         h3(
           "div",
@@ -29109,6 +29135,13 @@
     function minecraftStatus() {
       return fetchJson("minecraft-control.json");
     }
+    function minecraftPermission(level) {
+      return fetchJson("minecraft-control.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "permission", level })
+      });
+    }
     function minecraftControl(action, background) {
       return fetchJson("minecraft-control.json", {
         method: "POST",
@@ -29193,7 +29226,8 @@
         reloadPingshui,
         libraryFocus,
         minecraftStatus,
-        minecraftControl
+        minecraftControl,
+        minecraftPermission
       };
       if (panelTab !== "poetry") return h3(panelTabs.componentFor(panelTab), { api });
       if (panelTab === "poetry") {

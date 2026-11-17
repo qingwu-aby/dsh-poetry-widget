@@ -206,7 +206,8 @@ return h(
  h(
   'div',
   { className: 'dshp-field' },
-  h('div', { className: 'dshp-field-label' }, h('b', null, 'Minecraft'), h('small', null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? '服务器运行中 · 她在里面自己玩' : '一键启动服务器 / 代理 / 她')),
+  h('div', { className: 'dshp-field-label' }, h('b', null, 'Minecraft'), h('small', null, mcStatus && (mcStatus.ports && mcStatus.ports.server) ? '服务器运行中 · 她在里面自己玩' : '一键启动服务器 / 代理 / 她')
+  , mcStatus && mcStatus.world ? h('small', null, `她：${(mcStatus.world.lastReceipt && mcStatus.world.lastReceipt.facts && mcStatus.world.lastReceipt.facts.position) || '未知位置'} · 最近 ${(mcStatus.world.lastCommand && mcStatus.world.lastCommand.tool) || '无动作'}`) : null),
   h(
    'div',
    { className: 'dshp-field-control' },
@@ -242,6 +243,24 @@ return h(
   { className: 'dshp-field' },
   h('div', { className: 'dshp-field-label' }, h('b', null, '后台启动'), h('small', null, '开启：launchd 常驻，关掉 DSH 也继续；关闭：仅当前 DSH 进程内运行')),
   switchNode(mcBackground, () => setMcBackground(!mcBackground), 'Minecraft 后台启动开关'),
+ ),
+ h(
+  'div',
+  { className: 'dshp-field' },
+  h('div', { className: 'dshp-field-label' }, h('b', null, '游戏操作权限'), h('small', null, '观察只允许看；控制允许她动手')),
+  h(
+   'div',
+   { className: 'dshp-field-control' },
+   h('select', {
+    className: 'dshp-input',
+    value: (mcStatus && mcStatus.world && mcStatus.world.permission) || 'control',
+    onChange: (event) => {
+     const level = event.target.value
+     if (!api.minecraftPermission) return
+     api.minecraftPermission(level).then(mcRefresh).catch(() => { if (api.showToast) api.showToast('权限更新失败', 'error') })
+    },
+   }, h('option', { value: 'control' }, '控制'), h('option', { value: 'observe' }, '只观察')),
+  ),
  ),
  h(
   'div',

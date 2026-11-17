@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.9.0 Minecraft World（P0–P2）**：新增 `game-world.json` 工具/回执/打断协议（工具化观察、移动、挖掘、放置、说话、跟随、学习、建造）；bot 改为 World 循环并轮询打断；游戏记忆文件化（短画像/world/players/build/methods/todo/log/archive）并 git commit；权限控制 control/observe 与设置页游戏状态。旧 game-decide 保留为降级。578 测试。
 - **v0.8.0 Minecraft 自学**：新增 `POST /api/dsh-poetry/game-learn.json`：她遇到死亡/卡住/定期会自己上网查资料（DuckDuckGo HTML），让模型整理成 lesson/steps/happy，写入 `method`/`plan` 记忆；bot 每 10 分钟可学一个主题（第一天生存/建屋/农田/玩得开心），下一次决策自动带上方法。
 - **v0.7.1 专注队列不丢消息**：focus 回到 idle 时保留 deferred 队列；游戏结束后的第一条聊天会把「你玩游戏时收到的留言」带给模型并清空队列。
 - **v0.7.0 单一注意力**：新增 `focus.json` 与 `GET/POST /api/dsh-poetry/game-focus.json`；她在 Minecraft（game/build）时，聊天不再并发调用模型，改为固定短句 + 把消息排队（deferred），bob 每次决策刷新 focus，2 分钟无心跳自动回到 idle；避免“聊天的小鲸鱼和游戏里的小鲸鱼同时存在”。
