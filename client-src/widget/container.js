@@ -757,6 +757,13 @@ export function PoetryWidget(props) {
   function minecraftStatus() {
    return fetchJson('minecraft-control.json')
   }
+  function minecraftGrant(minutes) {
+   return fetchJson('minecraft-control.json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'grant', minutes: minutes || 30 }),
+   })
+  }
   function minecraftPermission(level) {
    return fetchJson('minecraft-control.json', {
     method: 'POST',
@@ -851,6 +858,7 @@ export function PoetryWidget(props) {
     minecraftStatus,
     minecraftControl,
     minecraftPermission,
+    minecraftGrant,
    }
    if (panelTab !== 'poetry') return h(panelTabs.componentFor(panelTab), { api })
    if (panelTab === 'poetry') {

@@ -47,3 +47,19 @@ archive/
 - 聊天/GUI 消息打断游戏：chat-service 调 `world.interrupt('聊天打断')`，bot 中止当前工具；
 - bot 的工具循环检查 abort，回执照实写“被打断”；
 - 旧 `focus` 仍然保证她游戏时不并发聊天模型。
+
+## World 事件（v0.9.1）
+
+`POST /game-world.json {"action":"event","event":{"type":"spawn|death|chat","detail":"..."}}`
+
+- bot 在出生、死亡、玩家说话时上报；
+- death 写 `event` 分类，其余写 `session`；
+- 与工具回执一起构成 World 的“可观察事实”。
+
+## 权限
+
+- `control`：直接控制；
+- `observe`：只看，控制工具被替换成 `mc_wait`；
+- `ask-once`：需要设置页「允许 30 分钟」；未授权时等同 `observe`；
+- `never`：等同 `observe`。
+- 记忆文件超过 80 行时，旧行自动归档到 `archive/<category>-YYYY-MM.md`（plan/build 除外）。

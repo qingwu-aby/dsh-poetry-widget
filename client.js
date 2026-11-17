@@ -16546,8 +16546,10 @@
                   if (api.showToast) api.showToast("\u6743\u9650\u66F4\u65B0\u5931\u8D25", "error");
                 });
               }
-            }, h3("option", { value: "control" }, "\u63A7\u5236"), h3("option", { value: "observe" }, "\u53EA\u89C2\u5BDF"))
-          )
+            }, h3("option", { value: "control" }, "\u63A7\u5236"), h3("option", { value: "observe" }, "\u53EA\u89C2\u5BDF"), h3("option", { value: "ask-once" }, "\u5148\u95EE\u4E00\u6B21\uFF0830 \u5206\u949F\uFF09"), h3("option", { value: "never" }, "\u4ECE\u4E0D\u63A7\u5236"))
+          ),
+          mcStatus && mcStatus.world && mcStatus.world.permission === "ask-once" && !mcStatus.world.granted ? h3("button", { type: "button", className: "dshp-btn dshp-btn-small", onClick: () => api.minecraftGrant && api.minecraftGrant(30).then(mcRefresh).catch(() => {
+          }) }, "\u5141\u8BB8 30 \u5206\u949F") : null
         ),
         h3(
           "div",
@@ -29135,6 +29137,13 @@
     function minecraftStatus() {
       return fetchJson("minecraft-control.json");
     }
+    function minecraftGrant(minutes) {
+      return fetchJson("minecraft-control.json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "grant", minutes: minutes || 30 })
+      });
+    }
     function minecraftPermission(level) {
       return fetchJson("minecraft-control.json", {
         method: "POST",
@@ -29227,7 +29236,8 @@
         libraryFocus,
         minecraftStatus,
         minecraftControl,
-        minecraftPermission
+        minecraftPermission,
+        minecraftGrant
       };
       if (panelTab !== "poetry") return h3(panelTabs.componentFor(panelTab), { api });
       if (panelTab === "poetry") {

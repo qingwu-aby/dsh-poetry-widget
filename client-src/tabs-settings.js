@@ -259,8 +259,11 @@ return h(
      if (!api.minecraftPermission) return
      api.minecraftPermission(level).then(mcRefresh).catch(() => { if (api.showToast) api.showToast('权限更新失败', 'error') })
     },
-   }, h('option', { value: 'control' }, '控制'), h('option', { value: 'observe' }, '只观察')),
+   }, h('option', { value: 'control' }, '控制'), h('option', { value: 'observe' }, '只观察'), h('option', { value: 'ask-once' }, '先问一次（30 分钟）'), h('option', { value: 'never' }, '从不控制')),
   ),
+  mcStatus && mcStatus.world && mcStatus.world.permission === 'ask-once' && !mcStatus.world.granted
+   ? h('button', { type: 'button', className: 'dshp-btn dshp-btn-small', onClick: () => api.minecraftGrant && api.minecraftGrant(30).then(mcRefresh).catch(() => {}) }, '允许 30 分钟')
+   : null,
  ),
  h(
   'div',
