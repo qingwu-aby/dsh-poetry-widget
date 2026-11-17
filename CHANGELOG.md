@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.9.3 World 线上验收修复**：修复 bot `worldTick` 里未定义变量导致 World 不执行；`game-world` 路由使用 `world.handler`；`mc_build` 默认返回失败回执（建造器未启用），避免拖死 bot；客户端重建。
 - **v0.9.2 World 路由修复**：`game-world.json` 注册的是 World 对象而不是它的 handler，真实宿主下返回 400；改为 `minecraftWorld.handler`。
 - **v0.9.1 World 事件与权限补齐**：`game-world` 新增 `event` 动作（spawn/death/chat 写入游戏记忆）；`ask-once` 权限需要设置页「允许 30 分钟」授权；记忆文件超过 80 行自动归档到 `archive/`；bot 在出生/死亡/玩家说话时上报 World 事件。
 - **v0.9.0 Minecraft World（P0–P2）**：新增 `game-world.json` 工具/回执/打断协议（工具化观察、移动、挖掘、放置、说话、跟随、学习、建造）；bot 改为 World 循环并轮询打断；游戏记忆文件化（短画像/world/players/build/methods/todo/log/archive）并 git commit；权限控制 control/observe 与设置页游戏状态。旧 game-decide 保留为降级。578 测试。
