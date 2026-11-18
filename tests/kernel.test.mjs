@@ -61,6 +61,13 @@ import {
   validateEventEnvelope,
 } from '../lib/core/event-schema.mjs'
 import {
+  createHubControlApi,
+  HUB_CONTROL_ACTIVITY_HEALTH,
+  HUB_CONTROL_CODES,
+  HUB_CONTROL_TASK_STATUSES,
+  HUB_CONTROL_VERSION,
+} from '../lib/core/hub-control-api.mjs'
+import {
   createScheduler,
   DEFAULT_PRIORITY_CLASSES,
   priorityClassOf,
@@ -3407,4 +3414,225 @@ test('activity-registry B4：事件回调抛错隔离与 snapshot 指标', () =>
   assert.equal(typeof snapshot.metrics.startCalls, 'number')
   assert.equal(snapshot.activities.length, 1)
   assert.equal(snapshot.recentEvents.length <= 10, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate B5：Hub 控制 API（lib/core/hub-control-api.mjs）——只读快照/任务控制/活动控制/错误分支
+// ---------------------------------------------------------------------------
+
+function makeHubControl(options = {}) {
+  const board = createTaskBoard({ now: () => 1000, maxRunning: options.maxRunning ?? 2 })
+  const registry = createActivityRegistry({ now: () => 1000 })
+  const eventBus = createEventBus({ maxEvents: 100, maxReplay: 10 })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  const control = createHubControlApi({ scheduler, taskBoard: board, registry, eventBus, ...options })
+  return { board, registry, eventBus, scheduler, control }
+}
+
+test('hub-control B5：只读快照（四层指标）与 capabilities', () => {
+  const { board, registry, eventBus, control } = makeHubControl()
+  const task = board.create({ activity: 'chat', key: 'c1' }).task
+  registry.register(makeActivityManifest({ id: 'reading', events: ['reading.started'] }))
+  eventBus.append({
+    id: 'evt-hub-0001',
+    activity: 'chat',
+    type: 'chat.message.received',
+    version: 1,
+    at: 1000,
+    subject: 's1',
+    payload: {},
+  })
+  const before = JSON.stringify(board.snapshot())
+  const snapshot = control.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.data.available.scheduler, true)
+  assert.equal(snapshot.data.available.taskBoard, true)
+  assert.equal(snapshot.data.available.registry, true)
+  assert.equal(snapshot.data.available.eventBus, true)
+  assert.equal(snapshot.data.tasks.total, 1)
+  assert.equal(snapshot.data.activities.total, 1)
+  assert.equal(snapshot.data.events.stored, 1)
+  assert.equal(snapshot.data.paused, false)
+  assert.equal(JSON.stringify(board.snapshot()), before, 'snapshot 只读，不改变任务板')
+
+  const capabilities = control.capabilities()
+  assert.equal(capabilities.ok, true)
+  assert.equal(capabilities.data.version, HUB_CONTROL_VERSION)
+  assert.deepEqual(capabilities.data.methods.control.includes('pauseTask'), true)
+  assert.deepEqual(capabilities.data.methods.read.includes('snapshot'), true)
+  assert.equal(task.id, 'tb-1')
+  assert.ok(HUB_CONTROL_TASK_STATUSES.includes('waiting'))
+  assert.ok(HUB_CONTROL_ACTIVITY_HEALTH.includes('degraded'))
+})
+
+test('hub-control B5：listTasks/getTask 过滤与错误分支', () => {
+  const { board, control } = makeHubControl()
+  const chat = board.create({ activity: 'chat', key: 'c1', priority: 5 }).task
+  const reading = board.create({ activity: 'reading', key: 'r1', priority: 1 }).task
+  board.waiting(reading.id)
+
+  const all = control.listTasks()
+  assert.equal(all.ok, true)
+  assert.equal(all.data.total, 2)
+  assert.equal(control.listTasks({ status: 'waiting' }).data.tasks[0].id, reading.id)
+  assert.equal(control.listTasks({ activity: 'chat' }).data.total, 1)
+  assert.equal(control.listTasks({ sort: 'created', limit: 1 }).data.total, 1)
+
+  assert.equal(control.getTask(chat.id).ok, true)
+  assert.equal(control.getTask('missing').error.code, HUB_CONTROL_CODES.notFound)
+  assert.equal(control.getTask('').error.code, HUB_CONTROL_CODES.invalidArgument)
+  assert.equal(control.listTasks({ status: 'bogus' }).error.code, HUB_CONTROL_CODES.invalidFilter)
+  assert.equal(control.listTasks({ sort: 'bogus' }).error.code, HUB_CONTROL_CODES.invalidFilter)
+  assert.equal(control.listTasks({ limit: 0 }).error.code, HUB_CONTROL_CODES.invalidFilter)
+})
+
+test('hub-control B5：任务控制 pause/resume/cancel 与状态错误', () => {
+  const { board, control } = makeHubControl({ maxRunning: 1 })
+  const chat = board.create({ activity: 'chat', key: 'c1' }).task
+  assert.equal(chat.status, 'running')
+  const queued = board.create({ activity: 'chat', key: 'c2' }).task
+  assert.equal(queued.status, 'queued')
+
+  const paused = control.pauseTask(chat.id)
+  assert.equal(paused.ok, true)
+  assert.equal(board.get(chat.id).status, 'waiting')
+  const resumed = control.resumeTask(chat.id)
+  assert.equal(resumed.ok, true)
+  assert.equal(board.get(chat.id).status, 'running')
+
+  // 非法状态：pause 一个 queued 任务 → 透传任务板错误码
+  const invalid = control.pauseTask(queued.id)
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.error.code, 'TASK_INVALID_TRANSITION')
+  assert.equal(typeof invalid.error.message, 'string')
+
+  const cancelled = control.cancelTask(chat.id, '控制面取消')
+  assert.equal(cancelled.ok, true)
+  assert.equal(board.get(chat.id).status, 'cancelled')
+  // 重复取消：任务板幂等返回 already（统一包装仍 ok）
+  assert.equal(control.cancelTask(chat.id).ok, true)
+  assert.equal(control.pauseTask('missing').error.code, 'TASK_BOARD_NOT_FOUND', '依赖错误码原样透传')
+  assert.equal(control.pauseTask('').error.code, HUB_CONTROL_CODES.invalidArgument)
+})
+
+test('hub-control B5：活动控制 enable/disable/list 与错误分支', () => {
+  const calls = []
+  const { registry, control } = makeHubControl()
+  registry.register(makeActivityManifest({ id: 'reading', events: ['reading.started'] }), {
+    start: () => calls.push('start'),
+    stop: () => calls.push('stop'),
+  })
+  assert.equal(control.listActivities().data.total, 1)
+  const enabled = control.enableActivity('reading')
+  assert.equal(enabled.ok, true)
+  assert.equal(enabled.data.activity.enabled, true)
+  assert.equal(control.listActivities({ enabled: true }).data.total, 1)
+  const disabled = control.disableActivity('reading')
+  assert.equal(disabled.ok, true)
+  assert.equal(control.listActivities({ enabled: true }).data.total, 0)
+  assert.deepEqual(calls, ['start', 'stop'])
+
+  assert.equal(control.enableActivity('missing').error.code, 'ACTIVITY_NOT_FOUND', '依赖错误码原样透传')
+  assert.equal(control.disableActivity('').error.code, HUB_CONTROL_CODES.invalidArgument)
+  assert.equal(control.listActivities({ health: 'bogus' }).error.code, HUB_CONTROL_CODES.invalidFilter)
+  assert.equal(control.listActivities({ enabled: 'yes' }).error.code, HUB_CONTROL_CODES.invalidFilter)
+})
+
+test('hub-control B5：权限查询（allowed/denied）', () => {
+  const { registry, control } = makeHubControl()
+  registry.register(makeActivityManifest({ id: 'reading' }))
+  const allowed = control.checkPermission('reading', 'fs.read:~/Books/a.md')
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.data.allowed, true)
+  assert.equal(allowed.data.reason, 'granted')
+  const denied = control.checkPermission('reading', 'fs.write:~/Books/a.md')
+  assert.equal(denied.ok, true)
+  assert.equal(denied.data.allowed, false)
+  assert.equal(denied.data.reason, 'not-granted')
+  assert.equal(control.checkPermission('missing', 'model').error.code, 'ACTIVITY_NOT_FOUND', '依赖错误码原样透传')
+  assert.equal(control.checkPermission('', 'model').error.code, HUB_CONTROL_CODES.invalidArgument)
+})
+
+test('hub-control B5：pauseAll / resumeAll（全局急停）', () => {
+  const { board, scheduler, control } = makeHubControl()
+  const chat = board.create({ activity: 'chat', key: 'c1' }).task
+  scheduler.tick()
+  const paused = control.pauseAll()
+  assert.equal(paused.ok, true)
+  assert.equal(paused.data.paused, true)
+  assert.equal(control.snapshot().data.paused, true)
+  assert.equal(board.get(chat.id).status, 'waiting', '急停 park 当前前台')
+  assert.equal(control.resumeAll().data.paused, false)
+  const ticked = scheduler.tick()
+  assert.equal(ticked.action, 'resume')
+  assert.equal(board.get(chat.id).status, 'running')
+})
+
+test('hub-control B5：依赖缺失/形态非法/快照异常', () => {
+  const empty = createHubControlApi({})
+  const snapshot = empty.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.deepEqual(snapshot.data.available, { scheduler: false, taskBoard: false, registry: false, eventBus: false })
+  assert.equal(empty.listTasks().error.code, HUB_CONTROL_CODES.notReady)
+  assert.equal(empty.pauseTask('x').error.code, HUB_CONTROL_CODES.notReady)
+  assert.equal(empty.enableActivity('x').error.code, HUB_CONTROL_CODES.notReady)
+  assert.equal(empty.pauseAll().error.code, HUB_CONTROL_CODES.notReady)
+  assert.equal(empty.checkPermission('x', 'model').error.code, HUB_CONTROL_CODES.notReady)
+
+  assert.throws(() => createHubControlApi({ taskBoard: { list() {} } }), TypeError)
+  assert.throws(() => createHubControlApi({ scheduler: 'nope' }), TypeError)
+
+  // 依赖 snapshot 抛错：快照仍返回 ok，对应层 available:false 并带 error
+  const broken = createHubControlApi({
+    taskBoard: {
+      snapshot() {
+        throw new Error('boom')
+      },
+      list: () => [],
+      get: () => null,
+      waiting: () => ({ ok: false }),
+      resume: () => ({ ok: false }),
+      cancel: () => ({ ok: false }),
+    },
+  })
+  const brokenSnapshot = broken.snapshot()
+  assert.equal(brokenSnapshot.ok, true)
+  assert.equal(brokenSnapshot.data.available.taskBoard, true)
+  assert.equal(brokenSnapshot.data.tasks, null)
+  assert.equal(brokenSnapshot.data.errors[0].code, HUB_CONTROL_CODES.dependencyError)
+})
+
+test('hub-control B5：flush 等待异步 adapter，统一返回形状', async () => {
+  const { registry, control } = makeHubControl()
+  registry.register(
+    makeActivityManifest({
+      id: 'async',
+      events: ['async.started'],
+      tasks: [{ kind: 'async.run', goal: '异步' }],
+      tools: [],
+      permissions: [],
+    }),
+    {
+      start: () => Promise.resolve(),
+      stop: () => Promise.resolve(),
+    },
+  )
+  control.enableActivity('async')
+  const flushed = await control.flush()
+  assert.equal(flushed.ok, true)
+  assert.equal(flushed.data.flushed, 2, 'taskBoard + registry 各一个 flush')
+
+  const results = [
+    control.snapshot(),
+    control.listTasks(),
+    control.listActivities(),
+    control.capabilities(),
+    control.pauseAll(),
+    control.resumeAll(),
+  ]
+  for (const result of results) {
+    assert.equal(typeof result.ok, 'boolean')
+    if (result.ok === true) assert.ok('data' in result)
+    else assert.equal(typeof result.error.code, 'string')
+  }
 })
