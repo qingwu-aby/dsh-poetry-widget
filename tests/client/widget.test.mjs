@@ -6623,3 +6623,243 @@ test('self-talk v2.9：novelty 指纹反映状态/项目/心情，时间桶 20 �
   const moodChanged = debug.selfTalkNoveltySignature({ ...base, mood: { key: 'happy', label: '开心', reason: '' } })
   assert.notEqual(moodChanged, a, '心情变化会触发新碎碎念')
 })
+
+/* ------------------------------------------------------------------ */
+/* Gate H1：设置页「模型与推理」+「Hub」控制面                          */
+/* ------------------------------------------------------------------ */
+
+const H1_SETTINGS_ROUTE = '/api/dsh-poetry/settings.json'
+const H1_MINECRAFT_ROUTE = '/api/dsh-poetry/minecraft-control.json'
+const H1_POLICY_ROUTE = '/api/dsh-poetry/model-policy.json'
+const H1_HUB_ROUTE = '/api/dsh-poetry/hub.json'
+
+function h1PolicyPayload() {
+  return {
+    ok: true,
+    file: '/tmp/.dsh-poetry/model-policy.json',
+    exists: true,
+    policy: { provider: 'deepseek-account', model: 'deepseek-flash', roles: { drive: { reasoningEffort: 'high' } }, tokenLimit: 2000 },
+    effective: {
+      provider: 'deepseek-account',
+      model: 'deepseek-flash',
+      tokenLimit: 2000,
+      roles: {
+        drive: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high', source: 'store-role' },
+        thinking: { provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash', reasoningEffort: 'high', source: 'default-chain' },
+        selfTalk: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high', source: 'store' },
+      },
+    },
+    allowed: { providers: ['deepseek-account', 'dsh-opencode-go'], roles: ['drive', 'thinking', 'selfTalk'], efforts: ['off', 'low', 'high', 'max'], tokenLimitMax: 1000000 },
+  }
+}
+
+function h1HubPayload() {
+  return {
+    ok: true,
+    available: true,
+    mode: 'shadow',
+    assembled: true,
+    hub: { layers: { scheduler: { foreground: { id: 'tb-1', status: 'running' }, queue: [{ id: 'tb-2' }] } } },
+    tasks: { byStatus: { queued: 1 } },
+    activities: { activities: [{ id: 'chat', enabled: true }, { id: 'minecraft', enabled: false }] },
+    memory: { available: true, providers: ['journal', 'game-memory', 'method-memory'] },
+  }
+}
+
+function h1Routes(overrides) {
+  const routes = {
+    [H1_SETTINGS_ROUTE]: { body: { ok: true, settings: { scale: 1, hidden: false, mood: true, spontaneousPoem: true, twinOverlay: true, twinSystem: false, modelTokenLimit: 0 } } },
+    [H1_MINECRAFT_ROUTE]: { body: { ok: true, ports: { server: true }, world: { permission: 'control', lastCommand: { tool: 'mc_wait' }, lastReceipt: { facts: { position: '1,2,3' } } } } },
+    [H1_POLICY_ROUTE]: { body: h1PolicyPayload() },
+    [H1_HUB_ROUTE]: { body: h1HubPayload() },
+  }
+  return Object.assign(routes, overrides || {})
+}
+
+function makeSettingsPageHarness(routes) {
+  const calls = []
+  const client = loadClient({
+    fetch: async (url, init) => {
+      const href = String(url)
+      const method = (init && init.method) || 'GET'
+      calls.push({ url: href, method, body: init && init.body ? String(init.body) : '' })
+      const route = routes[href]
+      if (route === undefined) return { ok: true, status: 200, json: async () => ({ ok: true }) }
+      const resolved = typeof route === 'function' ? route(init || {}) : route
+      const status = resolved.status === undefined ? 200 : resolved.status
+      return { ok: status < 400, status, json: async () => resolved.body }
+    },
+  })
+  const registrations = []
+  client.mod.apply({
+    slots: {
+      inject(name, callback) {
+        callback()
+      },
+      register(options, component) {
+        registrations.push({ options, component })
+        return () => {}
+      },
+    },
+    effect(fn) {
+      return fn()
+    },
+    logger: { info() {}, warn() {} },
+  })
+  const registration = registrations.find((item) => item.options.name === 'settings.section')
+  assert.ok(registration, '设置分区必须注册')
+  return { client, calls, Page: registration.component }
+}
+
+async function h1Render(harness) {
+  const react = harness.client.react
+  renderFresh(react, harness.Page, {})
+  react._runEffects()
+  await flushTasks(3)
+  return rerender(react, harness.Page, {})
+}
+
+function h1FindByAria(tree, label) {
+  return findAll(tree, (node) => node.props && node.props['aria-label'] === label)[0]
+}
+
+function h1FindButton(tree, text) {
+  return findAll(tree, (node) => node.type === 'button' && textOf(node).includes(text))[0]
+}
+
+test('Gate H1 设置页：模型与推理 / Hub 区渲染，现有设置不回归', async () => {
+  const harness = makeSettingsPageHarness(h1Routes())
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /模型与推理/, '模型与推理区存在')
+  assert.match(text, /Hub/, 'Hub 区存在')
+  assert.match(text, /deepseek-account\/deepseek-flash/, '显示生效摘要')
+  assert.match(text, /drive/, '角色 drive 可编辑')
+  assert.match(text, /thinking/)
+  assert.match(text, /selfTalk/)
+  assert.match(text, /shadow/, '显示 Hub 模式')
+  assert.match(text, /tb-1/, '显示前台任务')
+  assert.match(text, /journal/, '显示记忆 provider')
+  assert.match(text, /保存模型策略/)
+  assert.match(text, /重置模型策略/)
+  assert.match(text, /刷新 Hub/)
+  assert.match(text, /暂停全部/)
+  assert.match(text, /恢复全部/)
+  // 现有设置/Minecraft 区不回归
+  assert.match(text, /大小/)
+  assert.match(text, /Minecraft/)
+  assert.match(text, /一键启动/)
+  assert.match(text, /镜像主体/)
+  harness.client.react._cleanup()
+})
+
+test('Gate H1 设置页：编辑并保存模型策略（PUT body 契约）', async () => {
+  const harness = makeSettingsPageHarness(h1Routes())
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  const provider = h1FindByAria(tree, '模型 provider')
+  assert.ok(provider, 'provider 选择器存在')
+  provider.props.onChange({ target: { value: 'dsh-opencode-go' } })
+  tree = rerender(react, harness.Page, {})
+  const model = h1FindByAria(tree, '模型 model')
+  model.props.onChange({ target: { value: 'deepseek-v4.1-flash' } })
+  tree = rerender(react, harness.Page, {})
+  const token = h1FindByAria(tree, '模型 tokenLimit')
+  token.props.onChange({ target: { value: '4000' } })
+  tree = rerender(react, harness.Page, {})
+  const effort = h1FindByAria(tree, '角色 drive reasoningEffort')
+  effort.props.onChange({ target: { value: 'max' } })
+  tree = rerender(react, harness.Page, {})
+  const save = h1FindButton(tree, '保存模型策略')
+  assert.ok(save)
+  save.props.onClick()
+  await flushTasks(3)
+  const put = harness.calls.find((call) => call.url === H1_POLICY_ROUTE && call.method === 'PUT')
+  assert.ok(put, '必须发出 PUT /model-policy.json')
+  const body = JSON.parse(put.body)
+  assert.equal(body.provider, 'dsh-opencode-go')
+  assert.equal(body.model, 'deepseek-v4.1-flash')
+  assert.equal(body.tokenLimit, 4000)
+  assert.deepEqual(body.roles, { drive: { reasoningEffort: 'max' } })
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /模型策略已保存/)
+  harness.client.react._cleanup()
+})
+
+test('Gate H1 设置页：重置模型策略 → PUT {reset:true}', async () => {
+  const harness = makeSettingsPageHarness(h1Routes())
+  let tree = await h1Render(harness)
+  const reset = h1FindButton(tree, '重置模型策略')
+  assert.ok(reset)
+  reset.props.onClick()
+  await flushTasks(3)
+  const put = harness.calls.find((call) => call.url === H1_POLICY_ROUTE && call.method === 'PUT')
+  assert.ok(put)
+  assertDeep(JSON.parse(put.body), { reset: true })
+  tree = rerender(harness.client.react, harness.Page, {})
+  assert.match(textOf(tree), /模型策略已重置/)
+  harness.client.react._cleanup()
+})
+
+test('Gate H1 设置页：Hub 暂停全部/恢复全部（POST body 契约 + 刷新）', async () => {
+  const harness = makeSettingsPageHarness(h1Routes())
+  let tree = await h1Render(harness)
+  const hubGetsBefore = harness.calls.filter((call) => call.url === H1_HUB_ROUTE && call.method === 'GET').length
+  const pause = h1FindButton(tree, '暂停全部')
+  assert.ok(pause)
+  pause.props.onClick()
+  await flushTasks(4)
+  const post = harness.calls.find((call) => call.url === H1_HUB_ROUTE && call.method === 'POST')
+  assert.ok(post)
+  assertDeep(JSON.parse(post.body), { action: 'hub.pauseAll' })
+  const hubGetsAfter = harness.calls.filter((call) => call.url === H1_HUB_ROUTE && call.method === 'GET').length
+  assert.ok(hubGetsAfter > hubGetsBefore, '操作后应刷新 Hub 状态')
+  tree = rerender(harness.client.react, harness.Page, {})
+  const resume = h1FindButton(tree, '恢复全部')
+  assert.ok(resume)
+  resume.props.onClick()
+  await flushTasks(4)
+  const posts = harness.calls.filter((call) => call.url === H1_HUB_ROUTE && call.method === 'POST')
+  assert.equal(posts.length, 2)
+  assertDeep(JSON.parse(posts[1].body), { action: 'hub.resumeAll' })
+  harness.client.react._cleanup()
+})
+
+test('Gate H1 设置页：读取/保存失败只显示错误、不崩', async () => {
+  const routes = h1Routes({
+    [H1_POLICY_ROUTE]: (init) => {
+      if ((init.method || 'GET') === 'PUT') {
+        return { status: 400, body: { ok: false, error: 'invalid_policy', errors: [{ path: 'provider', message: 'provider 不在白名单：evil' }] } }
+      }
+      return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+    },
+    [H1_HUB_ROUTE]: { body: { ok: true, available: false, mode: 'off' } },
+  })
+  const harness = makeSettingsPageHarness(routes)
+  let tree = await h1Render(harness)
+  assert.match(textOf(tree), /读取模型策略失败：forbidden/, '读取失败显示错误')
+  assert.match(textOf(tree), /Hub 未接入（默认 off/, '无 Hub 时降级提示')
+  assert.match(textOf(tree), /Minecraft/, '失败不影响其它设置区')
+  const save = h1FindButton(tree, '保存模型策略')
+  assert.ok(save)
+  save.props.onClick()
+  await flushTasks(3)
+  tree = rerender(harness.client.react, harness.Page, {})
+  assert.match(textOf(tree), /保存失败：provider 不在白名单：evil/, '保存失败显示后端校验错误')
+  harness.client.react._cleanup()
+})
+
+test('Gate H1 设置页：缺少新 API 时仍能渲染（旧后端兼容）', async () => {
+  const routes = h1Routes({
+    [H1_POLICY_ROUTE]: undefined,
+    [H1_HUB_ROUTE]: undefined,
+  })
+  const harness = makeSettingsPageHarness(routes)
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /模型与推理/)
+  assert.match(text, /Hub/)
+  assert.match(text, /Minecraft/)
+  assert.doesNotMatch(text, /读取模型策略失败/)
+  harness.client.react._cleanup()
+})

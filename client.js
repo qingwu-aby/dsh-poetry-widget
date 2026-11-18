@@ -29593,6 +29593,82 @@
       return data;
     });
   }
+  function describeApiError(data, status) {
+    if (data && typeof data === "object") {
+      if (data.error && typeof data.error === "object" && typeof data.error.message === "string" && data.error.message) return data.error.message;
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        const first = data.errors[0];
+        if (first && typeof first.message === "string" && first.message) return first.message;
+      }
+      if (typeof data.error === "string" && data.error) return data.error;
+      if (typeof data.message === "string" && data.message) return data.message;
+      if (typeof data.code === "string" && data.code) return data.code;
+    }
+    return "HTTP " + status;
+  }
+  function apiRequest(path, init) {
+    const options = Object.assign({ credentials: "same-origin" }, init || {});
+    return fetch(API + path, options).then(async (response) => {
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || data.ok === false) {
+        throw new Error(describeApiError(data, response.status));
+      }
+      return data;
+    });
+  }
+  var POLICY_ROLES = ["drive", "thinking", "selfTalk"];
+  var POLICY_ROLE_LABELS = { drive: "\u81EA\u5904", thinking: "\u601D\u8003", selfTalk: "\u788E\u788E\u5FF5" };
+  var POLICY_EFFORTS = ["off", "low", "high", "max"];
+  function draftFromPolicy(policy) {
+    const source = policy && typeof policy === "object" ? policy : {};
+    const roles = {};
+    for (const role of POLICY_ROLES) {
+      const entry = source.roles && typeof source.roles === "object" ? source.roles[role] : null;
+      roles[role] = {
+        provider: entry && typeof entry.provider === "string" ? entry.provider : "",
+        model: entry && typeof entry.model === "string" ? entry.model : "",
+        reasoningEffort: entry && typeof entry.reasoningEffort === "string" ? entry.reasoningEffort : ""
+      };
+    }
+    return {
+      provider: typeof source.provider === "string" ? source.provider : "",
+      model: typeof source.model === "string" ? source.model : "",
+      tokenLimit: Number.isFinite(Number(source.tokenLimit)) ? Number(source.tokenLimit) : 0,
+      roles
+    };
+  }
+  function policyPayload(draft) {
+    const payload = { tokenLimit: Math.max(0, Math.floor(Number(draft.tokenLimit) || 0)) };
+    if (typeof draft.provider === "string" && draft.provider.trim()) payload.provider = draft.provider.trim();
+    if (typeof draft.model === "string" && draft.model.trim()) payload.model = draft.model.trim();
+    const roles = {};
+    for (const role of POLICY_ROLES) {
+      const entry = draft.roles && draft.roles[role] ? draft.roles[role] : {};
+      const out = {};
+      if (typeof entry.provider === "string" && entry.provider.trim()) out.provider = entry.provider.trim();
+      if (typeof entry.model === "string" && entry.model.trim()) out.model = entry.model.trim();
+      if (typeof entry.reasoningEffort === "string" && entry.reasoningEffort) out.reasoningEffort = entry.reasoningEffort;
+      if (Object.keys(out).length > 0) roles[role] = out;
+    }
+    if (Object.keys(roles).length > 0) payload.roles = roles;
+    return payload;
+  }
+  function hubSummary(hub) {
+    const data = hub && typeof hub === "object" ? hub : {};
+    const layers = data.hub && typeof data.hub === "object" && data.hub.layers && typeof data.hub.layers === "object" ? data.hub.layers : {};
+    const scheduler = layers.scheduler && typeof layers.scheduler === "object" ? layers.scheduler : {};
+    const activities = data.activities && Array.isArray(data.activities.activities) ? data.activities.activities : [];
+    const memory = data.memory && typeof data.memory === "object" ? data.memory : {};
+    return {
+      available: data.available === true,
+      mode: typeof data.mode === "string" ? data.mode : "off",
+      assembled: data.assembled === true,
+      foreground: scheduler.foreground && typeof scheduler.foreground === "object" ? scheduler.foreground : null,
+      queue: Array.isArray(scheduler.queue) ? scheduler.queue.length : 0,
+      activities,
+      memoryProviders: Array.isArray(memory.providers) ? memory.providers : []
+    };
+  }
   var styles = {
     page: { padding: "18px 22px", maxWidth: 760, color: "var(--dsw-alias-label-primary, #1f2329)", fontSize: 13 },
     card: { border: "1px solid var(--dsw-alias-border-l2, #e5e6eb)", borderRadius: 10, padding: "14px 16px", marginBottom: 12, background: "var(--dsw-alias-bg-base-platform, #fff)" },
@@ -29603,7 +29679,9 @@
     button: { border: "1px solid var(--dsw-alias-border-l2, #d0d3d9)", background: "var(--dsw-alias-bg-base-platform, #fff)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 },
     primary: { background: "#1f6feb", borderColor: "#1f6feb", color: "#fff" },
     select: { borderRadius: 8, border: "1px solid var(--dsw-alias-border-l2, #d0d3d9)", padding: "5px 8px", fontSize: 12, background: "var(--dsw-alias-bg-base-platform, #fff)", color: "inherit" },
-    status: { fontSize: 12, opacity: 0.72, marginLeft: 8 }
+    status: { fontSize: 12, opacity: 0.72, marginLeft: 8 },
+    error: { fontSize: 12, color: "#d92d20", margin: "6px 0" },
+    input: { borderRadius: 8, border: "1px solid var(--dsw-alias-border-l2, #d0d3d9)", padding: "5px 8px", fontSize: 12, background: "var(--dsw-alias-bg-base-platform, #fff)", color: "inherit", width: 150 }
   };
   function createWhaleSettingsPage(React, h3) {
     return function WhaleSettingsPage() {
@@ -29611,15 +29689,36 @@
       const [mc, setMc] = React.useState(null);
       const [busy, setBusy] = React.useState("");
       const [message, setMessage] = React.useState("");
+      const [policy, setPolicy] = React.useState(null);
+      const [policyDraft, setPolicyDraft] = React.useState(() => draftFromPolicy(null));
+      const [policyError, setPolicyError] = React.useState("");
+      const [hub, setHub] = React.useState(null);
+      const [hubError, setHubError] = React.useState("");
+      const [hubBusy, setHubBusy] = React.useState("");
       const refresh = React.useCallback(() => {
         request("/settings.json").then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {
         });
         request("/minecraft-control.json").then((data) => setMc(data)).catch(() => {
         });
       }, []);
+      const refreshPolicy = React.useCallback(() => {
+        apiRequest("/model-policy.json").then((data) => {
+          setPolicy(data);
+          setPolicyDraft(draftFromPolicy(data && data.policy));
+          setPolicyError("");
+        }).catch((error) => setPolicyError("\u8BFB\u53D6\u6A21\u578B\u7B56\u7565\u5931\u8D25\uFF1A" + error.message));
+      }, []);
+      const refreshHub = React.useCallback(() => {
+        apiRequest("/hub.json").then((data) => {
+          setHub(data);
+          setHubError("");
+        }).catch((error) => setHubError("\u8BFB\u53D6 Hub \u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
+      }, []);
       React.useEffect(() => {
         refresh();
-      }, [refresh]);
+        refreshPolicy();
+        refreshHub();
+      }, [refresh, refreshPolicy, refreshHub]);
       function save(patch, key) {
         setBusy(key);
         request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
@@ -29639,6 +29738,53 @@
           setMessage(action === "start" ? "\u6B63\u5728\u542F\u52A8 Minecraft" : action === "stop" ? "\u6B63\u5728\u505C\u6B62 Minecraft" : "\u5DF2\u66F4\u65B0");
         }).catch((error) => setMessage("\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
       }
+      function setPolicyField(field, value) {
+        setPolicyDraft((draft) => Object.assign({}, draft, { [field]: value }));
+      }
+      function setRoleField(role, field, value) {
+        setPolicyDraft((draft) => {
+          const roles = Object.assign({}, draft.roles);
+          roles[role] = Object.assign({}, roles[role] || {}, { [field]: value });
+          return Object.assign({}, draft, { roles });
+        });
+      }
+      function savePolicy() {
+        setBusy("policy-save");
+        setPolicyError("");
+        apiRequest("/model-policy.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(policyPayload(policyDraft))
+        }).then((data) => {
+          setPolicy(data);
+          setPolicyDraft(draftFromPolicy(data && data.policy));
+          setMessage("\u6A21\u578B\u7B56\u7565\u5DF2\u4FDD\u5B58");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setPolicyError("\u4FDD\u5B58\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
+      }
+      function resetPolicy() {
+        setBusy("policy-reset");
+        setPolicyError("");
+        apiRequest("/model-policy.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true })
+        }).then((data) => {
+          setPolicy(data);
+          setPolicyDraft(draftFromPolicy(data && data.policy));
+          setMessage("\u6A21\u578B\u7B56\u7565\u5DF2\u91CD\u7F6E");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setPolicyError("\u91CD\u7F6E\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
+      }
+      function hubAction(action) {
+        setHubBusy(action);
+        setHubError("");
+        apiRequest("/hub.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action })
+        }).then(() => refreshHub()).catch((error) => setHubError("Hub \u64CD\u4F5C\u5931\u8D25\uFF1A" + error.message)).finally(() => setHubBusy(""));
+      }
       if (!settings) return h3 ? h3("div", { style: styles.page }, "\u6B63\u5728\u8BFB\u53D6\u5C0F\u9CB8\u9C7C\u7684\u8BBE\u7F6E\u2026") : null;
       const row = (title, hint, control) => h3(
         "div",
@@ -29654,6 +29800,44 @@
       );
       const world = mc && mc.world ? mc.world : null;
       const running = Boolean(mc && mc.ports && mc.ports.server);
+      const hubInfo = hubSummary(hub);
+      const allowedProviders = policy && policy.allowed && Array.isArray(policy.allowed.providers) ? policy.allowed.providers.slice() : [];
+      if (policyDraft.provider && allowedProviders.indexOf(policyDraft.provider) < 0) allowedProviders.push(policyDraft.provider);
+      const providerSelect = (ariaLabel, value, onChange) => h3(
+        "select",
+        {
+          style: styles.select,
+          "aria-label": ariaLabel,
+          value: value || "",
+          onChange
+        },
+        h3("option", { value: "" }, "\u8DDF\u968F\u9ED8\u8BA4"),
+        allowedProviders.map((provider) => h3("option", { key: provider, value: provider }, provider))
+      );
+      const effortSelect = (ariaLabel, value, onChange) => h3(
+        "select",
+        {
+          style: styles.select,
+          "aria-label": ariaLabel,
+          value: value || "",
+          onChange
+        },
+        h3("option", { value: "" }, "\u9ED8\u8BA4"),
+        POLICY_EFFORTS.map((effort) => h3("option", { key: effort, value: effort }, effort))
+      );
+      const effectiveLine = (role) => {
+        const entry = policy && policy.effective && policy.effective.roles ? policy.effective.roles[role] : null;
+        if (!entry || !entry.provider) return "\u751F\u6548\uFF1A\u672A\u914D\u7F6E";
+        const effort = entry.reasoningEffort ? "(" + entry.reasoningEffort + ")" : "";
+        return "\u751F\u6548\uFF1A" + entry.provider + "/" + entry.model + effort + " \u2190 " + (entry.source || "default-chain");
+      };
+      const policyField = (ariaLabel, value, onChange, extra) => h3("input", Object.assign({
+        type: "text",
+        style: styles.input,
+        "aria-label": ariaLabel,
+        value: value || "",
+        onChange
+      }, extra || {}));
       return h3(
         "div",
         { style: styles.page },
@@ -29668,6 +29852,87 @@
           row("\u81EA\u8A00\u81EA\u8BED", "\u6BCF\u9694\u4E00\u4E24\u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5", checkbox("spontaneousPoem")),
           row("\u955C\u50CF\u6D6E\u5C42", "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C", checkbox("twinOverlay")),
           row("\u955C\u50CF\u4E3B\u4F53", "\u72EC\u7ACB\u72B6\u6001\u4E0E\u4FE1\u4EF6\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548", checkbox("twinSystem"))
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "\u6A21\u578B\u4E0E\u63A8\u7406"),
+          h3("div", { style: styles.hint }, "\u624B\u52A8\u8986\u76D6\u6A21\u578B/\u63A8\u7406\u5F3A\u5EA6\uFF1B\u7559\u7A7A = \u8DDF\u968F\u9ED8\u8BA4\uFF08\u4FDD\u5B58\u540E\u7ACB\u5373\u751F\u6548\uFF09\u3002"),
+          policyError ? h3("div", { style: styles.error }, policyError) : null,
+          policy ? h3("div", { style: styles.hint }, "\u914D\u7F6E\uFF1A" + (policy.file || "model-policy.json") + " \xB7 \u5DF2\u4FDD\u5B58\u8986\u76D6\uFF1A" + (policy.policy && policy.policy.provider ? policy.policy.provider + "/" + (policy.policy.model || "") : "\u65E0\uFF08\u9ED8\u8BA4\uFF09")) : h3("div", { style: styles.hint }, "\u6B63\u5728\u8BFB\u53D6\u6A21\u578B\u7B56\u7565\u2026"),
+          row(
+            "Provider",
+            "\u8986\u76D6\u5BBF\u4E3B\u9ED8\u8BA4 provider\uFF08\u767D\u540D\u5355\u5185\uFF09",
+            providerSelect("\u6A21\u578B provider", policyDraft.provider, (event) => setPolicyField("provider", event.target.value))
+          ),
+          row(
+            "Model",
+            "\u8986\u76D6\u5BBF\u4E3B\u9ED8\u8BA4 model",
+            policyField("\u6A21\u578B model", policyDraft.model, (event) => setPolicyField("model", event.target.value))
+          ),
+          row(
+            "tokenLimit",
+            "0 = \u4E0D\u5C01\u9876\uFF1B>0 \u9650\u5236\u5355\u6B21\u8F93\u51FA",
+            h3("input", {
+              type: "number",
+              min: 0,
+              step: 100,
+              style: styles.input,
+              "aria-label": "\u6A21\u578B tokenLimit",
+              value: Number(policyDraft.tokenLimit) || 0,
+              onChange: (event) => setPolicyField("tokenLimit", Math.max(0, Math.floor(Number(event.target.value) || 0)))
+            })
+          ),
+          POLICY_ROLES.map((role) => h3(
+            "div",
+            { style: styles.row, key: role },
+            h3(
+              "div",
+              { style: styles.label },
+              h3("b", null, (POLICY_ROLE_LABELS[role] || role) + "\uFF08" + role + "\uFF09"),
+              h3("span", { style: styles.hint }, effectiveLine(role))
+            ),
+            h3(
+              "div",
+              { style: { display: "flex", gap: 6, alignItems: "center" } },
+              providerSelect("\u89D2\u8272 " + role + " provider", policyDraft.roles[role] && policyDraft.roles[role].provider, (event) => setRoleField(role, "provider", event.target.value)),
+              policyField("\u89D2\u8272 " + role + " model", policyDraft.roles[role] && policyDraft.roles[role].model, (event) => setRoleField(role, "model", event.target.value)),
+              effortSelect("\u89D2\u8272 " + role + " reasoningEffort", policyDraft.roles[role] && policyDraft.roles[role].reasoningEffort, (event) => setRoleField(role, "reasoningEffort", event.target.value))
+            )
+          )),
+          row(
+            "\u64CD\u4F5C",
+            "\u4FDD\u5B58/\u91CD\u7F6E\u53EA\u5F71\u54CD\u6A21\u578B\u7B56\u7565\uFF0C\u4E0D\u52A8\u5176\u5B83\u8BBE\u7F6E",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: busy !== "", onClick: savePolicy }, busy === "policy-save" ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u6A21\u578B\u7B56\u7565"),
+              h3("button", { type: "button", style: styles.button, disabled: busy !== "", onClick: resetPolicy }, busy === "policy-reset" ? "\u91CD\u7F6E\u4E2D\u2026" : "\u91CD\u7F6E\u6A21\u578B\u7B56\u7565")
+            )
+          )
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "Hub"),
+          hubError ? h3("div", { style: styles.error }, hubError) : null,
+          hubInfo.available ? h3("div", { style: styles.hint }, "\u6A21\u5F0F\uFF1A" + hubInfo.mode + (hubInfo.assembled ? " \xB7 \u5DF2\u88C5\u914D" : " \xB7 \u672A\u88C5\u914D")) : h3("div", { style: styles.hint }, hub ? "Hub \u672A\u63A5\u5165\uFF08\u9ED8\u8BA4 off\uFF1B\u53EF\u7528\u73AF\u5883\u53D8\u91CF/\u8BBE\u7F6E\u5F00\u542F shadow\uFF09" : "\u6B63\u5728\u8BFB\u53D6 Hub \u72B6\u6001\u2026"),
+          row("\u6A21\u5F0F", "off / shadow / full", h3("b", null, hubInfo.available ? hubInfo.mode : "\u2014")),
+          row("\u524D\u53F0\u4EFB\u52A1", "\u5F53\u524D\u552F\u4E00\u524D\u53F0", h3("b", null, hubInfo.available ? hubInfo.foreground ? hubInfo.foreground.id + " \xB7 " + (hubInfo.foreground.status || "") : "\u7A7A\u95F2" : "\u2014")),
+          row("\u6392\u961F", "queued \u4EFB\u52A1\u6570", h3("b", null, hubInfo.available ? String(hubInfo.queue) : "\u2014")),
+          row("\u6D3B\u52A8", "\u5DF2\u6CE8\u518C Activity", h3("span", { style: styles.hint }, hubInfo.available ? hubInfo.activities.length > 0 ? hubInfo.activities.map((item) => item.id + (item.enabled ? "\uFF08\u5F00\uFF09" : "\uFF08\u5173\uFF09")).join("\u3001") : "\u65E0" : "\u2014")),
+          row("\u8BB0\u5FC6 provider", "\u53EA\u8BFB\u8BB0\u5FC6\u6765\u6E90", h3("span", { style: styles.hint }, hubInfo.available ? hubInfo.memoryProviders.length > 0 ? hubInfo.memoryProviders.join("\u3001") : "\u672A\u63A5\u5165" : "\u2014")),
+          row(
+            "\u64CD\u4F5C",
+            "\u5168\u5C40\u6682\u505C\u53EA\u5F71\u54CD Hub \u8C03\u5EA6\uFF0C\u4E0D\u6539\u53D8\u73B0\u6709\u804A\u5929/\u6E38\u620F",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "", onClick: refreshHub }, "\u5237\u65B0 Hub"),
+              h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.pauseAll") }, hubBusy === "hub.pauseAll" ? "\u6682\u505C\u4E2D\u2026" : "\u6682\u505C\u5168\u90E8"),
+              h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.resumeAll") }, hubBusy === "hub.resumeAll" ? "\u6062\u590D\u4E2D\u2026" : "\u6062\u590D\u5168\u90E8")
+            )
+          )
         ),
         h3(
           "div",
