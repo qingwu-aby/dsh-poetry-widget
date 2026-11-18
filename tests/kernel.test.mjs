@@ -245,6 +245,16 @@ import {
   SCHEDULER_VERSION,
 } from '../lib/core/scheduler.mjs'
 import {
+  createStudyActivity,
+  createStudyNoteStore,
+  STUDY_ACTIVITY_VERSION,
+  STUDY_CODES,
+  STUDY_EVENTS,
+  STUDY_MANIFEST_RAW,
+  STUDY_TASKS,
+  STUDY_TOOLS,
+} from '../lib/core/study-activity.mjs'
+import {
   createMemoryTaskStore,
   createTaskBoard,
   TASK_BOARD_CODES,
@@ -10983,4 +10993,169 @@ test('hub-routes L3：无 reading adapter 明确失败；off/shadow 不执行', 
   assert.equal(shadow.runtime.getInstances().taskBoard.list().length, 0, 'shadow 不创建任务')
   shadow.runtime.dispose()
   rmSync(shadow.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate L4：Study/Research Activity（问题→来源→假设→笔记→完成，用 Activity SDK）
+// ---------------------------------------------------------------------------
+
+test('study-activity L4：manifest/工具/事件定义 + SDK 注册', () => {
+  const study = createStudyActivity({ now: () => 1000 })
+  assert.equal(study.ok, true)
+  assert.equal(STUDY_ACTIVITY_VERSION, 1)
+  const manifest = study.activity.manifest
+  assert.equal(manifest.id, 'study')
+  assert.deepEqual(manifest.tools, [...STUDY_TOOLS])
+  assert.deepEqual(manifest.events, Object.values(STUDY_EVENTS))
+  assert.deepEqual(
+    STUDY_MANIFEST_RAW.tasks.map((task) => task.kind),
+    [...STUDY_TASKS],
+  )
+  assert.equal(manifest.permissions.length >= 1, true)
+  const registry = createActivityRegistry({ now: () => 1000 })
+  assert.equal(registerActivity(registry, study.activity).ok, true)
+  assert.equal(registry.get('study').id, 'study')
+})
+
+test('study-activity L4：问题→来源→假设/结论→完成闭环（fake search/ask）', async () => {
+  const events = []
+  const searchCalls = []
+  const askCalls = []
+  const study = createStudyActivity({
+    search: async (query) => {
+      searchCalls.push(query)
+      return [
+        { title: '来源 A', url: 'https://a.example', snippet: 'A 摘要' },
+        { title: '来源 B', url: 'https://b.example', snippet: 'B 摘要' },
+      ]
+    },
+    ask: async (question) => {
+      askCalls.push(question)
+      return '先查资料再下结论'
+    },
+    onEvent: (event) => events.push(event),
+    now: () => 1000,
+  })
+  assert.equal(study.ok, true)
+  // 问题
+  const asked = await study.activity.execute({
+    payload: { tool: 'study.ask', arguments: { question: '为什么天空是蓝的？' } },
+  })
+  assert.equal(asked.ok, true)
+  assert.equal(asked.facts.question, '为什么天空是蓝的？')
+  assert.equal(asked.facts.hasAnswer, true)
+  assert.deepEqual(askCalls, ['为什么天空是蓝的？'])
+  assert.equal(events[0].type, STUDY_EVENTS.question)
+  // 来源
+  const searched = await study.activity.execute({ payload: { tool: 'search', arguments: { query: '瑞利散射' } } })
+  assert.equal(searched.ok, true)
+  assert.equal(searched.facts.count, 2)
+  assert.equal(searched.facts.sources.length, 2)
+  assert.equal(events.filter((event) => event.type === STUDY_EVENTS.source).length, 2)
+  // 假设
+  const hypothesis = await study.activity.execute({
+    payload: { tool: 'note', arguments: { text: '可能是瑞利散射', kind: 'hypothesis' } },
+  })
+  assert.equal(hypothesis.ok, true)
+  assert.equal(hypothesis.facts.kind, 'hypothesis')
+  assert.equal(
+    events.some((event) => event.type === STUDY_EVENTS.hypothesis),
+    true,
+  )
+  // 结论
+  const conclusion = await study.activity.execute({
+    payload: { tool: 'note', arguments: { text: '结论：瑞利散射占主导', kind: 'conclusion' } },
+  })
+  assert.equal(conclusion.ok, true)
+  assert.equal(
+    events.some((event) => event.type === STUDY_EVENTS.note),
+    true,
+  )
+  // 完成
+  const finished = await study.activity.execute({ payload: { tool: 'finish', arguments: { summary: '完成一次研究' } } })
+  assert.equal(finished.ok, true)
+  assert.equal(finished.facts.sources, 2)
+  assert.equal(finished.facts.notes, 2)
+  assert.equal(finished.facts.hypotheses, 1)
+  assert.equal(
+    events.some((event) => event.type === STUDY_EVENTS.finished),
+    true,
+  )
+  // 快照
+  const snapshot = study.snapshot()
+  assert.equal(snapshot.session.question, '为什么天空是蓝的？')
+  assert.equal(snapshot.session.sources.length, 2)
+  assert.equal(snapshot.notes.total, 2)
+  assert.equal(snapshot.notes.byKind.hypothesis, 1)
+  assert.equal(snapshot.events.length >= 5, true)
+  assert.equal(study.notes.list().length, 2)
+})
+
+test('study-activity L4：空结果/结果归一化/卡住事件', async () => {
+  const empty = createStudyActivity({ search: async () => [], now: () => 1000 })
+  const noResult = await empty.activity.execute({ payload: { tool: 'search', arguments: { query: '无结果' } } })
+  assert.equal(noResult.ok, true)
+  assert.equal(noResult.facts.count, 0)
+  const wrapped = createStudyActivity({
+    search: async () => ({ ok: true, results: ['纯文本来源', { title: 'B', url: 'u' }] }),
+    now: () => 1000,
+  })
+  const normalized = await wrapped.activity.execute({ payload: { tool: 'search', arguments: { query: 'q' } } })
+  assert.equal(normalized.facts.count, 2)
+  assert.equal(normalized.facts.sources[0].title, '纯文本来源')
+  const events = []
+  const study = createStudyActivity({ search: async () => [], onEvent: (event) => events.push(event), now: () => 1000 })
+  const stuck = await study.activity.execute({
+    payload: { tool: 'note', arguments: { text: '这里看不懂', stuck: true } },
+  })
+  assert.equal(stuck.ok, true)
+  assert.equal(stuck.facts.kind, 'stuck')
+  assert.equal(
+    events.some((event) => event.type === STUDY_EVENTS.stuck),
+    true,
+  )
+})
+
+test('study-activity L4：无注入/错误隔离/非法参数', async () => {
+  const bare = createStudyActivity({ now: () => 1000 })
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'search', arguments: { query: 'q' } } })).facts.code,
+    STUDY_CODES.searchUnavailable,
+  )
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'study.ask', arguments: { question: 'q' } } })).facts.code,
+    STUDY_CODES.askUnavailable,
+  )
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'search', arguments: { query: '' } } })).facts.code,
+    STUDY_CODES.invalidQuery,
+  )
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'note', arguments: { text: '' } } })).facts.code,
+    STUDY_CODES.invalidNote,
+  )
+  const broken = createStudyActivity({
+    search: async () => {
+      throw new Error('search boom')
+    },
+    ask: async () => {
+      throw new Error('ask boom')
+    },
+    now: () => 1000,
+  })
+  const searchFailed = await broken.activity.execute({ payload: { tool: 'search', arguments: { query: 'q' } } })
+  assert.equal(searchFailed.ok, false)
+  assert.equal(searchFailed.facts.code, STUDY_CODES.searchFailed)
+  assert.match(searchFailed.detail, /search boom/)
+  const askFailed = await broken.activity.execute({ payload: { tool: 'study.ask', arguments: { question: 'q' } } })
+  assert.equal(askFailed.ok, false)
+  assert.equal(askFailed.facts.code, STUDY_CODES.askFailed)
+  // 注入 store 可替换
+  const custom = createStudyNoteStore({ now: () => 1000 })
+  const injected = createStudyActivity({ store: custom, now: () => 1000 })
+  assert.equal(
+    (await injected.activity.execute({ payload: { tool: 'note', arguments: { text: '自定义 store' } } })).ok,
+    true,
+  )
+  assert.equal(custom.list().length, 1)
 })
