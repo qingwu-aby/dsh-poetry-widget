@@ -79,6 +79,14 @@ import {
   createActivityRegistry,
 } from '../lib/core/activity-registry.mjs'
 import {
+  ACTIVITY_SDK_CODES,
+  ACTIVITY_SDK_HEALTH,
+  ACTIVITY_SDK_VERSION,
+  defineActivity,
+  registerActivity,
+  validateActivityReceipt,
+} from '../lib/core/activity-sdk.mjs'
+import {
   CHAT_ACTIVITY_CODES,
   CHAT_ACTIVITY_ID,
   CHAT_ACTIVITY_LIMITS,
@@ -10463,4 +10471,201 @@ test('memory-write-registry K2：登记模块真实存在，审计文档覆盖�
   assert.match(doc, /E0 已接 Gateway/)
   assert.match(doc, /E1 双写桥/)
   assert.match(doc, /E2 未接（直写）/)
+})
+
+// ---------------------------------------------------------------------------
+// Gate L1：Activity SDK（defineActivity/工具分发/receipt/生命周期/注册）
+// ---------------------------------------------------------------------------
+
+function makeSdkManifest(overrides = {}) {
+  return {
+    id: 'demo-activity',
+    version: '1.0.0',
+    name: '演示活动',
+    events: ['demo.received'],
+    tasks: [{ kind: 'demo.task', goal: '演示任务', success: '完成', priority: 50 }],
+    tools: ['echo', 'sum'],
+    permissions: ['tool'],
+    resources: { model: false },
+    ...overrides,
+  }
+}
+
+test('activity-sdk L1：defineActivity 校验 manifest/工具并返回 adapter', () => {
+  const activity = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: {
+      echo: (args) => ({ ok: true, detail: 'echo ' + String(args.text ?? ''), facts: { text: args.text } }),
+      sum: (args) => ({ ok: true, detail: 'sum', facts: { total: Number(args.a) + Number(args.b) } }),
+    },
+    now: () => 1000,
+  })
+  assert.equal(activity.ok, true)
+  assert.equal(ACTIVITY_SDK_VERSION, 1)
+  assert.equal(activity.manifest.id, 'demo-activity')
+  assert.equal(typeof activity.adapter.execute, 'function')
+  assert.equal(typeof activity.adapter.start, 'function')
+  assert.equal(typeof activity.adapter.stop, 'function')
+  assert.equal(typeof activity.adapter.health, 'function')
+  const snapshot = activity.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.deepEqual(
+    snapshot.tools.map((tool) => tool.name),
+    ['echo', 'sum'],
+  )
+  assert.equal(
+    snapshot.tools.every((tool) => tool.registered),
+    true,
+  )
+  // 非法 manifest 拒绝
+  const bad = defineActivity({ manifest: { id: 'X', version: 'bad' } })
+  assert.equal(bad.ok, false)
+  assert.equal(bad.code, ACTIVITY_SDK_CODES.invalidManifest)
+  assert.ok(Array.isArray(bad.errors))
+  // 未声明工具 / handler 非函数 / 重复工具
+  assert.equal(
+    defineActivity({ manifest: makeSdkManifest(), tools: { nope: () => ({ ok: true }) } }).code,
+    ACTIVITY_SDK_CODES.unknownTool,
+  )
+  assert.equal(
+    defineActivity({ manifest: makeSdkManifest(), tools: { echo: 'not-fn' } }).code,
+    ACTIVITY_SDK_CODES.invalidHandler,
+  )
+  assert.equal(
+    defineActivity({
+      manifest: makeSdkManifest(),
+      tools: [
+        { name: 'echo', handler: () => ({ ok: true }) },
+        { name: 'echo', handler: () => ({ ok: true }) },
+      ],
+    }).code,
+    ACTIVITY_SDK_CODES.duplicateTool,
+  )
+  // manifest 声明工具但既无 handler 也无 execute
+  assert.equal(defineActivity({ manifest: makeSdkManifest() }).code, ACTIVITY_SDK_CODES.noTool)
+})
+
+test('activity-sdk L1：工具分发 + receipt 统一校验（ok/detail/facts/at）', async () => {
+  const activity = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: {
+      echo: (args, task) => ({ ok: true, detail: 'echo', facts: { text: args.text, taskKey: task.key } }),
+      sum: (args) => ({ ok: true, at: 2000, detail: 'sum', facts: { total: args.a + args.b } }),
+    },
+    now: () => 1000,
+  })
+  const echo = await activity.execute({ key: 'k1', payload: { tool: 'echo', arguments: { text: 'hi' } } })
+  assert.equal(echo.ok, true)
+  assert.equal(echo.at, 1000)
+  assert.equal(echo.detail, 'echo')
+  assert.deepEqual(echo.facts, { text: 'hi', taskKey: 'k1' })
+  const sum = await activity.execute({ payload: { tool: 'sum', arguments: { a: 2, b: 3 } } })
+  assert.deepEqual(sum.facts, { total: 5 })
+  assert.equal(sum.at, 2000, '显式 at 保留')
+  // 未知工具 → 失败 receipt（不抛）
+  const unknown = await activity.execute({ payload: { tool: 'nope' } })
+  assert.equal(unknown.ok, false)
+  assert.equal(unknown.facts.code, ACTIVITY_SDK_CODES.unknownTool)
+  // handler 抛错 → 失败 receipt（不抛）
+  const throwing = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: {
+      echo: () => {
+        throw new Error('boom')
+      },
+      sum: () => ({ ok: true }),
+    },
+    now: () => 1000,
+  })
+  const failed = await throwing.execute({ payload: { tool: 'echo' } })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.facts.code, ACTIVITY_SDK_CODES.toolFailed)
+  assert.match(failed.detail, /boom/)
+  // 动态 tool() 注册
+  assert.equal(activity.tool('sum', () => ({ ok: true })).ok, false, '重复工具拒绝')
+})
+
+test('activity-sdk L1：validateActivityReceipt 校验与归一化', () => {
+  assert.equal(validateActivityReceipt({ ok: true }).ok, true)
+  assert.deepEqual(validateActivityReceipt({ ok: false, at: 1000, detail: 'x', facts: { a: 1 } }).receipt, {
+    ok: false,
+    at: 1000,
+    detail: 'x',
+    facts: { a: 1 },
+  })
+  assert.equal(validateActivityReceipt({ ok: 'yes' }).ok, false)
+  assert.equal(validateActivityReceipt({ ok: true, at: 'x' }).ok, false)
+  assert.equal(validateActivityReceipt({ ok: true, detail: 1 }).ok, false)
+  assert.equal(validateActivityReceipt({ ok: true, facts: [] }).ok, false)
+  assert.equal(validateActivityReceipt(null).ok, false)
+  // 自定义 execute 也走 receipt 归一化
+  const custom = defineActivity({
+    manifest: makeSdkManifest(),
+    execute: async () => ({ ok: true, detail: 'custom', facts: { n: 1 } }),
+    now: () => 1000,
+  })
+  return custom.execute({}).then((receipt) => {
+    assert.equal(receipt.ok, true)
+    assert.equal(receipt.detail, 'custom')
+    assert.deepEqual(receipt.facts, { n: 1 })
+  })
+})
+
+test('activity-sdk L1：生命周期/健康包装 + 错误隔离 + 能力摘要', async () => {
+  const calls = []
+  const activity = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: { echo: () => ({ ok: true }) },
+    start: async () => {
+      calls.push('start')
+    },
+    stop: async () => {
+      calls.push('stop')
+    },
+    health: async () => ({ ok: true, status: 'degraded', detail: '忙' }),
+    now: () => 1000,
+  })
+  assert.deepEqual(await activity.start(), { ok: true, started: true })
+  assert.equal(activity.snapshot().lifecycle.started, true)
+  const health = await activity.health()
+  assert.equal(health.ok, true)
+  assert.equal(health.status, 'degraded')
+  assert.equal(health.detail, '忙')
+  assert.deepEqual(await activity.stop(), { ok: true, started: false })
+  assert.deepEqual(calls, ['start', 'stop'])
+  // 生命周期抛错 → 隔离
+  const broken = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: { echo: () => ({ ok: true }) },
+    start: async () => {
+      throw new Error('start boom')
+    },
+    health: async () => {
+      throw new Error('health boom')
+    },
+  })
+  const startFailed = await broken.start()
+  assert.equal(startFailed.ok, false)
+  assert.equal(startFailed.code, ACTIVITY_SDK_CODES.lifecycleFailed)
+  const healthFailed = await broken.health()
+  assert.equal(healthFailed.ok, false)
+  assert.equal(healthFailed.status, 'error')
+  assert.match(healthFailed.detail, /health boom/)
+  assert.equal(ACTIVITY_SDK_HEALTH.indexOf('error') >= 0, true)
+})
+
+test('activity-sdk L1：registerActivity 便捷注册（含拒绝路径）', () => {
+  const registry = createActivityRegistry({ now: () => 1000 })
+  const activity = defineActivity({
+    manifest: makeSdkManifest(),
+    tools: { echo: () => ({ ok: true }), sum: () => ({ ok: true }) },
+    now: () => 1000,
+  })
+  const registered = registerActivity(registry, activity)
+  assert.equal(registered.ok, true)
+  assert.equal(registry.get('demo-activity').id, 'demo-activity')
+  assert.equal(registry.list().length, 1)
+  assert.equal(registerActivity(registry, activity).ok, false, '重复注册拒绝')
+  assert.equal(registerActivity(null, activity).code, ACTIVITY_SDK_CODES.invalidRegistry)
+  assert.equal(registerActivity(registry, { ok: false }).code, ACTIVITY_SDK_CODES.invalidDefinition)
 })
