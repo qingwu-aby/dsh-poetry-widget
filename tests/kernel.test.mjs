@@ -27,6 +27,14 @@ import {
   validateActivityManifest,
 } from '../lib/core/activity-manifest.mjs'
 import {
+  createEventBus,
+  createMemoryEventStore,
+  EVENT_BUS_CODES,
+  EVENT_BUS_DEFAULTS,
+  EVENT_BUS_VERSION,
+  parseSubscriptionPattern,
+} from '../lib/core/event-bus.mjs'
+import {
   buildIdempotencyKey,
   canonicalJson,
   checkEventVersion,
@@ -2239,4 +2247,341 @@ test('fault-inject A8：CLI 冒烟（json / 单场景 / dry-run）', () => {
   const dry = JSON.parse(execFileSync(process.execPath, [script, '--dry-run', '--json'], { encoding: 'utf8' }))
   assert.equal(dry.ok, true)
   assert.equal(dry.dryRun, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate B1：Event Bus（lib/core/event-bus.mjs）——有界/幂等/可回放/订阅隔离/背压
+// ---------------------------------------------------------------------------
+
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function makeBusEvent(index, overrides = {}) {
+  return {
+    id: 'evt-bus-' + String(index).padStart(8, '0'),
+    activity: 'chat',
+    type: 'chat.message.received',
+    version: 1,
+    at: 1_700_000_000_000 + index,
+    subject: 'subject-' + index,
+    payload: { index },
+    ...overrides,
+  }
+}
+
+test('event-bus B1：append 校验/幂等/顺序投递', async () => {
+  const bus = createEventBus({ maxEvents: 100, maxReplay: 100 })
+  const invalid = bus.append({ id: 'x' })
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.code, EVENT_BUS_CODES.invalidEvent)
+  assert.ok(Array.isArray(invalid.errors) && invalid.errors.length > 0)
+  assert.equal(bus.snapshot().metrics.rejected, 1)
+
+  const first = bus.append(makeBusEvent(1))
+  assert.equal(first.ok, true)
+  assert.equal(first.seq, 1)
+  assert.equal(first.duplicate, false)
+  const duplicate = bus.append(makeBusEvent(1))
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.seq, first.seq, '重复事件不分配新序号')
+  assert.equal(bus.snapshot().metrics.duplicates, 1)
+  assert.equal(bus.snapshot().stored, 1)
+
+  const seen = []
+  bus.subscribe('*', (event, meta) => seen.push([meta.seq, event.id]))
+  assert.equal(bus.append(makeBusEvent(2)).ok, true)
+  assert.equal(bus.append(makeBusEvent(3)).ok, true)
+  await bus.flush()
+  assert.deepEqual(
+    seen.map((item) => item[0]),
+    [2, 3],
+    '按 append 顺序投递（重复事件不投递）',
+  )
+  assert.deepEqual(
+    seen.map((item) => item[1]),
+    ['evt-bus-00000002', 'evt-bus-00000003'],
+  )
+  assert.equal(bus.snapshot().metrics.published, 3)
+  assert.equal(bus.snapshot().metrics.delivered, 2)
+})
+
+test('event-bus B1：订阅过滤（*/ns.*/精确）与 unsubscribe', async () => {
+  const bus = createEventBus({ maxEvents: 100, maxReplay: 100 })
+  const all = []
+  const chat = []
+  const exact = []
+  const task = []
+  bus.subscribe('*', (event) => all.push(event.type))
+  bus.subscribe('chat.*', (event) => chat.push(event.type))
+  bus.subscribe('chat.message.received', (event) => exact.push(event.type))
+  const unsubscribeTask = bus.subscribe('task.done', (event) => task.push(event.type))
+
+  assert.equal(bus.append(makeBusEvent(1, { type: 'chat.message.received' })).ok, true)
+  assert.equal(bus.append(makeBusEvent(2, { type: 'task.done' })).ok, true)
+  assert.equal(bus.append(makeBusEvent(3, { type: 'task.queued' })).ok, true)
+  await bus.flush()
+  assert.deepEqual(all, ['chat.message.received', 'task.done', 'task.queued'])
+  assert.deepEqual(chat, ['chat.message.received'])
+  assert.deepEqual(exact, ['chat.message.received'])
+  assert.deepEqual(task, ['task.done'])
+
+  unsubscribeTask()
+  assert.equal(bus.append(makeBusEvent(4, { type: 'task.done' })).ok, true)
+  await bus.flush()
+  assert.deepEqual(task, ['task.done'], 'unsubscribe 后不再收到')
+  assert.equal(bus.snapshot().subscriptions, 3)
+
+  assert.throws(() => bus.subscribe('bad pattern!', () => {}), TypeError)
+  assert.throws(() => bus.subscribe('*', null), TypeError)
+  assert.equal(parseSubscriptionPattern('*').kind, 'all')
+  assert.equal(parseSubscriptionPattern('chat.*').kind, 'prefix')
+  assert.equal(parseSubscriptionPattern('chat.message.received').kind, 'exact')
+})
+
+test('event-bus B1：投递失败隔离 + 慢订阅不阻塞其他订阅', async () => {
+  const bus = createEventBus({ maxEvents: 100, maxReplay: 100 })
+  const order = []
+  const received = []
+  bus.subscribe('*', async () => {
+    order.push('a-start')
+    await waitMs(20)
+    order.push('a-end')
+  })
+  bus.subscribe('*', () => {
+    order.push('b')
+    received.push('b')
+  })
+  bus.subscribe('*', () => {
+    order.push('c-throw')
+    throw new Error('subscriber boom')
+  })
+  bus.subscribe('*', async () => {
+    order.push('d-reject')
+    throw new Error('subscriber async boom')
+  })
+  bus.subscribe('*', (event) => received.push(event.id))
+
+  assert.equal(bus.append(makeBusEvent(1)).ok, true)
+  await bus.flush()
+  assert.deepEqual(order.slice(0, 4), ['a-start', 'b', 'c-throw', 'd-reject'], '慢订阅不被 await，后续订阅先被调用')
+  assert.equal(received.length, 2, '抛错订阅不影响其他订阅')
+  const metrics = bus.snapshot().metrics
+  assert.equal(metrics.deliveryErrors, 2, '同步抛错与异步 reject 都计数')
+  assert.equal(metrics.delivered, 5)
+
+  // 总线继续可用
+  assert.equal(bus.append(makeBusEvent(2)).ok, true)
+  await bus.flush()
+  assert.equal(received.length, 4)
+})
+
+test('event-bus B1：有界队列满（reject / drop-oldest）不静默', async () => {
+  const rejectBus = createEventBus({ maxEvents: 2, maxReplay: 10 })
+  const rejectDrops = []
+  const withDrop = createEventBus({
+    maxEvents: 2,
+    maxReplay: 10,
+    queueFullPolicy: 'drop-oldest',
+    onDrop: (info) => rejectDrops.push(info.reason),
+  })
+  const rejects = []
+  const busWithReject = createEventBus({
+    maxEvents: 2,
+    maxReplay: 10,
+    onReject: (info) => rejects.push(info.code),
+  })
+  assert.equal(rejectBus.append(makeBusEvent(1)).ok, true)
+  assert.equal(rejectBus.append(makeBusEvent(2)).ok, true)
+  const full = rejectBus.append(makeBusEvent(3))
+  assert.equal(full.ok, false)
+  assert.equal(full.code, EVENT_BUS_CODES.queueFull)
+  assert.match(full.message, /队列已满/)
+  assert.equal(rejectBus.snapshot().stored, 2)
+  assert.equal(rejectBus.snapshot().lastReject.code, EVENT_BUS_CODES.queueFull)
+
+  assert.equal(withDrop.append(makeBusEvent(1)).ok, true)
+  assert.equal(withDrop.append(makeBusEvent(2)).ok, true)
+  const dropped = withDrop.append(makeBusEvent(3))
+  assert.equal(dropped.ok, true)
+  assert.equal(dropped.droppedOldest, true)
+  assert.equal(withDrop.snapshot().metrics.dropped, 1)
+  assert.deepEqual(rejectDrops, ['queue-full'], '丢弃必须有回调，不静默')
+  const replayed = withDrop.replay({})
+  assert.deepEqual(
+    replayed.events.map((event) => event.id),
+    ['evt-bus-00000002', 'evt-bus-00000003'],
+  )
+
+  assert.equal(busWithReject.append(makeBusEvent(1)).ok, true)
+  assert.equal(busWithReject.append(makeBusEvent(2)).ok, true)
+  assert.equal(busWithReject.append(makeBusEvent(3)).ok, false)
+  assert.deepEqual(rejects, [EVENT_BUS_CODES.queueFull])
+})
+
+test('event-bus B1：磁盘软/硬阈值明确拒绝', () => {
+  const soft = createEventBus({
+    maxEvents: 100,
+    getDiskUsageBytes: () => 600 * 1024 * 1024,
+    diskSoftLimitBytes: 512 * 1024 * 1024,
+    diskHardLimitBytes: 2 * 1024 * 1024 * 1024,
+  })
+  const softResult = soft.append(makeBusEvent(1))
+  assert.equal(softResult.ok, false)
+  assert.equal(softResult.code, EVENT_BUS_CODES.diskSoftLimit)
+  assert.equal(soft.snapshot().disk.state, 'soft')
+
+  const overflow = createEventBus({
+    maxEvents: 100,
+    getDiskUsageBytes: () => 600 * 1024 * 1024,
+    allowSoftOverflow: true,
+  })
+  assert.equal(overflow.append(makeBusEvent(1)).ok, true, 'allowSoftOverflow 可放行软阈值')
+
+  const hard = createEventBus({
+    maxEvents: 100,
+    getDiskUsageBytes: () => 3 * 1024 * 1024 * 1024,
+    allowSoftOverflow: true,
+  })
+  const hardResult = hard.append(makeBusEvent(1))
+  assert.equal(hardResult.ok, false)
+  assert.equal(hardResult.code, EVENT_BUS_CODES.diskHardLimit)
+  assert.equal(hard.snapshot().disk.state, 'hard')
+})
+
+test('event-bus B1：回放过滤/上限/计数', () => {
+  const bus = createEventBus({ maxEvents: 100, maxReplay: 3 })
+  bus.append(
+    makeBusEvent(1, { activity: 'chat', type: 'chat.message.received', topics: ['chat', 'chat.message.received'] }),
+  )
+  bus.append(makeBusEvent(2, { activity: 'reading', type: 'reading.highlight', topics: ['reading'] }))
+  bus.append(makeBusEvent(3, { activity: 'chat', type: 'chat.message.sent', topics: ['chat'] }))
+  bus.append(makeBusEvent(4, { activity: 'task', type: 'task.done', topics: ['task'] }))
+  bus.append(makeBusEvent(5, { activity: 'chat', type: 'chat.message.received', topics: ['mood'] }))
+
+  assert.deepEqual(
+    bus.replay({ activity: 'chat' }).events.map((event) => event.payload.index),
+    [1, 3, 5],
+  )
+  assert.deepEqual(
+    bus.replay({ type: 'chat.*' }).events.map((event) => event.payload.index),
+    [1, 3, 5],
+  )
+  assert.deepEqual(
+    bus.replay({ type: 'task.done' }).events.map((event) => event.payload.index),
+    [4],
+  )
+  assert.deepEqual(
+    bus.replay({ topics: ['mood'] }).events.map((event) => event.payload.index),
+    [5],
+  )
+  assert.deepEqual(
+    bus.replay({ fromSeq: 4 }).events.map((event) => event.payload.index),
+    [4, 5],
+  )
+
+  // 回放上限：默认取 maxReplay；显式超限 → 明确拒绝
+  assert.equal(bus.replay({}).count, 3)
+  const tooMany = bus.replay({ limit: 4 })
+  assert.equal(tooMany.ok, false)
+  assert.equal(tooMany.code, EVENT_BUS_CODES.replayLimit)
+  assert.equal(bus.replay({ limit: 2 }).count, 2)
+  assert.equal(bus.snapshot().metrics.replayed, 10 + 3 + 2, '每次回放都计数（5 次过滤=10、默认=3、limit2=2）')
+
+  const replayed = []
+  const withHandler = bus.replay({ activity: 'reading' }, (event) => replayed.push(event.id))
+  assert.equal(withHandler.count, 1)
+  assert.deepEqual(replayed, ['evt-bus-00000002'])
+  assert.equal(bus.snapshot().metrics.replayed, 16, '带 handler 的回放同样计数')
+})
+
+test('event-bus B1：保留窗口清理与 onDrop 计数', () => {
+  let clock = 1_700_000_000_000
+  const drops = []
+  const bus = createEventBus({
+    now: () => clock,
+    maxEvents: 100,
+    maxReplay: 100,
+    retentionMs: 100,
+    onDrop: (info) => drops.push(info.reason),
+  })
+  bus.append(makeBusEvent(1))
+  assert.equal(bus.snapshot().stored, 1)
+  clock += 200
+  bus.append(makeBusEvent(2))
+  assert.equal(bus.snapshot().stored, 1, '过期事件在下一次 append 时清理')
+  assert.equal(bus.snapshot().metrics.evicted, 1)
+  assert.deepEqual(drops, ['retention'])
+  assert.deepEqual(
+    bus.replay({}).events.map((event) => event.payload.index),
+    [2],
+  )
+})
+
+test('event-bus B1：持久化适配接口（内存实现）与 store 失败隔离', () => {
+  const store = createMemoryEventStore({ maxEvents: 10 })
+  const bus = createEventBus({ maxEvents: 100, maxReplay: 100, store })
+  bus.append(makeBusEvent(1))
+  bus.append(makeBusEvent(2))
+  assert.equal(store.snapshot().stored, 2, 'append 会写入 store')
+  const read = bus.readFromStore({ limit: 10 })
+  assert.equal(read.ok, true)
+  assert.equal(read.events.length, 2)
+  assert.equal(bus.snapshot().metrics.storeAppends, 2)
+  assert.equal(bus.appendToStore(makeBusEvent(3)).ok, true)
+
+  const noStore = createEventBus({})
+  assert.equal(noStore.readFromStore({}).code, EVENT_BUS_CODES.noStore)
+  assert.equal(noStore.appendToStore(makeBusEvent(1)).code, EVENT_BUS_CODES.noStore)
+
+  const errors = []
+  const broken = createEventBus({
+    maxEvents: 10,
+    onError: (info) => errors.push(info),
+    store: {
+      append() {
+        throw new Error('disk on fire')
+      },
+      read() {
+        return []
+      },
+    },
+  })
+  const result = broken.append(makeBusEvent(1))
+  assert.equal(result.ok, true, 'store 失败不应阻塞总线')
+  assert.equal(broken.snapshot().metrics.storeErrors, 1)
+  assert.equal(errors[0].scope, 'store')
+})
+
+test('event-bus B1：snapshot 指标与版本字段', async () => {
+  const bus = createEventBus({ maxEvents: 5, maxReplay: 5 })
+  bus.subscribe('*', () => {})
+  bus.append(makeBusEvent(1))
+  await bus.flush()
+  const snapshot = bus.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.version, EVENT_BUS_VERSION)
+  assert.equal(snapshot.maxEvents, 5)
+  assert.equal(snapshot.maxReplay, 5)
+  assert.equal(snapshot.stored, 1)
+  assert.equal(snapshot.queueDepth, 0)
+  assert.equal(snapshot.subscriptions, 1)
+  assert.equal(snapshot.queueFullPolicy, 'reject')
+  for (const key of [
+    'published',
+    'duplicates',
+    'rejected',
+    'delivered',
+    'deliveryErrors',
+    'dropped',
+    'evicted',
+    'replayed',
+    'storeErrors',
+  ]) {
+    assert.equal(typeof snapshot.metrics[key], 'number', `metrics.${key}`)
+  }
+  assert.equal(snapshot.lastReject, null)
+  assert.equal(EVENT_BUS_DEFAULTS.maxEvents > 0, true)
+  assert.equal(EVENT_BUS_DEFAULTS.maxReplay > 0, true)
 })
