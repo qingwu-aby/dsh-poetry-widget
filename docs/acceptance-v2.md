@@ -18,6 +18,7 @@ HEAD：`53d0b6c`（Gate A–H 实现 + Activation H3–H6）
 | 压力/故障注入 | 模型/任务/事件 3 轮；故障 9/9 × 3 |
 | 真实备份/恢复演练 | 6832 文件 / 115.7MB；restore ok=true |
 | 最终 soak | 见 docs/final-soak.md |
+| 真实宿主路由 | 见 docs/live-acceptance.md（Hub off/可用、模型策略/训练 API 正常） |
 | 路由 | 40 条（含 Hub/训练/模型策略） |
 | 工作区 | clean，origin/main 同步 |
 

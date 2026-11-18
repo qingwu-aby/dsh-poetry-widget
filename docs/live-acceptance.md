@@ -1,0 +1,44 @@
+# 真实宿主验收记录（重启后）
+
+日期：2026-11-18
+GUI：`http://127.0.0.1:49259`
+HEAD：`f202b86`（含 model-policy reset 修复；宿主运行的是之前的 build，修复需下次重启生效）
+
+## 1. 路由与状态
+
+| 检查 | 结果 |
+|---|---|
+| `GET /api/dsh-poetry/hub.json` | 200；`available=true`、`assembled=true`、`mode=off` |
+| Hub 图 | EventBus/TaskBoard/Scheduler/Registry/Memory/Feedback/WorldSupervisor 全部 available |
+| Activity | chat、minecraft 已注册，均 stopped（expected off） |
+| 任务 | total 0、running 0 |
+| Memory | providers journal/game-memory/method-memory，`write=false`（只读），查询可用 |
+| `GET /model-policy.json` | 200；当前生效 `dsh-opencode-go` / `deepseek-v4.1-flash`，来源 default-chain |
+| `GET /training.json` | 200；enabled=false、phase=idle、runnerAvailable=true |
+| 设置页 Slot | `settings.section` 中 `dsh-little-whale` active，order 30 |
+
+## 2. 负向验收
+
+| 操作 | 结果 |
+|---|---|
+| Hub off 时 `task.create` | `HUB_FULL_REQUIRED`，未创建任务 |
+| 训练默认关闭时 `run` | `TRAINING_DISABLED`，未训练 |
+| `memory.query` | 只读查询成功，返回 game-memory 结果 |
+
+## 3. 发现并修复
+
+- `PUT /model-policy.json {reset:true}` 返回了 provider/model 的误报错误（空配置把 null 当非法）。已修复 `normalizeModelPolicy` 接受 null，提交 `f202b86`；宿主重启后生效。
+
+## 4. 未验证
+
+- 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
+- Hub shadow/full 需要以 `DSH_POETRY_HUB=shadow/1` 重启后才能做真实事件/任务冒烟；
+- `/health.json` 需要 DSH trust fence，curl token 不适用（UI 内正常）。
+
+## 5. 下一步
+
+1. 若要截图/点击验收：打开 browser-skill 扩展并保持连接；
+2. `DSH_POETRY_HUB=shadow` 重启，确认 hub.json 有 shadow 事件；
+3. full 模式用 `task.create` 触发一次 smoke；
+4. model-policy reset 修复重启后复验；
+5. 最后跑真实聊天/游戏冒烟与 soak。
