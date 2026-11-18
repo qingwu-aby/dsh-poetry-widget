@@ -268,6 +268,16 @@ import {
   TASK_ERROR_CODES,
 } from '../lib/core/task-supervisor.mjs'
 import {
+  createVideoActivity,
+  createVideoNoteStore,
+  VIDEO_ACTIVITY_VERSION,
+  VIDEO_CODES,
+  VIDEO_EVENTS,
+  VIDEO_MANIFEST_RAW,
+  VIDEO_TASKS,
+  VIDEO_TOOLS,
+} from '../lib/core/video-activity.mjs'
+import {
   createWorldSupervisor,
   WORLD_STATES,
   WORLD_SUPERVISOR_CODES,
@@ -11157,5 +11167,201 @@ test('study-activity L4：无注入/错误隔离/非法参数', async () => {
     (await injected.activity.execute({ payload: { tool: 'note', arguments: { text: '自定义 store' } } })).ok,
     true,
   )
+  assert.equal(custom.list().length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Gate L5：Video Activity（打开/播放/摘要/主题事件，注入式 provider）
+// ---------------------------------------------------------------------------
+
+test('video-activity L5：manifest/工具/事件定义 + SDK 注册', () => {
+  const video = createVideoActivity({ now: () => 1000 })
+  assert.equal(video.ok, true)
+  assert.equal(VIDEO_ACTIVITY_VERSION, 1)
+  const manifest = video.activity.manifest
+  assert.equal(manifest.id, 'video')
+  assert.deepEqual(manifest.tools, [...VIDEO_TOOLS])
+  assert.deepEqual(manifest.events, Object.values(VIDEO_EVENTS))
+  assert.deepEqual(
+    VIDEO_MANIFEST_RAW.tasks.map((task) => task.kind),
+    [...VIDEO_TASKS],
+  )
+  const registry = createActivityRegistry({ now: () => 1000 })
+  assert.equal(registerActivity(registry, video.activity).ok, true)
+  assert.equal(registry.get('video').id, 'video')
+})
+
+test('video-activity L5：打开→播放→暂停→摘要/主题→笔记→完成闭环（fake provider）', async () => {
+  const events = []
+  const calls = []
+  const provider = {
+    async open(input) {
+      calls.push(['open', input])
+      return { id: 'bv-1', title: '一条视频', url: 'https://example/v/1', duration: 120 }
+    },
+    async play(info) {
+      calls.push(['play', info.id])
+      return { ok: true }
+    },
+    async pause(info) {
+      calls.push(['pause', info.id])
+      return { ok: true }
+    },
+    async summary(info) {
+      calls.push(['summary', info.id])
+      return { summary: '讲了三个要点', topics: ['学习', '方法'] }
+    },
+  }
+  const video = createVideoActivity({ provider, onEvent: (event) => events.push(event), now: () => 1000 })
+  const opened = await video.activity.execute({
+    payload: { tool: 'video.open', arguments: { url: 'https://example/v/1' } },
+  })
+  assert.equal(opened.ok, true)
+  assert.equal(opened.facts.videoId, 'bv-1')
+  assert.equal(opened.facts.title, '一条视频')
+  assert.equal(events[0].type, VIDEO_EVENTS.opened)
+  const played = await video.activity.execute({ payload: { tool: 'video.play', arguments: {} } })
+  assert.equal(played.ok, true)
+  assert.equal(played.facts.status, 'playing')
+  assert.equal(
+    events.some((event) => event.type === VIDEO_EVENTS.playing),
+    true,
+  )
+  const paused = await video.activity.execute({ payload: { tool: 'video.pause', arguments: {} } })
+  assert.equal(paused.ok, true)
+  assert.equal(
+    events.some((event) => event.type === VIDEO_EVENTS.paused),
+    true,
+  )
+  // 摘要 + 主题
+  const summary = await video.activity.execute({ payload: { tool: 'video.summary', arguments: {} } })
+  assert.equal(summary.ok, true)
+  assert.equal(summary.facts.summary, '讲了三个要点')
+  assert.deepEqual(summary.facts.topics, ['学习', '方法'])
+  assert.equal(
+    events.some((event) => event.type === VIDEO_EVENTS.summary),
+    true,
+  )
+  assert.equal(events.filter((event) => event.type === VIDEO_EVENTS.topic).length, 2)
+  // 笔记（带主题）
+  const note = await video.activity.execute({
+    payload: { tool: 'video.note', arguments: { text: '第三个要点有意思', topics: ['学习'] } },
+  })
+  assert.equal(note.ok, true)
+  assert.equal(note.facts.topics.length, 1)
+  assert.equal(
+    events.some((event) => event.type === VIDEO_EVENTS.note),
+    true,
+  )
+  assert.equal(video.notes.list().length, 1)
+  // 完成
+  const finished = await video.activity.execute({ payload: { tool: 'video.summary', arguments: { finish: true } } })
+  assert.equal(finished.ok, true)
+  assert.equal(finished.facts.finished, true)
+  assert.equal(
+    events.some((event) => event.type === VIDEO_EVENTS.finished),
+    true,
+  )
+  const snapshot = video.snapshot()
+  assert.equal(snapshot.session.id, 'bv-1')
+  assert.equal(snapshot.session.status, 'finished')
+  assert.deepEqual(snapshot.topics.sort(), ['学习', '方法'].sort())
+  assert.equal(calls.length >= 3, true)
+})
+
+test('video-activity L5：无 provider/无视频/非法参数明确失败', async () => {
+  const bare = createVideoActivity({ now: () => 1000 })
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'video.open', arguments: { url: 'x' } } })).facts.code,
+    VIDEO_CODES.providerUnavailable,
+  )
+  assert.equal(
+    (await bare.activity.execute({ payload: { tool: 'video.play', arguments: {} } })).facts.code,
+    VIDEO_CODES.providerUnavailable,
+  )
+  const noVideo = createVideoActivity({
+    provider: {
+      async open() {
+        return { id: 'x' }
+      },
+    },
+    now: () => 1000,
+  })
+  assert.equal(
+    (await noVideo.activity.execute({ payload: { tool: 'video.play', arguments: {} } })).facts.code,
+    VIDEO_CODES.noVideo,
+  )
+  assert.equal(
+    (await noVideo.activity.execute({ payload: { tool: 'video.open', arguments: {} } })).facts.code,
+    VIDEO_CODES.invalidInput,
+  )
+  assert.equal(
+    (await noVideo.activity.execute({ payload: { tool: 'video.note', arguments: { text: '' } } })).facts.code,
+    VIDEO_CODES.invalidNote,
+  )
+})
+
+test('video-activity L5：provider 错误隔离 + 注入 store/自定义主题上限', async () => {
+  const broken = createVideoActivity({
+    provider: {
+      async open() {
+        throw new Error('open boom')
+      },
+      async play() {
+        throw new Error('play boom')
+      },
+      async pause() {
+        throw new Error('pause boom')
+      },
+      async summary() {
+        throw new Error('summary boom')
+      },
+    },
+    now: () => 1000,
+  })
+  const openFailed = await broken.activity.execute({ payload: { tool: 'video.open', arguments: { url: 'x' } } })
+  assert.equal(openFailed.ok, false)
+  assert.equal(openFailed.facts.code, VIDEO_CODES.openFailed)
+  assert.match(openFailed.detail, /open boom/)
+  // 先成功 open（不抛的 provider）再验证 play/summary 抛错隔离
+  const partial = createVideoActivity({
+    provider: {
+      async open() {
+        return { id: 'ok', title: 'ok' }
+      },
+      async play() {
+        throw new Error('play boom')
+      },
+      async summary() {
+        throw new Error('summary boom')
+      },
+    },
+    now: () => 1000,
+  })
+  assert.equal((await partial.activity.execute({ payload: { tool: 'video.open', arguments: { url: 'x' } } })).ok, true)
+  const playFailed = await partial.activity.execute({ payload: { tool: 'video.play', arguments: {} } })
+  assert.equal(playFailed.ok, false)
+  assert.equal(playFailed.facts.code, VIDEO_CODES.playFailed)
+  const summaryFailed = await partial.activity.execute({ payload: { tool: 'video.summary', arguments: {} } })
+  assert.equal(summaryFailed.ok, false)
+  assert.equal(summaryFailed.facts.code, VIDEO_CODES.summaryFailed)
+  // 注入 store + 自定义主题上限
+  const custom = createVideoNoteStore({ now: () => 1000 })
+  const limited = createVideoActivity({
+    provider: {
+      async open() {
+        return { id: 'v' }
+      },
+    },
+    store: custom,
+    maxTopics: 1,
+    now: () => 1000,
+  })
+  await limited.activity.execute({ payload: { tool: 'video.open', arguments: { url: 'u' } } })
+  const noted = await limited.activity.execute({
+    payload: { tool: 'video.note', arguments: { text: '笔记', topics: ['A', 'B', 'C'] } },
+  })
+  assert.equal(noted.ok, true)
+  assert.equal(noted.facts.topics.length, 1, '主题上限生效')
   assert.equal(custom.list().length, 1)
 })
