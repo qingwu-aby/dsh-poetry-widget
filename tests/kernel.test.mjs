@@ -2,12 +2,19 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { summarizeModelBudget, summarizeModelGate } from '../lib/composition/health.mjs'
+import {
+  buildHealthAlerts,
+  buildHealthMetrics,
+  buildRuntimeSnapshot,
+  HEALTH_ALERT_THRESHOLDS,
+  summarizeModelBudget,
+  summarizeModelGate,
+} from '../lib/composition/health.mjs'
 import {
   ACTIVITY_MANIFEST_ERROR_CODES,
   ACTIVITY_PERMISSIONS,
@@ -38,6 +45,15 @@ import { createPluginLogger } from '../lib/kernel/logger.mjs'
 import { createModelCaller } from '../lib/kernel/model-call.mjs'
 import { createServiceRegistry } from '../lib/kernel/service.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
+import {
+  formatRotateStamp,
+  isActiveLogName,
+  isRotatedLogName,
+  parseSize,
+  planLogRotation,
+  restoreRotatedLog,
+  rotateLogs,
+} from '../scripts/log-rotate.mjs'
 import {
   createStateBackup,
   formatBackupStamp,
@@ -1275,4 +1291,367 @@ test('state-backup A4：CLI 可 dry-run / JSON 输出（不触碰真实 home）'
   assert.equal(checkReport.restored.files, 4)
   assert.equal(formatBackupStamp(0).length, 15)
   rmSync(home, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate A5：健康指标/告警（lib/composition/health.mjs）与日志轮转（scripts/log-rotate.mjs）
+// ---------------------------------------------------------------------------
+
+function snapshotOf(value = {}) {
+  return { snapshot: () => value }
+}
+
+function makeHealthDeps(overrides = {}) {
+  const dir = tmpDir('health-deps')
+  return {
+    growth: snapshotOf(),
+    selfDrive: snapshotOf(),
+    selfWander: snapshotOf(),
+    selfReading: snapshotOf(),
+    selfNetlang: snapshotOf(),
+    memoryConsolidator: snapshotOf(),
+    serviceRuntime: snapshotOf({ services: [] }),
+    modelBudget: snapshotOf({
+      day: '2026-11-18',
+      total: 9,
+      totalLimit: 10,
+      counts: { mood: 9 },
+      limits: { mood: 0 },
+      lastReject: null,
+      pendingWrite: false,
+      flushIntervalMs: 1000,
+    }),
+    modelGate: snapshotOf({
+      active: 2,
+      queued: 20,
+      maxConcurrent: 2,
+      maxQueue: 24,
+      queueTimeoutMs: 30_000,
+      rejected: { queueFull: 1, timeout: 0 },
+      lastReject: { reason: 'queue-full', at: 1, message: '排队已满', role: 'mood' },
+    }),
+    heartbeat: snapshotOf({ jobs: [] }),
+    webAccess: snapshotOf(),
+    summarizeModelErrors: () => ({ since: 0, total: 25, byRole: { mood: 25 }, byCode: { TIMEOUT: 25 }, lastAt: 1 }),
+    modelErrorsPath: path.join(dir, 'model-errors.jsonl'),
+    growthMetrics: snapshotOf(),
+    selfWorks: snapshotOf(),
+    mediaBudget: snapshotOf(),
+    outbox: snapshotOf(),
+    attention: { mode: () => 'observe', pending: () => [] },
+    promptLayersVersion: 1,
+    selfEvents: snapshotOf(),
+    selfMetabolism: snapshotOf(),
+    worldFeedback: { recent: () => [] },
+    selfLifecycle: snapshotOf(),
+    twinEnabled: false,
+    webBench: snapshotOf(),
+    agentLoop: snapshotOf(),
+    knowledgeGraph: snapshotOf(),
+    selfTrainer: snapshotOf(),
+    relationship: snapshotOf(),
+    emotional: snapshotOf(),
+    dailyLife: snapshotOf(),
+    migrationSummary: null,
+    commitments: snapshotOf(),
+    guiPush: snapshotOf(),
+    localVoice: snapshotOf(),
+    worldview: snapshotOf({
+      essay: { version: 1, at: 1 },
+      beliefs: [],
+      concepts: [],
+      questions: [],
+      contradictions: [],
+    }),
+    domainServices: {},
+    taskSupervisor: snapshotOf({
+      total: 3,
+      active: 3,
+      queued: 1,
+      running: 1,
+      waiting: 1,
+      blocked: 0,
+      slotsUsed: 2,
+      maxRunning: 4,
+      byState: { queued: 1, running: 1, waiting: 1, blocked: 0, done: 0, failed: 0, cancelled: 0 },
+    }),
+    eventBacklog: snapshotOf({ queued: 2, capacity: 10, dropped: 0, oldestQueuedAt: 1 }),
+    minecraftWorld: snapshotOf({ ok: true, observationAt: Date.now(), permission: 'control', granted: true }),
+    ...overrides,
+  }
+}
+
+test('health A5：metrics 结构化指标（gate/tasks/events/memory/disk/modelErrors/minecraft）', () => {
+  const deps = makeHealthDeps()
+  const metrics = buildHealthMetrics(deps, 1_700_000_000_000)
+  assert.equal(metrics.generatedAt, 1_700_000_000_000)
+  assert.equal(metrics.gate.active, 2)
+  assert.equal(metrics.gate.queued, 20)
+  assert.equal(metrics.gate.maxConcurrent, 2)
+  assert.ok(Math.abs(metrics.gate.saturation - 20 / 24) < 1e-9, '队列饱和度可观测')
+  assert.equal(metrics.gate.rejected.queueFull, 1)
+  assert.equal(metrics.gate.lastReject.reason, 'queue-full')
+  assert.equal(metrics.budget.total, 9)
+  assert.equal(metrics.budget.totalLimit, 10)
+  assert.ok(Math.abs(metrics.budget.usageRatio - 0.9) < 1e-9)
+  assert.equal(metrics.tasks.available, true)
+  assert.equal(metrics.tasks.total, 3)
+  assert.equal(metrics.tasks.queued, 1)
+  assert.equal(metrics.tasks.running, 1)
+  assert.equal(metrics.tasks.waiting, 1)
+  assert.equal(metrics.tasks.maxRunning, 4)
+  assert.equal(metrics.events.available, true)
+  assert.equal(metrics.events.queued, 2)
+  assert.equal(metrics.events.capacity, 10)
+  assert.equal(metrics.memory.available, true)
+  assert.ok(metrics.memory.rssBytes > 0)
+  assert.ok(metrics.memory.heapUsedRatio >= 0)
+  assert.equal(metrics.disk.available, true)
+  assert.ok(metrics.disk.totalBytes > 0)
+  assert.ok(metrics.disk.freeBytes > 0)
+  assert.equal(metrics.modelErrors.total, 25)
+  assert.equal(metrics.modelErrors.byRole.mood, 25)
+  assert.equal(metrics.minecraft.available, true)
+  assert.equal(metrics.minecraft.permission, 'control')
+  assert.equal(metrics.minecraft.granted, true)
+  assert.ok(metrics.minecraft.staleMs !== null && metrics.minecraft.staleMs >= 0)
+
+  // 缺失可选依赖 → 占位（available:false），不影响其他指标
+  const empty = buildHealthMetrics({}, 1000)
+  assert.equal(empty.tasks.available, false)
+  assert.equal(empty.tasks.total, 0)
+  assert.equal(empty.events.available, false)
+  assert.equal(empty.events.note, 'placeholder')
+  assert.equal(empty.minecraft.available, false)
+  assert.equal(empty.minecraft.reason, 'not-wired')
+  assert.equal(empty.modelErrors.total, 0)
+  assert.equal(empty.gate.active, 0)
+  assert.equal(empty.disk.available, false)
+  assert.equal(empty.memory.available, true)
+})
+
+test('health A5：alerts 阈值告警（可配置阈值、健康时为空）', () => {
+  const metrics = buildHealthMetrics(makeHealthDeps(), 1_700_000_000_000)
+  const alerts = buildHealthAlerts(metrics)
+  const codes = alerts.map((item) => item.code)
+  for (const code of ['gate-queue-saturated', 'gate-rejections', 'budget-near-limit', 'model-errors-spike']) {
+    assert.ok(codes.includes(code), `应产生 ${code}，实际 ${codes.join(',')}`)
+  }
+  for (const alert of alerts) {
+    assert.ok(['warn', 'critical'].includes(alert.level))
+    assert.equal(typeof alert.message, 'string')
+  }
+  assert.equal(HEALTH_ALERT_THRESHOLDS.gateQueueRatio, 0.8)
+
+  // 健康指标 + 自定义阈值（避免受真实磁盘/堆占用影响）→ 无告警
+  const healthy = buildHealthMetrics({}, 1000)
+  const noAlerts = buildHealthAlerts(healthy, { heapUsedRatio: 0.999, diskFreeRatio: 0.0001, budgetRatio: 0.999 })
+  assert.deepEqual(noAlerts, [])
+
+  // 事件积压 / 任务 blocked / minecraft stale 的告警
+  const backlog = buildHealthAlerts(
+    {
+      ...healthy,
+      events: { available: true, queued: 9, capacity: 10 },
+      tasks: { available: true, blocked: 6 },
+      minecraft: { available: true, staleMs: 11 * 60 * 1000 },
+    },
+    { heapUsedRatio: 0.999, diskFreeRatio: 0.0001 },
+  )
+  const backlogCodes = backlog.map((item) => item.code)
+  assert.ok(backlogCodes.includes('event-backlog'))
+  assert.ok(backlogCodes.includes('tasks-blocked'))
+  assert.ok(backlogCodes.includes('minecraft-stale'))
+})
+
+test('health A5：buildRuntimeSnapshot 兼容旧字段并附带 metrics/alerts', () => {
+  const deps = makeHealthDeps()
+  const snapshot = buildRuntimeSnapshot(deps)
+  // 旧字段兼容
+  for (const key of [
+    'growth',
+    'drive',
+    'wander',
+    'reading',
+    'netlang',
+    'consolidate',
+    'services',
+    'domainServices',
+    'budget',
+    'gate',
+    'heartbeat',
+    'web',
+    'modelErrors',
+    'growthMetrics',
+    'works',
+    'mediaBudget',
+    'outbox',
+    'attention',
+    'promptLayers',
+    'events',
+    'metabolism',
+    'worldFeedback',
+    'lifecycle',
+    'twin',
+    'webBench',
+    'agentLoop',
+    'knowledgeGraph',
+    'selfTrainer',
+    'relationship',
+    'emotional',
+    'dailyLife',
+    'stateMigrations',
+    'commitments',
+    'guiPush',
+    'localVoice',
+    'worldview',
+  ]) {
+    assert.ok(Object.hasOwn(snapshot, key), `health.runtime.${key} 应保留`)
+  }
+  assert.equal(snapshot.gate.active, 2)
+  assert.equal(snapshot.gate.maxQueue, 24)
+  assert.equal(snapshot.budget.total, 9)
+  assert.equal(snapshot.modelErrors.total, 25)
+  // 新字段
+  assert.equal(typeof snapshot.metrics, 'object')
+  assert.equal(snapshot.metrics.tasks.available, true)
+  assert.equal(snapshot.metrics.minecraft.available, true)
+  assert.ok(Array.isArray(snapshot.alerts))
+  assert.ok(snapshot.alerts.length > 0)
+  assert.equal(snapshot.worldview.version, 1)
+})
+
+function createLogFixture() {
+  const dir = tmpDir('whale-logs')
+  writeFileSync(path.join(dir, 'whale-minecraft-bot.log'), 'x'.repeat(4096))
+  writeFileSync(path.join(dir, 'whale-minecraft-server.log'), 'y'.repeat(1024))
+  writeFileSync(path.join(dir, 'whale-small.log'), 'tiny')
+  writeFileSync(path.join(dir, 'other-app.log'), 'z'.repeat(8192))
+  writeFileSync(path.join(dir, 'whale-minecraft-bot.20260101-000000.log'), 'old-bot')
+  writeFileSync(path.join(dir, 'whale-minecraft-bot.20260102-000000.log'), 'newer-bot')
+  return dir
+}
+
+test('log-rotate A5：dry-run 不改文件；apply 轮转/清理且不碰其他日志', () => {
+  const dir = createLogFixture()
+  const before = readdirSync(dir).sort()
+  const plan = planLogRotation({ dir, maxBytes: 2048, keep: 1, now: 1_780_000_000_000 })
+  assert.equal(plan.ok, true)
+  assert.deepEqual(
+    plan.actions.rotate.map((item) => item.name),
+    ['whale-minecraft-bot.log'],
+  )
+  assert.equal(plan.dryRun, true)
+  assert.deepEqual(readdirSync(dir).sort(), before, 'dry-run 不应改目录')
+
+  const applied = rotateLogs({ dir, maxBytes: 2048, keep: 1, now: 1_780_000_000_000, apply: true })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.dryRun, false)
+  assert.deepEqual(
+    applied.applied.rotated.map((item) => item.name),
+    ['whale-minecraft-bot.log'],
+  )
+  const rotatedName = applied.applied.rotated[0].target
+  assert.equal(isRotatedLogName(rotatedName), true)
+  assert.equal(statSync(path.join(dir, 'whale-minecraft-bot.log')).size, 0, 'copytruncate 后活动日志清空')
+  assert.equal(readFileSync(path.join(dir, rotatedName), 'utf8').length, 4096, '轮转文件保留原内容')
+  assert.equal(readFileSync(path.join(dir, 'other-app.log'), 'utf8').length, 8192, '非 whale-*.log 不动')
+  assert.equal(readFileSync(path.join(dir, 'whale-small.log'), 'utf8'), 'tiny', '未超阈值不动')
+  // keep=1：该 base 的旧轮转（20260101/20260102）被清理，只剩本次
+  const botRotated = readdirSync(dir).filter(
+    (name) => name.startsWith('whale-minecraft-bot.') && isRotatedLogName(name),
+  )
+  assert.deepEqual(botRotated, [rotatedName])
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('log-rotate A5：restore 拼回旧内容；rename 模式重建空日志', () => {
+  const dir = createLogFixture()
+  const applied = rotateLogs({ dir, maxBytes: 2048, keep: 5, now: 1_780_000_000_000, apply: true })
+  const rotatedName = applied.applied.rotated[0].target
+  writeFileSync(path.join(dir, 'whale-minecraft-bot.log'), 'new-line\n')
+
+  const dryRestore = restoreRotatedLog({ dir, restore: rotatedName })
+  assert.equal(dryRestore.ok, true)
+  assert.equal(dryRestore.dryRun, true)
+  assert.equal(dryRestore.restoredBytes, 4096)
+  assert.ok(existsSync(path.join(dir, rotatedName)), 'dry-run 不删轮转文件')
+
+  const restored = restoreRotatedLog({ dir, restore: rotatedName, apply: true })
+  assert.equal(restored.ok, true)
+  assert.equal(restored.deleted, true)
+  const content = readFileSync(path.join(dir, 'whale-minecraft-bot.log'), 'utf8')
+  assert.equal(content.length, 4096 + 'new-line\n'.length, '旧内容拼在新内容之前')
+  assert.ok(content.endsWith('new-line\n'))
+  assert.equal(existsSync(path.join(dir, rotatedName)), false)
+  assert.equal(restoreRotatedLog({ dir, restore: rotatedName, apply: true }).ok, false, '重复恢复应失败')
+
+  // rename 模式：活动日志重建为空文件
+  writeFileSync(path.join(dir, 'whale-minecraft-server.log'), 'q'.repeat(4096))
+  const renamed = rotateLogs({ dir, maxBytes: 1024, keep: 3, mode: 'rename', now: 1_780_000_100_000, apply: true })
+  assert.equal(renamed.ok, true)
+  const serverRotated = renamed.applied.rotated.find((item) => item.name === 'whale-minecraft-server.log')
+  assert.ok(serverRotated)
+  assert.equal(statSync(path.join(dir, 'whale-minecraft-server.log')).size, 0)
+  assert.equal(readFileSync(path.join(dir, serverRotated.target), 'utf8').length, 4096)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('log-rotate A5：参数/命名/安全（目录缺失、非法恢复名、大小解析）', () => {
+  assert.equal(parseSize('10M'), 10 * 1024 * 1024)
+  assert.equal(parseSize('1.5G'), Math.floor(1.5 * 1024 * 1024 * 1024))
+  assert.equal(parseSize('2048'), 2048)
+  assert.equal(parseSize('bogus', 123), 123)
+  assert.equal(isActiveLogName('whale-bot.log'), true)
+  assert.equal(isActiveLogName('whale-bot.20260101-000000.log'), false)
+  assert.equal(isActiveLogName('other.log'), false)
+  assert.equal(isRotatedLogName('whale-bot.20260101-000000.log'), true)
+  assert.equal(isRotatedLogName('whale-bot.log'), false)
+
+  const missing = planLogRotation({ dir: path.join(tmpDir('no-logs'), 'missing') })
+  assert.equal(missing.ok, false)
+  assert.match(missing.errors[0], /目录不存在/)
+
+  const dir = createLogFixture()
+  const badRestore = restoreRotatedLog({ dir, restore: '../evil.log' })
+  assert.equal(badRestore.ok, false)
+  assert.match(badRestore.errors[0], /不是轮转文件命名/)
+  const traversal = restoreRotatedLog({ dir, restore: 'whale-bot.20260101-000000.log' })
+  assert.equal(traversal.ok, false, '文件不存在应失败')
+  assert.equal(formatRotateStamp(1_700_000_000_000).length, 15)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('log-rotate A5：CLI dry-run/apply/restore --json 冒烟', () => {
+  const dir = createLogFixture()
+  const script = path.join(STATE_TEST_ROOT, 'scripts', 'log-rotate.mjs')
+  const dry = JSON.parse(
+    execFileSync(process.execPath, [script, '--dir', dir, '--max-size', '2K', '--keep', '1', '--json'], {
+      encoding: 'utf8',
+    }),
+  )
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
+  assert.equal(dry.actions.rotate.length, 1)
+
+  const applied = JSON.parse(
+    execFileSync(process.execPath, [script, '--dir', dir, '--max-size', '2K', '--keep', '1', '--apply', '--json'], {
+      encoding: 'utf8',
+    }),
+  )
+  assert.equal(applied.ok, true)
+  assert.equal(applied.dryRun, false)
+  assert.equal(applied.applied.rotated.length, 1)
+  const rotatedName = applied.applied.rotated[0].target
+
+  const listed = JSON.parse(execFileSync(process.execPath, [script, '--dir', dir, '--list'], { encoding: 'utf8' }))
+  assert.equal(listed.ok, true)
+  assert.ok(listed.rotated.some((item) => item.name === rotatedName))
+
+  const restoreDry = JSON.parse(
+    execFileSync(process.execPath, [script, '--dir', dir, '--restore', rotatedName, '--json'], { encoding: 'utf8' }),
+  )
+  assert.equal(restoreDry.ok, true)
+  assert.equal(restoreDry.dryRun, true)
+  rmSync(dir, { recursive: true, force: true })
 })
