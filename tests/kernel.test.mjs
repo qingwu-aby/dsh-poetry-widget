@@ -395,6 +395,14 @@ import {
   restoreStateBackup,
   verifyStateBackup,
 } from '../scripts/state-restore-check.mjs'
+import {
+  buildDrillPlan,
+  DRILL_CODES,
+  DRILL_ENV,
+  formatDrillPlan,
+  parseDrillArgs,
+  runTrainingDrill,
+} from '../scripts/training-drill.mjs'
 
 function tmpDir(name) {
   return mkdtempSync(path.join(os.tmpdir(), `dshp-${name}-`))
@@ -8999,6 +9007,7 @@ function makeFakeTrainingSpawn() {
     child.stderr = new EventEmitter()
     child.kill = (signal) => {
       kills.push(signal)
+      if (mode === 'hang') setTimeout(() => child.emit('close', null), 0)
       return true
     }
     children.push(child)
@@ -11918,4 +11927,194 @@ test('training-evaluator M2：run → eval → promote 闸门（真实评分）'
   assert.match(emptyRun.message, /评估|report/)
   rmSync(fail.dir, { recursive: true, force: true })
   rmSync(empty.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate M3：训练演练工具（默认 dry-run，--confirm+env 才真实运行）
+// ---------------------------------------------------------------------------
+
+function makeM3DrillFixture() {
+  const dir = tmpDir('m3-drill')
+  const home = path.join(dir, 'home')
+  const settingsDir = path.join(home, '.dsh-poetry')
+  const selfTrainDir = path.join(dir, 'self-train')
+  mkdirSync(settingsDir, { recursive: true })
+  mkdirSync(path.join(home, 'agent-memory'), { recursive: true })
+  mkdirSync(path.join(settingsDir, 'game-memory'), { recursive: true })
+  mkdirSync(path.join(selfTrainDir, 'adapters', 'adapters-live'), { recursive: true })
+  const store = createTrainingConfigStore({ file: path.join(settingsDir, 'training-config.json'), now: () => 5000 })
+  store.write({ enabled: true, eval: { minScore: 0.6 } })
+  writeFileSync(
+    path.join(home, 'agent-memory', 'journal.jsonl'),
+    JSON.stringify({ ts: 1000, kind: 'murmur', text: '今天的风很轻' }) + '\n',
+  )
+  writeFileSync(path.join(settingsDir, 'game-memory', 'world.md'), '- 我在森林里 [2024-01-01]\n')
+  writeFileSync(
+    path.join(settingsDir, 'methods.json'),
+    JSON.stringify({ entries: [{ id: 'm1', name: '先看日志', howTo: '出错先看 stderr', lastAt: 1001 }] }),
+  )
+  writeFileSync(path.join(settingsDir, 'chat-token'), 'secret-token\n')
+  const scriptFile = path.join(dir, 'self-train.sh')
+  writeFileSync(scriptFile, '#!/bin/bash\necho training\n')
+  writeFileSync(path.join(selfTrainDir, 'report.md'), '- 评估：通过（期望相似度均值 0.8，14/14 有输出）\n')
+  writeFileSync(path.join(selfTrainDir, 'history.log'), '2026-11-05T09:06:15.209Z trained=true eval=true\n')
+  const base = {
+    home,
+    selfTrainDir,
+    scriptFile,
+    tokenFile: path.join(settingsDir, 'chat-token'),
+    logDir: path.join(settingsDir, 'training-logs'),
+    now: () => 5000,
+  }
+  return { dir, home, settingsDir, selfTrainDir, scriptFile, base }
+}
+
+function makeM3FakeSpawn(mode) {
+  const calls = []
+  const kills = []
+  const children = []
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options })
+    const child = new EventEmitter()
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = (signal) => {
+      kills.push(signal)
+      if (mode === 'hang') setTimeout(() => child.emit('close', null), 0)
+      return true
+    }
+    children.push(child)
+    if (mode === 'throw') throw new Error('spawn boom')
+    if (mode === 'error') setTimeout(() => child.emit('error', new Error('spawn ENOENT')), 0)
+    if (mode === 'close0') {
+      setTimeout(() => {
+        child.stdout.emit('data', 'training output\n')
+        child.stderr.emit('data', 'warning line\n')
+        child.emit('close', 0)
+      }, 0)
+    }
+    if (mode === 'close1') setTimeout(() => child.emit('close', 1), 0)
+    return child
+  }
+  return { spawn, calls, kills, children }
+}
+
+test('training-drill M3：默认 dry-run 不 spawn，计划含配置/数据/评估/风险', async () => {
+  const fixture = makeM3DrillFixture()
+  const fake = makeM3FakeSpawn('close0')
+  const output = []
+  const result = await runTrainingDrill({
+    argv: [],
+    env: {},
+    spawn: fake.spawn,
+    stdout: { write: (line) => output.push(line) },
+    ...fixture.base,
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.dryRun, true)
+  assert.equal(fake.calls.length, 0, 'dry-run 不 spawn')
+  assert.equal(result.plan.scriptExists, true)
+  assert.equal(result.plan.dataset.available, true)
+  assert.equal(result.plan.dataset.entries >= 2, true)
+  assert.equal(result.plan.report.passed, true)
+  assert.equal(result.plan.report.score, 0.8)
+  assert.equal(result.plan.config.enabled, true)
+  assert.equal(
+    result.plan.risks.some((risk) => /self-train\.sh 可能替换线上语言层/.test(risk)),
+    true,
+  )
+  assert.equal(existsSync(path.join(fixture.settingsDir, 'training-logs')), false, 'dry-run 不写日志')
+  assert.equal(output.join('\n').includes('dry-run'), true)
+  // 缺 confirm / 缺 env 均拒绝
+  const noConfirm = await runTrainingDrill({ argv: [], env: { [DRILL_ENV]: '1' }, spawn: fake.spawn, ...fixture.base })
+  assert.equal(noConfirm.dryRun, true)
+  assert.equal(noConfirm.code, DRILL_CODES.confirmRequired)
+  const noEnv = await runTrainingDrill({ argv: ['--confirm'], env: {}, spawn: fake.spawn, ...fixture.base })
+  assert.equal(noEnv.dryRun, true)
+  assert.equal(noEnv.code, DRILL_CODES.envRequired)
+  assert.equal(fake.calls.length, 0)
+  // parseDrillArgs
+  assert.deepEqual(parseDrillArgs(['--confirm', '--timeout', '5000']), { confirm: true, help: false, timeoutMs: 5000 })
+  assert.equal(parseDrillArgs(['--help']).help, true)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('training-drill M3：缺脚本/缺 token 拒绝真实运行', async () => {
+  const fixture = makeM3DrillFixture()
+  const fake = makeM3FakeSpawn('close0')
+  const env = { [DRILL_ENV]: '1' }
+  const missingScript = await runTrainingDrill({
+    argv: ['--confirm'],
+    env,
+    spawn: fake.spawn,
+    ...fixture.base,
+    scriptFile: path.join(fixture.dir, 'nope.sh'),
+  })
+  assert.equal(missingScript.ok, false)
+  assert.equal(missingScript.exitCode, 1)
+  assert.equal(missingScript.code, DRILL_CODES.scriptMissing)
+  const missingToken = await runTrainingDrill({
+    argv: ['--confirm'],
+    env,
+    spawn: fake.spawn,
+    ...fixture.base,
+    tokenFile: path.join(fixture.dir, 'nope-token'),
+  })
+  assert.equal(missingToken.code, DRILL_CODES.tokenMissing)
+  assert.equal(fake.calls.length, 0)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('training-drill M3：fake spawn 成功→日志/报告解析；失败/超时', async () => {
+  const fixture = makeM3DrillFixture()
+  const env = { [DRILL_ENV]: '1' }
+  const fake = makeM3FakeSpawn('close0')
+  const output = []
+  const result = await runTrainingDrill({
+    argv: ['--confirm'],
+    env,
+    spawn: fake.spawn,
+    stdout: { write: (line) => output.push(line) },
+    ...fixture.base,
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.dryRun, false)
+  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls[0].command, '/bin/bash')
+  assert.equal(fake.calls[0].args[0], fixture.scriptFile)
+  assert.equal(existsSync(result.logFile), true, '真实运行写日志')
+  const log = readFileSync(result.logFile, 'utf8')
+  assert.match(log, /training output/)
+  assert.match(log, /warning line/)
+  assert.equal(result.report.ok, true)
+  assert.equal(result.report.passed, true)
+  assert.equal(result.report.score, 0.8)
+  assert.equal(output.join('\n').includes('训练进程结束'), true)
+  // 非零退出
+  const fail = makeM3FakeSpawn('close1')
+  const failed = await runTrainingDrill({ argv: ['--confirm'], env, spawn: fail.spawn, ...fixture.base })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.exitCode, 1)
+  assert.equal(failed.code, 'TRAIN_DRILL_FAILED')
+  // spawn error
+  const broken = makeM3FakeSpawn('error')
+  const brokenResult = await runTrainingDrill({ argv: ['--confirm'], env, spawn: broken.spawn, ...fixture.base })
+  assert.equal(brokenResult.ok, false)
+  assert.equal(brokenResult.code, DRILL_CODES.spawnFailed)
+  // 超时 → kill
+  const hang = makeM3FakeSpawn('hang')
+  const timedOut = await runTrainingDrill({
+    argv: ['--confirm', '--timeout', '20'],
+    env,
+    spawn: hang.spawn,
+    timeoutMs: 20,
+    ...fixture.base,
+  })
+  assert.equal(timedOut.ok, false)
+  assert.equal(timedOut.exitCode, 1)
+  assert.equal(timedOut.code, DRILL_CODES.timeout)
+  assert.deepEqual(hang.kills, ['SIGTERM'])
+  rmSync(fixture.dir, { recursive: true, force: true })
 })
