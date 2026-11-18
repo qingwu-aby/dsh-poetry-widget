@@ -110,3 +110,14 @@ test('World 路由注册的是 handler 函数，不是 World 对象', () => {
   assert.equal(typeof handlers.get('/api/dsh-poetry/game-world.json'), 'function')
   assert.equal(handlers.get('/api/dsh-poetry/game-world.json'), world.handler)
 })
+
+test('建造计划解析：相对坐标边界、方块白名单、最少块数', async () => {
+  const { parseBlueprint } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const plan = parseBlueprint('{"name":"小屋","blocks":[{"dx":0,"dy":0,"dz":0,"block":"dirt"},{"dx":1,"dy":0,"dz":0,"block":"oak_planks"},{"dx":2,"dy":1,"dz":0,"block":"glass"},{"dx":3,"dy":2,"dz":0,"block":"torch"},{"dx":4,"dy":0,"dz":0,"block":"stone"},{"dx":5,"dy":1,"dz":0,"block":"cobblestone"}]}')
+  assert.ok(plan)
+  assert.equal(plan.name, '小屋')
+  assert.equal(plan.blocks.length, 6)
+  assert.equal(parseBlueprint('{"blocks":[{"dx":99,"dy":0,"dz":0,"block":"dirt"}]}'), null)
+  assert.equal(parseBlueprint('{"blocks":[{"dx":0,"dy":0,"dz":0,"block":"command_block"}]}'), null)
+  assert.equal(parseBlueprint('不是 JSON'), null)
+})
