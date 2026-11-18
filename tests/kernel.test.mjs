@@ -72,6 +72,17 @@ import { createPluginLogger } from '../lib/kernel/logger.mjs'
 import { createModelCaller } from '../lib/kernel/model-call.mjs'
 import { createServiceRegistry } from '../lib/kernel/service.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
+import { FAULT_SCENARIOS, listFaultScenarios, parseFaultArgs, runFaultInjection } from '../scripts/fault-inject.mjs'
+import {
+  createSeededRandom,
+  LOAD_DEFAULTS,
+  normalizeLoadOptions,
+  percentile,
+  runEventScenario,
+  runLoadBaseline,
+  runModelScenario,
+  runTaskScenario,
+} from '../scripts/load-baseline.mjs'
 import {
   formatRotateStamp,
   isActiveLogName,
@@ -2090,4 +2101,142 @@ test('event-schema A7：背压默认值与 env 解析', () => {
   assert.equal(custom.diskHardLimitBytes, 2048)
   const invalid = resolveEventBackpressure({ DSH_POETRY_EVENT_RETENTION_HOURS: 'bogus' })
   assert.equal(invalid.retentionHours, 72, '非法值回退默认')
+})
+
+// ---------------------------------------------------------------------------
+// Gate A8：基线压测与故障注入（scripts/load-baseline.mjs / scripts/fault-inject.mjs）
+// ---------------------------------------------------------------------------
+
+test('load-baseline A8：dry-run 不执行；配置归一化与确定性工具', async () => {
+  const dry = await runLoadBaseline({ dryRun: true })
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
+  assert.equal(dry.model, null)
+  assert.equal(dry.tasks, null)
+  assert.equal(dry.events, null)
+  assert.match(dry.plan, /dry-run/)
+  assert.equal(dry.durationMs >= 0, true)
+
+  const normalized = normalizeLoadOptions({ requests: 0, concurrency: -1, maxQueue: -5, scenario: 'bogus' })
+  assert.equal(normalized.requests, 1)
+  assert.equal(normalized.concurrency, 1)
+  assert.equal(normalized.maxQueue, 0)
+  assert.equal(normalized.scenario, LOAD_DEFAULTS.scenario)
+  assert.equal(normalizeLoadOptions({}).seed, LOAD_DEFAULTS.seed)
+
+  const first = createSeededRandom(42)
+  const second = createSeededRandom(42)
+  const values = [first(), first(), first()]
+  assert.deepEqual(values, [second(), second(), second()], '同 seed 序列一致')
+  assert.deepEqual(percentile([1, 2, 3, 4, 5], 0.5), 3)
+  assert.deepEqual(percentile([], 0.95), 0)
+  assert.deepEqual(percentile([10], 0.99), 10)
+})
+
+test('load-baseline A8：模型场景复现队列满且统计完整', async () => {
+  const report = await runModelScenario({
+    requests: 40,
+    concurrency: 10,
+    maxConcurrent: 1,
+    maxQueue: 2,
+    queueTimeoutMs: 20,
+    serviceMs: 1,
+    slowRatio: 0,
+    hangRatio: 0,
+    seed: 7,
+  })
+  assert.equal(report.requests, 40)
+  const rejectedTotal = report.rejected.queueFull + report.rejected.timeout + report.rejected.other
+  assert.equal(report.granted + rejectedTotal, 40, '每次请求要么通过要么被拒绝')
+  assert.ok(rejectedTotal > 0, '小队列下应出现拒绝（复现队列满）')
+  assert.ok(report.rejected.queueFull > 0)
+  assert.ok(report.queue.peak <= 2, '峰值队列不超过 maxQueue')
+  assert.equal(report.queue.final.active, 0, '压测结束并发槽位应归零')
+  assert.equal(report.latencyMs.count, report.granted)
+  assert.ok(report.latencyMs.p50 >= 0 && report.latencyMs.p95 >= report.latencyMs.p50)
+  assert.ok(report.throughputPerSec >= 0)
+})
+
+test('load-baseline A8：任务/事件场景统计与背压', () => {
+  const tasks = runTaskScenario({ tasks: 30, maxRunning: 2, taskMs: 10, cancelRatio: 0, seed: 3 })
+  assert.equal(tasks.total, 30)
+  assert.equal(tasks.completed, 30, '不取消时应全部完成')
+  assert.equal(tasks.cancelled, 0)
+  assert.equal(tasks.slotsUsed, 0, '结束后不占槽位')
+  assert.ok(tasks.durationMsStats.p50 > 0 && tasks.durationMsStats.p95 >= tasks.durationMsStats.p50)
+
+  const cancelledRun = runTaskScenario({ tasks: 30, maxRunning: 2, taskMs: 10, cancelRatio: 1, seed: 3 })
+  assert.equal(cancelledRun.cancelled, 30, 'cancelRatio=1 应全部取消')
+
+  const events = runEventScenario({ events: 100, eventCapacity: 50, unknownRatio: 0.2, seed: 5 })
+  assert.equal(events.produced, 100)
+  assert.equal(events.invalid, 0)
+  assert.equal(events.peakDepth, 50, '队列应打满到容量')
+  assert.equal(events.dropped, 50, '容量外事件应被背压丢弃')
+  assert.equal(events.peakDepth + events.dropped, 100)
+  assert.ok(events.retainedUnknown > 0, '未知事件应保留')
+  assert.ok(events.processed > 0, '已知事件应处理')
+  assert.equal(events.processed + events.retainedUnknown, 50, '入队事件被处理或保留')
+  assert.equal(events.backpressure.retentionHours, 72)
+})
+
+test('load-baseline A8：CLI dry-run / json 冒烟（无外部副作用）', () => {
+  const script = path.join(STATE_TEST_ROOT, 'scripts', 'load-baseline.mjs')
+  const dry = JSON.parse(
+    execFileSync(process.execPath, [script, '--scenario', 'task', '--tasks', '10', '--dry-run', '--json'], {
+      encoding: 'utf8',
+    }),
+  )
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
+  assert.equal(dry.tasks, null)
+  const real = JSON.parse(
+    execFileSync(process.execPath, [script, '--scenario', 'event', '--events', '20', '--json'], { encoding: 'utf8' }),
+  )
+  assert.equal(real.ok, true)
+  assert.equal(real.events.produced, 20)
+})
+
+test('fault-inject A8：全部场景通过；dry-run/单场景/list 可用', async () => {
+  const report = await runFaultInjection()
+  assert.equal(report.ok, true, JSON.stringify(report.scenarios.filter((item) => !item.ok)))
+  assert.equal(report.scenarios.length, FAULT_SCENARIOS.length)
+  for (const scenario of report.scenarios) {
+    assert.equal(scenario.ok, true, `${scenario.id} 应通过：${scenario.error ?? ''}`)
+    assert.equal(typeof scenario.durationMs, 'number')
+  }
+  const ids = report.scenarios.map((item) => item.id)
+  for (const expected of ['model-timeout', 'model-empty', 'task-cancel', 'process-restart', 'disk-write-failure']) {
+    assert.ok(ids.includes(expected), `应包含 ${expected}`)
+  }
+
+  const dry = await runFaultInjection({ dryRun: true })
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
+  assert.equal(dry.scenarios.length, FAULT_SCENARIOS.length)
+  assert.ok(dry.scenarios.every((item) => item.ok === null))
+
+  const single = await runFaultInjection({ scenario: 'task-cancel' })
+  assert.equal(single.ok, true)
+  assert.equal(single.scenarios.length, 1)
+  assert.equal(single.scenarios[0].id, 'task-cancel')
+
+  assert.equal(listFaultScenarios().length, FAULT_SCENARIOS.length)
+  assert.deepEqual(parseFaultArgs(['--scenario', 'model-empty', '--json']).scenario, 'model-empty')
+  assert.equal(parseFaultArgs(['--dry-run']).dryRun, true)
+  assert.equal(parseFaultArgs(['--list']).list, true)
+})
+
+test('fault-inject A8：CLI 冒烟（json / 单场景 / dry-run）', () => {
+  const script = path.join(STATE_TEST_ROOT, 'scripts', 'fault-inject.mjs')
+  const all = JSON.parse(execFileSync(process.execPath, [script, '--json'], { encoding: 'utf8' }))
+  assert.equal(all.ok, true)
+  const single = JSON.parse(
+    execFileSync(process.execPath, [script, '--scenario', 'model-empty', '--json'], { encoding: 'utf8' }),
+  )
+  assert.equal(single.ok, true)
+  assert.equal(single.scenarios.length, 1)
+  const dry = JSON.parse(execFileSync(process.execPath, [script, '--dry-run', '--json'], { encoding: 'utf8' }))
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
 })
