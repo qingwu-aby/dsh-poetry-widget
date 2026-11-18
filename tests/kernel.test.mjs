@@ -33,6 +33,14 @@ import {
   TASK_ERROR_CODES,
 } from '../lib/core/task-supervisor.mjs'
 import {
+  COST_REJECT_CODE,
+  COST_SOFT_ALERT_CODE,
+  createCostGuard,
+  DEFAULT_COST_POLICY,
+  describeCostPolicy,
+  resolveCostPolicy,
+} from '../lib/domain/host/cost-guard.mjs'
+import {
   createModelBudget,
   createModelGate,
   MODEL_GATE_DEFAULTS,
@@ -1654,4 +1662,225 @@ test('log-rotate A5：CLI dry-run/apply/restore --json 冒烟', () => {
   assert.equal(restoreDry.ok, true)
   assert.equal(restoreDry.dryRun, true)
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate A6：成本治理（lib/domain/host/cost-guard.mjs）——窗口限流/软告警/配置优先级
+// ---------------------------------------------------------------------------
+
+const SHANGHAI_DAY_START = Date.parse('2026-11-18T00:00:00+08:00')
+
+test('cost-guard A6：默认策略不设硬上限、只有软告警阈值', () => {
+  const policy = resolveCostPolicy({ env: {} })
+  assert.equal(policy.enabled, true)
+  assert.equal(policy.tokenLimit, 0)
+  assert.deepEqual(policy.limits.total, { minute: 0, day: 0 })
+  assert.deepEqual(policy.limits.roles, {})
+  assert.deepEqual(policy.limits.activities, {})
+  assert.deepEqual(policy.softAlerts.total, { minute: 20, day: 600 })
+  assert.equal(policy.softAlerts.roles.mood.day, 100)
+  assert.equal(policy.softAlerts.roles.selfTalk.day, 120)
+  assert.equal(DEFAULT_COST_POLICY.enabled, true)
+  assert.equal(DEFAULT_COST_POLICY.limits.total.day, 0)
+
+  // settings.modelTokenLimit 被读入策略（0 = 不封顶）
+  assert.equal(resolveCostPolicy({ env: {}, settings: { modelTokenLimit: 1200 } }).tokenLimit, 1200)
+  assert.equal(resolveCostPolicy({ env: {}, settings: { modelTokenLimit: -5 } }).tokenLimit, 0)
+  const described = describeCostPolicy(policy)
+  assert.match(described, /成本闸门：开启/)
+  assert.match(described, /软告警 分钟 20 \/ 日 600/)
+})
+
+test('cost-guard A6：分钟窗口限流（滑动窗口恢复 + retryAfterMs）', () => {
+  let clock = SHANGHAI_DAY_START
+  const guard = createCostGuard({
+    now: () => clock,
+    env: { DSH_POETRY_COST_MINUTE_TOTAL: '2' },
+  })
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  const rejected = guard.acquire({ role: 'mood' })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.code, COST_REJECT_CODE)
+  assert.equal(rejected.reason, 'rate-limit')
+  assert.equal(rejected.scope, 'total')
+  assert.equal(rejected.window, 'minute')
+  assert.equal(rejected.limit, 2)
+  assert.equal(rejected.used, 2)
+  assert.ok(rejected.retryAfterMs > 0 && rejected.retryAfterMs <= 60_000)
+  assert.match(rejected.message, /每分.*上限 2 已用完/)
+
+  // 滑动窗口：60s 后旧时间戳出窗，恢复可用
+  clock += 61_000
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  const snapshot = guard.snapshot()
+  assert.equal(snapshot.rejected.minute, 1)
+  assert.equal(snapshot.rejectedByScope.total, 1)
+  assert.equal(snapshot.usage.total.minute, 1)
+})
+
+test('cost-guard A6：日窗口限流与上海本地日重置', () => {
+  let clock = SHANGHAI_DAY_START + 12 * 60 * 60 * 1000
+  const guard = createCostGuard({
+    now: () => clock,
+    overrides: { limits: { roles: { mood: { day: 2 } } } },
+  })
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  const rejected = guard.acquire({ role: 'mood' })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.scope, 'role')
+  assert.equal(rejected.name, 'mood')
+  assert.equal(rejected.window, 'day')
+  assert.ok(rejected.retryAfterMs > 0 && rejected.retryAfterMs <= 24 * 60 * 60 * 1000)
+  // 其他 role 不受影响（总量不限）
+  assert.equal(guard.acquire({ role: 'selfTalk' }).ok, true)
+
+  // 跨日重置
+  clock = SHANGHAI_DAY_START + 24 * 60 * 60 * 1000 + 1000
+  assert.equal(guard.snapshot().day, '2026-11-19')
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  assert.equal(guard.snapshot().usage.roles.mood.day, 1)
+})
+
+test('cost-guard A6：role/activity 维度独立限流与观测快照', () => {
+  const guard = createCostGuard({
+    now: () => SHANGHAI_DAY_START,
+    overrides: {
+      limits: {
+        roles: { mood: { minute: 1 } },
+        activities: { chat: { day: 1 } },
+      },
+    },
+  })
+  assert.equal(guard.acquire({ role: 'mood', activity: 'chat' }).ok, true)
+  const roleRejected = guard.acquire({ role: 'mood', activity: 'chat' })
+  assert.equal(roleRejected.ok, false)
+  assert.equal(roleRejected.scope, 'role')
+  assert.equal(roleRejected.window, 'minute')
+  // 同 activity 换 role：activity 日限流命中
+  const activityRejected = guard.acquire({ role: 'selfTalk', activity: 'chat' })
+  assert.equal(activityRejected.ok, false)
+  assert.equal(activityRejected.scope, 'activity')
+  assert.equal(activityRejected.window, 'day')
+  // 其他 activity 正常
+  assert.equal(guard.acquire({ role: 'selfTalk', activity: 'minecraft' }).ok, true)
+
+  const snapshot = guard.snapshot()
+  assert.equal(snapshot.usage.roles.mood.minute, 1)
+  assert.equal(snapshot.usage.activities.chat.day, 1)
+  assert.equal(snapshot.rejectedByScope.role, 1)
+  assert.equal(snapshot.rejectedByScope.activity, 1)
+  assert.equal(snapshot.tokenLimit, 0)
+})
+
+test('cost-guard A6：软告警不拒绝调用，带冷却且可从快照看到', () => {
+  const alerts = []
+  let clock = SHANGHAI_DAY_START
+  const guard = createCostGuard({
+    now: () => clock,
+    overrides: {
+      softAlerts: { total: { minute: 0, day: 2 } },
+      alertCooldownMs: { day: 60 * 60 * 1000 },
+    },
+    onAlert: (alert) => alerts.push(alert),
+  })
+  assert.equal(guard.acquire({}).ok, true)
+  assert.equal(alerts.length, 0)
+  const second = guard.acquire({})
+  assert.equal(second.ok, true, '软告警不拒绝')
+  assert.equal(second.softAlerts.length, 1)
+  assert.equal(second.softAlerts[0].code, COST_SOFT_ALERT_CODE)
+  assert.equal(second.softAlerts[0].window, 'day')
+  assert.equal(second.softAlerts[0].used, 2)
+  assert.equal(alerts.length, 1)
+  // 冷却期内不重复告警
+  guard.acquire({})
+  assert.equal(alerts.length, 1)
+  // 冷却结束后再次告警
+  clock += 61 * 60 * 1000
+  guard.acquire({})
+  assert.equal(alerts.length, 2)
+  assert.equal(guard.snapshot().recentAlerts.length, 2)
+})
+
+test('cost-guard A6：配置优先级（overrides > env > 默认）与关闭开关', () => {
+  // env 覆盖默认
+  const fromEnv = resolveCostPolicy({
+    env: {
+      DSH_POETRY_COST_MINUTE_TOTAL: '3',
+      DSH_POETRY_COST_ROLE_SELF_TALK_DAY: '4',
+      DSH_POETRY_COST_ACTIVITY_CHAT_MINUTE: '5',
+    },
+  })
+  assert.equal(fromEnv.limits.total.minute, 3)
+  assert.equal(fromEnv.limits.roles.selfTalk.day, 4)
+  assert.equal(fromEnv.limits.activities.chat.minute, 5)
+  // overrides 覆盖 env
+  const merged = resolveCostPolicy({
+    env: { DSH_POETRY_COST_MINUTE_TOTAL: '1' },
+    overrides: { limits: { total: { minute: 3 } }, tokenLimit: 900 },
+  })
+  assert.equal(merged.limits.total.minute, 3)
+  assert.equal(merged.tokenLimit, 900)
+
+  // 关闭：不拒绝也不计数
+  const off = createCostGuard({
+    env: { DSH_POETRY_COST_GUARD: 'off' },
+    overrides: { limits: { total: { minute: 1 } } },
+  })
+  assert.equal(off.enabled, false)
+  for (let index = 0; index < 5; index += 1) assert.equal(off.acquire({ role: 'mood' }).ok, true)
+  assert.equal(off.snapshot().usage.total.minute, 0)
+  assert.equal(off.snapshot().rejected.minute, 0)
+  // options.enabled=false 同样生效
+  assert.equal(createCostGuard({ enabled: false }).acquire({}).disabled, true)
+})
+
+test('cost-guard A6：与 model-budget 不重复计数（各自独立统计）', () => {
+  const dir = tmpDir('cost-budget')
+  const budget = createModelBudget({
+    file: path.join(dir, 'model-budget.json'),
+    env: {},
+    now: () => SHANGHAI_DAY_START,
+  })
+  const guard = createCostGuard({ now: () => SHANGHAI_DAY_START, env: {} })
+  // 模拟未来接线：一次模型调用 = budget.tryConsume + guard.acquire 各一次
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal(guard.acquire({ role: 'mood', activity: 'chat' }).ok, true)
+    assert.equal(budget.tryConsume('mood').ok, true)
+  }
+  assert.equal(budget.snapshot().total, 3, 'budget 只记自己的 3 次')
+  assert.equal(budget.snapshot().counts.mood, 3)
+  const usage = guard.snapshot().usage
+  assert.equal(usage.total.day, 3, 'cost-guard 只记自己的 3 次')
+  assert.equal(usage.roles.mood.day, 3)
+  assert.equal(usage.activities.chat.day, 3)
+  // guard 的拒绝不影响 budget 计数口径（反之亦然）
+  const rejectingGuard = createCostGuard({
+    now: () => SHANGHAI_DAY_START,
+    overrides: { limits: { total: { day: 1 } } },
+  })
+  assert.equal(rejectingGuard.acquire({}).ok, true)
+  assert.equal(rejectingGuard.acquire({}).ok, false)
+  assert.equal(rejectingGuard.snapshot().usage.total.day, 1, '被拒绝的调用不计入窗口')
+  budget.flush()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('cost-guard A6：peek/record/reset 与空输入', () => {
+  const guard = createCostGuard({
+    now: () => SHANGHAI_DAY_START,
+    overrides: { limits: { total: { minute: 2 } } },
+  })
+  assert.equal(guard.peek({}).ok, true)
+  assert.equal(guard.snapshot().usage.total.minute, 0, 'peek 不计数')
+  assert.equal(guard.record({ role: 'mood' }).ok, true)
+  assert.equal(guard.snapshot().usage.total.minute, 1)
+  assert.equal(guard.acquire({ role: 'mood' }).ok, true)
+  assert.equal(guard.peek({}).ok, false, 'peek 也能看到超限')
+  assert.equal(guard.acquire(null).ok, false, '空输入只受总量限制')
+  guard.reset()
+  assert.equal(guard.snapshot().usage.total.minute, 0)
+  assert.equal(guard.acquire({}).ok, true)
 })
