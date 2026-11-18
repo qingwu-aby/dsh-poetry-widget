@@ -7138,3 +7138,166 @@ test('Gate H4 训练 API：config 校验（敏感字段/非法值拒绝，不写
   assert.equal(deniedRes.statusCode, 403)
   rmSync(dir, { recursive: true, force: true })
 })
+
+/* ------------------------------------------------------------------ */
+/* Gate I2：设置页 Hub 控制台（任务/活动/记忆查询）                     */
+/* ------------------------------------------------------------------ */
+
+const I2_HUB_ROUTE = '/api/dsh-poetry/hub.json'
+
+function i2HubPayload(overrides = {}) {
+  return {
+    ok: true,
+    available: true,
+    mode: 'shadow',
+    assembled: true,
+    hub: { layers: { scheduler: { foreground: { id: 'tb-1', status: 'running' }, queue: [{ id: 'tb-2' }] } } },
+    tasks: {
+      byStatus: { running: 1, waiting: 1, queued: 1 },
+      recentEvents: [
+        { type: 'task.created', seq: 3, at: 1000, task: { id: 'tb-1', kind: 'chat.turn', activity: 'chat', status: 'running', updatedAt: 1000 } },
+        { type: 'task.waiting', seq: 4, at: 1100, task: { id: 'tb-2', kind: 'minecraft.build', activity: 'minecraft', status: 'waiting', updatedAt: 1100 } },
+        { type: 'task.created', seq: 5, at: 1200, task: { id: 'tb-3', kind: 'chat.turn', activity: 'chat', status: 'done', updatedAt: 1200 } },
+      ],
+    },
+    activities: { activities: [{ id: 'chat', enabled: true, health: 'healthy' }, { id: 'minecraft', enabled: false, health: 'stopped' }] },
+    memory: { available: true, providers: ['journal', 'game-memory'] },
+    health: {},
+    ...overrides,
+  }
+}
+
+function i2Routes(posts, options = {}) {
+  const base = h1Routes()
+  base[I2_HUB_ROUTE] = (init) => {
+    if ((init.method || 'GET') === 'POST') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      posts.push(body)
+      if (body.action === 'memory.query') {
+        if (options.memoryFail) return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+        if (options.memoryDenied) return { status: 200, body: { ok: false, code: 'HUB_DISABLED', message: 'Hub 未启用' } }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            total: 2,
+            limit: 5,
+            errors: [],
+            entries: [
+              { text: '今天在公园走了很久。', category: 'episodic', source: { kind: 'journal' }, at: 1000 },
+              { text: 'x'.repeat(300), category: 'method', source: { kind: 'method-memory' }, at: 2000 },
+            ],
+          },
+        }
+      }
+      return { status: 200, body: { ok: true } }
+    }
+    if (options.hubFail) return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+    return { status: 200, body: i2HubPayload(options.hub) }
+  }
+  return base
+}
+
+test('Gate I2 设置页：Hub 控制台渲染（任务/活动/记忆查询 + 原有状态）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(i2Routes(posts))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /tb-1 · chat\.turn/, '任务行显示 id/kind')
+  assert.match(text, /chat · running/, '任务行显示活动/状态')
+  assert.match(text, /tb-2 · minecraft\.build/)
+  assert.match(text, /chat/, '活动列表')
+  assert.match(text, /已启用 · 健康：healthy/)
+  assert.match(text, /未启用 · 健康：stopped/)
+  assert.ok(h1FindByAria(tree, '任务 tb-1 暂停'), '任务暂停按钮')
+  assert.ok(h1FindByAria(tree, '任务 tb-2 恢复'), '任务恢复按钮')
+  assert.ok(h1FindByAria(tree, '任务 tb-1 取消'), '任务取消按钮')
+  assert.ok(h1FindByAria(tree, '活动 chat 停用'), '活动停用按钮')
+  assert.ok(h1FindByAria(tree, '活动 minecraft 启用'), '活动启用按钮')
+  assert.ok(h1FindByAria(tree, '记忆查询关键词'), '记忆查询输入框')
+  assert.ok(h1FindButton(tree, '查询记忆'))
+  // 原有 Hub 状态保留
+  assert.match(text, /模式off \/ shadow \/ full/)
+  assert.match(text, /前台任务/)
+  assert.match(text, /刷新 Hub/)
+  assert.match(text, /暂停全部/)
+  assert.match(text, /恢复全部/)
+  harness.client.react._cleanup()
+})
+
+test('Gate I2 设置页：任务操作 POST body（pause/resume/cancel）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(i2Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  const pause = h1FindByAria(tree, '任务 tb-1 暂停')
+  pause.props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'task.pause'), { action: 'task.pause', taskId: 'tb-1' })
+  tree = rerender(react, harness.Page, {})
+  const resume = h1FindByAria(tree, '任务 tb-2 恢复')
+  resume.props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'task.resume'), { action: 'task.resume', taskId: 'tb-2' })
+  tree = rerender(react, harness.Page, {})
+  const cancel = h1FindByAria(tree, '任务 tb-1 取消')
+  cancel.props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'task.cancel'), { action: 'task.cancel', taskId: 'tb-1' })
+  harness.client.react._cleanup()
+})
+
+test('Gate I2 设置页：活动操作 POST body（enable/disable）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(i2Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  h1FindByAria(tree, '活动 chat 停用').props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'activity.disable'), { action: 'activity.disable', activityId: 'chat' })
+  tree = rerender(react, harness.Page, {})
+  h1FindByAria(tree, '活动 minecraft 启用').props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'activity.enable'), { action: 'activity.enable', activityId: 'minecraft' })
+  harness.client.react._cleanup()
+})
+
+test('Gate I2 设置页：记忆查询（POST body + 截断展示）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(i2Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  h1FindByAria(tree, '记忆查询关键词').props.onChange({ target: { value: '公园' } })
+  tree = rerender(react, harness.Page, {})
+  h1FindButton(tree, '查询记忆').props.onClick()
+  await flushTasks(3)
+  const query = posts.find((body) => body.action === 'memory.query')
+  assert.ok(query, '必须 POST memory.query')
+  assert.deepEqual(query.filter, { text: '公园', limit: 5 })
+  tree = rerender(react, harness.Page, {})
+  const text = textOf(tree)
+  assert.match(text, /结果：2 条/)
+  assert.match(text, /今天在公园走了很久/)
+  assert.match(text, /…/, '长文本截断展示')
+  harness.client.react._cleanup()
+})
+
+test('Gate I2 设置页：失败提示（Hub 读取/记忆查询被拒绝不崩）', async () => {
+  const posts = []
+  const failHub = makeSettingsPageHarness(i2Routes(posts, { hubFail: true }))
+  const tree = await h1Render(failHub)
+  assert.match(textOf(tree), /读取 Hub 状态失败：forbidden/)
+  assert.match(textOf(tree), /Minecraft/, '失败不影响其它区域')
+  failHub.client.react._cleanup()
+
+  const denied = makeSettingsPageHarness(i2Routes(posts, { memoryDenied: true }))
+  let deniedTree = await h1Render(denied)
+  const react = denied.client.react
+  h1FindByAria(deniedTree, '记忆查询关键词').props.onChange({ target: { value: 'x' } })
+  deniedTree = rerender(react, denied.Page, {})
+  h1FindButton(deniedTree, '查询记忆').props.onClick()
+  await flushTasks(3)
+  deniedTree = rerender(react, denied.Page, {})
+  assert.match(textOf(deniedTree), /记忆查询失败：Hub 未启用/, '被拒绝显示错误而非假成功')
+  denied.client.react._cleanup()
+})

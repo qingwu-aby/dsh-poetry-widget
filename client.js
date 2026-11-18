@@ -29669,6 +29669,33 @@
       memoryProviders: Array.isArray(memory.providers) ? memory.providers : []
     };
   }
+  function hubTaskList(hub) {
+    const data = hub && typeof hub === "object" ? hub : {};
+    const board = data.tasks && typeof data.tasks === "object" ? data.tasks : {};
+    const events = Array.isArray(board.recentEvents) ? board.recentEvents : [];
+    const byId = /* @__PURE__ */ new Map();
+    for (const event of events) {
+      const task = event && event.task && typeof event.task === "object" ? event.task : null;
+      if (!task || typeof task.id !== "string") continue;
+      const previous = byId.get(task.id);
+      if (previous === void 0 || Number(task.updatedAt || 0) >= Number(previous.updatedAt || 0)) {
+        byId.set(task.id, {
+          id: task.id,
+          kind: typeof task.kind === "string" ? task.kind : "",
+          activity: typeof task.activity === "string" ? task.activity : "",
+          status: typeof task.status === "string" ? task.status : "",
+          updatedAt: Number(task.updatedAt) || 0
+        });
+      }
+    }
+    return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8);
+  }
+  function safeDisplayText(value, max = 120) {
+    const text = String(value == null ? "" : value).replace(/[\p{Cc}]+/gu, " ").replace(/\s+/g, " ").trim();
+    const chars = Array.from(text);
+    return chars.length > max ? chars.slice(0, max).join("") + "\u2026" : chars.join("");
+  }
+  var TERMINAL_TASK_STATUSES = ["done", "failed", "cancelled"];
   var TRAINING_ACTION_LABELS = { run: "\u8FD0\u884C", cancel: "\u53D6\u6D88", promote: "\u4E0A\u7EBF", rollback: "\u56DE\u6EDA" };
   function trainingDraftFrom(data) {
     const config = data && data.config && data.config.config ? data.config.config : {};
@@ -29730,6 +29757,10 @@
       const [trainingError, setTrainingError] = React.useState("");
       const [trainingBusy, setTrainingBusy] = React.useState("");
       const [pendingTrainingAction, setPendingTrainingAction] = React.useState("");
+      const [memoryQuery, setMemoryQuery] = React.useState("");
+      const [memoryResults, setMemoryResults] = React.useState(null);
+      const [memoryError, setMemoryError] = React.useState("");
+      const [memoryBusy, setMemoryBusy] = React.useState(false);
       const refresh = React.useCallback(() => {
         request("/settings.json").then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {
         });
@@ -29859,14 +29890,38 @@
           refreshTraining();
         }).catch((error) => setTrainingError((TRAINING_ACTION_LABELS[action] || action) + "\u5931\u8D25\uFF1A" + error.message)).finally(() => setTrainingBusy(""));
       }
-      function hubAction(action) {
+      function hubAction(action, extra) {
         setHubBusy(action);
         setHubError("");
         apiRequest("/hub.json", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action })
+          body: JSON.stringify(Object.assign({ action }, extra || {}))
         }).then(() => refreshHub()).catch((error) => setHubError("Hub \u64CD\u4F5C\u5931\u8D25\uFF1A" + error.message)).finally(() => setHubBusy(""));
+      }
+      function queryMemory() {
+        const text = String(memoryQuery || "").trim();
+        if (text.length === 0) {
+          setMemoryError("\u8BF7\u8F93\u5165\u8981\u67E5\u8BE2\u7684\u8BB0\u5FC6\u5173\u952E\u8BCD");
+          return;
+        }
+        setMemoryBusy(true);
+        setMemoryError("");
+        apiRequest("/hub.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "memory.query", filter: { text, limit: 5 } })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setMemoryResults(null);
+            setMemoryError("\u8BB0\u5FC6\u67E5\u8BE2\u5931\u8D25\uFF1A" + (data.message || data.code || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          setMemoryResults(data);
+        }).catch((error) => {
+          setMemoryResults(null);
+          setMemoryError("\u8BB0\u5FC6\u67E5\u8BE2\u5931\u8D25\uFF1A" + error.message);
+        }).finally(() => setMemoryBusy(false));
       }
       if (!settings) return h3 ? h3("div", { style: styles.page }, "\u6B63\u5728\u8BFB\u53D6\u5C0F\u9CB8\u9C7C\u7684\u8BBE\u7F6E\u2026") : null;
       const row = (title, hint, control) => h3(
@@ -29884,6 +29939,7 @@
       const world = mc && mc.world ? mc.world : null;
       const running = Boolean(mc && mc.ports && mc.ports.server);
       const hubInfo = hubSummary(hub);
+      const hubTaskRows = hubTaskList(hub);
       const allowedProviders = policy && policy.allowed && Array.isArray(policy.allowed.providers) ? policy.allowed.providers.slice() : [];
       if (policyDraft.provider && allowedProviders.indexOf(policyDraft.provider) < 0) allowedProviders.push(policyDraft.provider);
       const providerSelect = (ariaLabel, value, onChange) => h3(
@@ -30019,6 +30075,97 @@
           row("\u6392\u961F", "queued \u4EFB\u52A1\u6570", h3("b", null, hubInfo.available ? String(hubInfo.queue) : "\u2014")),
           row("\u6D3B\u52A8", "\u5DF2\u6CE8\u518C Activity", h3("span", { style: styles.hint }, hubInfo.available ? hubInfo.activities.length > 0 ? hubInfo.activities.map((item) => item.id + (item.enabled ? "\uFF08\u5F00\uFF09" : "\uFF08\u5173\uFF09")).join("\u3001") : "\u65E0" : "\u2014")),
           row("\u8BB0\u5FC6 provider", "\u53EA\u8BFB\u8BB0\u5FC6\u6765\u6E90", h3("span", { style: styles.hint }, hubInfo.available ? hubInfo.memoryProviders.length > 0 ? hubInfo.memoryProviders.join("\u3001") : "\u672A\u63A5\u5165" : "\u2014")),
+          hubInfo.available && hubTaskRows.length > 0 ? hubTaskRows.map((task) => h3(
+            "div",
+            { style: styles.row, key: task.id },
+            h3(
+              "div",
+              { style: styles.label },
+              h3("b", null, task.id + " \xB7 " + (task.kind || "task")),
+              h3("span", { style: styles.hint }, (task.activity || "\u2014") + " \xB7 " + (task.status || "") + (task.updatedAt > 0 ? " \xB7 " + new Date(task.updatedAt).toLocaleTimeString() : ""))
+            ),
+            h3(
+              "div",
+              { style: { display: "flex", gap: 6, alignItems: "center" } },
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                "aria-label": "\u4EFB\u52A1 " + task.id + " \u6682\u505C",
+                disabled: hubBusy !== "" || task.status !== "running",
+                onClick: () => hubAction("task.pause", { taskId: task.id })
+              }, "\u6682\u505C"),
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                "aria-label": "\u4EFB\u52A1 " + task.id + " \u6062\u590D",
+                disabled: hubBusy !== "" || task.status !== "waiting",
+                onClick: () => hubAction("task.resume", { taskId: task.id })
+              }, "\u6062\u590D"),
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                "aria-label": "\u4EFB\u52A1 " + task.id + " \u53D6\u6D88",
+                disabled: hubBusy !== "" || TERMINAL_TASK_STATUSES.indexOf(task.status) >= 0,
+                onClick: () => hubAction("task.cancel", { taskId: task.id })
+              }, "\u53D6\u6D88")
+            )
+          )) : row("\u4EFB\u52A1", "\u6700\u8FD1\u4EFB\u52A1\uFF08\u6765\u81EA Hub \u5FEB\u7167\uFF09", h3("span", { style: styles.hint }, hubInfo.available ? "\u6682\u65E0\u4EFB\u52A1" : "\u2014")),
+          hubInfo.available && hubInfo.activities.length > 0 ? hubInfo.activities.map((activity) => h3(
+            "div",
+            { style: styles.row, key: "activity-" + activity.id },
+            h3(
+              "div",
+              { style: styles.label },
+              h3("b", null, activity.id),
+              h3("span", { style: styles.hint }, (activity.enabled ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528") + " \xB7 \u5065\u5EB7\uFF1A" + (activity.health || "unknown"))
+            ),
+            h3(
+              "div",
+              { style: { display: "flex", gap: 6, alignItems: "center" } },
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                "aria-label": "\u6D3B\u52A8 " + activity.id + " \u542F\u7528",
+                disabled: hubBusy !== "" || activity.enabled === true,
+                onClick: () => hubAction("activity.enable", { activityId: activity.id })
+              }, "\u542F\u7528"),
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                "aria-label": "\u6D3B\u52A8 " + activity.id + " \u505C\u7528",
+                disabled: hubBusy !== "" || activity.enabled !== true,
+                onClick: () => hubAction("activity.disable", { activityId: activity.id })
+              }, "\u505C\u7528")
+            )
+          )) : row("\u6D3B\u52A8", "\u5DF2\u6CE8\u518C Activity", h3("span", { style: styles.hint }, hubInfo.available ? "\u65E0" : "\u2014")),
+          row(
+            "\u8BB0\u5FC6\u67E5\u8BE2",
+            "\u53EA\u8BFB\u67E5\u8BE2\uFF08limit 5\uFF1B\u8131\u654F/\u622A\u65AD\u5C55\u793A\uFF09",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("input", {
+                type: "text",
+                style: styles.input,
+                "aria-label": "\u8BB0\u5FC6\u67E5\u8BE2\u5173\u952E\u8BCD",
+                value: memoryQuery,
+                onChange: (event) => setMemoryQuery(event.target.value)
+              }),
+              h3("button", { type: "button", style: styles.button, disabled: memoryBusy || !hubInfo.available, onClick: queryMemory }, memoryBusy ? "\u67E5\u8BE2\u4E2D\u2026" : "\u67E5\u8BE2\u8BB0\u5FC6")
+            )
+          ),
+          memoryError ? h3("div", { style: styles.error }, memoryError) : null,
+          memoryResults !== null ? h3(
+            "div",
+            { style: { margin: "6px 0" } },
+            h3("div", { style: styles.hint }, "\u7ED3\u679C\uFF1A" + String(memoryResults.total ?? 0) + " \u6761" + (memoryResults.errors && memoryResults.errors.length > 0 ? "\uFF08\u90E8\u5206 provider \u51FA\u9519\uFF09" : "")),
+            (memoryResults.entries || []).slice(0, 5).map((entry, index2) => h3(
+              "div",
+              { style: { fontSize: 12, padding: "4px 0" }, key: "memory-" + index2 },
+              h3("div", null, safeDisplayText(entry.text, 120)),
+              h3("span", { style: styles.hint }, (entry.category || "") + " \xB7 " + (entry.source && entry.source.kind || "") + (entry.at ? " \xB7 " + new Date(entry.at).toLocaleDateString() : ""))
+            ))
+          ) : null,
           row(
             "\u64CD\u4F5C",
             "\u5168\u5C40\u6682\u505C\u53EA\u5F71\u54CD Hub \u8C03\u5EA6\uFF0C\u4E0D\u6539\u53D8\u73B0\u6709\u804A\u5929/\u6E38\u620F",

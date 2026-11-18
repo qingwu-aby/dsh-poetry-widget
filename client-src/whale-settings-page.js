@@ -100,6 +100,39 @@ function hubSummary(hub) {
   }
 }
 
+function hubTaskList(hub) {
+  const data = hub && typeof hub === 'object' ? hub : {}
+  const board = data.tasks && typeof data.tasks === 'object' ? data.tasks : {}
+  const events = Array.isArray(board.recentEvents) ? board.recentEvents : []
+  const byId = new Map()
+  for (const event of events) {
+    const task = event && event.task && typeof event.task === 'object' ? event.task : null
+    if (!task || typeof task.id !== 'string') continue
+    const previous = byId.get(task.id)
+    if (previous === undefined || Number(task.updatedAt || 0) >= Number(previous.updatedAt || 0)) {
+      byId.set(task.id, {
+        id: task.id,
+        kind: typeof task.kind === 'string' ? task.kind : '',
+        activity: typeof task.activity === 'string' ? task.activity : '',
+        status: typeof task.status === 'string' ? task.status : '',
+        updatedAt: Number(task.updatedAt) || 0,
+      })
+    }
+  }
+  return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, 8)
+}
+
+function safeDisplayText(value, max = 120) {
+  const text = String(value == null ? '' : value)
+    .replace(/[\p{Cc}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const chars = Array.from(text)
+  return chars.length > max ? chars.slice(0, max).join('') + '…' : chars.join('')
+}
+
+const TERMINAL_TASK_STATUSES = ['done', 'failed', 'cancelled']
+
 const TRAINING_ACTION_LABELS = { run: '运行', cancel: '取消', promote: '上线', rollback: '回滚' }
 
 function trainingDraftFrom(data) {
@@ -167,6 +200,11 @@ export function createWhaleSettingsPage(React, h) {
   const [trainingError, setTrainingError] = React.useState('')
   const [trainingBusy, setTrainingBusy] = React.useState('')
   const [pendingTrainingAction, setPendingTrainingAction] = React.useState('')
+  // Gate I2：Hub 任务/活动控制 + 记忆查询。
+  const [memoryQuery, setMemoryQuery] = React.useState('')
+  const [memoryResults, setMemoryResults] = React.useState(null)
+  const [memoryError, setMemoryError] = React.useState('')
+  const [memoryBusy, setMemoryBusy] = React.useState(false)
 
   const refresh = React.useCallback(() => {
     request('/settings.json').then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {})
@@ -298,17 +336,44 @@ export function createWhaleSettingsPage(React, h) {
       .catch((error) => setTrainingError((TRAINING_ACTION_LABELS[action] || action) + '失败：' + error.message))
       .finally(() => setTrainingBusy(''))
   }
-  function hubAction(action) {
+  function hubAction(action, extra) {
     setHubBusy(action)
     setHubError('')
     apiRequest('/hub.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(Object.assign({ action }, extra || {})),
     })
       .then(() => refreshHub())
       .catch((error) => setHubError('Hub 操作失败：' + error.message))
       .finally(() => setHubBusy(''))
+  }
+  function queryMemory() {
+    const text = String(memoryQuery || '').trim()
+    if (text.length === 0) {
+      setMemoryError('请输入要查询的记忆关键词')
+      return
+    }
+    setMemoryBusy(true)
+    setMemoryError('')
+    apiRequest('/hub.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'memory.query', filter: { text, limit: 5 } }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setMemoryResults(null)
+          setMemoryError('记忆查询失败：' + (data.message || data.code || '被拒绝'))
+          return
+        }
+        setMemoryResults(data)
+      })
+      .catch((error) => {
+        setMemoryResults(null)
+        setMemoryError('记忆查询失败：' + error.message)
+      })
+      .finally(() => setMemoryBusy(false))
   }
 
   if (!settings) return h ? h('div', { style: styles.page }, '正在读取小鲸鱼的设置…') : null
@@ -324,6 +389,7 @@ export function createWhaleSettingsPage(React, h) {
   const world = mc && mc.world ? mc.world : null
   const running = Boolean(mc && mc.ports && mc.ports.server)
   const hubInfo = hubSummary(hub)
+  const hubTaskRows = hubTaskList(hub)
   const allowedProviders = policy && policy.allowed && Array.isArray(policy.allowed.providers) ? policy.allowed.providers.slice() : []
   if (policyDraft.provider && allowedProviders.indexOf(policyDraft.provider) < 0) allowedProviders.push(policyDraft.provider)
   const providerSelect = (ariaLabel, value, onChange) => h('select', {
@@ -434,6 +500,76 @@ export function createWhaleSettingsPage(React, h) {
       row('记忆 provider', '只读记忆来源', h('span', { style: styles.hint }, hubInfo.available
         ? (hubInfo.memoryProviders.length > 0 ? hubInfo.memoryProviders.join('、') : '未接入')
         : '—')),
+      hubInfo.available && hubTaskRows.length > 0
+        ? hubTaskRows.map((task) => h('div', { style: styles.row, key: task.id },
+          h('div', { style: styles.label },
+            h('b', null, task.id + ' · ' + (task.kind || 'task')),
+            h('span', { style: styles.hint }, (task.activity || '—') + ' · ' + (task.status || '') + (task.updatedAt > 0 ? ' · ' + new Date(task.updatedAt).toLocaleTimeString() : ''))),
+          h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              'aria-label': '任务 ' + task.id + ' 暂停',
+              disabled: hubBusy !== '' || task.status !== 'running',
+              onClick: () => hubAction('task.pause', { taskId: task.id }),
+            }, '暂停'),
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              'aria-label': '任务 ' + task.id + ' 恢复',
+              disabled: hubBusy !== '' || task.status !== 'waiting',
+              onClick: () => hubAction('task.resume', { taskId: task.id }),
+            }, '恢复'),
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              'aria-label': '任务 ' + task.id + ' 取消',
+              disabled: hubBusy !== '' || TERMINAL_TASK_STATUSES.indexOf(task.status) >= 0,
+              onClick: () => hubAction('task.cancel', { taskId: task.id }),
+            }, '取消'),
+          )))
+        : row('任务', '最近任务（来自 Hub 快照）', h('span', { style: styles.hint }, hubInfo.available ? '暂无任务' : '—')),
+      hubInfo.available && hubInfo.activities.length > 0
+        ? hubInfo.activities.map((activity) => h('div', { style: styles.row, key: 'activity-' + activity.id },
+          h('div', { style: styles.label },
+            h('b', null, activity.id),
+            h('span', { style: styles.hint }, (activity.enabled ? '已启用' : '未启用') + ' · 健康：' + (activity.health || 'unknown'))),
+          h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              'aria-label': '活动 ' + activity.id + ' 启用',
+              disabled: hubBusy !== '' || activity.enabled === true,
+              onClick: () => hubAction('activity.enable', { activityId: activity.id }),
+            }, '启用'),
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              'aria-label': '活动 ' + activity.id + ' 停用',
+              disabled: hubBusy !== '' || activity.enabled !== true,
+              onClick: () => hubAction('activity.disable', { activityId: activity.id }),
+            }, '停用'),
+          )))
+        : row('活动', '已注册 Activity', h('span', { style: styles.hint }, hubInfo.available ? '无' : '—')),
+      row('记忆查询', '只读查询（limit 5；脱敏/截断展示）',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('input', {
+            type: 'text',
+            style: styles.input,
+            'aria-label': '记忆查询关键词',
+            value: memoryQuery,
+            onChange: (event) => setMemoryQuery(event.target.value),
+          }),
+          h('button', { type: 'button', style: styles.button, disabled: memoryBusy || !hubInfo.available, onClick: queryMemory }, memoryBusy ? '查询中…' : '查询记忆'),
+        )),
+      memoryError ? h('div', { style: styles.error }, memoryError) : null,
+      memoryResults !== null
+        ? h('div', { style: { margin: '6px 0' } },
+          h('div', { style: styles.hint }, '结果：' + String(memoryResults.total ?? 0) + ' 条' + (memoryResults.errors && memoryResults.errors.length > 0 ? '（部分 provider 出错）' : '')),
+          (memoryResults.entries || []).slice(0, 5).map((entry, index) => h('div', { style: { fontSize: 12, padding: '4px 0' }, key: 'memory-' + index },
+            h('div', null, safeDisplayText(entry.text, 120)),
+            h('span', { style: styles.hint }, (entry.category || '') + ' · ' + ((entry.source && entry.source.kind) || '') + (entry.at ? ' · ' + new Date(entry.at).toLocaleDateString() : '')))))
+        : null,
       row('操作', '全局暂停只影响 Hub 调度，不改变现有聊天/游戏',
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '', onClick: refreshHub }, '刷新 Hub'),
