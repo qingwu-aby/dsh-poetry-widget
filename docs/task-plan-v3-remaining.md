@@ -31,7 +31,9 @@
 
 下一批执行队列：K1 → K2 → L1 → L2 → L3 → L4 → L5 → L6 → M1 → M2。
 
-截至 2026-11-18 已完成：K1 持久化 Gateway provider、K2 写入审计、L1 Activity SDK、L2 Reading、L3 Reading 运行时、L4 Study、L5 Video、L6 Study/Video 运行时注册、M1 训练数据集导出。
+截至 2026-11-18 已完成：K1 持久化 Gateway provider、K2 写入审计、K3 记忆管理 API、K5 记忆/权限 UI、L1 Activity SDK、L2 Reading、L3 Reading 运行时、L4 Study、L5 Video、L6 Study/Video 运行时注册、L7 Video 本地 provider、M1 训练数据集、M2 评估器、M3 drill 工具、N1 权限执行、N2 多会话基础、N3 成本策略 UI、N4 运维自动化、N5 发布检查、J1 事件路由。
+
+仍未完成：K4 记忆污染/回归评估、O1 UI 截图/点击验收、O2 重启后真实冒烟（reading 授权已写入）、O3 真实 24h soak（仅本地 soak 通过）、O4 真实 provider 性能基线。
 
 ## 2. 剩余任务总表
 

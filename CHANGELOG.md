@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.21.0 N/M/O 批次**：权限执行、记忆/权限 UI、多会话基础、成本策略 UI、运维自动化、发布检查、事件路由、Video 本地 provider；976 tests，soak/fault 通过。
 - **v0.20.0 M2/M3 训练**：评估器读取 self-train report/history 真实评分；训练 drill 默认 dry-run，--confirm+env 才真实运行；938 tests。
 - **v0.19.1 Reading/Study live 验证**：reading 真实打开/分页成功；study 真实搜索 4 来源；修复相对书路径 booksDir 解析。
 - **v0.19.0 K/L/M 批次**：持久化 Memory Gateway provider、记忆写入审计、Activity SDK、Reading/Study/Video Activity、Reading/Study 运行时接入、训练数据集导出；932 tests。
