@@ -30,6 +30,13 @@ import {
   setActiveHubRuntime,
 } from '../lib/composition/hub-runtime.mjs'
 import {
+  createModelPolicyHandler,
+  MODEL_POLICY_ALLOWED_FIELDS,
+  MODEL_POLICY_ROUTE,
+  registerModelPolicyRoute,
+  validateModelPolicyInput,
+} from '../lib/composition/model-policy-routes.mjs'
+import {
   ACTIVITY_MANIFEST_ERROR_CODES,
   ACTIVITY_PERMISSIONS,
   checkActivityPermission,
@@ -214,6 +221,23 @@ import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.m
 import { callCandidate, callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/kernel/llm-call.mjs'
 import { createPluginLogger } from '../lib/kernel/logger.mjs'
 import { createModelCaller } from '../lib/kernel/model-call.mjs'
+import {
+  createModelPolicy,
+  getDefaultModelPolicyOverrides,
+  MODEL_POLICY_ALLOWED_PROVIDERS,
+  MODEL_POLICY_EFFORTS,
+  MODEL_POLICY_ROLES,
+  resolveCandidateMaxTokens,
+  setDefaultModelPolicyOverrides,
+} from '../lib/kernel/model-policy.mjs'
+import {
+  createModelPolicyStore,
+  emptyModelPolicy,
+  MODEL_POLICY_STORE_VERSION,
+  MODEL_POLICY_TOKEN_LIMIT_MAX,
+  normalizeModelPolicy,
+  resolveModelPolicyFile,
+} from '../lib/kernel/model-policy-store.mjs'
 import { createServiceRegistry } from '../lib/kernel/service.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
 import { FAULT_SCENARIOS, listFaultScenarios, parseFaultArgs, runFaultInjection } from '../scripts/fault-inject.mjs'
@@ -7484,4 +7508,386 @@ test('hub-routes F2：memory.query（只读、limit 上限、错误隔离）', a
   setActiveHubRuntime(null)
   rmSync(dir, { recursive: true, force: true })
   rmSync(memoryRoot, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate G1：模型策略配置（store + policy overrides + 管理 API）
+// ---------------------------------------------------------------------------
+
+function makeModelPolicyStoreFixture() {
+  const home = tmpDir('model-policy-home')
+  const store = createModelPolicyStore({ home, now: () => 5000 })
+  return { home, store }
+}
+
+test('model-policy-store G1：缺文件默认空策略', () => {
+  const { home, store } = makeModelPolicyStoreFixture()
+  assert.equal(store.file, resolveModelPolicyFile(home))
+  assert.match(store.file, /\.dsh-poetry\/model-policy\.json$/)
+  const state = store.read()
+  assert.equal(state.exists, false)
+  assert.deepEqual(state.policy, emptyModelPolicy())
+  assert.deepEqual(state.errors, [])
+  assert.equal(store.snapshot().version, MODEL_POLICY_STORE_VERSION)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('model-policy-store G1：原子写/读回/0600/无临时文件', () => {
+  const { home, store } = makeModelPolicyStoreFixture()
+  const written = store.write({
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    roles: { mood: { reasoningEffort: 'max' }, selfTalk: { provider: 'deepseek-account', model: 'deepseek-flash' } },
+    tokenLimit: 4000,
+  })
+  assert.equal(written.ok, true)
+  assert.ok(existsSync(store.file))
+  const parsed = JSON.parse(readFileSync(store.file, 'utf8'))
+  assert.equal(parsed.version, MODEL_POLICY_STORE_VERSION)
+  assert.equal(parsed.provider, 'deepseek-account')
+  assert.equal(parsed.model, 'deepseek-flash')
+  assert.deepEqual(parsed.roles, {
+    mood: { reasoningEffort: 'max' },
+    selfTalk: { provider: 'deepseek-account', model: 'deepseek-flash' },
+  })
+  assert.equal(parsed.tokenLimit, 4000)
+  assert.equal(parsed.updatedAt, 5000)
+  const mode = statSync(store.file).mode & 0o777
+  assert.equal(mode, 0o600, '文件权限 0600')
+  const files = readdirSync(path.dirname(store.file))
+  assert.deepEqual(files, ['model-policy.json'], '无临时文件残留')
+  const state = store.read()
+  assert.equal(state.exists, true)
+  assert.equal(state.policy.provider, 'deepseek-account')
+  assert.equal(state.policy.tokenLimit, 4000)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('model-policy-store G1：非法值忽略并报告，不崩', () => {
+  const normalized = normalizeModelPolicy({
+    provider: 123,
+    model: '',
+    roles: { mood: { reasoningEffort: 'extreme' }, nope: {}, selfTalk: { provider: 'deepseek-account' } },
+    tokenLimit: -1,
+    extra: 'ignored',
+  })
+  assert.equal(normalized.ok, true)
+  assert.equal(normalized.policy.provider, null)
+  assert.equal(normalized.policy.model, null)
+  assert.equal(normalized.policy.tokenLimit, 0)
+  assert.equal(normalized.policy.roles.mood, undefined)
+  assert.equal(normalized.policy.roles.selfTalk.provider, 'deepseek-account')
+  assert.ok(normalized.errors.some((item) => item.path === 'provider'))
+  assert.ok(normalized.errors.some((item) => item.path === 'roles.nope'))
+  assert.ok(normalized.errors.some((item) => item.path === 'roles.mood.reasoningEffort'))
+  assert.ok(normalized.errors.some((item) => item.path === 'tokenLimit'))
+  assert.equal(normalizeModelPolicy(null).ok, true)
+  // 坏 JSON 文件 → 默认空 + 错误（不抛）
+  const { home, store } = makeModelPolicyStoreFixture()
+  mkdirSync(path.dirname(store.file), { recursive: true })
+  writeFileSync(store.file, '{bad json')
+  const state = store.read()
+  assert.deepEqual(state.policy, emptyModelPolicy())
+  assert.ok(state.errors.length >= 1)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('model-policy-store G1：reset 恢复空配置', () => {
+  const { home, store } = makeModelPolicyStoreFixture()
+  store.write({ provider: 'deepseek-account', model: 'deepseek-flash' })
+  assert.equal(store.read().policy.provider, 'deepseek-account')
+  assert.equal(store.reset().ok, true)
+  assert.deepEqual(store.read().policy, emptyModelPolicy())
+  rmSync(home, { recursive: true, force: true })
+})
+
+function makePolicyFixture(overrides, options = {}) {
+  return createModelPolicy({
+    env: options.env ?? {},
+    getSelection: options.getSelection ?? (() => ({ provider: 'deepseek-account', model: 'deepseek-flash' })),
+    getProviders: options.getProviders ?? (() => ['dsh-opencode-go']),
+    getOverrides: () => overrides,
+  })
+}
+
+test('model-policy G1：默认行为不变（空 overrides = 原逻辑）', () => {
+  const baseline = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['dsh-opencode-go'],
+  })
+  const withEmpty = makePolicyFixture({})
+  for (const role of ['mood', 'selfTalk', 'growth', 'voice']) {
+    assert.deepEqual(withEmpty.resolveCandidates(role), baseline.resolveCandidates(role))
+    assert.deepEqual(withEmpty.resolve(role), baseline.resolve(role))
+  }
+  const summary = withEmpty.effectiveSummary()
+  assert.equal(summary.roles.mood.source, 'default-chain')
+  assert.equal(summary.tokenLimit, 0)
+  assert.equal(summary.provider, null)
+})
+
+test('model-policy G1：优先级 store > env > selection；角色级 > 全局', () => {
+  const env = { DSH_POETRY_MODEL_PROVIDER: 'opencode-go', DSH_POETRY_MODEL: 'deepseek-v4.1-flash' }
+  const selection = () => ({ provider: 'deepseek-account', model: 'deepseek-flash' })
+  // 空 overrides → env 覆盖（现有行为）
+  const envOnly = makePolicyFixture({}, { env, getSelection: selection, getProviders: () => [] })
+  assert.deepEqual(envOnly.resolve('mood'), {
+    provider: 'opencode-go',
+    model: 'deepseek-v4.1-flash',
+    reasoningEffort: 'low',
+  })
+  // store 全局覆盖 > env
+  const storeGlobal = makePolicyFixture(
+    { provider: 'deepseek-account', model: 'deepseek-flash' },
+    { env, getSelection: selection, getProviders: () => [] },
+  )
+  assert.equal(storeGlobal.resolve('mood').provider, 'deepseek-account')
+  assert.equal(storeGlobal.effectiveSummary().roles.mood.source, 'store')
+  // 角色级覆盖 > 全局覆盖
+  const storeRole = makePolicyFixture(
+    {
+      provider: 'deepseek-account',
+      model: 'deepseek-flash',
+      roles: { mood: { provider: 'google-antigravity', model: 'gemini-3-pro', reasoningEffort: 'max' } },
+    },
+    { env, getSelection: selection, getProviders: () => [] },
+  )
+  assert.deepEqual(storeRole.resolve('mood'), {
+    provider: 'google-antigravity',
+    model: 'gemini-3-pro',
+    reasoningEffort: 'max',
+  })
+  assert.equal(storeRole.effectiveSummary().roles.mood.source, 'store-role')
+  assert.equal(storeRole.resolve('growth').provider, 'deepseek-account', '其它角色用全局 store')
+  // effort 合并：store 角色 effort > env > 默认
+  const envEffort = makePolicyFixture(
+    { roles: { growth: { reasoningEffort: 'off' } } },
+    { env: { DSH_POETRY_REASONING_GROWTH: 'high' }, getProviders: () => [] },
+  )
+  assert.equal(envEffort.effortFor('growth'), 'off')
+  const envOnlyEffort = makePolicyFixture({}, { env: { DSH_POETRY_REASONING_GROWTH: 'low' }, getProviders: () => [] })
+  assert.equal(envOnlyEffort.effortFor('growth'), 'low')
+  assert.equal(envOnlyEffort.effortFor('voice'), 'high', '默认 effort 不变')
+})
+
+test('model-policy G1：非法 overrides 忽略并报告；tokenLimit 生效', () => {
+  const policy = makePolicyFixture({
+    provider: 123,
+    model: '',
+    tokenLimit: -5,
+    roles: { mood: { reasoningEffort: 'extreme' }, nope: {} },
+  })
+  const mood = policy.resolve('mood')
+  assert.equal(mood.provider, 'dsh-opencode-go', '非法 overrides 回退默认链')
+  assert.equal(policy.tokenLimit(), 0)
+  const reports = policy.getReports()
+  assert.ok(reports.some((item) => item.path === 'provider'))
+  assert.ok(reports.some((item) => item.path === 'roles.mood.reasoningEffort'))
+  assert.ok(reports.some((item) => item.path === 'tokenLimit'))
+
+  const limited = makePolicyFixture({ tokenLimit: 4000 })
+  const candidate = limited.resolve('mood')
+  assert.equal(candidate.maxTokensLimit, 4000)
+  assert.equal(resolveCandidateMaxTokens(1000, candidate), 2400, '候选 floor 优先（现有语义）')
+  assert.equal(resolveCandidateMaxTokens(8000, candidate), 4000, 'tokenLimit 封顶')
+  assert.equal(resolveCandidateMaxTokens(0, candidate), 4000, '0=不封顶基础预算 → 用 tokenLimit')
+  assert.equal(resolveCandidateMaxTokens(1000, { maxTokensLimit: 4000 }), 1000, '无 floor 时按基础预算')
+  assert.equal(resolveCandidateMaxTokens(8000, { maxTokensLimit: 4000 }), 4000)
+  const noLimit = makePolicyFixture({})
+  assert.equal(resolveCandidateMaxTokens(8000, noLimit.resolve('mood')), 8000)
+  // getOverrides 抛错也不崩
+  const broken = createModelPolicy({
+    env: {},
+    getProviders: () => [],
+    getOverrides: () => {
+      throw new Error('store down')
+    },
+  })
+  assert.equal(broken.resolve('mood'), null)
+  assert.ok(broken.getReports().length >= 1)
+})
+
+test('model-policy G1：默认 overrides 提供者（管理 API 注册后动态生效）', () => {
+  const previous = getDefaultModelPolicyOverrides()
+  try {
+    setDefaultModelPolicyOverrides(() => ({ provider: 'deepseek-account', model: 'deepseek-flash' }))
+    const policy = createModelPolicy({ env: {}, getSelection: () => null, getProviders: () => [] })
+    assert.equal(policy.resolve('mood').provider, 'deepseek-account')
+    setDefaultModelPolicyOverrides(null)
+    assert.equal(policy.resolve('mood'), null, '清除后动态回退')
+  } finally {
+    setDefaultModelPolicyOverrides(previous)
+  }
+})
+
+function makeModelPolicyRouteFixture(options = {}) {
+  const dir = tmpDir('model-policy-routes')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const store = createModelPolicyStore({ file: path.join(dir, 'model-policy.json'), now: () => 5000 })
+  const policy = createModelPolicy({
+    env: {},
+    getSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }),
+    getProviders: () => ['dsh-opencode-go'],
+    getOverrides: () => store.read().policy,
+  })
+  const handler = createModelPolicyHandler({
+    store,
+    policy,
+    tokenFile,
+    fence: options.fence ?? null,
+    logger: { warn() {} },
+  })
+  return { dir, tokenFile, store, policy, handler }
+}
+
+test('model-policy-routes G1：GET 鉴权与摘要结构', async () => {
+  const denied = makeModelPolicyRouteFixture({ fence: { check: () => 'blocked' } })
+  const deniedRes = hubFakeRes()
+  await denied.handler(hubFakeReq('GET', undefined, { url: MODEL_POLICY_ROUTE }), deniedRes)
+  assert.equal(deniedRes.statusCode, 403)
+  rmSync(denied.dir, { recursive: true, force: true })
+
+  const { dir, store, handler } = makeModelPolicyRouteFixture({ fence: { check: () => 'blocked' } })
+  const tokenRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: MODEL_POLICY_ROUTE + '?token=secret-token' }), tokenRes)
+  assert.equal(tokenRes.statusCode, 200)
+  const payload = tokenRes.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.file, store.file)
+  assert.equal(payload.exists, false)
+  assert.deepEqual(payload.policy, emptyModelPolicy())
+  assert.ok(payload.effective !== null)
+  assert.equal(payload.effective.roles.mood.source, 'default-chain')
+  assert.deepEqual(payload.allowed.providers, MODEL_POLICY_ALLOWED_PROVIDERS.slice())
+  assert.deepEqual(payload.allowed.roles, MODEL_POLICY_ROLES.slice())
+  assert.deepEqual(payload.allowed.efforts, MODEL_POLICY_EFFORTS.slice())
+  assert.equal(payload.allowed.tokenLimitMax, MODEL_POLICY_TOKEN_LIMIT_MAX)
+  // fence 允许（无 token）
+  const fenceHandler = createModelPolicyHandler({
+    store,
+    policy: undefined,
+    tokenFile: '',
+    fence: { check: () => null },
+  })
+  const fenceRes = hubFakeRes()
+  await fenceHandler(hubFakeReq('GET'), fenceRes)
+  assert.equal(fenceRes.statusCode, 200)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('model-policy-routes G1：PUT 鉴权/校验/写入/生效', async () => {
+  const { dir, store, policy, handler } = makeModelPolicyRouteFixture({ fence: { check: () => 'blocked' } })
+  const noAuth = hubFakeRes()
+  await handler(hubFakeReq('PUT', { provider: 'deepseek-account', model: 'deepseek-flash' }), noAuth)
+  assert.equal(noAuth.statusCode, 403)
+
+  const invalidProvider = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token', provider: 'evil-provider', model: 'x' }), invalidProvider)
+  assert.equal(invalidProvider.statusCode, 400)
+  assert.ok(invalidProvider.json().errors.some((item) => item.path === 'provider'))
+
+  const invalidEffort = hubFakeRes()
+  await handler(
+    hubFakeReq('PUT', { token: 'secret-token', roles: { mood: { reasoningEffort: 'extreme' } } }),
+    invalidEffort,
+  )
+  assert.equal(invalidEffort.statusCode, 400)
+  const invalidRole = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token', roles: { nope: {} } }), invalidRole)
+  assert.equal(invalidRole.statusCode, 400)
+  const invalidField = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token', hack: true }), invalidField)
+  assert.equal(invalidField.statusCode, 400)
+  const invalidLimit = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token', tokenLimit: -1 }), invalidLimit)
+  assert.equal(invalidLimit.statusCode, 400)
+
+  const valid = hubFakeRes()
+  await handler(
+    hubFakeReq('PUT', {
+      token: 'secret-token',
+      provider: 'deepseek-account',
+      model: 'deepseek-flash',
+      roles: { mood: { reasoningEffort: 'max' } },
+      tokenLimit: 3000,
+    }),
+    valid,
+  )
+  assert.equal(valid.statusCode, 200)
+  const written = valid.json()
+  assert.equal(written.ok, true)
+  assert.equal(written.policy.provider, 'deepseek-account')
+  assert.equal(written.effective.roles.mood.source, 'store')
+  assert.equal(written.effective.roles.mood.reasoningEffort, 'max')
+  assert.equal(written.effective.tokenLimit, 3000)
+  assert.equal(store.read().policy.provider, 'deepseek-account')
+  assert.equal(store.read().policy.tokenLimit, 3000)
+  assert.equal(policy.resolve('mood').provider, 'deepseek-account')
+  assert.equal(policy.resolve('mood').maxTokensLimit, 3000)
+  // token 字段不落盘
+  const onDisk = JSON.parse(readFileSync(store.file, 'utf8'))
+  assert.equal('token' in onDisk, false)
+
+  // reset
+  const resetRes = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token', reset: true }), resetRes)
+  assert.equal(resetRes.statusCode, 200)
+  assert.equal(resetRes.json().reset, true)
+  assert.deepEqual(store.read().policy, emptyModelPolicy())
+  assert.equal(policy.effectiveSummary().roles.mood.source, 'default-chain')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('model-policy-routes G1：validateModelPolicyInput 纯函数校验', () => {
+  assert.equal(validateModelPolicyInput({ provider: 'deepseek-account', model: 'deepseek-flash' }).ok, true)
+  assert.equal(validateModelPolicyInput({ reset: true }).reset, true)
+  assert.equal(validateModelPolicyInput({ reset: true, provider: 'deepseek-account' }).ok, false)
+  assert.equal(validateModelPolicyInput(null).ok, false)
+  assert.equal(
+    validateModelPolicyInput({
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      roles: { mood: { reasoningEffort: 'off' } },
+      tokenLimit: 0,
+    }).ok,
+    true,
+  )
+  assert.equal(MODEL_POLICY_ALLOWED_FIELDS.includes('roles'), true)
+})
+
+test('model-policy-routes G1：注册路由并设置默认 overrides 提供者', () => {
+  const previous = getDefaultModelPolicyOverrides()
+  try {
+    const home = tmpDir('model-policy-route-register')
+    const routes = []
+    const webServer = {
+      register(route) {
+        routes.push(route)
+        return () => {}
+      },
+    }
+    const disposers = []
+    const registered = registerModelPolicyRoute({
+      webServer,
+      disposers,
+      home,
+      tokenFile: '',
+      fence: null,
+      logger: { warn() {} },
+    })
+    assert.equal(routes.length, 1)
+    assert.equal(routes[0].path, MODEL_POLICY_ROUTE)
+    assert.equal(disposers.length, 1)
+    assert.equal(registered.store.file, resolveModelPolicyFile(home))
+    assert.equal(typeof getDefaultModelPolicyOverrides(), 'function')
+    // 写入 store 后，真实运行时（无 getOverrides 的 policy）动态读到
+    registered.store.write({ provider: 'deepseek-account', model: 'deepseek-flash' })
+    const runtimePolicy = createModelPolicy({ env: {}, getSelection: () => null, getProviders: () => [] })
+    assert.equal(runtimePolicy.resolve('mood').provider, 'deepseek-account')
+    rmSync(home, { recursive: true, force: true })
+  } finally {
+    setDefaultModelPolicyOverrides(previous)
+  }
 })
