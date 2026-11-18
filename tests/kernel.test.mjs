@@ -134,6 +134,11 @@ import {
   validateReceipt,
 } from '../lib/core/feedback-ledger.mjs'
 import {
+  createFileMemoryProvider,
+  DEFAULT_FILE_MEMORY_MAX_BYTES,
+  FILE_MEMORY_PROVIDER_VERSION,
+} from '../lib/core/file-memory-provider.mjs'
+import {
   createHubPersistence,
   createJsonlEventStore,
   createJsonTaskStore,
@@ -10223,4 +10228,146 @@ test('chat J5：hub-routes chat adapter 从 task.payload.context 还原并传给
   const plain = await chatAdapter.execute({ key: 'k', payload: { peerId: 'p', messageId: 'm', text: 'hi' } })
   assert.equal(plain.ok, true)
   assert.deepEqual(bridgeCalls[1], { text: 'hi', peerId: 'p' })
+})
+
+// ---------------------------------------------------------------------------
+// Gate K1：持久化 Memory Gateway provider（JSONL 文件，重启不丢）
+// ---------------------------------------------------------------------------
+
+test('file-memory-provider K1：append/load/upsert/query/坏行/有界加载', () => {
+  const dir = tmpDir('k1-provider')
+  const file = path.join(dir, 'memory-gateway.jsonl')
+  const first = createFileMemoryProvider({ file, now: () => 1000 })
+  assert.equal(first.id, 'file-memory')
+  assert.equal(first.permissions.read, true)
+  assert.equal(first.permissions.write, true)
+  assert.equal(FILE_MEMORY_PROVIDER_VERSION, 1)
+  assert.equal(DEFAULT_FILE_MEMORY_MAX_BYTES > 0, true)
+  const base = {
+    category: 'episodic',
+    source: { kind: 'journal' },
+    provenance: { activity: 'journal' },
+    confidence: 0.6,
+  }
+  assert.equal(first.write({ ...base, id: 'm1', text: '今天在公园走了很久' }).ok, true)
+  assert.equal(first.write({ ...base, id: 'm2', text: '晚上一起吃饭', category: 'relationship' }).ok, true)
+  // upsert：同 id 更新（文件追加新行，内存以最新为准）
+  assert.equal(first.write({ ...base, id: 'm1', text: '今天在公园走了很久（补充）' }).ok, true)
+  assert.equal(first.snapshot().entries, 2)
+  assert.equal(readFileSync(file, 'utf8').trim().split('\n').length, 3, '每次写入追加一行')
+  // 重启（新 provider 加载）→ 条目/upsert 生效
+  const second = createFileMemoryProvider({ file, now: () => 2000 })
+  assert.equal(second.snapshot().entries, 2)
+  assert.equal(second.query({ text: '公园' }).length, 1)
+  assert.match(second.query({ text: '公园' })[0].text, /补充/)
+  assert.equal(second.query({ category: 'relationship' }).length, 1)
+  assert.equal(second.query({ category: 'relationship', limit: 1 }).length, 1)
+  assert.equal(second.query({ activity: 'journal' }).length, 2)
+  // 坏行跳过
+  writeFileSync(file, readFileSync(file, 'utf8') + 'not-json\n{"bad":true}\n')
+  const third = createFileMemoryProvider({ file, now: () => 3000 })
+  assert.equal(third.snapshot().entries, 2)
+  assert.equal(third.snapshot().badLines >= 2, true)
+  // 有界加载：maxEntries 只保留最近 N 条
+  const manyFile = path.join(dir, 'many.jsonl')
+  const many = createFileMemoryProvider({ file: manyFile, now: () => 1000 })
+  for (let index = 0; index < 5; index += 1) many.write({ ...base, id: 'm-' + index, text: '条目 ' + index })
+  const bounded = createFileMemoryProvider({ file: manyFile, maxEntries: 2, now: () => 2000 })
+  assert.equal(bounded.snapshot().entries, 2, '有界加载最多 maxEntries')
+  assert.deepEqual(
+    bounded.query({}).map((entry) => entry.id),
+    ['m-3', 'm-4'],
+  )
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('file-memory-provider K1：文件上限轮转 + 写失败隔离', () => {
+  const dir = tmpDir('k1-rotate')
+  const file = path.join(dir, 'memory-gateway.jsonl')
+  const provider = createFileMemoryProvider({ file, maxBytes: 300, now: () => 1000, logger: { warn() {} } })
+  for (let index = 0; index < 20; index += 1) {
+    provider.write({ id: 'm-' + index, category: 'episodic', text: 'x'.repeat(60) + index })
+  }
+  assert.equal(provider.snapshot().rotations >= 1, true, '超过 maxBytes 轮转')
+  assert.equal(existsSync(`${file}.1`), true)
+  const reloaded = createFileMemoryProvider({ file, maxBytes: 300, now: () => 2000 })
+  assert.equal(reloaded.snapshot().entries >= 1, true, '轮转后仍可加载')
+  // 写失败隔离：file 指向目录 → write 返回 ok:false，不抛
+  const badDir = path.join(dir, 'not-a-file')
+  mkdirSync(badDir, { recursive: true })
+  const bad = createFileMemoryProvider({ file: badDir, now: () => 1000, logger: { warn() {} } })
+  const failed = bad.write({ id: 'x', category: 'episodic', text: '写不进去' })
+  assert.equal(failed.ok, false)
+  assert.equal(bad.snapshot().errors >= 1, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime K1：memoryWrite 默认关闭零写盘（不创建 provider 文件）', async () => {
+  const dir = tmpDir('k1-off')
+  const file = path.join(dir, 'memory-gateway.jsonl')
+  const runtime = createHubRuntime({ logger: { warn() {} }, memoryWriteFile: file, now: () => 1000 })
+  assert.equal(runtime.snapshot().memory.write, false)
+  const result = await runtime.recordJournal({ kind: 'murmur', text: '不该写盘', ts: 1000 })
+  assert.equal(result.skipped, true)
+  assert.equal(existsSync(file), false, '默认关闭零写盘')
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime K1：memoryWrite 开启后写入文件 provider，重启可查询', async () => {
+  const dir = tmpDir('k1-on')
+  const file = path.join(dir, 'memory-gateway.jsonl')
+  const first = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_MEMORY_WRITE: 'gateway' },
+    memoryWriteFile: file,
+    now: () => 1000,
+  })
+  assert.equal(first.snapshot().memory.write, true)
+  assert.ok(first.snapshot().memory.providers.indexOf('file-memory') >= 0, '使用文件 provider')
+  const journal = await first.recordJournal({ kind: 'murmur', text: '今天的风很轻', ts: 1000 })
+  const method = await first.recordMethod({ name: '先看日志', howTo: '出错先看 stderr', lastAt: 1000 })
+  assert.equal(journal.ok, true)
+  assert.equal(method.ok, true)
+  first.dispose()
+  assert.equal(existsSync(file), true, 'memoryWrite 开启后写盘')
+  // 重启：新 runtime 加载同一文件 → queryMemory 能查到之前条目
+  const second = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_MEMORY_WRITE: 'gateway' },
+    memoryWriteFile: file,
+    now: () => 2000,
+  })
+  const found = await second.queryMemory({ text: '风很轻', limit: 5 })
+  assert.equal(found.ok, true)
+  assert.equal(found.total >= 1, true, '重启后可查询之前双写条目')
+  assert.equal(
+    found.entries.some((entry) => /风很轻/.test(entry.text)),
+    true,
+  )
+  const methodFound = await second.queryMemory({ text: '先看日志', limit: 5 })
+  assert.equal(
+    methodFound.entries.some((entry) => /先看日志/.test(entry.text)),
+    true,
+  )
+  second.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime K1：文件 provider 写失败隔离（Hub/旧路径不崩）', async () => {
+  const dir = tmpDir('k1-fail')
+  const badPath = path.join(dir, 'not-a-file')
+  mkdirSync(badPath, { recursive: true })
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_MEMORY_WRITE: 'gateway' },
+    memoryWriteFile: badPath,
+    now: () => 1000,
+  })
+  const result = await runtime.recordJournal({ kind: 'murmur', text: '写不进去', ts: 1000 })
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'HUB_MEMORY_WRITE_FAILED')
+  assert.equal(runtime.snapshot().ok, true, 'Hub 不崩')
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
