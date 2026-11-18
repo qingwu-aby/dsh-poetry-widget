@@ -6325,12 +6325,12 @@ function makeHubRuntimeFixture(flag) {
 }
 
 test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > settings）', () => {
-  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false, persist: false })
+  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false, persist: true })
   assert.deepEqual(resolveHubFeatureFlag({ env: {} }), {
     enabled: false,
     shadow: true,
     memoryWrite: false,
-    persist: false,
+    persist: true,
   })
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).shadow, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).enabled, true)
@@ -6341,14 +6341,14 @@ test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > 
     enabled: true,
     shadow: false,
     memoryWrite: false,
-    persist: false,
+    persist: true,
   })
   // 显式覆盖 env/settings
   const explicit = resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: true }, env: { DSH_POETRY_HUB: '1' } })
   assert.equal(explicit.enabled, true)
   assert.equal(explicit.shadow, true)
   assert.equal(HUB_RUNTIME_VERSION, 1)
-  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true, memoryWrite: false, persist: false })
+  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true, memoryWrite: false, persist: true })
 })
 
 test('hub-runtime E1：默认 off 无副作用（不调度/不执行/不写事件）', async () => {
@@ -9182,21 +9182,87 @@ test('file-stores I1：JSONL 事件 store append/有界读取/坏行/轮转', ()
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('hub-runtime I1：persist flag 默认关闭（零写盘）', async () => {
-  assert.equal(resolveHubFeatureFlag({}).persist, false)
-  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: '1' } }).persist, true)
+test('hub-runtime J4：persist 默认开启（写盘/恢复），显式 off 零写盘', async () => {
+  // 解析默认：默认 true；env=0/false 或 settings.persist=false 显式关闭
+  assert.equal(resolveHubFeatureFlag({}).persist, true)
+  assert.equal(resolveHubFeatureFlag({ env: {} }).persist, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: '0' } }).persist, false)
-  assert.equal(resolveHubFeatureFlag({ settings: { persist: true } }).persist, true)
-  assert.equal(resolveHubFeatureFlag({ featureFlag: { persist: true } }).persist, true)
-  const dir = tmpDir('i1-off')
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: 'false' } }).persist, false)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: '1' } }).persist, true)
+  assert.equal(resolveHubFeatureFlag({ settings: { persist: false } }).persist, false)
+  assert.equal(resolveHubFeatureFlag({ featureFlag: { persist: false } }).persist, false)
+  // 默认（不传 flag）→ 自动创建 store 并写盘
+  const dir = tmpDir('j4-default')
   const paths = { taskBoardFile: path.join(dir, 'hub-taskboard.json'), eventFile: path.join(dir, 'hub-events.jsonl') }
   const runtime = createHubRuntime({ logger: { warn() {} }, persistPaths: paths, now: () => 1000 })
-  assert.equal(runtime.snapshot().persist.enabled, false)
-  assert.equal(runtime.snapshot().persist.taskStore, null)
-  runtime.getInstances().taskBoard.create({ activity: 'chat', key: 'i1-off-task' })
+  assert.equal(runtime.snapshot().persist.enabled, true, '默认开启 persist')
+  assert.ok(runtime.snapshot().persist.taskStore !== null, '默认创建任务板 store')
+  assert.ok(runtime.snapshot().persist.eventStore !== null, '默认创建事件 store')
+  runtime.getInstances().taskBoard.create({ activity: 'chat', kind: 'chat.turn', key: 'j4-default-task' })
+  assert.equal(existsSync(paths.taskBoardFile), true, '默认写任务板快照')
   runtime.dispose()
-  assert.equal(existsSync(paths.taskBoardFile), false, 'flag 关闭不写任务板文件')
-  assert.equal(existsSync(paths.eventFile), false, 'flag 关闭不写事件文件')
+  rmSync(dir, { recursive: true, force: true })
+
+  // 显式 off → 零写盘
+  const offDir = tmpDir('j4-off')
+  const offPaths = {
+    taskBoardFile: path.join(offDir, 'hub-taskboard.json'),
+    eventFile: path.join(offDir, 'hub-events.jsonl'),
+  }
+  const off = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { persist: false },
+    persistPaths: offPaths,
+    now: () => 1000,
+  })
+  assert.equal(off.snapshot().persist.enabled, false)
+  off.getInstances().taskBoard.create({ activity: 'chat', key: 'j4-off-task' })
+  off.dispose()
+  assert.equal(existsSync(offPaths.taskBoardFile), false, '显式 off 不写任务板文件')
+  assert.equal(existsSync(offPaths.eventFile), false, '显式 off 不写事件文件')
+  rmSync(offDir, { recursive: true, force: true })
+})
+
+test('hub-runtime J4：默认 persist 重启恢复任务/事件 + 坏文件降级', async () => {
+  const dir = tmpDir('j4-restore')
+  const paths = { taskBoardFile: path.join(dir, 'hub-taskboard.json'), eventFile: path.join(dir, 'hub-events.jsonl') }
+  const first = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    persistPaths: paths,
+    now: () => 1000,
+  })
+  first.start()
+  first.getInstances().taskBoard.create({ activity: 'chat', kind: 'chat.turn', key: 'j4-restore-task' })
+  await first.getInstances().eventBus.flush()
+  first.dispose()
+  assert.equal(existsSync(paths.taskBoardFile), true)
+  assert.equal(existsSync(paths.eventFile), true)
+  const second = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    persistPaths: paths,
+    persistReplay: 5,
+    now: () => 2000,
+  })
+  second.start()
+  assert.equal(second.snapshot().persist.restoredTasks >= 1, true, '默认 persist 重启恢复任务')
+  assert.equal(second.snapshot().persist.restoredEvents >= 1, true, '默认 persist 回放视图有事件')
+  assert.ok(
+    second
+      .getInstances()
+      .taskBoard.list()
+      .some((task) => task.key === 'j4-restore-task'),
+  )
+  second.dispose()
+  // 坏文件降级：不阻塞创建/启动
+  writeFileSync(paths.taskBoardFile, '{bad json')
+  writeFileSync(paths.eventFile, 'not-json\n{"type":"ok"}\n')
+  const third = createHubRuntime({ logger: { warn() {} }, persistPaths: paths, now: () => 3000 })
+  third.start()
+  assert.equal(third.snapshot().ok, true, '坏文件不阻塞启动')
+  assert.equal(third.snapshot().persist.taskStore.errors >= 0, true)
+  third.dispose()
   rmSync(dir, { recursive: true, force: true })
 })
 

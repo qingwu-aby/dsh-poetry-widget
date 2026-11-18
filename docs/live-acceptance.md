@@ -60,7 +60,8 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 
 ## 3.4 Activation I1–I4（2026-11-18）
 
-- I1 Hub 持久化 opt-in：TaskBoard 快照 + EventBus JSONL；`DSH_POETRY_HUB_PERSIST=1` 开启，默认零写盘；
+- I1/J4 Hub 持久化：TaskBoard 快照 + EventBus JSONL 默认开启（`$DSH_HOME/.dsh-poetry/hub-taskboard.json`、`hub-events.jsonl`）；
+  `DSH_POETRY_HUB_PERSIST=0` 或 `settings.persist=false` 可显式关闭（关闭后零写盘）；
 - I2 设置页 Hub 控制台：任务列表暂停/恢复/取消、活动启停、记忆查询；
 - I3 全量任务列表：GET tasks.list（最多 100 条），UI 优先 list、回退 recentEvents；
 - I4 journal/methods 写入桥：默认旧路径，`memoryWrite` 开启后旁路写 Memory Gateway。

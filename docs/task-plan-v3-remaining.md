@@ -10,7 +10,7 @@
 - Activity 注册表有 chat/minecraft，但都 stopped；full 不会自动启动 World。
 - Minecraft 的 Hub adapter 目前是“回执回写”，bot 仍自己执行工具。
 - Memory：journal/game-memory/methods 只做**可选双写**；Gateway 写 provider 是内存态，重启丢；未成为唯一写入者。
-- EventBus/TaskBoard 持久化是 opt-in（`DSH_POETRY_HUB_PERSIST=1`），默认内存。
+- EventBus/TaskBoard 持久化默认开启（J4）：`DSH_POETRY_HUB_PERSIST=0` / `settings.persist=false` 可显式关闭；默认重启恢复任务/事件。
 - 训练：runner 已注入，但默认关闭；`dataset.available=false`，`evaluatorAvailable=false`，从未真实训练。
 - 设置页有模型/Hub/训练/任务控制台，但视觉/点击未验收（browser-skill 未连接）。
 - 权限只有 manifest 契约与查询，没有执行级拦截；多会话无隔离。
