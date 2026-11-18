@@ -72,6 +72,15 @@ import {
   validateActivityManifest,
 } from '../lib/core/activity-manifest.mjs'
 import {
+  ACTIVITY_BASELINE_PERMISSIONS,
+  ACTIVITY_PERMISSION_GUARD_CODES,
+  ACTIVITY_PERMISSION_GUARD_VERSION,
+  ACTIVITY_SENSITIVE_PERMISSIONS,
+  checkHubActivityPermission,
+  createActivityPermissionGuard,
+  declaredActivityPermissions,
+} from '../lib/core/activity-permission-guard.mjs'
+import {
   ACTIVITY_HEALTH_STATES,
   ACTIVITY_REGISTRY_CODES,
   ACTIVITY_REGISTRY_EVENTS,
@@ -12117,4 +12126,231 @@ test('training-drill M3：fake spawn 成功→日志/报告解析；失败/超�
   assert.equal(timedOut.code, DRILL_CODES.timeout)
   assert.deepEqual(hang.kills, ['SIGTERM'])
   rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate N1：Activity 权限执行（grants 文件 + 默认拒绝 fs/net + SDK/Hub 拦截）
+// ---------------------------------------------------------------------------
+
+function makeN1GuardFixture() {
+  const dir = tmpDir('n1-guard')
+  const file = path.join(dir, 'activity-grants.json')
+  const guard = createActivityPermissionGuard({ file, now: () => 5000, logger: { warn() {} } })
+  return { dir, file, guard }
+}
+
+function n1Manifest(permissions = ['tool', 'fs.read']) {
+  return {
+    id: 'reader-activity',
+    version: '1.0.0',
+    name: '阅读测试',
+    events: ['reader.event'],
+    tasks: [{ kind: 'reader.task', goal: '读一页', success: '完成', priority: 50 }],
+    tools: ['reader.tool'],
+    permissions,
+    resources: { model: false },
+  }
+}
+
+test('activity-permission-guard N1：默认拒绝 fs/net、tool 基线、未声明拒绝', () => {
+  const fixture = makeN1GuardFixture()
+  assert.equal(ACTIVITY_PERMISSION_GUARD_VERSION, 1)
+  assert.deepEqual(ACTIVITY_BASELINE_PERMISSIONS, ['tool', 'model'])
+  assert.deepEqual(ACTIVITY_SENSITIVE_PERMISSIONS, ['fs.read', 'fs.write', 'net'])
+  const manifest = n1Manifest()
+  assert.deepEqual(
+    declaredActivityPermissions(manifest).map((item) => item.permission),
+    ['tool', 'fs.read'],
+  )
+  // tool 基线允许
+  assert.equal(
+    fixture.guard.check({ activityId: 'reader-activity', manifest, permission: 'tool', scope: 'reader.tool' }).allowed,
+    true,
+  )
+  // fs.read 默认拒绝（无 grant）
+  const denied = fixture.guard.check({
+    activityId: 'reader-activity',
+    manifest,
+    permission: 'fs.read',
+    scope: '/books/a.txt',
+  })
+  assert.equal(denied.allowed, false)
+  assert.equal(denied.reason, 'not-granted')
+  // net 未声明 → 拒绝
+  const netDenied = fixture.guard.check({
+    activityId: 'reader-activity',
+    manifest,
+    permission: 'net',
+    scope: 'example.com',
+  })
+  assert.equal(netDenied.allowed, false)
+  assert.equal(netDenied.reason, 'not-declared')
+  // 无 manifest 权限 → 拒绝
+  assert.equal(
+    fixture.guard.check({ activityId: 'x', manifest: { id: 'x' }, permission: 'tool' }).reason,
+    'no-manifest-permissions',
+  )
+  // 非法请求
+  assert.equal(fixture.guard.check({}).reason, 'invalid-request')
+  // grant 后允许 + scope 匹配
+  const granted = fixture.guard.grant('reader-activity', 'fs.read', '/books')
+  assert.equal(granted.ok, true)
+  assert.equal(existsSync(fixture.file), true)
+  assert.equal(statSync(fixture.file).mode & 0o777, 0o600)
+  assert.equal(
+    fixture.guard.check({ activityId: 'reader-activity', manifest, permission: 'fs.read', scope: '/books/a.txt' })
+      .allowed,
+    true,
+  )
+  assert.equal(
+    fixture.guard.check({ activityId: 'reader-activity', manifest, permission: 'fs.read', scope: '/books/b.md' })
+      .allowed,
+    true,
+  )
+  const outside = fixture.guard.check({
+    activityId: 'reader-activity',
+    manifest,
+    permission: 'fs.read',
+    scope: '/etc/passwd',
+  })
+  assert.equal(outside.allowed, false)
+  assert.equal(outside.reason, 'not-granted')
+  assert.equal(fixture.guard.list({ activityId: 'reader-activity' }).length, 1)
+  // revoke 后恢复拒绝
+  assert.equal(fixture.guard.revoke('reader-activity', 'fs.read').removed, 1)
+  assert.equal(
+    fixture.guard.check({ activityId: 'reader-activity', manifest, permission: 'fs.read', scope: '/books/a.txt' })
+      .allowed,
+    false,
+  )
+  // 坏文件降级为空授权（不崩）
+  writeFileSync(fixture.file, '{bad json')
+  const reloaded = createActivityPermissionGuard({ file: fixture.file, now: () => 5000, logger: { warn() {} } })
+  assert.equal(reloaded.snapshot().errors.length >= 1, true)
+  assert.equal(
+    reloaded.check({ activityId: 'reader-activity', manifest, permission: 'fs.read', scope: '/books/a.txt' }).allowed,
+    false,
+  )
+  assert.equal(reloaded.grant('reader-activity', 'fs.read', '/books').ok, true, '坏文件后可重新授权')
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('activity-permission-guard N1：SDK defineActivity 执行前拦截（无 guard 保持现状）', async () => {
+  const fixture = makeN1GuardFixture()
+  let called = 0
+  const activity = defineActivity({
+    manifest: n1Manifest(['tool']),
+    tools: {
+      'reader.tool': () => {
+        called += 1
+        return { ok: true, detail: 'done', facts: {} }
+      },
+    },
+    guard: fixture.guard,
+    now: () => 5000,
+  })
+  assert.equal(activity.ok, true)
+  // tool 基线允许 → 正常执行
+  const allowed = await activity.execute({ payload: { tool: 'reader.tool' } })
+  assert.equal(allowed.ok, true)
+  assert.equal(called, 1)
+  // 无声明权限的 guard 拒绝
+  const denyGuard = { check: () => ({ allowed: false, reason: 'not-granted' }) }
+  const blockedActivity = defineActivity({
+    manifest: n1Manifest(['tool']),
+    tools: {
+      'reader.tool': () => {
+        called += 1
+        return { ok: true }
+      },
+    },
+    guard: denyGuard,
+    now: () => 5000,
+  })
+  const blocked = await blockedActivity.execute({ payload: { tool: 'reader.tool' } })
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.facts.code, 'ACTIVITY_PERMISSION_DENIED')
+  assert.equal(called, 1, '被拦截的 handler 不执行')
+  // 无 guard 保持现状
+  const plain = defineActivity({
+    manifest: n1Manifest(['tool']),
+    tools: { 'reader.tool': () => ({ ok: true }) },
+    now: () => 5000,
+  })
+  assert.equal((await plain.execute({ payload: { tool: 'reader.tool' } })).ok, true)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes N1：task.create/execute 权限拦截（默认拒绝 fs.read，grant 后放行）', async () => {
+  const dir = tmpDir('n1-hub')
+  const file = path.join(dir, 'activity-grants.json')
+  const guard = createActivityPermissionGuard({ file, now: () => 5000, logger: { warn() {} } })
+  const adapterCalls = []
+  const manifest = n1Manifest(['tool', 'fs.read'])
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: [
+      {
+        manifest,
+        execute: async (task) => {
+          adapterCalls.push(task)
+          return { ok: true, receipt: { ok: true, at: 5000, text: 'done' } }
+        },
+      },
+    ],
+    permissionGuard: guard,
+    now: () => 5000,
+  })
+  runtime.start()
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  const body = {
+    action: 'task.create',
+    kind: 'reader.task',
+    activity: 'reader-activity',
+    payload: { tool: 'reader.tool', path: '/books/a.txt' },
+    idempotencyKey: 'n1-1',
+  }
+  const deniedRes = hubFakeRes()
+  await handler(hubFakeReq('POST', body, { url: HUB_ROUTE }), deniedRes)
+  const denied = deniedRes.json()
+  assert.equal(denied.ok, false)
+  assert.equal(denied.code, 'HUB_PERMISSION_DENIED')
+  assert.equal(denied.permission, 'fs.read')
+  assert.equal(runtime.getInstances().taskBoard.list().length, 0, '拒绝时不创建任务')
+  assert.equal(adapterCalls.length, 0, '拒绝时不执行 adapter')
+  // grant 后放行
+  assert.equal(guard.grant('reader-activity', 'fs.read', '/books').ok, true)
+  const allowedRes = hubFakeRes()
+  await handler(hubFakeReq('POST', body, { url: HUB_ROUTE }), allowedRes)
+  const allowed = allowedRes.json()
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.executed, true)
+  assert.equal(adapterCalls.length, 1)
+  // executeActivityTask 直接执行也拦截（无 grant 的另一条任务）
+  const board = runtime.getInstances().taskBoard
+  const created = board.create({ activity: 'reader-activity', kind: 'reader.task', payload: { path: '/etc/passwd' } })
+  guard.revoke('reader-activity', 'fs.read')
+  const executed = await executeActivityTask(runtime, created.task.id)
+  assert.equal(executed.ok, false)
+  assert.equal(executed.code, 'HUB_PERMISSION_DENIED')
+  assert.equal(adapterCalls.length, 1, '拦截后不执行 adapter')
+  assert.equal(board.get(created.task.id).status, 'failed')
+  // 无 guard → 不拦截（保持现状）
+  const noGuardRuntime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: [{ manifest, execute: async () => ({ ok: true, receipt: { ok: true, at: 5000 } }) }],
+    now: () => 5000,
+  })
+  noGuardRuntime.start()
+  const noGuardHandler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: noGuardRuntime })
+  const noGuardRes = hubFakeRes()
+  await noGuardHandler(hubFakeReq('POST', { ...body, idempotencyKey: 'n1-2' }, { url: HUB_ROUTE }), noGuardRes)
+  assert.equal(noGuardRes.json().ok, true)
+  runtime.dispose()
+  noGuardRuntime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
