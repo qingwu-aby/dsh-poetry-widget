@@ -316,6 +316,14 @@ import {
   TRAINING_DATASET_VERSION,
 } from '../lib/domain/life/training-dataset.mjs'
 import {
+  createTrainingEvaluator,
+  parseTrainingHistory,
+  parseTrainingReport,
+  TRAINING_EVALUATOR_CODES,
+  TRAINING_EVALUATOR_DEFAULT_THRESHOLD,
+  TRAINING_EVALUATOR_VERSION,
+} from '../lib/domain/life/training-evaluator.mjs'
+import {
   createTrainingRunner,
   TRAINING_RUNNER_CODES,
   TRAINING_RUNNER_VERSION,
@@ -11743,4 +11751,171 @@ test('training-routes M1：dataset.export 鉴权/dry-run/confirm + GET stats', a
   await bareHandler(hubFakeReq('POST', { action: 'dataset.export', token: 'secret-token', confirm: true }), bare)
   assert.equal(bare.json().code, 'TRAINING_DATASET_UNAVAILABLE')
   rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate M2：训练评估器（读取 self-train report/history，真实评分闸门）
+// ---------------------------------------------------------------------------
+
+function makeM2ReportFixture(text) {
+  const dir = tmpDir('m2-report')
+  const reportFile = path.join(dir, 'report.md')
+  const historyFile = path.join(dir, 'history.log')
+  if (text !== undefined && text !== null) writeFileSync(reportFile, text)
+  return { dir, reportFile, historyFile }
+}
+
+test('training-evaluator M2：report 通过/未通过/复评优先/阈值', () => {
+  assert.equal(TRAINING_EVALUATOR_VERSION, 1)
+  assert.equal(TRAINING_EVALUATOR_DEFAULT_THRESHOLD, 0.3)
+  const pass = makeM2ReportFixture('# 自训练\n\n- 评估：通过（期望相似度均值 0.65，14/14 有输出）\n')
+  const passEvaluator = createTrainingEvaluator({
+    reportFile: pass.reportFile,
+    historyFile: pass.historyFile,
+    now: () => 5000,
+  })
+  const passed = passEvaluator.evaluate()
+  assert.equal(passed.ok, true)
+  assert.equal(passed.available, true)
+  assert.equal(passed.score, 0.65)
+  assert.equal(passed.passed, true)
+  assert.equal(passed.nonEmpty, 14)
+  assert.equal(passed.total, 14)
+  assert.equal(passed.source, 'report')
+  rmSync(pass.dir, { recursive: true, force: true })
+
+  const fail = makeM2ReportFixture('- 评估：未通过（期望相似度均值 0.1，14/14 有输出）\n- 未过闸，保留旧语言层\n')
+  const failed = createTrainingEvaluator({ reportFile: fail.reportFile, historyFile: fail.historyFile }).evaluate()
+  assert.equal(failed.ok, true)
+  assert.equal(failed.score, 0.1)
+  assert.equal(failed.passed, false)
+  rmSync(fail.dir, { recursive: true, force: true })
+
+  // 复评段落后出现 → 以复评为准
+  const reeval = makeM2ReportFixture(
+    '- 评估：未通过（期望相似度均值 0，14/14 有输出）\n## 复评与切换\n- 平均期望相似度约 0.6，14/14 有输出 → 通过闸门\n',
+  )
+  const reevaluated = createTrainingEvaluator({
+    reportFile: reeval.reportFile,
+    historyFile: reeval.historyFile,
+  }).evaluate()
+  assert.equal(reevaluated.score, 0.6)
+  assert.equal(reevaluated.passed, true)
+  rmSync(reeval.dir, { recursive: true, force: true })
+
+  // 阈值可配置
+  const threshold = createTrainingEvaluator({
+    reportFile: reeval.reportFile,
+    historyFile: reeval.historyFile,
+    threshold: 0.7,
+  })
+  assert.equal(threshold.evaluate().passed, false, '0.6 < 0.7')
+  // 纯解析函数
+  assert.equal(parseTrainingReport(''), null)
+  assert.equal(parseTrainingReport('没有评估信息'), null)
+  assert.equal(parseTrainingHistory('2026-01-01T00:00:00Z trained=true eval=true') !== null, true)
+})
+
+test('training-evaluator M2：无报告/坏报告 unavailable，history 回退', () => {
+  const empty = makeM2ReportFixture(undefined)
+  const unavailable = createTrainingEvaluator({
+    reportFile: empty.reportFile,
+    historyFile: empty.historyFile,
+  }).evaluate()
+  assert.equal(unavailable.ok, false)
+  assert.equal(unavailable.available, false)
+  assert.equal(unavailable.passed, false, '不伪造通过')
+  assert.equal(unavailable.code, TRAINING_EVALUATOR_CODES.unavailable)
+  // 坏报告（无评估信息）→ 同样 unavailable（无 history）
+  const bad = makeM2ReportFixture('# 自训练\n\n- 训练：完成\n')
+  const badResult = createTrainingEvaluator({ reportFile: bad.reportFile, historyFile: bad.historyFile }).evaluate()
+  assert.equal(badResult.ok, false)
+  assert.equal(badResult.code, TRAINING_EVALUATOR_CODES.unavailable)
+  // history 回退
+  writeFileSync(
+    bad.historyFile,
+    '2026-11-05T09:06:15.209Z trained=true eval=false\n2026-11-05T09:07:15.209Z {"train":{"trained":true},"eval":{"ok":true,"avg":0.55}}\n',
+  )
+  const fallback = createTrainingEvaluator({ reportFile: bad.reportFile, historyFile: bad.historyFile }).evaluate()
+  assert.equal(fallback.ok, true)
+  assert.equal(fallback.score, 0.55)
+  assert.equal(fallback.passed, true)
+  assert.equal(fallback.source, 'history')
+  rmSync(empty.dir, { recursive: true, force: true })
+  rmSync(bad.dir, { recursive: true, force: true })
+})
+
+test('training-evaluator M2：run → eval → promote 闸门（真实评分）', async () => {
+  const pass = makeM2ReportFixture('- 评估：通过（期望相似度均值 0.8，14/14 有输出）\n')
+  const store = createTrainingConfigStore({ file: path.join(pass.dir, 'training-config.json'), now: () => 5000 })
+  store.write({ enabled: true, eval: { minScore: 0.6 } })
+  const runner = async () => ({
+    ok: true,
+    exitCode: 0,
+    logFile: '/tmp/train.log',
+    candidate: { id: 'adapters-candidate-1', path: '/tmp/c1' },
+  })
+  const evaluator = createTrainingEvaluator({
+    reportFile: pass.reportFile,
+    historyFile: pass.historyFile,
+    now: () => 5000,
+  })
+  const service = createTrainingService({
+    configStore: store,
+    runner,
+    evaluator: (input) => evaluator.evaluate(input),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  assert.equal(service.status().evaluatorAvailable, true)
+  const run = await service.run({ confirm: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.candidate.score, 0.8)
+  assert.equal(run.passed, true)
+  const promoted = service.promote({ confirm: true })
+  assert.equal(promoted.ok, true)
+  assert.equal(store.read().config.adapter.current, 'adapters-candidate-1')
+  rmSync(pass.dir, { recursive: true, force: true })
+
+  // 未通过 → promote 被拒
+  const fail = makeM2ReportFixture('- 评估：未通过（期望相似度均值 0.1，14/14 有输出）\n')
+  const failStore = createTrainingConfigStore({ file: path.join(fail.dir, 'training-config.json'), now: () => 5000 })
+  failStore.write({ enabled: true, eval: { minScore: 0.6 } })
+  const failEvaluator = createTrainingEvaluator({
+    reportFile: fail.reportFile,
+    historyFile: fail.historyFile,
+    now: () => 5000,
+  })
+  const failService = createTrainingService({
+    configStore: failStore,
+    runner,
+    evaluator: (input) => failEvaluator.evaluate(input),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const failedRun = await failService.run({ confirm: true })
+  assert.equal(failedRun.ok, true)
+  assert.equal(failedRun.passed, false)
+  const rejected = failService.promote({ confirm: true })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.code, TRAINING_SERVICE_CODES.evalNotPassed)
+  assert.equal(failStore.read().config.adapter.current, 'adapters-live', '不过线不能 promote')
+  // 无报告 → run 失败（不伪造评分）
+  const empty = makeM2ReportFixture(undefined)
+  const emptyStore = createTrainingConfigStore({ file: path.join(empty.dir, 'training-config.json'), now: () => 5000 })
+  emptyStore.write({ enabled: true })
+  const emptyEvaluator = createTrainingEvaluator({ reportFile: empty.reportFile, historyFile: empty.historyFile })
+  const emptyService = createTrainingService({
+    configStore: emptyStore,
+    runner,
+    evaluator: (input) => emptyEvaluator.evaluate(input),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const emptyRun = await emptyService.run({ confirm: true })
+  assert.equal(emptyRun.ok, false)
+  assert.equal(emptyRun.code, TRAINING_SERVICE_CODES.runFailed)
+  assert.match(emptyRun.message, /评估|report/)
+  rmSync(fail.dir, { recursive: true, force: true })
+  rmSync(empty.dir, { recursive: true, force: true })
 })
