@@ -27,6 +27,25 @@ import {
   validateActivityManifest,
 } from '../lib/core/activity-manifest.mjs'
 import {
+  buildIdempotencyKey,
+  canonicalJson,
+  checkEventVersion,
+  contentHashOf,
+  createEventEnvelope,
+  EVENT_BACKPRESSURE_DEFAULTS,
+  EVENT_ERROR_CODES,
+  EVENT_RESERVED_NAMESPACES,
+  EVENT_SCHEMA_LIMITS,
+  EVENT_VERSION_STATUS,
+  generateEventId,
+  isReservedNamespace,
+  isVersionCompatible,
+  parseEventType,
+  resolveEventBackpressure,
+  UNKNOWN_EVENT_POLICY,
+  validateEventEnvelope,
+} from '../lib/core/event-schema.mjs'
+import {
   canTransition,
   createTaskSupervisor,
   TASK_ALLOWED_TRANSITIONS,
@@ -1883,4 +1902,192 @@ test('cost-guard A6：peek/record/reset 与空输入', () => {
   guard.reset()
   assert.equal(guard.snapshot().usage.total.minute, 0)
   assert.equal(guard.acquire({}).ok, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate A7：事件契约（lib/core/event-schema.mjs）——envelope 校验/幂等键/版本兼容/背压默认值
+// ---------------------------------------------------------------------------
+
+function validEvent(overrides = {}) {
+  return {
+    id: 'evt-abc12345-00000001',
+    activity: 'reading',
+    type: 'reading.highlight',
+    version: 1,
+    at: 1_700_000_000_000,
+    subject: 'book-42',
+    topics: ['reading', 'reading.highlight'],
+    payload: { page: 3, note: '好句' },
+    correlationId: 'evt-abc12345-00000001',
+    ...overrides,
+  }
+}
+
+test('event-schema A7：合法 envelope 通过并补默认值', () => {
+  const result = validateEventEnvelope(validEvent())
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.errors, [])
+  assert.equal(result.event.type, 'reading.highlight')
+  assert.equal(result.event.version, 1)
+  assert.equal(result.event.payload.page, 3)
+
+  // createEventEnvelope 自动补 id/at/correlationId/topics
+  const created = createEventEnvelope(
+    { activity: 'chat', type: 'chat.message.received', version: 1, subject: 'peer-1', payload: { text: 'hi' } },
+    { now: 1_700_000_000_000, random: () => 0.25 },
+  )
+  assert.equal(created.ok, true, JSON.stringify(created.errors))
+  assert.match(created.event.id, /^evt-[a-z0-9]+-[a-z0-9]{8}$/)
+  assert.equal(created.event.at, 1_700_000_000_000)
+  assert.equal(created.event.correlationId, created.event.id)
+  assert.deepEqual(created.event.topics, ['chat', 'chat.message.received'])
+  // 显式 correlationId 保留（重投同一逻辑链）
+  const correlated = createEventEnvelope(validEvent({ correlationId: 'corr-00000001' }))
+  assert.equal(correlated.event.correlationId, 'corr-00000001')
+  // payload 省略 → {}
+  const noPayload = validateEventEnvelope({ ...validEvent(), payload: undefined })
+  assert.equal(noPayload.ok, true)
+  assert.deepEqual(noPayload.event.payload, {})
+})
+
+test('event-schema A7：缺字段/非法字段被拒绝（错误路径明确）', () => {
+  assert.equal(validateEventEnvelope(null).errors[0].code, EVENT_ERROR_CODES.invalidType)
+  const empty = validateEventEnvelope({})
+  assert.equal(empty.ok, false)
+  const missing = empty.errors.filter((item) => item.code === EVENT_ERROR_CODES.missingField).map((item) => item.path)
+  assert.deepEqual(missing, ['id', 'activity', 'type', 'version', 'at', 'subject'])
+
+  const bad = validateEventEnvelope(
+    validEvent({ id: 'short', activity: 'Reading!', type: 'nodots', version: 0, at: -1, subject: '' }),
+  )
+  assert.equal(bad.ok, false)
+  const paths = bad.errors.map((item) => item.path)
+  for (const path of ['id', 'activity', 'type', 'version', 'at', 'subject']) {
+    assert.ok(paths.includes(path), `应报告 ${path}`)
+  }
+  assert.ok(bad.errors.some((item) => item.code === EVENT_ERROR_CODES.invalidTypeName))
+  assert.equal(validateEventEnvelope(validEvent({ version: EVENT_SCHEMA_LIMITS.versionMax + 1 })).ok, false)
+  assert.equal(validateEventEnvelope(validEvent({ version: 1.5 })).ok, false)
+  assert.equal(validateEventEnvelope(validEvent({ correlationId: 'bad id!' })).ok, false)
+})
+
+test('event-schema A7：topics/payload 上限与 JSON 可序列化', () => {
+  const tooMany = validateEventEnvelope(
+    validEvent({ topics: Array.from({ length: EVENT_SCHEMA_LIMITS.topicsMax + 1 }, (_, index) => 'topic-' + index) }),
+  )
+  assert.equal(tooMany.ok, false)
+  assert.ok(tooMany.errors.some((item) => item.code === EVENT_ERROR_CODES.tooManyTopics))
+  const duplicated = validateEventEnvelope(validEvent({ topics: ['reading', 'reading'] }))
+  assert.ok(duplicated.errors.some((item) => item.code === EVENT_ERROR_CODES.duplicateTopic))
+  const badTopic = validateEventEnvelope(validEvent({ topics: ['Bad Topic'] }))
+  assert.ok(badTopic.errors.some((item) => item.code === EVENT_ERROR_CODES.invalidValue))
+
+  assert.equal(validateEventEnvelope(validEvent({ payload: [] })).ok, false)
+  const circular = {}
+  circular.self = circular
+  const circularResult = validateEventEnvelope(validEvent({ payload: circular }))
+  assert.equal(circularResult.ok, false)
+  assert.ok(circularResult.errors.some((item) => item.code === EVENT_ERROR_CODES.payloadNotJson))
+  const huge = validateEventEnvelope(
+    validEvent({ payload: { text: 'x'.repeat(EVENT_SCHEMA_LIMITS.payloadMaxBytes + 1) } }),
+  )
+  assert.equal(huge.ok, false)
+  assert.ok(huge.errors.some((item) => item.code === EVENT_ERROR_CODES.payloadTooLarge))
+})
+
+test('event-schema A7：事件 id 生成与类型/命名空间解析', () => {
+  const first = generateEventId({ now: 1_700_000_000_000, random: () => 0 })
+  const second = generateEventId({ now: 1_700_000_000_000, random: () => 0.9999 })
+  assert.notEqual(first, second, '随机源不同应生成不同 id')
+  assert.equal(first, generateEventId({ now: 1_700_000_000_000, random: () => 0 }), '同输入确定性可测')
+  assert.ok(validateEventEnvelope(validEvent({ id: first, correlationId: first })).ok)
+
+  const parsed = parseEventType('task.queued')
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.namespace, 'task')
+  assert.deepEqual(parsed.segments, ['task', 'queued'])
+  assert.equal(parsed.reservedNamespace, true)
+  assert.equal(isReservedNamespace('chat'), true)
+  assert.equal(isReservedNamespace('reading'), false)
+  assert.ok(EVENT_RESERVED_NAMESPACES.includes('task'))
+  assert.equal(parseEventType('nodots').ok, false)
+  assert.equal(parseEventType('Bad.Type').ok, false)
+})
+
+test('event-schema A7：幂等键（重投一致、内容哈希稳定）', () => {
+  const event = validEvent()
+  const key = buildIdempotencyKey(event)
+  assert.equal(key, 'reading:reading.highlight:book-42:evt-abc12345-00000001')
+  // 重投：同 correlationId/subject/type → 同 key（id/at 可变）
+  assert.equal(buildIdempotencyKey({ ...event, id: 'evt-other00001', at: 1_700_000_001_000 }), key)
+  // 不同 subject → 不同 key
+  assert.notEqual(buildIdempotencyKey({ ...event, subject: 'book-43' }), key)
+  // 内容哈希：键顺序无关、payload 变化会变
+  assert.equal(contentHashOf({ b: 1, a: 2 }), contentHashOf({ a: 2, b: 1 }))
+  assert.equal(canonicalJson({ b: 1, a: [2, { d: 3, c: 4 }] }), '{"a":[2,{"c":4,"d":3}],"b":1}')
+  const withHash = buildIdempotencyKey(event, { includeContentHash: true })
+  assert.ok(withHash.startsWith(key + ':'))
+  assert.equal(
+    buildIdempotencyKey({ ...event, payload: { page: 4 } }, { includeContentHash: true }) === withHash,
+    false,
+  )
+  // 非法输入 → ''
+  assert.equal(buildIdempotencyKey(null), '')
+  assert.equal(buildIdempotencyKey({ activity: 'reading' }), '')
+})
+
+test('event-schema A7：版本兼容判断与未知事件保留策略', () => {
+  const event = validEvent({ type: 'reading.highlight', version: 2 })
+  const compatible = checkEventVersion(event, { types: ['reading.highlight'], minVersion: 1, maxVersion: 2 })
+  assert.equal(compatible.ok, true)
+  assert.equal(compatible.status, EVENT_VERSION_STATUS.compatible)
+  assert.equal(compatible.action, 'process')
+  assert.equal(isVersionCompatible(event, { types: ['reading.highlight'], maxVersion: 2 }), true)
+  assert.equal(isVersionCompatible(event, { types: ['reading.highlight'], maxVersion: 1 }), false)
+
+  const unknown = checkEventVersion(event, { types: ['chat.message.received'] })
+  assert.equal(unknown.status, EVENT_VERSION_STATUS.unknownType)
+  assert.equal(unknown.action, 'retain')
+  assert.equal(UNKNOWN_EVENT_POLICY, 'retain')
+  assert.match(unknown.reason, /retain/)
+
+  const tooNew = checkEventVersion(event, { types: ['reading.highlight'], maxVersion: 1 })
+  assert.equal(tooNew.status, EVENT_VERSION_STATUS.tooNew)
+  assert.equal(tooNew.action, 'retain')
+
+  const tooOld = checkEventVersion(validEvent({ version: 1 }), { types: ['reading.highlight'], minVersion: 2 })
+  assert.equal(tooOld.status, EVENT_VERSION_STATUS.tooOld)
+  assert.equal(tooOld.action, 'skip')
+
+  const invalid = checkEventVersion({ id: 'x' }, { types: '*' })
+  assert.equal(invalid.status, EVENT_VERSION_STATUS.invalid)
+  assert.equal(invalid.action, 'drop')
+  // types: '*' 表示接受所有类型
+  assert.equal(checkEventVersion(event, { types: '*' }).status, EVENT_VERSION_STATUS.compatible)
+})
+
+test('event-schema A7：背压默认值与 env 解析', () => {
+  assert.equal(EVENT_BACKPRESSURE_DEFAULTS.retentionHours, 72)
+  assert.equal(EVENT_BACKPRESSURE_DEFAULTS.maxEventsInMemory, 10_000)
+  assert.equal(EVENT_BACKPRESSURE_DEFAULTS.maxReplayEvents, 5_000)
+  assert.equal(EVENT_BACKPRESSURE_DEFAULTS.unknownEventRetention, 'retain')
+  assert.equal(EVENT_BACKPRESSURE_DEFAULTS.maxPayloadBytes, EVENT_SCHEMA_LIMITS.payloadMaxBytes)
+  assert.ok(EVENT_BACKPRESSURE_DEFAULTS.diskHardLimitBytes > EVENT_BACKPRESSURE_DEFAULTS.diskSoftLimitBytes)
+
+  const defaults = resolveEventBackpressure({})
+  assert.equal(defaults.retentionHours, 72)
+  const custom = resolveEventBackpressure({
+    DSH_POETRY_EVENT_RETENTION_HOURS: '24',
+    DSH_POETRY_EVENT_MAX_MEMORY: '500',
+    DSH_POETRY_EVENT_MAX_REPLAY: '100',
+    DSH_POETRY_EVENT_DISK_SOFT_BYTES: '1024',
+    DSH_POETRY_EVENT_DISK_HARD_BYTES: '2048',
+  })
+  assert.equal(custom.retentionHours, 24)
+  assert.equal(custom.maxEventsInMemory, 500)
+  assert.equal(custom.maxReplayEvents, 100)
+  assert.equal(custom.diskSoftLimitBytes, 1024)
+  assert.equal(custom.diskHardLimitBytes, 2048)
+  const invalid = resolveEventBackpressure({ DSH_POETRY_EVENT_RETENTION_HOURS: 'bogus' })
+  assert.equal(invalid.retentionHours, 72, '非法值回退默认')
 })
