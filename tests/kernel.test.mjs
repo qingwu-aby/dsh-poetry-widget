@@ -309,6 +309,13 @@ import {
   TRAINING_DATASET_SOURCES,
 } from '../lib/domain/life/training-config.mjs'
 import {
+  collectTrainingDataset,
+  createTrainingDataset,
+  sanitizeDatasetText,
+  TRAINING_DATASET_MIN_ENTRIES,
+  TRAINING_DATASET_VERSION,
+} from '../lib/domain/life/training-dataset.mjs'
+import {
   createTrainingRunner,
   TRAINING_RUNNER_CODES,
   TRAINING_RUNNER_VERSION,
@@ -7447,7 +7454,7 @@ test('hub-routes F2：无 Hub 降级（GET available:false / POST HUB_UNAVAILABL
   writeFileSync(tokenFile, 'secret-token')
   const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: null, now: () => 1000 })
   const getRes = hubFakeRes()
-  await handler(hubFakeReq('GET'), getRes)
+  await handler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE + '?token=secret-token' }), getRes)
   assert.equal(getRes.statusCode, 200)
   assert.equal(getRes.json().available, false)
   assert.equal(getRes.json().hub, null)
@@ -8512,7 +8519,16 @@ test('training-routes H2：注册路由（http-wiring 契约）', () => {
   assert.equal(routes[0].path, TRAINING_ROUTE)
   assert.equal(typeof handler, 'function')
   assert.equal(disposers.length, 1)
-  assert.deepEqual(TRAINING_ACTIONS, ['status', 'plan', 'config', 'run', 'cancel', 'promote', 'rollback'])
+  assert.deepEqual(TRAINING_ACTIONS, [
+    'status',
+    'plan',
+    'config',
+    'run',
+    'cancel',
+    'promote',
+    'rollback',
+    'dataset.export',
+  ])
 })
 
 test('training-routes H2：状态读取反映配置变更（仍不训练）', async () => {
@@ -11520,5 +11536,211 @@ test('hub-routes L6：无 study adapter 明确失败', async () => {
   assert.equal(failed.ok, false)
   assert.equal(failed.code, 'HUB_NO_ACTIVITY_ADAPTER')
   fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate M1：训练数据集导出（journal/game/methods → JSONL + stats）
+// ---------------------------------------------------------------------------
+
+function makeM1DatasetFixture(options = {}) {
+  const dir = tmpDir('m1-dataset')
+  const agentMemoryDir = path.join(dir, 'agent-memory')
+  const gameMemoryDir = path.join(dir, 'game-memory')
+  mkdirSync(agentMemoryDir, { recursive: true })
+  mkdirSync(path.join(gameMemoryDir, 'build'), { recursive: true })
+  const journalLines = [
+    JSON.stringify({ ts: 1000, kind: 'murmur', text: '今天的风很轻' }),
+    JSON.stringify({ ts: 1001, kind: 'mood', label: '平静', reason: '散步' }),
+    JSON.stringify({ ts: 1002, kind: 'thought', text: '今天的风很轻' }),
+    'not-json',
+    JSON.stringify({ ts: 1003, kind: 'murmur', text: '我的 token 是 Bearer abcdefghijklmnop' }),
+  ]
+  writeFileSync(path.join(agentMemoryDir, 'journal.jsonl'), journalLines.join('\n') + '\n')
+  writeFileSync(path.join(gameMemoryDir, 'world.md'), '- 我在森林里搭了营地 [2024-01-01]\n- 另一条游戏记忆\n')
+  writeFileSync(path.join(gameMemoryDir, 'build', 'home.md'), '- 盖了一间小屋 [2024-01-02]\n')
+  const methodsFile = path.join(dir, 'methods.json')
+  writeFileSync(
+    methodsFile,
+    JSON.stringify({
+      entries: [{ id: 'method-1', name: '先看日志', howTo: '出错先看 stderr', lastAt: 1004, usedCount: 2 }],
+    }),
+  )
+  const dataset = createTrainingDataset({
+    agentMemoryDir,
+    gameMemoryDir,
+    methodsFile,
+    file: path.join(dir, 'training-data.jsonl'),
+    now: () => 5000,
+    minEntries: 2,
+  })
+  return { dir, agentMemoryDir, gameMemoryDir, methodsFile, dataset }
+}
+
+test('training-dataset M1：collect 只读归一化/去重/脱敏/坏行缺失', () => {
+  const fixture = makeM1DatasetFixture()
+  const collected = collectTrainingDataset({
+    agentMemoryDir: fixture.agentMemoryDir,
+    gameMemoryDir: fixture.gameMemoryDir,
+    methodsFile: fixture.methodsFile,
+  })
+  assert.equal(collected.ok, true)
+  assert.equal(collected.version, TRAINING_DATASET_VERSION)
+  assert.equal(collected.counts.bySource.journal >= 2, true)
+  assert.equal(collected.counts.bySource['game-memory'] >= 3, true)
+  assert.equal(collected.counts.bySource.methods, 1)
+  assert.equal(collected.errors.journal >= 1, true, '坏行计数')
+  // 去重：同文本只保留一条
+  const texts = collected.entries.map((entry) => entry.text)
+  assert.equal(texts.filter((text) => text === '今天的风很轻').length, 1)
+  // 脱敏
+  assert.equal(
+    collected.entries.some((entry) => /Bearer abcdef/.test(entry.text)),
+    false,
+  )
+  assert.equal(
+    collected.entries.some((entry) => entry.text.includes('[redacted]')),
+    true,
+  )
+  // 归一化字段
+  for (const entry of collected.entries) {
+    assert.equal(typeof entry.id, 'string')
+    assert.equal(entry.id.startsWith('ds-'), true)
+    assert.equal(['journal', 'game-memory', 'methods'].includes(entry.source), true)
+    assert.equal(entry.text.length <= 500, true)
+  }
+  // 缺失目录/文件 → 空集不崩
+  const empty = collectTrainingDataset({
+    agentMemoryDir: path.join(fixture.dir, 'nope'),
+    gameMemoryDir: path.join(fixture.dir, 'nope2'),
+    methodsFile: path.join(fixture.dir, 'nope.json'),
+  })
+  assert.equal(empty.ok, true)
+  assert.equal(empty.entries.length, 0)
+  // sanitize 直接校验
+  assert.equal(sanitizeDatasetText('  '), '')
+  assert.equal(sanitizeDatasetText('sk-abcdefgh12345678'), '[redacted]')
+  assert.equal(sanitizeDatasetText('x'.repeat(800)).length, 500)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('training-dataset M1：export 原子写 JSONL + manifest；stats 字段', () => {
+  const fixture = makeM1DatasetFixture()
+  const stats = fixture.dataset.stats()
+  assert.equal(stats.available, true)
+  assert.equal(stats.entries >= 6, true)
+  assert.equal(stats.sufficient, true)
+  assert.equal(stats.minEntries, 2)
+  assert.equal(stats.sources.length, 3)
+  assert.equal(stats.bytes > 0, true)
+  assert.equal(TRAINING_DATASET_MIN_ENTRIES, 200)
+  const exported = fixture.dataset.export()
+  assert.equal(exported.ok, true)
+  assert.equal(existsSync(exported.file), true)
+  assert.equal(existsSync(exported.manifestFile), true)
+  assert.equal(statSync(exported.file).mode & 0o777, 0o600)
+  const lines = readFileSync(exported.file, 'utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+  assert.equal(lines.length, exported.entries)
+  for (const line of lines) {
+    const entry = JSON.parse(line)
+    assert.equal(typeof entry.id, 'string')
+    assert.equal(typeof entry.source, 'string')
+    assert.equal(typeof entry.text, 'string')
+  }
+  const manifest = JSON.parse(readFileSync(exported.manifestFile, 'utf8'))
+  assert.equal(manifest.counts.total, exported.entries)
+  assert.equal(manifest.generatedAt, 5000)
+  assert.equal(manifest.sufficient, true)
+  assert.equal(manifest.file, exported.file)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('training-dataset M1：datasetStats 注入让训练 plan dataset 可用', () => {
+  const fixture = makeM1DatasetFixture()
+  const store = createTrainingConfigStore({ file: path.join(fixture.dir, 'training-config.json'), now: () => 5000 })
+  store.write({ enabled: true, dataset: { minEntries: 2 } })
+  const runner = async () => ({ ok: true, exitCode: 0, logFile: '/tmp/x.log', candidate: { id: 'c1' } })
+  const withStats = createTrainingService({
+    configStore: store,
+    runner,
+    datasetStats: () => fixture.dataset.stats(),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const plan = withStats.plan()
+  assert.equal(plan.ok, true)
+  assert.equal(plan.plan.dataset.available, true, 'datasetStats 注入后 dataset available')
+  assert.equal(plan.plan.dataset.entries >= 2, true)
+  assert.equal(plan.ready, true, '数据足够 + enabled + runner → ready')
+  const status = withStats.status()
+  assert.equal(status.dataset.available, true)
+  // 数据不足 → insufficient-data
+  const smallStore = createTrainingConfigStore({ file: path.join(fixture.dir, 'small-config.json'), now: () => 5000 })
+  smallStore.write({ enabled: true, dataset: { minEntries: 99 } })
+  const small = createTrainingService({
+    configStore: smallStore,
+    runner,
+    datasetStats: () => ({ available: true, entries: 1, sources: ['journal'] }),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const blocked = small.plan()
+  assert.equal(blocked.ready, false)
+  assert.equal(blocked.blockedReason, 'insufficient-data')
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('training-routes M1：dataset.export 鉴权/dry-run/confirm + GET stats', async () => {
+  const fixture = makeM1DatasetFixture()
+  const tokenFile = path.join(fixture.dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const store = createTrainingConfigStore({ file: path.join(fixture.dir, 'training-config.json'), now: () => 5000 })
+  const service = createTrainingService({
+    configStore: store,
+    datasetStats: () => fixture.dataset.stats(),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const handler = createTrainingHandler({
+    service,
+    dataset: fixture.dataset,
+    tokenFile,
+    fence: { check: () => 'blocked' },
+    logger: { warn() {} },
+  })
+  // 鉴权
+  const denied = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'dataset.export', token: 'bad' }), denied)
+  assert.equal(denied.statusCode, 403)
+  // dry-run（不写文件）
+  const dry = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'dataset.export', token: 'secret-token' }), dry)
+  const dryBody = dry.json()
+  assert.equal(dryBody.ok, true)
+  assert.equal(dryBody.dryRun, true)
+  assert.equal(dryBody.stats.available, true)
+  assert.equal(existsSync(path.join(fixture.dir, 'training-data.jsonl')), false, 'dry-run 不写文件')
+  // confirm 导出
+  const confirmed = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'dataset.export', token: 'secret-token', confirm: true }), confirmed)
+  const confirmedBody = confirmed.json()
+  assert.equal(confirmedBody.ok, true)
+  assert.equal(confirmedBody.dryRun, false)
+  assert.equal(existsSync(path.join(fixture.dir, 'training-data.jsonl')), true)
+  // GET 显示 stats
+  const getRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE + '?token=secret-token' }), getRes)
+  const payload = getRes.json()
+  assert.equal(payload.dataset.available, true)
+  assert.equal(payload.dataset.entries >= 2, true)
+  assert.equal(payload.actions.includes('dataset.export'), true)
+  // 无 dataset 服务
+  const bareHandler = createTrainingHandler({ service: null, tokenFile, fence: { check: () => null } })
+  const bare = hubFakeRes()
+  await bareHandler(hubFakeReq('POST', { action: 'dataset.export', token: 'secret-token', confirm: true }), bare)
+  assert.equal(bare.json().code, 'TRAINING_DATASET_UNAVAILABLE')
   rmSync(fixture.dir, { recursive: true, force: true })
 })
