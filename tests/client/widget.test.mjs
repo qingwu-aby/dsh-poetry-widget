@@ -7391,3 +7391,111 @@ test('Gate I3 设置页：tasks.list 任务操作 POST body 正常', async () =>
   assert.deepEqual(posts.find((body) => body.action === 'task.cancel'), { action: 'task.cancel', taskId: 'tb-list-1' })
   harness.client.react._cleanup()
 })
+
+/* ------------------------------------------------------------------ */
+/* Gate N3：设置页「成本」区 + cost-policy API                        */
+/* ------------------------------------------------------------------ */
+
+const N3_COST_ROUTE = '/api/dsh-poetry/cost-policy.json'
+
+function n3CostPayload(overrides = {}) {
+  return {
+    ok: true,
+    available: true,
+    file: '/tmp/.dsh-poetry/cost-policy.json',
+    exists: true,
+    updatedAt: 5000,
+    config: { disabled: false, minuteTotal: 0, dayTotal: 0, roleLimits: {}, activityLimits: {}, softMinuteTotal: 20, softDayTotal: 600 },
+    errors: [],
+    ranges: {},
+    fields: ['disabled', 'minuteTotal', 'dayTotal', 'roleLimits', 'activityLimits', 'softMinuteTotal', 'softDayTotal'],
+    ...overrides,
+  }
+}
+
+function n3Routes(posts, options = {}) {
+  const base = h1Routes()
+  base[N3_COST_ROUTE] = (init) => {
+    if ((init.method || 'GET') === 'PUT') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      posts.push(body)
+      if (options.putFail) return { status: 200, body: { ok: false, error: 'invalid_config', message: '非法配置' } }
+      if (body.reset === true) return { status: 200, body: { ok: true, reset: true, config: n3CostPayload().config } }
+      return { status: 200, body: n3CostPayload({ config: Object.assign({}, n3CostPayload().config, body.config || {}), updatedAt: 6000 }) }
+    }
+    if (options.getFail) return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+    return { status: 200, body: n3CostPayload() }
+  }
+  return base
+}
+
+test('Gate N3 设置页：成本区渲染（限额/软告警/保存/重置）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(n3Routes(posts))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /成本（模型调用闸门）/)
+  assert.match(text, /每分钟总限额/)
+  assert.match(text, /每日总限额/)
+  assert.match(text, /每分钟软告警/)
+  assert.match(text, /每日软告警/)
+  assert.ok(h1FindByAria(tree, '成本 minuteTotal'))
+  assert.ok(h1FindByAria(tree, '成本 dayTotal'))
+  assert.ok(h1FindByAria(tree, '成本 softMinuteTotal'))
+  assert.ok(h1FindByAria(tree, '成本 softDayTotal'))
+  assert.ok(h1FindByAria(tree, '成本 disabled'))
+  assert.ok(h1FindButton(tree, '保存成本策略'))
+  assert.ok(h1FindButton(tree, '重置成本策略'))
+  // 原有区域不回归
+  assert.match(text, /模型与推理/)
+  assert.match(text, /Hub/)
+  assert.match(text, /训练（旁路）/)
+  harness.client.react._cleanup()
+})
+
+test('Gate N3 设置页：保存成本策略 PUT body；重置 reset:true', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(n3Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  h1FindByAria(tree, '成本 minuteTotal').props.onChange({ target: { value: '12' } })
+  tree = rerender(react, harness.Page, {})
+  h1FindByAria(tree, '成本 dayTotal').props.onChange({ target: { value: '200' } })
+  tree = rerender(react, harness.Page, {})
+  h1FindByAria(tree, '成本 softMinuteTotal').props.onChange({ target: { value: '8' } })
+  tree = rerender(react, harness.Page, {})
+  h1FindButton(tree, '保存成本策略').props.onClick()
+  await flushTasks(3)
+  const saved = posts.find((body) => body && body.config)
+  assert.ok(saved !== undefined, '必须 PUT config')
+  assert.equal(saved.config.minuteTotal, 12)
+  assert.equal(saved.config.dayTotal, 200)
+  assert.equal(saved.config.softMinuteTotal, 8)
+  assert.equal(saved.config.disabled, false)
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /成本策略已保存并生效/)
+  h1FindButton(tree, '重置成本策略').props.onClick()
+  await flushTasks(3)
+  assert.deepEqual(posts.find((body) => body && body.reset === true), { reset: true })
+  harness.client.react._cleanup()
+})
+
+test('Gate N3 设置页：保存被拒绝/读取失败只提示不崩', async () => {
+  const posts = []
+  const denied = makeSettingsPageHarness(n3Routes(posts, { putFail: true }))
+  let tree = await h1Render(denied)
+  const react = denied.client.react
+  h1FindByAria(tree, '成本 minuteTotal').props.onChange({ target: { value: '5' } })
+  tree = rerender(react, denied.Page, {})
+  h1FindButton(tree, '保存成本策略').props.onClick()
+  await flushTasks(3)
+  tree = rerender(react, denied.Page, {})
+  assert.match(textOf(tree), /保存成本策略失败：/)
+  denied.client.react._cleanup()
+
+  const failing = makeSettingsPageHarness(n3Routes([], { getFail: true }))
+  const failingTree = await h1Render(failing)
+  assert.match(textOf(failingTree), /读取成本策略失败：forbidden/)
+  assert.match(textOf(failingTree), /Minecraft/, '读取失败不影响其它区域')
+  failing.client.react._cleanup()
+})

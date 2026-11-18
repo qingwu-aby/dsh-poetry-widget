@@ -146,6 +146,29 @@ function safeDisplayText(value, max = 120) {
 
 const TERMINAL_TASK_STATUSES = ['done', 'failed', 'cancelled']
 
+function costDraftFrom(data) {
+  const config = data && data.config && typeof data.config === 'object' ? data.config : {}
+  const int = (value, fallback) => (Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : fallback)
+  return {
+    disabled: config.disabled === true,
+    minuteTotal: int(config.minuteTotal, 0),
+    dayTotal: int(config.dayTotal, 0),
+    softMinuteTotal: int(config.softMinuteTotal, 20),
+    softDayTotal: int(config.softDayTotal, 600),
+  }
+}
+
+function costPayload(draft) {
+  const int = (value, fallback) => Math.max(0, Math.floor(Number(value) || fallback))
+  return {
+    disabled: draft.disabled === true,
+    minuteTotal: int(draft.minuteTotal, 0),
+    dayTotal: int(draft.dayTotal, 0),
+    softMinuteTotal: int(draft.softMinuteTotal, 20),
+    softDayTotal: int(draft.softDayTotal, 600),
+  }
+}
+
 const TRAINING_ACTION_LABELS = { run: '运行', cancel: '取消', promote: '上线', rollback: '回滚' }
 
 function trainingDraftFrom(data) {
@@ -213,6 +236,11 @@ export function createWhaleSettingsPage(React, h) {
   const [trainingError, setTrainingError] = React.useState('')
   const [trainingBusy, setTrainingBusy] = React.useState('')
   const [pendingTrainingAction, setPendingTrainingAction] = React.useState('')
+  // Gate N3：成本策略（限额/软告警；保存后实时生效）。
+  const [costPolicy, setCostPolicy] = React.useState(null)
+  const [costDraft, setCostDraft] = React.useState(() => costDraftFrom(null))
+  const [costError, setCostError] = React.useState('')
+  const [costBusy, setCostBusy] = React.useState('')
   // Gate I2：Hub 任务/活动控制 + 记忆查询。
   const [memoryQuery, setMemoryQuery] = React.useState('')
   const [memoryResults, setMemoryResults] = React.useState(null)
@@ -233,12 +261,21 @@ export function createWhaleSettingsPage(React, h) {
       .then((data) => { setHub(data); setHubError('') })
       .catch((error) => setHubError('读取 Hub 状态失败：' + error.message))
   }, [])
+  const refreshCostPolicy = React.useCallback(() => {
+    apiRequest('/cost-policy.json')
+      .then((data) => {
+        setCostPolicy(data)
+        setCostDraft(costDraftFrom(data))
+        setCostError('')
+      })
+      .catch((error) => setCostError('读取成本策略失败：' + error.message))
+  }, [])
   const refreshTraining = React.useCallback(() => {
     apiRequest('/training.json')
       .then((data) => { setTraining(data); setTrainingDraft(trainingDraftFrom(data)); setTrainingError('') })
       .catch((error) => setTrainingError('读取训练状态失败：' + error.message))
   }, [])
-  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining() }, [refresh, refreshPolicy, refreshHub, refreshTraining])
+  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining(); refreshCostPolicy() }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy])
 
   function save(patch, key) {
     setBusy(key)
@@ -305,6 +342,50 @@ export function createWhaleSettingsPage(React, h) {
   }
   function setTrainingField(field, value) {
     setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }))
+  }
+  function setCostField(field, value) {
+    setCostDraft((draft) => Object.assign({}, draft, { [field]: value }))
+  }
+  function saveCostPolicy() {
+    setCostBusy('save')
+    setCostError('')
+    apiRequest('/cost-policy.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: costPayload(costDraft) }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setCostError('保存成本策略失败：' + (data.message || data.error || '被拒绝'))
+          return
+        }
+        setCostPolicy(data)
+        setCostDraft(costDraftFrom(data))
+        setMessage('成本策略已保存并生效')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setCostError('保存成本策略失败：' + error.message))
+      .finally(() => setCostBusy(''))
+  }
+  function resetCostPolicy() {
+    setCostBusy('reset')
+    setCostError('')
+    apiRequest('/cost-policy.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reset: true }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setCostError('重置成本策略失败：' + (data.message || data.error || '被拒绝'))
+          return
+        }
+        refreshCostPolicy()
+        setMessage('成本策略已重置为默认')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setCostError('重置成本策略失败：' + error.message))
+      .finally(() => setCostBusy(''))
   }
   function saveTraining() {
     setTrainingBusy('training-save')
@@ -589,6 +670,40 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.pauseAll') }, hubBusy === 'hub.pauseAll' ? '暂停中…' : '暂停全部'),
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.resumeAll') }, hubBusy === 'hub.resumeAll' ? '恢复中…' : '恢复全部'),
         )),
+    ),
+    h('div', { style: styles.card },
+      h('div', { style: styles.title }, '成本（模型调用闸门）'),
+      costError ? h('div', { style: styles.error }, costError) : null,
+      h('div', { style: styles.hint },
+        costPolicy && costPolicy.available === false
+          ? '成本策略存储未接入（不可用）'
+          : '限额 0 = 不限制；保存后立即生效（无需重启）。软告警只提示不拦截。'),
+      row('关闭成本闸门', '勾选后不拦截模型调用（仍记录用量）',
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' } },
+          h('input', {
+            type: 'checkbox',
+            'aria-label': '成本 disabled',
+            checked: costDraft.disabled === true,
+            disabled: costBusy !== '',
+            onChange: (event) => setCostField('disabled', event.target.checked),
+          }),
+          costDraft.disabled ? '已关闭' : '启用中')),
+      row('每分钟总限额', 'minuteTotal（0 = 不限制）',
+        trainingNumber('成本 minuteTotal', costDraft.minuteTotal, (value) => setCostField('minuteTotal', value), { min: 0 })),
+      row('每日总限额', 'dayTotal（0 = 不限制）',
+        trainingNumber('成本 dayTotal', costDraft.dayTotal, (value) => setCostField('dayTotal', value), { min: 0 })),
+      row('每分钟软告警', 'softMinuteTotal（达到只告警不拦截）',
+        trainingNumber('成本 softMinuteTotal', costDraft.softMinuteTotal, (value) => setCostField('softMinuteTotal', value), { min: 0 })),
+      row('每日软告警', 'softDayTotal（达到只告警不拦截）',
+        trainingNumber('成本 softDayTotal', costDraft.softDayTotal, (value) => setCostField('softDayTotal', value), { min: 0 })),
+      row('操作', '保存会实时重建 cost guard；重置恢复默认空策略',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), disabled: costBusy !== '', onClick: saveCostPolicy }, costBusy === 'save' ? '保存中…' : '保存成本策略'),
+          h('button', { type: 'button', style: styles.button, disabled: costBusy !== '', onClick: resetCostPolicy }, costBusy === 'reset' ? '重置中…' : '重置成本策略'),
+        )),
+      costPolicy && costPolicy.updatedAt
+        ? h('div', { style: styles.hint }, '上次更新：' + new Date(costPolicy.updatedAt).toLocaleString())
+        : null,
     ),
     h('div', { style: styles.card },
       h('div', { style: styles.title }, '训练（旁路）'),

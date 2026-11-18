@@ -20,6 +20,12 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createChatHttpService, createChatTurnRunner } from '../lib/composition/chat-service.mjs'
 import {
+  COST_POLICY_ROUTE,
+  createCostPolicyApplier,
+  createCostPolicyHandler,
+  registerCostPolicyRoute,
+} from '../lib/composition/cost-policy-routes.mjs'
+import {
   buildHealthAlerts,
   buildHealthMetrics,
   buildRuntimeSnapshot,
@@ -326,6 +332,15 @@ import {
   describeCostPolicy,
   resolveCostPolicy,
 } from '../lib/domain/host/cost-guard.mjs'
+import {
+  COST_POLICY_EDITABLE_FIELDS,
+  COST_POLICY_RANGES,
+  COST_POLICY_STORE_VERSION,
+  costConfigToOverrides,
+  createCostPolicyStore,
+  DEFAULT_COST_POLICY_CONFIG,
+  normalizeCostPolicyConfig,
+} from '../lib/domain/host/cost-policy-store.mjs'
 import {
   createModelBudget,
   createModelGate,
@@ -13029,5 +13044,182 @@ test('ops-maintenance N4：单步失败隔离（后续继续 + 退出码语义�
   assert.deepEqual(parseMaintenanceArgs(['--keep', '3']).keep, 3)
   assert.deepEqual(parseMaintenanceArgs(['--max-size', '10M']).maxBytes, 10 * 1024 * 1024)
   assert.deepEqual(parseMaintenanceArgs(['--bogus']).unknown, ['--bogus'])
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate N3：成本策略 store + 配置路由 + 实时生效
+// ---------------------------------------------------------------------------
+
+function makeN3CostFixture() {
+  const dir = tmpDir('n3-cost')
+  const file = path.join(dir, 'cost-policy.json')
+  const store = createCostPolicyStore({ file, now: () => 5000, logger: { warn() {} } })
+  const applied = []
+  const handler = createCostPolicyHandler({
+    store,
+    apply: (config) => {
+      applied.push(config)
+      return { ok: true, effective: costConfigToOverrides(config) }
+    },
+    tokenFile: '',
+    fence: { check: () => null },
+    logger: { warn() {} },
+  })
+  return { dir, file, store, handler, applied }
+}
+
+test('cost-policy-store N3：默认空策略/校验回退/原子写/坏文件降级', () => {
+  const fixture = makeN3CostFixture()
+  assert.equal(COST_POLICY_STORE_VERSION, 1)
+  assert.deepEqual(
+    [...COST_POLICY_EDITABLE_FIELDS].sort(),
+    ['activityLimits', 'dayTotal', 'disabled', 'minuteTotal', 'roleLimits', 'softDayTotal', 'softMinuteTotal'].sort(),
+  )
+  const empty = fixture.store.read()
+  assert.equal(empty.exists, false)
+  assert.deepEqual(empty.config, { ...DEFAULT_COST_POLICY_CONFIG })
+  // 写入合法字段
+  const written = fixture.store.write({
+    minuteTotal: 12,
+    dayTotal: 200,
+    softMinuteTotal: 8,
+    softDayTotal: 60,
+    disabled: true,
+    roleLimits: { mood: { minute: 2, day: 10 } },
+  })
+  assert.equal(written.ok, true)
+  assert.equal(existsSync(fixture.file), true)
+  assert.equal(statSync(fixture.file).mode & 0o777, 0o600)
+  const readBack = fixture.store.read()
+  assert.equal(readBack.config.minuteTotal, 12)
+  assert.equal(readBack.config.dayTotal, 200)
+  assert.equal(readBack.config.disabled, true)
+  assert.deepEqual(readBack.config.roleLimits, { mood: { minute: 2, day: 10 } })
+  // 非法值回退（负数/未知字段/类型错误）
+  const invalid = normalizeCostPolicyConfig({ minuteTotal: -5, dayTotal: 'abc', nope: 1 }, DEFAULT_COST_POLICY_CONFIG)
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.config.minuteTotal, 0)
+  assert.equal(
+    invalid.errors.some((error) => error.path === 'nope'),
+    true,
+  )
+  // store.write 对未知字段整体拒绝
+  const rejected = fixture.store.write({ nope: 1 })
+  assert.equal(rejected.ok, false)
+  // overrides 映射
+  const overrides = costConfigToOverrides({
+    disabled: false,
+    minuteTotal: 3,
+    dayTotal: 9,
+    softMinuteTotal: 1,
+    softDayTotal: 2,
+    roleLimits: {},
+    activityLimits: {},
+  })
+  assert.equal(overrides.enabled, true)
+  assert.equal(overrides.limits.total.minute, 3)
+  assert.equal(overrides.softAlerts.total.day, 2)
+  // 坏文件降级
+  writeFileSync(fixture.file, '{bad json')
+  const broken = createCostPolicyStore({ file: fixture.file, now: () => 5000 })
+  const brokenRead = broken.read()
+  assert.equal(brokenRead.config.minuteTotal, 0)
+  assert.equal(brokenRead.errors.length >= 1, true)
+  // reset
+  assert.equal(fixture.store.reset().ok, true)
+  assert.equal(fixture.store.read().config.minuteTotal, 0)
+  assert.equal(COST_POLICY_RANGES.minuteTotal.max >= 1000, true)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('cost-policy-routes N3：GET/PUT 鉴权、校验、保存后实时 apply', async () => {
+  const fixture = makeN3CostFixture()
+  // GET（fence 放行）
+  const getRes = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: COST_POLICY_ROUTE }), getRes)
+  const getBody = getRes.json()
+  assert.equal(getBody.ok, true)
+  assert.equal(getBody.available, true)
+  assert.equal(getBody.config.minuteTotal, 0)
+  assert.equal(Array.isArray(getBody.fields), true)
+  // 无鉴权（token 未配置 + fence 拒绝）
+  const deniedHandler = createCostPolicyHandler({
+    store: fixture.store,
+    tokenFile: '',
+    fence: { check: () => 'blocked' },
+  })
+  const denied = hubFakeRes()
+  await deniedHandler(hubFakeReq('PUT', { config: { minuteTotal: 1 } }, { url: COST_POLICY_ROUTE }), denied)
+  assert.equal(denied.statusCode, 403)
+  // PUT 合法 → 写 store + apply
+  const put = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'PUT',
+      { config: { minuteTotal: 15, dayTotal: 300, softMinuteTotal: 5, softDayTotal: 50 } },
+      { url: COST_POLICY_ROUTE },
+    ),
+    put,
+  )
+  const putBody = put.json()
+  assert.equal(putBody.ok, true)
+  assert.equal(putBody.config.minuteTotal, 15)
+  assert.equal(putBody.applied.ok, true)
+  assert.equal(fixture.applied.length, 1)
+  assert.equal(fixture.applied[0].minuteTotal, 15)
+  assert.equal(fixture.store.read().config.dayTotal, 300)
+  // PUT 非法 → 400 且不写
+  const bad = hubFakeRes()
+  await fixture.handler(hubFakeReq('PUT', { config: { minuteTotal: -1 } }, { url: COST_POLICY_ROUTE }), bad)
+  assert.equal(bad.statusCode, 400)
+  assert.equal(fixture.store.read().config.minuteTotal, 15)
+  // reset
+  const reset = hubFakeRes()
+  await fixture.handler(hubFakeReq('PUT', { reset: true }, { url: COST_POLICY_ROUTE }), reset)
+  assert.equal(reset.json().reset, true)
+  assert.equal(fixture.store.read().config.minuteTotal, 0)
+  // store 不可用降级
+  const bare = createCostPolicyHandler({ store: null, tokenFile: '', fence: { check: () => null } })
+  const bareRes = hubFakeRes()
+  await bare(hubFakeReq('GET'), bareRes)
+  assert.equal(bareRes.json().available, false)
+  // 路由注册
+  const routes = []
+  const disposers = []
+  registerCostPolicyRoute({
+    webServer: {
+      register: (route) => {
+        routes.push(route)
+        return () => {}
+      },
+    },
+    disposers,
+    store: fixture.store,
+    tokenFile: '',
+    fence: null,
+  })
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, COST_POLICY_ROUTE)
+  assert.equal(disposers.length, 1)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('cost-policy N3：store overrides 合并进 cost guard（实时限额生效）', () => {
+  const fixture = makeN3CostFixture()
+  fixture.store.write({ minuteTotal: 2, dayTotal: 0 })
+  const overrides = costConfigToOverrides(fixture.store.read().config)
+  const guard = createCostGuard({ env: {}, settings: {}, overrides, now: () => 5000 })
+  assert.equal(guard.policy.limits.total.minute, 2)
+  assert.equal(guard.acquire({ role: 'chat', activity: 'chat' }).ok, true)
+  assert.equal(guard.acquire({ role: 'chat', activity: 'chat' }).ok, true)
+  const third = guard.acquire({ role: 'chat', activity: 'chat' })
+  assert.equal(third.ok, false, '超过 minuteTotal 被拒')
+  assert.equal(/^COST_/.test(String(third.code)), true)
+  // 用 apply 函数重建 guard（模拟实时生效）
+  const apply = createCostPolicyApplier({ env: {}, settings: {}, budget: null, gate: null })
+  const applied = apply({ ...fixture.store.read().config, minuteTotal: 0 })
+  assert.equal(applied.ok, true)
+  assert.equal(applied.effective.limits.total.minute, 0)
   rmSync(fixture.dir, { recursive: true, force: true })
 })

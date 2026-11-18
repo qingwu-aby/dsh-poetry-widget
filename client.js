@@ -29705,6 +29705,27 @@
     return chars.length > max ? chars.slice(0, max).join("") + "\u2026" : chars.join("");
   }
   var TERMINAL_TASK_STATUSES = ["done", "failed", "cancelled"];
+  function costDraftFrom(data) {
+    const config = data && data.config && typeof data.config === "object" ? data.config : {};
+    const int = (value, fallback) => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : fallback;
+    return {
+      disabled: config.disabled === true,
+      minuteTotal: int(config.minuteTotal, 0),
+      dayTotal: int(config.dayTotal, 0),
+      softMinuteTotal: int(config.softMinuteTotal, 20),
+      softDayTotal: int(config.softDayTotal, 600)
+    };
+  }
+  function costPayload(draft) {
+    const int = (value, fallback) => Math.max(0, Math.floor(Number(value) || fallback));
+    return {
+      disabled: draft.disabled === true,
+      minuteTotal: int(draft.minuteTotal, 0),
+      dayTotal: int(draft.dayTotal, 0),
+      softMinuteTotal: int(draft.softMinuteTotal, 20),
+      softDayTotal: int(draft.softDayTotal, 600)
+    };
+  }
   var TRAINING_ACTION_LABELS = { run: "\u8FD0\u884C", cancel: "\u53D6\u6D88", promote: "\u4E0A\u7EBF", rollback: "\u56DE\u6EDA" };
   function trainingDraftFrom(data) {
     const config = data && data.config && data.config.config ? data.config.config : {};
@@ -29766,6 +29787,10 @@
       const [trainingError, setTrainingError] = React.useState("");
       const [trainingBusy, setTrainingBusy] = React.useState("");
       const [pendingTrainingAction, setPendingTrainingAction] = React.useState("");
+      const [costPolicy, setCostPolicy] = React.useState(null);
+      const [costDraft, setCostDraft] = React.useState(() => costDraftFrom(null));
+      const [costError, setCostError] = React.useState("");
+      const [costBusy, setCostBusy] = React.useState("");
       const [memoryQuery, setMemoryQuery] = React.useState("");
       const [memoryResults, setMemoryResults] = React.useState(null);
       const [memoryError, setMemoryError] = React.useState("");
@@ -29789,6 +29814,13 @@
           setHubError("");
         }).catch((error) => setHubError("\u8BFB\u53D6 Hub \u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
       }, []);
+      const refreshCostPolicy = React.useCallback(() => {
+        apiRequest("/cost-policy.json").then((data) => {
+          setCostPolicy(data);
+          setCostDraft(costDraftFrom(data));
+          setCostError("");
+        }).catch((error) => setCostError("\u8BFB\u53D6\u6210\u672C\u7B56\u7565\u5931\u8D25\uFF1A" + error.message));
+      }, []);
       const refreshTraining = React.useCallback(() => {
         apiRequest("/training.json").then((data) => {
           setTraining(data);
@@ -29801,7 +29833,8 @@
         refreshPolicy();
         refreshHub();
         refreshTraining();
-      }, [refresh, refreshPolicy, refreshHub, refreshTraining]);
+        refreshCostPolicy();
+      }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy]);
       function save(patch, key) {
         setBusy(key);
         request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
@@ -29861,6 +29894,44 @@
       }
       function setTrainingField(field, value) {
         setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }));
+      }
+      function setCostField(field, value) {
+        setCostDraft((draft) => Object.assign({}, draft, { [field]: value }));
+      }
+      function saveCostPolicy() {
+        setCostBusy("save");
+        setCostError("");
+        apiRequest("/cost-policy.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: costPayload(costDraft) })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setCostError("\u4FDD\u5B58\u6210\u672C\u7B56\u7565\u5931\u8D25\uFF1A" + (data.message || data.error || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          setCostPolicy(data);
+          setCostDraft(costDraftFrom(data));
+          setMessage("\u6210\u672C\u7B56\u7565\u5DF2\u4FDD\u5B58\u5E76\u751F\u6548");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setCostError("\u4FDD\u5B58\u6210\u672C\u7B56\u7565\u5931\u8D25\uFF1A" + error.message)).finally(() => setCostBusy(""));
+      }
+      function resetCostPolicy() {
+        setCostBusy("reset");
+        setCostError("");
+        apiRequest("/cost-policy.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setCostError("\u91CD\u7F6E\u6210\u672C\u7B56\u7565\u5931\u8D25\uFF1A" + (data.message || data.error || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          refreshCostPolicy();
+          setMessage("\u6210\u672C\u7B56\u7565\u5DF2\u91CD\u7F6E\u4E3A\u9ED8\u8BA4");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setCostError("\u91CD\u7F6E\u6210\u672C\u7B56\u7565\u5931\u8D25\uFF1A" + error.message)).finally(() => setCostBusy(""));
       }
       function saveTraining() {
         setTrainingBusy("training-save");
@@ -30186,6 +30257,64 @@
               h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.resumeAll") }, hubBusy === "hub.resumeAll" ? "\u6062\u590D\u4E2D\u2026" : "\u6062\u590D\u5168\u90E8")
             )
           )
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "\u6210\u672C\uFF08\u6A21\u578B\u8C03\u7528\u95F8\u95E8\uFF09"),
+          costError ? h3("div", { style: styles.error }, costError) : null,
+          h3(
+            "div",
+            { style: styles.hint },
+            costPolicy && costPolicy.available === false ? "\u6210\u672C\u7B56\u7565\u5B58\u50A8\u672A\u63A5\u5165\uFF08\u4E0D\u53EF\u7528\uFF09" : "\u9650\u989D 0 = \u4E0D\u9650\u5236\uFF1B\u4FDD\u5B58\u540E\u7ACB\u5373\u751F\u6548\uFF08\u65E0\u9700\u91CD\u542F\uFF09\u3002\u8F6F\u544A\u8B66\u53EA\u63D0\u793A\u4E0D\u62E6\u622A\u3002"
+          ),
+          row(
+            "\u5173\u95ED\u6210\u672C\u95F8\u95E8",
+            "\u52FE\u9009\u540E\u4E0D\u62E6\u622A\u6A21\u578B\u8C03\u7528\uFF08\u4ECD\u8BB0\u5F55\u7528\u91CF\uFF09",
+            h3(
+              "label",
+              { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer" } },
+              h3("input", {
+                type: "checkbox",
+                "aria-label": "\u6210\u672C disabled",
+                checked: costDraft.disabled === true,
+                disabled: costBusy !== "",
+                onChange: (event) => setCostField("disabled", event.target.checked)
+              }),
+              costDraft.disabled ? "\u5DF2\u5173\u95ED" : "\u542F\u7528\u4E2D"
+            )
+          ),
+          row(
+            "\u6BCF\u5206\u949F\u603B\u9650\u989D",
+            "minuteTotal\uFF080 = \u4E0D\u9650\u5236\uFF09",
+            trainingNumber("\u6210\u672C minuteTotal", costDraft.minuteTotal, (value) => setCostField("minuteTotal", value), { min: 0 })
+          ),
+          row(
+            "\u6BCF\u65E5\u603B\u9650\u989D",
+            "dayTotal\uFF080 = \u4E0D\u9650\u5236\uFF09",
+            trainingNumber("\u6210\u672C dayTotal", costDraft.dayTotal, (value) => setCostField("dayTotal", value), { min: 0 })
+          ),
+          row(
+            "\u6BCF\u5206\u949F\u8F6F\u544A\u8B66",
+            "softMinuteTotal\uFF08\u8FBE\u5230\u53EA\u544A\u8B66\u4E0D\u62E6\u622A\uFF09",
+            trainingNumber("\u6210\u672C softMinuteTotal", costDraft.softMinuteTotal, (value) => setCostField("softMinuteTotal", value), { min: 0 })
+          ),
+          row(
+            "\u6BCF\u65E5\u8F6F\u544A\u8B66",
+            "softDayTotal\uFF08\u8FBE\u5230\u53EA\u544A\u8B66\u4E0D\u62E6\u622A\uFF09",
+            trainingNumber("\u6210\u672C softDayTotal", costDraft.softDayTotal, (value) => setCostField("softDayTotal", value), { min: 0 })
+          ),
+          row(
+            "\u64CD\u4F5C",
+            "\u4FDD\u5B58\u4F1A\u5B9E\u65F6\u91CD\u5EFA cost guard\uFF1B\u91CD\u7F6E\u6062\u590D\u9ED8\u8BA4\u7A7A\u7B56\u7565",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: costBusy !== "", onClick: saveCostPolicy }, costBusy === "save" ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u6210\u672C\u7B56\u7565"),
+              h3("button", { type: "button", style: styles.button, disabled: costBusy !== "", onClick: resetCostPolicy }, costBusy === "reset" ? "\u91CD\u7F6E\u4E2D\u2026" : "\u91CD\u7F6E\u6210\u672C\u7B56\u7565")
+            )
+          ),
+          costPolicy && costPolicy.updatedAt ? h3("div", { style: styles.hint }, "\u4E0A\u6B21\u66F4\u65B0\uFF1A" + new Date(costPolicy.updatedAt).toLocaleString()) : null
         ),
         h3(
           "div",
