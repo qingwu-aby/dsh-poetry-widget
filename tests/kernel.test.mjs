@@ -236,6 +236,7 @@ import {
   MODEL_GATE_DEFAULTS,
   MODEL_GATE_REJECT_CODES,
 } from '../lib/domain/host/model-budget.mjs'
+import { createMethodMemory } from '../lib/domain/learning/method-memory.mjs'
 import {
   createTrainingConfigStore,
   defaultTrainingConfig,
@@ -255,6 +256,7 @@ import {
   TRAINING_SERVICE_CODES,
   TRAINING_SERVICE_VERSION,
 } from '../lib/domain/life/training-service.mjs'
+import { createMemoryJournal } from '../lib/domain/memory/memory-journal.mjs'
 import { createGameMemoryWorkspace } from '../lib/domain/play/game-memory-workspace.mjs'
 import { createMinecraftWorld, MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
@@ -9376,5 +9378,185 @@ test('hub-routes I3：无 runtime taskList 时降级为空数组（不崩）', a
   assert.equal(payload.tasks.list.length, 0)
   assert.equal(payload.tasks.total, 0)
   assert.equal(payload.tasks.ok, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate I4：journal / methods 写入桥（onRecord + memoryWrite Gateway 双写）
+// ---------------------------------------------------------------------------
+
+test('memory-journal I4：onRecord 仅在成功追加后调用，旧写入不变', async () => {
+  const withHookDir = tmpDir('i4-journal-hook')
+  const plainDir = tmpDir('i4-journal-plain')
+  const recorded = []
+  const withHook = createMemoryJournal({
+    dir: withHookDir,
+    logger: { warn() {} },
+    now: () => 1000,
+    onRecord: (record) => recorded.push(record),
+  })
+  const plain = createMemoryJournal({ dir: plainDir, logger: { warn() {} }, now: () => 1000 })
+  const first = await withHook.append({ kind: 'murmur', text: '今天的风很轻' })
+  const baseline = await plain.append({ kind: 'murmur', text: '今天的风很轻' })
+  assert.equal(first.ok, true)
+  assert.equal(baseline.ok, true)
+  assert.equal(first.ts, baseline.ts)
+  assert.deepEqual(recorded, [{ ts: 1000, kind: 'murmur', text: '今天的风很轻' }], '成功后通知 onRecord')
+  assert.equal(
+    readFileSync(path.join(withHookDir, 'journal.jsonl'), 'utf8'),
+    readFileSync(path.join(plainDir, 'journal.jsonl'), 'utf8'),
+    'jsonl 与无回调一致',
+  )
+  assert.equal(
+    readFileSync(path.join(withHookDir, 'journal.md'), 'utf8'),
+    readFileSync(path.join(plainDir, 'journal.md'), 'utf8'),
+    'md 与无回调一致',
+  )
+  // 限频跳过 → 不通知
+  const throttled = await withHook.append({ kind: 'murmur', text: '另一句' })
+  assert.equal(throttled.skipped, true)
+  assert.equal(recorded.length, 1, '限频跳过不通知')
+  // 无效 entry → 不通知
+  const invalid = await withHook.append({ kind: 'murmur', text: '' })
+  assert.equal(invalid.ok, false)
+  assert.equal(recorded.length, 1)
+  rmSync(withHookDir, { recursive: true, force: true })
+  rmSync(plainDir, { recursive: true, force: true })
+})
+
+test('memory-journal I4：onRecord 抛错隔离（append 仍成功写盘）', async () => {
+  const dir = tmpDir('i4-journal-throw')
+  const journal = createMemoryJournal({
+    dir,
+    logger: { warn() {} },
+    now: () => 1000,
+    onRecord: () => {
+      throw new Error('bridge boom')
+    },
+  })
+  const result = await journal.append({ kind: 'thought', text: '回调抛错也要写进去' })
+  assert.equal(result.ok, true)
+  assert.match(readFileSync(path.join(dir, 'journal.jsonl'), 'utf8'), /回调抛错也要写进去/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('method-memory I4：onRecord 记录成功后调用，旧写入不变', () => {
+  const dir = tmpDir('i4-method')
+  const file = path.join(dir, 'methods.json')
+  const recorded = []
+  const memory = createMethodMemory({ file, now: () => 1000, onRecord: (entry) => recorded.push(entry) })
+  assert.equal(memory.record({ name: '先看日志', howTo: '出错时先看 stderr 再猜原因', source: 'lessons' }), true)
+  assert.equal(recorded.length, 1)
+  assert.equal(recorded[0].name, '先看日志')
+  assert.equal(recorded[0].howTo, '出错时先看 stderr 再猜原因')
+  assert.equal(recorded[0].usedCount, 1)
+  assert.equal(recorded[0].lastAt, 1000)
+  // 同名再记 → usedCount 增加且再次通知
+  assert.equal(memory.record({ name: '先看日志', howTo: '出错时先看 stderr 再猜原因', worked: true }), true)
+  assert.equal(recorded.length, 2)
+  assert.equal(recorded[1].usedCount, 2)
+  // 无效输入 → 不通知
+  assert.equal(memory.record({ name: 'x', howTo: '' }), false)
+  assert.equal(recorded.length, 2)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).entries.length, 1)
+  // 回调抛错 → 旧写盘仍成功
+  const throwFile = path.join(dir, 'methods-throw.json')
+  const throwing = createMethodMemory({
+    file: throwFile,
+    now: () => 1000,
+    onRecord: () => {
+      throw new Error('boom')
+    },
+  })
+  assert.equal(throwing.record({ name: '记一条', howTo: '应该仍然写进去' }), true)
+  assert.equal(JSON.parse(readFileSync(throwFile, 'utf8')).entries.length, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime I4：memoryWrite 关闭时 recordJournal/recordMethod skipped（零 Gateway 写入）', async () => {
+  const writes = []
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: false, shadow: true, memoryWrite: false },
+    memoryGateway: {
+      registerProvider: () => ({ ok: true }),
+      write: (entry) => {
+        writes.push(entry)
+        return { ok: true }
+      },
+      snapshot: () => ({ metrics: { writes: writes.length }, conflicts: 0 }),
+    },
+    now: () => 1000,
+  })
+  const journal = await runtime.recordJournal({ kind: 'murmur', text: '不写网关', ts: 1000 })
+  const method = await runtime.recordMethod({ name: '方法', howTo: '做法', lastAt: 1000 })
+  assert.equal(journal.skipped, true)
+  assert.equal(method.skipped, true)
+  assert.equal(writes.length, 0)
+  assert.equal(runtime.snapshot().memory.write, false)
+  runtime.dispose()
+})
+
+test('hub-runtime I4：memoryWrite 开启后 journal/method 条目进 Gateway（映射 category/source）', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_MEMORY_WRITE: 'gateway' },
+    now: () => 1000,
+  })
+  const journal = await runtime.recordJournal({ kind: 'murmur', text: '今天的风很轻', ts: 1000 })
+  const mood = await runtime.recordJournal({ kind: 'mood', label: '平静', reason: '散步', ts: 1001 })
+  const method = await runtime.recordMethod({ name: '先看日志', howTo: '出错先看 stderr', lastAt: 1002, usedCount: 3 })
+  assert.equal(journal.ok, true)
+  assert.equal(journal.entry.category, 'episodic')
+  assert.equal(journal.entry.topic, 'journal:murmur')
+  assert.equal(journal.entry.source.kind, 'journal')
+  assert.equal(journal.entry.provenance.at, 1000)
+  assert.equal(mood.entry.category, 'reflection', 'mood 映射 reflection')
+  assert.equal(method.ok, true)
+  assert.equal(method.entry.category, 'method')
+  assert.equal(method.entry.topic, 'method:先看日志')
+  assert.equal(method.entry.source.kind, 'method-memory')
+  assert.match(method.entry.text, /先看日志：出错先看 stderr/)
+  assert.equal(method.entry.category, 'method')
+  assert.equal(runtime.memorySnapshot().metrics.writes >= 3, true)
+  // 非法输入被拒绝
+  assert.equal((await runtime.recordJournal({ kind: 'murmur', text: '' })).code, 'HUB_MEMORY_INVALID_ENTRY')
+  assert.equal((await runtime.recordMethod({ name: '' })).code, 'HUB_MEMORY_INVALID_ENTRY')
+  runtime.dispose()
+})
+
+test('hub-runtime I4：Gateway 失败不影响 journal/method 旧路径', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: false, shadow: true, memoryWrite: true },
+    memoryGateway: {
+      registerProvider: () => ({ ok: true }),
+      write: () => {
+        throw new Error('gateway down')
+      },
+      snapshot: () => ({ metrics: {}, conflicts: 0 }),
+    },
+    now: () => 1000,
+  })
+  const journalResult = await runtime.recordJournal({ kind: 'murmur', text: '网关失败', ts: 1000 })
+  const methodResult = await runtime.recordMethod({ name: '方法', howTo: '做法', lastAt: 1000 })
+  assert.equal(journalResult.ok, false)
+  assert.equal(journalResult.code, 'HUB_MEMORY_WRITE_FAILED')
+  assert.equal(methodResult.ok, false)
+  assert.equal(runtime.snapshot().ok, true, 'Hub 不崩')
+  // 旧路径：journal/method 照常写盘（onRecord 抛错/失败被吞）
+  const dir = tmpDir('i4-isolation')
+  const journal = createMemoryJournal({
+    dir,
+    logger: { warn() {} },
+    now: () => 1000,
+    onRecord: (record) => {
+      runtime.recordJournal(record).catch(() => {})
+    },
+  })
+  const appended = await journal.append({ kind: 'thought', text: '旧路径仍然成功' })
+  assert.equal(appended.ok, true)
+  assert.match(readFileSync(path.join(dir, 'journal.jsonl'), 'utf8'), /旧路径仍然成功/)
+  runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
 })
