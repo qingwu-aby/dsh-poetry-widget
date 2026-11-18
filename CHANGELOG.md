@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.17.0 Activation I1–I4**：Hub 持久化（opt-in）、设置页 Task/Activity/记忆控制台、全量任务列表、journal/methods 写入桥；880 tests。
 - **v0.16.6 full live 验证**：DSH_POETRY_HUB=1 生效；chat.turn task.create 全链路（task→receipt→feedback→EventBus）通过。
 - **v0.16.5 shadow live 验证**：DSH_POETRY_HUB=shadow 生效，EventBus live stored/published=7，chat shadow smoke 正常；记录见 docs/live-acceptance.md。
 - **v0.16.4 真实宿主验收**：Hub/模型策略/训练路由 live 可用；Hub 默认 off、训练默认关闭；发现并修复 model-policy reset 空配置误报。记录见 docs/live-acceptance.md。
