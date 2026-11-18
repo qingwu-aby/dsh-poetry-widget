@@ -84,6 +84,12 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - 持久化：`hub-taskboard.json`（2 tasks）、`hub-events.jsonl`（259 events）已生成；
 - 当前测试 893/893，check 绿。
 
+## 3.7 J5 聊天上下文等价（代码完成，待重启）
+
+- full 接管时 context（graph/spread/moral/rules/exemplars/relationship/emotion/daily/commitment/method + image）经 task.payload 传给 chat adapter；
+- 截断 ≤8 条/数组、≤400 字/字符串；off/shadow 入参不变；
+- 当前测试 897/897；需重启加载 J5 后做 live 验证。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.18.2 J5 聊天上下文等价**：Hub 接管 chat.turn 时透传图谱/关系/情绪/方法等上下文，截断后进 payload。897 tests。
 - **v0.18.1 闭环 live 验证**：full 聊天走 Hub receipt（tb-1 done）；Minecraft 队列 bot claim→mc_say→receipt→tb-2 done；persist 文件生成。
 - **v0.18.0 闭环 J2–J4**：Chat 所有权切换 Hub（full 停旧路径）、Minecraft 任务队列（claim/lease/receipt）、Hub 持久化默认开启；bot 增加 Host 任务轮询（DSH_MC_HOST_TASKS=1）。893 tests。
 - **v0.17.0 Activation I1–I4**：Hub 持久化（opt-in）、设置页 Task/Activity/记忆控制台、全量任务列表、journal/methods 写入桥；880 tests。
