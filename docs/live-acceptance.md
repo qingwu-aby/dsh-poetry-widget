@@ -48,6 +48,16 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - Memory 仍只读；训练仍关闭。
 - 注意：`shadowEventCount=0` 是因为已有 EventBus 时事件走总线，本地 shadow 环不再累积；EventBus metrics 才是正确证据。
 
+## 3.3 Full live 验证（2026-11-18）
+
+- 启动环境：`DSH_POETRY_HUB=1`，`hub.json`：`mode="full"`、`featureFlag.enabled=true/shadow=false/source=env`；
+- adapters: `['chat', 'minecraft']`；活动注册表仍 stopped（full 不自动启动 World，符合当前实现）；
+- 通过 `POST hub.json {action:'task.create', kind:'chat.turn', idempotencyKey:'full-smoke-chat-1'}` 触发真实 Chat 任务：
+  - task `tb-1` created → running → done；
+  - receipt `ok=true`，replyId `hub-chat-full-smoke-1`，回复正常；
+  - feedback `records=1/successes=1`；
+  - EventBus `published=5`、duplicates=0、rejected=0。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；

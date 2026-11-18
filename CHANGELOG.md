@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.16.6 full live 验证**：DSH_POETRY_HUB=1 生效；chat.turn task.create 全链路（task→receipt→feedback→EventBus）通过。
 - **v0.16.5 shadow live 验证**：DSH_POETRY_HUB=shadow 生效，EventBus live stored/published=7，chat shadow smoke 正常；记录见 docs/live-acceptance.md。
 - **v0.16.4 真实宿主验收**：Hub/模型策略/训练路由 live 可用；Hub 默认 off、训练默认关闭；发现并修复 model-policy reset 空配置误报。记录见 docs/live-acceptance.md。
 - **v0.16.3 最终 soak**：5×858 测试、模型/任务/事件压力、故障注入 9/9×3、真实备份 6832 文件 + 恢复演练；文档见 docs/final-soak.md。
