@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { createChatHttpService } from '../lib/composition/chat-service.mjs'
+import { createChatHttpService, createChatTurnRunner } from '../lib/composition/chat-service.mjs'
 import {
   buildHealthAlerts,
   buildHealthMetrics,
@@ -9559,4 +9559,173 @@ test('hub-runtime I4：Gateway 失败不影响 journal/method 旧路径', async 
   assert.match(readFileSync(path.join(dir, 'journal.jsonl'), 'utf8'), /旧路径仍然成功/)
   runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate J2：Chat 所有权切换到 Hub（full 接管，off/shadow 旧路径）
+// ---------------------------------------------------------------------------
+
+function makeJ2ChatFixture(options = {}) {
+  const dir = tmpDir('j2-chat')
+  const adapterCalls = []
+  const bridgeCalls = []
+  const fakeAdapter = {
+    manifest: CHAT_MANIFEST_RAW,
+    execute: async (task) => {
+      adapterCalls.push(task)
+      if (options.adapterThrows) throw new Error('adapter boom')
+      return { ok: true, receipt: { ok: true, at: 1000, text: 'hub reply', taskKey: task.key } }
+    },
+  }
+  let runtime = null
+  const runner = createChatTurnRunner(() => runtime)
+  runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: false },
+    activityManifests: options.noAdapter ? [] : [fakeAdapter],
+    chatTurnRunner: (input) => runner(input),
+    now: () => 1000,
+  })
+  runtime.start()
+  const deps = {
+    hubRuntime: runtime,
+    chatTakeover: options.chatTakeover,
+    logger: { warn() {} },
+    chatBridge: {
+      async chat(payload) {
+        bridgeCalls.push(payload)
+        return { ok: true, reply: 'old bridge reply', felt: '平静', murmur: '' }
+      },
+      drainPending: () => [],
+    },
+    knowledgeGraph: { digest: () => [], spread: () => [] },
+    relationship: { ingest: async () => ({ entries: [] }) },
+    emotional: { recordFromChat: () => {} },
+    memoryDir: dir,
+    focus: options.focus,
+    world: options.world,
+  }
+  const service = createChatHttpService(deps)
+  return { service, deps, runtime, runner, adapterCalls, bridgeCalls, dir }
+}
+
+test('chat J2：full 模式由 Hub 接管（旧 chatBridge 0 次，receipt 返回）', async () => {
+  const fixture = makeJ2ChatFixture()
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-1' })
+  assert.equal(result.ok, true)
+  assert.equal(result.reply, 'hub reply')
+  assert.equal(result.source, 'hub')
+  assert.ok(result.receipt !== null && result.receipt.ok === true, '返回 Hub receipt')
+  assert.ok(typeof result.taskId === 'string' && result.taskId.length > 0)
+  assert.equal(fixture.bridgeCalls.length, 0, '旧 chatBridge 路径停用（0 次）')
+  assert.equal(fixture.adapterCalls.length, 1, 'Hub chat adapter 执行一次')
+  const board = fixture.runtime.getInstances().taskBoard
+  const task = board.get(result.taskId)
+  assert.equal(task.status, 'done')
+  assert.equal(task.kind, 'chat.turn')
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J2：off/shadow 完全走旧路径（bridge 1 次、Hub adapter 0 次）', async () => {
+  for (const featureFlag of [
+    { enabled: false, shadow: true },
+    { enabled: true, shadow: true },
+  ]) {
+    const fixture = makeJ2ChatFixture({ featureFlag })
+    const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-1' })
+    assert.equal(result.ok, true)
+    assert.equal(result.reply, 'old bridge reply')
+    assert.equal(fixture.bridgeCalls.length, 1, '旧路径调用一次')
+    assert.equal(fixture.adapterCalls.length, 0, 'Hub 不执行')
+    fixture.runtime.dispose()
+    rmSync(fixture.dir, { recursive: true, force: true })
+  }
+})
+
+test('chat J2：full 下 Hub 失败不回退旧路径、不双重回复', async () => {
+  const fixture = makeJ2ChatFixture({ adapterThrows: true })
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-1' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error, 'HUB_CHAT_FAILED')
+  assert.equal(fixture.bridgeCalls.length, 0, '失败也不回退旧 chatBridge')
+  assert.equal(fixture.adapterCalls.length, 1, '只尝试一次，不重复回复')
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(
+    board.list().some((task) => task.status === 'failed'),
+    true,
+    '任务标记 failed',
+  )
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J2：同 messageId 幂等（只执行/回复一次）', async () => {
+  const fixture = makeJ2ChatFixture()
+  const first = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-dup' })
+  const second = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-dup' })
+  assert.equal(first.ok, true)
+  assert.equal(second.ok, true)
+  assert.equal(second.reply, first.reply)
+  assert.equal(fixture.adapterCalls.length, 1, '同 messageId 只执行一次')
+  assert.equal(second.duplicate, true, '第二次返回缓存 receipt')
+  assert.equal(fixture.bridgeCalls.length, 0)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J2：focus/deferred canned reply 也由 Hub receipt 返回', async () => {
+  const deferred = []
+  const fixture = makeJ2ChatFixture({
+    focus: {
+      get: () => ({ active: true, mode: 'game' }),
+      defer: (item) => deferred.push(item),
+      drainDeferred: () => [],
+    },
+    world: { interrupt: () => {} },
+  })
+  const result = await fixture.service.chat({ text: '在吗', peerId: 'peer-1', messageId: 'm-focus' })
+  assert.equal(result.ok, true)
+  assert.equal(result.deferred, true)
+  assert.match(result.reply, /我在游戏里/)
+  assert.ok(result.receipt !== null && result.receipt.deferred === true, 'canned reply 以 Hub receipt 返回')
+  assert.equal(deferred.length, 1, 'focus.defer 语义保留')
+  assert.equal(fixture.adapterCalls.length, 0, 'deferred 不跑模型')
+  assert.equal(fixture.bridgeCalls.length, 0)
+  const board = fixture.runtime.getInstances().taskBoard
+  const task = board.get(result.taskId)
+  assert.equal(task.status, 'done')
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J2：chatTakeover=false 时 full 仍走旧路径（可回退）', async () => {
+  const fixture = makeJ2ChatFixture({ chatTakeover: false })
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-1' })
+  assert.equal(result.ok, true)
+  assert.equal(result.reply, 'old bridge reply')
+  assert.equal(fixture.bridgeCalls.length, 1)
+  assert.equal(fixture.adapterCalls.length, 0)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J2：runner 边界（非 full/空消息/未注入）', async () => {
+  const offRuntime = createHubRuntime({ logger: { warn() {} }, featureFlag: { enabled: false, shadow: true } })
+  const offRunner = createChatTurnRunner(offRuntime)
+  assert.equal((await offRunner({ text: '你好', peerId: 'p', messageId: 'm' })).code, 'HUB_FULL_REQUIRED')
+  const bare = createHubRuntime({ logger: { warn() {} }, featureFlag: { enabled: true, shadow: false } })
+  assert.equal((await bare.runChatTurn({ text: '你好', peerId: 'p', messageId: 'm' })).code, 'HUB_CHAT_UNAVAILABLE')
+  const full = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: [],
+  })
+  full.start()
+  const runner = createChatTurnRunner(full)
+  assert.equal((await runner({ text: '   ', peerId: 'p', messageId: 'm' })).code, 'HUB_CHAT_EMPTY')
+  assert.equal((await runner({ text: '你好', peerId: 'p', messageId: 'm' })).code, 'HUB_NO_ACTIVITY_ADAPTER')
+  offRuntime.dispose()
+  bare.dispose()
+  full.dispose()
 })
