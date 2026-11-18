@@ -68,6 +68,14 @@ import {
   HUB_CONTROL_VERSION,
 } from '../lib/core/hub-control-api.mjs'
 import {
+  createInMemoryMemoryProvider,
+  createMemoryGateway,
+  MEMORY_CATEGORIES,
+  MEMORY_GATEWAY_CODES,
+  MEMORY_GATEWAY_VERSION,
+  MEMORY_STATUSES,
+} from '../lib/core/memory-gateway.mjs'
+import {
   createScheduler,
   DEFAULT_PRIORITY_CLASSES,
   priorityClassOf,
@@ -3635,4 +3643,311 @@ test('hub-control B5：flush 等待异步 adapter，统一返回形状', async (
     if (result.ok === true) assert.ok('data' in result)
     else assert.equal(typeof result.error.code, 'string')
   }
+})
+
+// ---------------------------------------------------------------------------
+// Gate C1：Memory Gateway（lib/core/memory-gateway.mjs）——统一读写/来源/合并/冲突/隔离
+// ---------------------------------------------------------------------------
+
+function makeMemoryFixture(options = {}) {
+  let clock = 1000
+  const gateway = createMemoryGateway({ now: () => clock, ...options })
+  const journal = createInMemoryMemoryProvider({ id: 'journal', kind: 'journal' })
+  const topics = createInMemoryMemoryProvider({ id: 'topics', kind: 'topics' })
+  gateway.registerProvider(journal)
+  gateway.registerProvider(topics)
+  return {
+    gateway,
+    journal,
+    topics,
+    advance(ms) {
+      clock += ms
+    },
+    now() {
+      return clock
+    },
+  }
+}
+
+function memoryEntry(overrides = {}) {
+  return {
+    category: 'episodic',
+    topic: 'park',
+    text: '今天在公园走了很久。',
+    source: { kind: 'activity', id: 'chat', activity: 'chat' },
+    confidence: 0.6,
+    provenance: { activity: 'chat', taskId: 'tb-1', at: 1000 },
+    ...overrides,
+  }
+}
+
+test('memory-gateway C1：provider 注册校验与列表', () => {
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const journal = createInMemoryMemoryProvider({ id: 'journal' })
+  assert.equal(gateway.registerProvider(journal).ok, true)
+  assert.equal(gateway.registerProvider(journal).code, MEMORY_GATEWAY_CODES.duplicateProvider)
+  assert.equal(gateway.registerProvider({ id: '' }).ok, false)
+  // 可读但无 read/query
+  assert.equal(gateway.registerProvider({ id: 'bad-read', permissions: { read: true } }).ok, false)
+  // 声明写权限但没有 write 函数
+  assert.equal(
+    gateway.registerProvider({ id: 'bad-write', read: () => [], permissions: { read: true, write: true } }).ok,
+    false,
+  )
+  // 默认只读：permissions 未声明时 write=false
+  const readOnly = gateway.registerProvider({ id: 'read-only', read: () => [] })
+  assert.equal(readOnly.ok, true)
+  assert.equal(readOnly.provider.permissions.write, false)
+  assert.equal(readOnly.provider.writable, false)
+  const providers = gateway.listProviders()
+  assert.deepEqual(
+    providers.map((item) => item.id),
+    ['journal', 'read-only'],
+  )
+  assert.equal(gateway.unregisterProvider('journal').ok, true)
+  assert.equal(gateway.unregisterProvider('journal').code, MEMORY_GATEWAY_CODES.unknownProvider)
+  assert.equal(gateway.snapshot().providers.length, 1)
+  assert.equal(MEMORY_GATEWAY_VERSION, 1)
+  assert.ok(MEMORY_CATEGORIES.includes('episodic'))
+  assert.ok(MEMORY_STATUSES.includes('conflicted'))
+})
+
+test('memory-gateway C1：写入/查询保留来源与 provenance', async () => {
+  const { gateway, journal } = makeMemoryFixture()
+  const written = await gateway.write(memoryEntry())
+  assert.equal(written.ok, true)
+  assert.equal(written.entry.status, 'active')
+  assert.equal(written.entry.id, 'mem-1')
+  assert.deepEqual(written.entry.source, { kind: 'activity', id: 'chat', activity: 'chat' })
+  assert.equal(written.entry.provenance.taskId, 'tb-1')
+  assert.deepEqual(written.entry.sources, [{ kind: 'activity', id: 'chat', activity: 'chat' }])
+  assert.equal(journal.snapshot().entries, 1, '写入落到 provider')
+
+  const result = await gateway.query({ text: '公园' })
+  assert.equal(result.ok, true)
+  assert.equal(result.entries.length, 1)
+  assert.equal(result.entries[0].text, '今天在公园走了很久。')
+  assert.equal(result.entries[0].provenance.activity, 'chat')
+  assert.deepEqual(result.entries[0].providers, ['journal'])
+  assert.equal(result.entries[0].score > 0, true)
+
+  const snapshot = gateway.snapshot()
+  assert.equal(snapshot.entries, 1)
+  assert.equal(snapshot.byCategory.episodic, 1)
+  assert.equal(snapshot.byStatus.active, 1)
+  assert.equal(snapshot.metrics.writes, 1)
+  assert.equal(snapshot.metrics.queries, 1)
+})
+
+test('memory-gateway C1：非法 entry 校验（分类/文本/来源/置信度 clamp）', async () => {
+  const { gateway } = makeMemoryFixture()
+  const badCategory = await gateway.write(memoryEntry({ category: 'nope' }))
+  assert.equal(badCategory.code, MEMORY_GATEWAY_CODES.unknownCategory)
+  const badText = await gateway.write(memoryEntry({ text: '   ' }))
+  assert.equal(badText.code, MEMORY_GATEWAY_CODES.invalidEntry)
+  const badSource = await gateway.write(memoryEntry({ source: null }))
+  assert.equal(badSource.code, MEMORY_GATEWAY_CODES.invalidEntry)
+  const notObject = await gateway.write(null)
+  assert.equal(notObject.code, MEMORY_GATEWAY_CODES.invalidEntry)
+  // confidence clamp 到 0..1
+  const low = await gateway.write(memoryEntry({ topic: 'low', text: '低置信度', confidence: -3 }))
+  assert.equal(low.entry.confidence, 0)
+  const high = await gateway.write(memoryEntry({ topic: 'high', text: '高置信度', confidence: 9 }))
+  assert.equal(high.entry.confidence, 1)
+  assert.equal(gateway.snapshot().metrics.invalid, 4)
+})
+
+test('memory-gateway C1：权限拒绝与无写 provider', async () => {
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const readOnly = createInMemoryMemoryProvider({ id: 'readonly', permissions: { read: true, write: false } })
+  gateway.registerProvider(readOnly)
+  const denied = await gateway.write(memoryEntry({ provider: 'readonly' }))
+  assert.equal(denied.ok, false)
+  assert.equal(denied.code, MEMORY_GATEWAY_CODES.permissionDenied)
+  assert.equal(gateway.snapshot().metrics.permissionDenied, 1)
+
+  const noWritable = await gateway.write(memoryEntry())
+  assert.equal(noWritable.code, MEMORY_GATEWAY_CODES.noWritableProvider)
+  const unknown = await gateway.write(memoryEntry({ provider: 'missing' }))
+  assert.equal(unknown.code, MEMORY_GATEWAY_CODES.unknownProvider)
+
+  // 指定可写 provider
+  const writable = createInMemoryMemoryProvider({ id: 'writable' })
+  gateway.registerProvider(writable)
+  const written = await gateway.write(memoryEntry({ provider: 'writable' }))
+  assert.equal(written.ok, true)
+  assert.equal(written.entry.provider, 'writable')
+})
+
+test('memory-gateway C1：同主题重复合并（保留来源/时间/最高置信度）', async () => {
+  const { gateway, advance } = makeMemoryFixture()
+  const first = await gateway.write(memoryEntry({ confidence: 0.4 }))
+  advance(10)
+  const second = await gateway.write(
+    memoryEntry({
+      confidence: 0.9,
+      source: { kind: 'journal', id: 'j-1', activity: 'reading' },
+      provenance: { activity: 'reading', taskId: 'tb-2', at: 2000 },
+    }),
+  )
+  assert.equal(second.ok, true)
+  assert.equal(second.duplicate, true)
+  assert.equal(second.merged, true)
+  assert.equal(second.entry.id, first.entry.id, '合并到同一条目')
+  assert.equal(second.entry.confidence, 0.9)
+  assert.equal(second.entry.sources.length, 2, '来源合并保留')
+  assert.equal(second.entry.provenance.activity, 'reading', 'provenance 更新为最新')
+  assert.equal(second.entry.updatedAt, 1010)
+  assert.equal(gateway.snapshot().entries, 1)
+  assert.equal(gateway.snapshot().metrics.merges, 1)
+})
+
+test('memory-gateway C1：冲突不静默覆盖，返回 conflict 记录；高置信度 supersede', async () => {
+  const { gateway } = makeMemoryFixture()
+  await gateway.write(memoryEntry({ text: '今天在公园走了很久。', confidence: 0.6 }))
+  const conflict = await gateway.write(memoryEntry({ text: '今天没有去公园。', confidence: 0.5 }))
+  assert.equal(conflict.ok, true)
+  assert.equal(typeof conflict.conflict, 'object')
+  assert.equal(conflict.conflict.resolution, 'kept-existing')
+  assert.equal(conflict.entry.status, 'conflicted')
+  const entries = await gateway.query({})
+  const active = entries.entries.filter((entry) => entry.status === 'active')
+  const conflicted = entries.entries.filter((entry) => entry.status === 'conflicted')
+  assert.equal(active.length, 1, '原条目不被覆盖')
+  assert.equal(conflicted.length, 1)
+  assert.equal(conflicted[0].conflictWith, active[0].id)
+  assert.equal(gateway.snapshot().conflicts, 1)
+  assert.equal(gateway.listConflicts()[0].resolution, 'kept-existing')
+
+  // 高置信度（差值 ≥ supersedeMargin 0.2）→ 旧条目 superseded，新条目 active
+  const supersede = await gateway.write(memoryEntry({ text: '今天根本没出门。', confidence: 0.95 }))
+  assert.equal(supersede.ok, true)
+  assert.equal(supersede.superseded, true)
+  assert.equal(supersede.conflict.resolution, 'superseded')
+  assert.equal(supersede.entry.status, 'active')
+  const after = await gateway.query({})
+  const statuses = after.entries.map((entry) => entry.status).sort()
+  assert.deepEqual(statuses, ['active', 'conflicted', 'superseded'])
+  assert.equal(gateway.snapshot().metrics.superseded, 1)
+  assert.equal(gateway.snapshot().byStatus.superseded, 1)
+})
+
+test('memory-gateway C1：多 provider 聚合/去重/排序/过滤/limit', async () => {
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const entryA = {
+    id: 'shared-1',
+    category: 'episodic',
+    topic: 'a',
+    text: '公园里的樱花开了。',
+    source: { kind: 'journal', id: 'j1' },
+    provenance: { activity: 'chat', at: 1000 },
+    confidence: 0.5,
+    status: 'active',
+    createdAt: 1000,
+    updatedAt: 1000,
+    sources: [],
+    tags: [],
+  }
+  const entryB = { ...entryA, text: '今天没有去公园。', topic: 'b', id: 'only-b', updatedAt: 2000 }
+  const entryC = { ...entryA, id: 'only-c', text: '公园长椅上坐了一会儿。', topic: 'c', updatedAt: 1500 }
+  const p1 = createInMemoryMemoryProvider({ id: 'p1', entries: [entryA, entryB] })
+  const p2 = createInMemoryMemoryProvider({ id: 'p2', entries: [entryA, entryC] })
+  gateway.registerProvider(p1)
+  gateway.registerProvider(p2)
+
+  const all = await gateway.query({})
+  assert.equal(all.ok, true)
+  assert.equal(all.entries.length, 3, '按 id 去重（shared-1 只出现一次）')
+  const shared = all.entries.find((entry) => entry.id === 'shared-1')
+  assert.deepEqual(shared.providers.sort(), ['p1', 'p2'], '去重时记录来源 provider')
+  // 相关度排序：唯一含「樱花」的条目排第一
+  const byText = await gateway.query({ text: '樱花' })
+  assert.equal(byText.entries.length, 1)
+  assert.equal(byText.entries[0].id, 'shared-1')
+  assert.ok(byText.entries[0].score > 0)
+  // 时间倒序（read 别名）
+  const readResult = await gateway.read({})
+  assert.equal(readResult.entries[0].id, 'only-b')
+  // 过滤与 limit
+  assert.equal((await gateway.query({ category: 'semantic' })).entries.length, 0)
+  assert.equal((await gateway.query({ activity: 'chat' })).entries.length, 3)
+  assert.equal((await gateway.query({ provider: 'p2' })).entries.length, 2)
+  assert.equal((await gateway.query({ limit: 2 })).entries.length, 2)
+  assert.equal((await gateway.query({ category: 'nope' })).code, MEMORY_GATEWAY_CODES.invalidFilter)
+})
+
+test('memory-gateway C1：provider 失败隔离（写失败/查询失败不影响其他 provider）', async () => {
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const good = createInMemoryMemoryProvider({ id: 'good' })
+  gateway.registerProvider(good)
+  gateway.registerProvider({
+    id: 'broken',
+    permissions: { read: true, write: true },
+    read: () => {
+      throw new Error('read boom')
+    },
+    write: () => {
+      throw new Error('write boom')
+    },
+  })
+  // 写：默认第一个可写 provider 是 good（注册顺序），指定 broken → 失败但不写坏
+  const failed = await gateway.write(memoryEntry({ provider: 'broken' }))
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, MEMORY_GATEWAY_CODES.providerError)
+  assert.equal(gateway.snapshot().entries, 0, '写失败不进入索引')
+  assert.equal(gateway.snapshot().metrics.providerErrors, 1)
+  const okWrite = await gateway.write(memoryEntry())
+  assert.equal(okWrite.ok, true, '其他 provider 仍可写')
+
+  // 查询：broken 抛错被隔离，good 的结果仍返回
+  const queried = await gateway.query({})
+  assert.equal(queried.ok, true)
+  assert.equal(queried.entries.length, 1)
+  assert.equal(queried.errors.length, 1)
+  assert.equal(queried.errors[0].provider, 'broken')
+  assert.equal(gateway.snapshot().metrics.providerErrors, 2)
+})
+
+test('memory-gateway C1：异步 provider（write/query 返回 Promise）', async () => {
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const store = new Map()
+  gateway.registerProvider({
+    id: 'async',
+    kind: 'async-store',
+    permissions: { read: true, write: true },
+    async write(entry) {
+      await Promise.resolve()
+      store.set(entry.id, entry)
+      return { ok: true }
+    },
+    async query() {
+      await Promise.resolve()
+      return [...store.values()]
+    },
+  })
+  const written = await gateway.write(memoryEntry())
+  assert.equal(written.ok, true)
+  assert.equal(store.size, 1)
+  const queried = await gateway.query({ text: '公园' })
+  assert.equal(queried.entries.length, 1)
+  assert.equal(queried.entries[0].id, written.entry.id)
+})
+
+test('memory-gateway C1：getEntry / listConflicts / snapshot 指标', async () => {
+  const { gateway } = makeMemoryFixture()
+  const written = await gateway.write(memoryEntry())
+  assert.equal(gateway.getEntry(written.entry.id).text, '今天在公园走了很久。')
+  assert.equal(gateway.getEntry('missing'), null)
+  await gateway.write(memoryEntry({ text: '另一条不同的话。', confidence: 0.5 }))
+  const conflicts = gateway.listConflicts({ category: 'episodic' })
+  assert.equal(conflicts.length, 1)
+  assert.equal(conflicts[0].category, 'episodic')
+  const snapshot = gateway.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.version, MEMORY_GATEWAY_VERSION)
+  assert.equal(typeof snapshot.metrics.writes, 'number')
+  assert.equal(typeof snapshot.metrics.conflicts, 'number')
+  assert.equal(snapshot.providers.length, 2)
+  assert.equal(snapshot.limits.supersedeMargin, 0.2)
+  assert.equal(snapshot.recentConflicts.length, 1)
 })
