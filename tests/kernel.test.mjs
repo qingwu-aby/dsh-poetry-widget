@@ -34,6 +34,25 @@ import {
   createActivityRegistry,
 } from '../lib/core/activity-registry.mjs'
 import {
+  CHAT_ACTIVITY_CODES,
+  CHAT_ACTIVITY_ID,
+  CHAT_ACTIVITY_LIMITS,
+  CHAT_ACTIVITY_VERSION,
+  CHAT_EVENTS,
+  CHAT_MANIFEST,
+  CHAT_MANIFEST_RAW,
+  CHAT_TASK_KIND,
+  CHAT_TOOL_REPLY,
+  chatTaskKey,
+  createChatActivity,
+  createTask as createChatTask,
+  execute as executeChatTurn,
+  getChatManifest,
+  toEvent as toChatEvent,
+  toInterruptedEvent,
+  toRepliedEvent,
+} from '../lib/core/chat-activity.mjs'
+import {
   createEventBus,
   createMemoryEventStore,
   EVENT_BUS_CODES,
@@ -4874,4 +4893,229 @@ test('memory-privacy C4：审计事件（who/when/what，不记录正文）', ()
   assert.equal(controller.snapshot().auditEvents, 2)
   assert.equal(controller.export({ entries, actor: '' }).code, MEMORY_PRIVACY_CODES.invalidActor)
   assert.equal(MEMORY_PRIVACY_DEFAULTS.auditLimit > 0, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate D1：Chat Activity（lib/core/chat-activity.mjs）——manifest/事件/任务/回执/取消
+// ---------------------------------------------------------------------------
+
+function chatMessage(overrides = {}) {
+  return { peerId: 'Yuan_JY', messageId: 'm-1', text: '你好呀', channel: 'qq', ...overrides }
+}
+
+test('chat-activity D1：manifest 合法（事件/工具/task kind）', () => {
+  const validated = validateActivityManifest(CHAT_MANIFEST_RAW)
+  assert.equal(validated.ok, true, JSON.stringify(validated.errors ?? []))
+  assert.equal(validated.manifest.id, CHAT_ACTIVITY_ID)
+  assert.equal(validated.manifest.version, '1.0.0')
+  assert.deepEqual(
+    validated.manifest.events.sort(),
+    [CHAT_EVENTS.interrupted, CHAT_EVENTS.received, CHAT_EVENTS.replied].sort(),
+  )
+  assert.deepEqual(validated.manifest.tools, [CHAT_TOOL_REPLY])
+  assert.equal(validated.manifest.tasks[0].kind, CHAT_TASK_KIND)
+  assert.deepEqual(
+    validated.manifest.permissions.map((item) => item.permission),
+    ['model'],
+  )
+  assert.equal(Object.isFrozen(CHAT_MANIFEST), true)
+  const copy = getChatManifest()
+  assert.notEqual(copy, CHAT_MANIFEST)
+  assert.equal(copy.id, 'chat')
+  assert.equal(CHAT_ACTIVITY_VERSION, 1)
+  assert.ok(CHAT_ACTIVITY_LIMITS.textMax >= 1000)
+})
+
+test('chat-activity D1：消息 → 统一 event envelope（可入 Event Bus）', () => {
+  const message = chatMessage({ at: 1234 })
+  const result = toChatEvent(message, { now: () => 1000, random: () => 0.42 })
+  assert.equal(result.ok, true)
+  const event = result.event
+  const validated = validateEventEnvelope(event)
+  assert.equal(validated.ok, true, JSON.stringify(validated.errors ?? []))
+  assert.equal(event.activity, 'chat')
+  assert.equal(event.type, CHAT_EVENTS.received)
+  assert.equal(event.version, 1)
+  assert.equal(event.at, 1234)
+  assert.equal(event.subject, 'peer:Yuan_JY')
+  assert.ok(event.topics.includes('chat.received'))
+  assert.ok(event.topics.includes('peer:yuan_jy'))
+  assert.deepEqual(event.payload, { peerId: 'Yuan_JY', messageId: 'm-1', text: '你好呀', channel: 'qq' })
+  assert.match(event.id, /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/)
+
+  const bus = createEventBus({ maxEvents: 10 })
+  const appended = bus.append(event)
+  assert.equal(appended.ok, true)
+  assert.equal(bus.snapshot().stored, 1)
+  assert.equal(bus.snapshot().metrics.published, 1)
+})
+
+test('chat-activity D1：非法消息被拒绝', () => {
+  assert.equal(toChatEvent(null).code, CHAT_ACTIVITY_CODES.invalidMessage)
+  assert.equal(toChatEvent({}).code, CHAT_ACTIVITY_CODES.invalidMessage)
+  assert.equal(toChatEvent(chatMessage({ peerId: '' })).code, CHAT_ACTIVITY_CODES.invalidMessage)
+  assert.equal(toChatEvent(chatMessage({ messageId: '  ' })).code, CHAT_ACTIVITY_CODES.invalidMessage)
+  assert.equal(toChatEvent(chatMessage({ text: '' })).code, CHAT_ACTIVITY_CODES.invalidMessage)
+  assert.equal(
+    toChatEvent(chatMessage({ text: 'x'.repeat(CHAT_ACTIVITY_LIMITS.textMax + 1) })).code,
+    CHAT_ACTIVITY_CODES.invalidMessage,
+  )
+  assert.equal(createChatTask(chatMessage({ peerId: '' })).code, CHAT_ACTIVITY_CODES.invalidMessage)
+})
+
+test('chat-activity D1：createTask 幂等键 = peerId + messageId', () => {
+  const message = chatMessage()
+  const created = createChatTask(message, { priority: 60 })
+  assert.equal(created.ok, true)
+  assert.equal(created.task.activity, 'chat')
+  assert.equal(created.task.kind, CHAT_TASK_KIND)
+  assert.equal(created.task.key, 'chat.turn:Yuan_JY:m-1')
+  assert.equal(created.task.key, chatTaskKey(message))
+  assert.equal(created.task.priority, 60)
+  assert.equal(created.task.payload.peerId, 'Yuan_JY')
+  assert.equal(created.task.payload.messageId, 'm-1')
+  // 同消息重复生成 → 同 key（幂等，不重复执行）
+  assert.equal(createChatTask(message).task.key, created.task.key)
+  // 不同 messageId → 不同 key
+  assert.notEqual(createChatTask(chatMessage({ messageId: 'm-2' })).task.key, created.task.key)
+  // 超长 id 截断后 key 仍 ≤128
+  const longKey = createChatTask(chatMessage({ peerId: 'p'.repeat(120), messageId: 'm'.repeat(120) })).task.key
+  assert.ok(longKey.length <= CHAT_ACTIVITY_LIMITS.taskKeyMax)
+})
+
+test('chat-activity D1：execute 返回 reply receipt（不直接调模型/HTTP）', async () => {
+  const calls = []
+  const task = createChatTask(chatMessage()).task
+  const result = await executeChatTurn(task, {
+    reply: async ({ peerId, messageId, text, task: passedTask }) => {
+      calls.push({ peerId, messageId, text, key: passedTask.key })
+      return { replyId: 'r-1', text: '你好 ' + peerId }
+    },
+    now: () => 1000,
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.receipt.ok, true)
+  assert.equal(result.receipt.replyId, 'r-1')
+  assert.equal(result.receipt.at, 1000)
+  assert.equal(result.receipt.taskKey, task.key)
+  assert.equal(result.receipt.peerId, 'Yuan_JY')
+  assert.equal(result.receipt.messageId, 'm-1')
+  assert.equal(result.receipt.durationMs, 0)
+  assert.equal(result.receipt.cancelled, false)
+  assert.equal(result.receipt.text, '你好 Yuan_JY')
+  assert.deepEqual(calls, [{ peerId: 'Yuan_JY', messageId: 'm-1', text: '你好呀', key: task.key }])
+
+  // reply 返回字符串 → 自动生成 replyId
+  const stringReply = await executeChatTurn(task, { reply: () => '直接文本回复', now: () => 2000 })
+  assert.equal(stringReply.ok, true)
+  assert.match(stringReply.receipt.replyId, /^reply:/)
+  assert.equal(stringReply.receipt.text, '直接文本回复')
+})
+
+test('chat-activity D1：取消返回 cancelled receipt', async () => {
+  const task = createChatTask(chatMessage()).task
+  let called = 0
+  const preAborted = new AbortController()
+  preAborted.abort()
+  const pre = await executeChatTurn(task, {
+    reply: () => {
+      called += 1
+      return { replyId: 'r' }
+    },
+    signal: preAborted.signal,
+    now: () => 1000,
+  })
+  assert.equal(pre.ok, false)
+  assert.equal(pre.cancelled, true)
+  assert.equal(pre.code, CHAT_ACTIVITY_CODES.cancelled)
+  assert.equal(pre.receipt.ok, false)
+  assert.equal(pre.receipt.cancelled, true)
+  assert.equal(called, 0, '已取消则不调用 reply')
+
+  // 执行中取消：reply 挂起，signal abort 后立即返回 cancelled
+  const controller = new AbortController()
+  const pending = executeChatTurn(task, {
+    reply: () => new Promise(() => {}),
+    signal: controller.signal,
+    now: () => 1000,
+  })
+  setTimeout(() => controller.abort(), 0)
+  const cancelled = await pending
+  assert.equal(cancelled.cancelled, true)
+  assert.equal(cancelled.code, CHAT_ACTIVITY_CODES.cancelled)
+  assert.equal(cancelled.receipt.cancelled, true)
+})
+
+test('chat-activity D1：错误分支（无 reply/抛错/非法返回值/非法 task）', async () => {
+  const task = createChatTask(chatMessage()).task
+  const noReply = await executeChatTurn(task, {})
+  assert.equal(noReply.code, CHAT_ACTIVITY_CODES.noReplyFunction)
+
+  const thrown = await executeChatTurn(task, {
+    reply: () => {
+      throw new Error('model unavailable')
+    },
+    now: () => 1000,
+  })
+  assert.equal(thrown.ok, false)
+  assert.equal(thrown.code, CHAT_ACTIVITY_CODES.replyFailed)
+  assert.equal(thrown.receipt.ok, false)
+  assert.equal(thrown.receipt.error.message, 'model unavailable')
+
+  const invalidReply = await executeChatTurn(task, { reply: () => 42 })
+  assert.equal(invalidReply.code, CHAT_ACTIVITY_CODES.invalidReply)
+  const emptyReply = await executeChatTurn(task, { reply: () => '   ' })
+  assert.equal(emptyReply.code, CHAT_ACTIVITY_CODES.invalidReply)
+  const invalidTask = await executeChatTurn({}, { reply: () => 'x' })
+  assert.equal(invalidTask.code, CHAT_ACTIVITY_CODES.invalidTask)
+})
+
+test('chat-activity D1：replied/interrupted 事件 envelope', () => {
+  const task = createChatTask(chatMessage()).task
+  const receipt = {
+    ok: true,
+    replyId: 'r-9',
+    at: 1500,
+    taskKey: task.key,
+    peerId: 'Yuan_JY',
+    messageId: 'm-1',
+    durationMs: 12,
+  }
+  const replied = toRepliedEvent(task, receipt, { now: () => 1000 })
+  assert.equal(replied.ok, true)
+  assert.equal(replied.event.type, CHAT_EVENTS.replied)
+  assert.equal(replied.event.payload.replyId, 'r-9')
+  assert.equal(replied.event.at, 1500)
+  assert.equal(validateEventEnvelope(replied.event).ok, true)
+
+  const interrupted = toInterruptedEvent(
+    task,
+    { ok: false, cancelled: true, at: 1600 },
+    { now: () => 1000, reason: 'user-cancel' },
+  )
+  assert.equal(interrupted.ok, true)
+  assert.equal(interrupted.event.type, CHAT_EVENTS.interrupted)
+  assert.equal(interrupted.event.payload.reason, 'user-cancel')
+  assert.equal(validateEventEnvelope(interrupted.event).ok, true)
+  assert.equal(toRepliedEvent(task, { ok: false }).code, CHAT_ACTIVITY_CODES.invalidReply)
+})
+
+test('chat-activity D1：createChatActivity 工厂注入默认 reply/时钟', async () => {
+  const activity = createChatActivity({
+    now: () => 5000,
+    reply: ({ text }) => ({ replyId: 'r-factory', text: '收到：' + text }),
+  })
+  assert.equal(activity.manifest.id, 'chat')
+  const event = activity.toEvent(chatMessage())
+  assert.equal(event.ok, true)
+  assert.equal(event.event.at, 5000)
+  const task = activity.createTask(chatMessage()).task
+  const result = await activity.execute(task)
+  assert.equal(result.ok, true)
+  assert.equal(result.receipt.replyId, 'r-factory')
+  assert.equal(result.receipt.at, 5000)
+  const replied = activity.toRepliedEvent(task, result.receipt)
+  assert.equal(replied.event.type, CHAT_EVENTS.replied)
+  const interrupted = activity.toInterruptedEvent(task, { ok: false, cancelled: true }, { reason: 'paused' })
+  assert.equal(interrupted.event.payload.reason, 'paused')
 })
