@@ -8596,7 +8596,7 @@ test('hub-runtime H3：off/shadow 不注入真实 adapter、不执行任务', as
 
 test('hub-runtime H3：full 模式 chat 任务经 chatBridge 执行并回 receipt', async () => {
   const fixture = makeH3Fixture({ enabled: true, shadow: false })
-  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft'])
+  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft', 'reading'])
   const res = hubFakeRes()
   await fixture.handler(
     hubFakeReq('POST', {
@@ -10843,4 +10843,144 @@ test('reading-activity L2：manifest/工具分发/笔记/事件/错误隔离', a
   assert.equal(registered.ok, true)
   assert.equal(registry.get('reading').id, 'reading')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate L3：Reading 运行时接入（Hub full task.create reading → 真实 open/page/note）
+// ---------------------------------------------------------------------------
+
+function makeL3ReadingFixture(options = {}) {
+  const dir = options.dir ?? tmpDir('l3-reading')
+  const bookPath = path.join(dir, 'book.txt')
+  if (options.withBook !== false) writeFileSync(bookPath, '第一章。\n\n第二章。\n\n第三章。'.repeat(20))
+  const manifests = options.noAdapter
+    ? []
+    : createRealActivityAdapters({
+        chatBridgeProvider: () => ({
+          async chat() {
+            return { ok: true, reply: 'x' }
+          },
+        }),
+        minecraftWorldProvider: () => ({
+          decide: () => ({ ok: true }),
+          recordReceipt: () => ({ ok: true, lastReceipt: null }),
+        }),
+        booksDir: dir,
+        readingPageChars: 60,
+        now: () => 1000,
+      })
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: false },
+    activityManifests: manifests,
+    now: () => 1000,
+  })
+  runtime.start()
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  return { dir, bookPath, runtime, handler }
+}
+
+async function l3Create(fixture, payload) {
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'POST',
+      {
+        action: 'task.create',
+        kind: payload.kind ?? 'reading.read',
+        activity: 'reading',
+        payload: payload.payload,
+        idempotencyKey: payload.key,
+      },
+      { url: HUB_ROUTE },
+    ),
+    res,
+  )
+  return { status: res.statusCode, body: res.json() }
+}
+
+test('hub-routes L3：full task.create reading 真实 open/page/note（receipt/feedback）', async () => {
+  const fixture = makeL3ReadingFixture()
+  assert.equal(fixture.runtime.getAdapters().indexOf('reading') >= 0, true, 'reading adapter 已注册')
+  const opened = await l3Create(fixture, {
+    payload: { tool: 'book.open', arguments: { path: fixture.bookPath } },
+    key: 'l3-open',
+  })
+  assert.equal(opened.status, 200)
+  assert.equal(opened.body.ok, true)
+  assert.equal(opened.body.executed, true)
+  assert.equal(opened.body.success, true)
+  assert.equal(opened.body.receipt.ok, true)
+  assert.equal(opened.body.receipt.facts.title, 'book')
+  assert.equal(opened.body.receipt.facts.pageCount > 1, true)
+  // 翻页（复用 adapter 内的当前书）
+  const page = await l3Create(fixture, { payload: { tool: 'book.page', arguments: { index: 1 } }, key: 'l3-page' })
+  assert.equal(page.body.success, true)
+  assert.equal(page.body.receipt.facts.index, 1)
+  // 记笔记
+  const note = await l3Create(fixture, {
+    payload: { tool: 'book.note', arguments: { text: '这一页不错', page: 1 } },
+    key: 'l3-note',
+    kind: 'reading.note',
+  })
+  assert.equal(note.body.success, true)
+  assert.equal(note.body.receipt.facts.kind, 'note')
+  assert.ok(note.body.receipt.facts.noteId.length > 0)
+  // 任务板完成 + feedback
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(opened.body.task.id).status, 'done')
+  assert.equal(fixture.runtime.getInstances().feedbackLedger.snapshot().records >= 3, true)
+  // 简写 payload（path/page 推断）
+  const shorthand = await l3Create(fixture, { payload: { path: fixture.bookPath, page: 2 }, key: 'l3-shorthand' })
+  assert.equal(shorthand.body.success, true)
+  assert.equal(shorthand.body.receipt.facts.index, 2)
+  // GET snapshot 含 reading activity
+  const getRes = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), getRes)
+  const activities = getRes.json().activities.activities.map((activity) => activity.id)
+  assert.equal(activities.indexOf('reading') >= 0, true)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes L3：路径越界被拒（receipt 失败但不抛）、非法 payload 拒绝', async () => {
+  const fixture = makeL3ReadingFixture()
+  const escaped = await l3Create(fixture, {
+    payload: { tool: 'book.open', arguments: { path: '../outside.txt' } },
+    key: 'l3-escape',
+  })
+  assert.equal(escaped.body.ok, true, '任务创建成功（执行失败回执）')
+  assert.equal(escaped.body.success, false)
+  assert.equal(escaped.body.receipt.ok, false)
+  assert.equal(escaped.body.receipt.facts.code, 'BOOK_OUTSIDE_ROOT')
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(escaped.body.task.id).status, 'failed')
+  // 非法 kind / 缺 payload / 非法 tool
+  const badKind = await l3Create(fixture, { kind: 'reading.other', payload: { path: fixture.bookPath } })
+  assert.equal(badKind.body.code, 'HUB_INVALID_ARGUMENT')
+  const noPayload = await l3Create(fixture, { payload: {} })
+  assert.equal(noPayload.body.code, 'HUB_INVALID_ARGUMENT')
+  const badTool = await l3Create(fixture, { payload: { tool: 'book.nope' } })
+  assert.equal(badTool.body.code, 'HUB_INVALID_ARGUMENT')
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes L3：无 reading adapter 明确失败；off/shadow 不执行', async () => {
+  const noAdapter = makeL3ReadingFixture({ noAdapter: true })
+  const failed = await l3Create(noAdapter, { payload: { path: noAdapter.bookPath } })
+  assert.equal(failed.body.ok, false)
+  assert.equal(failed.body.code, 'HUB_NO_ACTIVITY_ADAPTER')
+  noAdapter.runtime.dispose()
+  rmSync(noAdapter.dir, { recursive: true, force: true })
+
+  const shadow = makeL3ReadingFixture({ featureFlag: { enabled: true, shadow: true } })
+  const blocked = await l3Create(shadow, { payload: { path: shadow.bookPath } })
+  assert.equal(blocked.body.ok, false)
+  assert.equal(blocked.body.code, 'HUB_FULL_REQUIRED')
+  assert.equal(shadow.runtime.getInstances().taskBoard.list().length, 0, 'shadow 不创建任务')
+  shadow.runtime.dispose()
+  rmSync(shadow.dir, { recursive: true, force: true })
 })
