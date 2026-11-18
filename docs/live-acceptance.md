@@ -105,6 +105,13 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - dry-run 输出：dataset available=true entries≈7785，report passed=true score=0.6，enabled=false；
 - 未执行真实训练（会改线上语言层，需先备份 adapters-live）。
 
+## 3.10 收口状态（2026-11-18）
+
+- N1/N2/N3/N4/N5/K3/K4/K5/L7/J1/M2/M3 已实现并测试；
+- 980/980 tests、check 绿；
+- O1 browser-skill 未连接；O2 需重启 DSH 后验证最新 reading 授权/video/cost/memory-admin 路由；O3 仅短时 soak；O4 为 mock 性能基线；
+- 真实训练未执行（按要求）。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；

@@ -64,3 +64,12 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
 - `DSH_POETRY_HUB=shadow` 与 full + `task.create` 的真实宿主冒烟；
 - 真实 provider/游戏/聊天 24h soak（本报告为本地 mock/脚本级）；
 - Memory 写入目前只接了 game-memory 双写，journal/methods 未迁移。
+
+
+## 7. O3/O4 短时验收（补充）
+
+- 3 轮 `load-baseline --scenario all` + `fault-inject`：
+  - 任务 100/轮，完成 96、取消 4、失败 0；
+  - 事件 500 丢弃（有界，符合容量）；
+  - 故障场景 9/9 通过，0 errors；
+- 真实 24h soak 未执行；O1 设置页截图因 browser-skill 未连接未执行；O2 需重启加载最新路由后做 live 冒烟。
