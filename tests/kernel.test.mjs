@@ -88,6 +88,7 @@ import {
   FEEDBACK_RECEIPT_KINDS,
   validateReceipt,
 } from '../lib/core/feedback-ledger.mjs'
+import { createHub, HUB_CODES, HUB_DEFAULT_FEATURE_FLAG, HUB_MODES, HUB_STATES, HUB_VERSION } from '../lib/core/hub.mjs'
 import {
   createHubControlApi,
   HUB_CONTROL_ACTIVITY_HEALTH,
@@ -5731,4 +5732,410 @@ test('world-supervisor D3：snapshot 指标与 pending 清理', async () => {
   assert.equal(after.byState.running, 1)
   assert.equal(after.pendingTimers, 0)
   assert.equal(after.pendingRestarts, 0)
+})
+
+// ---------------------------------------------------------------------------
+// Gate D4：Hub 装配（lib/core/hub.mjs）——装配/shadow/事件桥/receipt→feedback/降级
+// ---------------------------------------------------------------------------
+
+function makeHubFixture(flag = { enabled: true, shadow: false }) {
+  const calls = {
+    busAppends: [],
+    completes: [],
+    fails: [],
+    feedbacks: [],
+    promotions: 0,
+    memoryWrites: [],
+    executes: [],
+    schedulerTicks: 0,
+    worldStarts: [],
+    worldStops: 0,
+  }
+  const bus = {
+    append(event) {
+      calls.busAppends.push(event)
+      return { ok: true }
+    },
+    snapshot: () => ({ stored: calls.busAppends.length }),
+  }
+  const board = {
+    list: () => [
+      {
+        id: 'tb-1',
+        activity: 'chat',
+        kind: 'chat.turn',
+        key: 'chat.turn:p:m',
+        priority: 5,
+        createdAt: 1000,
+        status: 'queued',
+        title: '回复 p',
+      },
+      {
+        id: 'tb-2',
+        activity: 'chat',
+        kind: 'chat.turn',
+        key: 'chat.turn:p:n',
+        priority: 1,
+        createdAt: 1100,
+        status: 'queued',
+        title: '回复 q',
+      },
+    ],
+    complete: (id, receipt) => {
+      calls.completes.push({ id, receipt })
+      return { ok: true }
+    },
+    fail: (id, error) => {
+      calls.fails.push({ id, error })
+      return { ok: true }
+    },
+    snapshot: () => ({ total: 2 }),
+  }
+  const scheduler = {
+    tick: () => {
+      calls.schedulerTicks += 1
+      return {
+        ok: true,
+        action: 'start',
+        task: { id: 'tb-1', activity: 'chat', kind: 'chat.turn', key: 'chat.turn:p:m', title: '回复 p' },
+      }
+    },
+    snapshot: () => ({ foreground: null }),
+  }
+  const ledger = {
+    record(input) {
+      calls.feedbacks.push(input)
+      return { ok: true, record: { id: 'fb-1', outcome: input.outcome } }
+    },
+    promoteToMethod() {
+      calls.promotions += 1
+      return { ok: true, candidate: { kind: 'method', memoryEntry: { category: 'method', text: '方法候选' } } }
+    },
+    snapshot: () => ({ records: calls.feedbacks.length }),
+  }
+  const gateway = {
+    write(entry) {
+      calls.memoryWrites.push(entry)
+      return { ok: true }
+    },
+    snapshot: () => ({ entries: 0 }),
+  }
+  const adapter = {
+    async execute(task) {
+      calls.executes.push(task.id)
+      return { ok: true, receipt: { ok: true, replyId: 'r-1', at: 1000, taskKey: task.key } }
+    },
+  }
+  const worldSupervisor = {
+    list: () => [{ id: 'chat-world', state: 'stopped' }],
+    startWorld: async (id) => {
+      calls.worldStarts.push(id)
+      return { ok: true }
+    },
+    stopAll: async () => {
+      calls.worldStops += 1
+      return { ok: true, results: [] }
+    },
+    snapshot: () => ({ total: 1 }),
+  }
+  const hub = createHub({
+    eventBus: bus,
+    taskBoard: board,
+    scheduler,
+    feedbackLedger: ledger,
+    memoryGateway: gateway,
+    worldSupervisor,
+    activityManifests: [{ manifest: { id: 'chat' }, execute: adapter.execute }],
+    featureFlag: flag,
+    now: () => 1000,
+  })
+  return { hub, calls, bus, board, scheduler, ledger, gateway, adapter, worldSupervisor }
+}
+
+test('hub D4：默认 shadow/off 装配与无副作用', async () => {
+  const { hub, calls } = makeHubFixture(HUB_DEFAULT_FEATURE_FLAG)
+  assert.equal(hub.mode(), 'off')
+  const tick = await hub.tick()
+  assert.equal(tick.ok, true)
+  assert.equal(tick.mode, 'off')
+  assert.equal(tick.skipped, true)
+  assert.equal(calls.schedulerTicks, 0, 'off 模式不调度')
+  assert.equal(calls.busAppends.length, 0)
+  assert.equal(calls.completes.length, 0)
+  assert.equal(calls.executes.length, 0)
+  assert.equal(calls.feedbacks.length, 0)
+  assert.equal(calls.memoryWrites.length, 0)
+  const started = hub.start()
+  assert.equal(started.mode, 'off')
+  assert.equal(hub.mode(), 'off')
+  const snapshot = hub.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.version, HUB_VERSION)
+  assert.equal(snapshot.state, 'created')
+  assert.equal(snapshot.featureFlag.enabled, false)
+  assert.equal(snapshot.available.taskBoard, true)
+  assert.equal(snapshot.available.eventBus, true)
+  assert.ok(HUB_MODES.includes('shadow'))
+  assert.ok(HUB_STATES.includes('running'))
+})
+
+test('hub D4：shadow 模式只读决策，不 claim/execute/写状态', async () => {
+  const { hub, calls } = makeHubFixture({ enabled: true, shadow: true })
+  const started = hub.start()
+  assert.equal(started.mode, 'shadow')
+  assert.equal(calls.schedulerTicks, 0, 'shadow 不调用 scheduler.tick（无副作用）')
+  const tick = await hub.tick()
+  assert.equal(tick.ok, true)
+  assert.equal(tick.mode, 'shadow')
+  assert.equal(tick.executed, false)
+  assert.equal(tick.decision.action, 'would-start')
+  assert.equal(tick.decision.task.id, 'tb-1', '按优先级选下一步')
+  assert.equal(calls.executes.length, 0)
+  assert.equal(calls.completes.length, 0)
+  assert.equal(calls.fails.length, 0)
+  assert.equal(calls.feedbacks.length, 0)
+  assert.equal(calls.busAppends.length, 0)
+  assert.equal(hub.snapshot().metrics.shadowTicks, 1)
+})
+
+test('hub D4：full 模式 tick → execute → receipt → feedback → method 候选', async () => {
+  const { hub, calls, ledger, gateway } = makeHubFixture({ enabled: true, shadow: false })
+  hub.start()
+  assert.equal(hub.mode(), 'full')
+  assert.equal(calls.worldStarts.length, 1, 'full 模式启动已注册 World')
+  const result = await hub.tick()
+  assert.equal(result.ok, true)
+  assert.equal(result.mode, 'full')
+  assert.equal(result.executed, true)
+  assert.equal(result.success, true)
+  assert.equal(calls.schedulerTicks, 1)
+  assert.deepEqual(calls.executes, ['tb-1'])
+  assert.equal(calls.completes.length, 1)
+  assert.deepEqual(calls.completes[0].receipt, { ok: true, replyId: 'r-1', at: 1000, taskKey: 'chat.turn:p:m' })
+  assert.equal(calls.feedbacks.length, 1)
+  const feedback = calls.feedbacks[0]
+  assert.equal(feedback.taskId, 'tb-1')
+  assert.equal(feedback.outcome, 'success')
+  assert.equal(feedback.receipt.kind, 'event')
+  assert.equal(feedback.receipt.ok, true)
+  assert.equal(feedback.receipt.ref, 'tb-1')
+  assert.equal(feedback.hypothesis, '回复 p')
+  assert.ok(feedback.evidence.some((item) => item.includes('replyId=r-1')))
+  assert.equal(calls.promotions, 1)
+  assert.equal(result.candidate.kind, 'method')
+  assert.equal(calls.memoryWrites.length, 0, '默认不写 Memory Gateway')
+  assert.equal(ledger.snapshot().records, 1)
+  assert.equal(gateway.snapshot().entries, 0)
+  assert.equal(hub.snapshot().metrics.feedbacks, 1)
+  assert.equal(hub.snapshot().metrics.candidates, 1)
+})
+
+test('hub D4：full 模式失败 receipt → fail + failure feedback', async () => {
+  const { hub, calls } = makeHubFixture({ enabled: true, shadow: false })
+  calls.executes.length = 0
+  hub.start()
+  // 用失败 adapter 覆盖
+  const failingHub = createHub({
+    taskBoard: {
+      list: () => [],
+      complete: () => ({ ok: true }),
+      fail: (id, error) => {
+        calls.fails.push({ id, error })
+        return { ok: true }
+      },
+      snapshot: () => ({ total: 1 }),
+    },
+    scheduler: {
+      tick: () => ({
+        ok: true,
+        action: 'start',
+        task: { id: 'tb-9', activity: 'chat', kind: 'chat.turn', title: '失败任务' },
+      }),
+      snapshot: () => ({}),
+    },
+    feedbackLedger: {
+      record: (input) => {
+        calls.feedbacks.push(input)
+        return { ok: true, record: { id: 'fb-2', outcome: input.outcome } }
+      },
+      promoteToMethod: () => {
+        calls.promotions += 1
+        return { ok: true, candidate: { kind: 'method' } }
+      },
+      snapshot: () => ({}),
+    },
+    activityManifests: [
+      {
+        manifest: { id: 'chat' },
+        execute: async () => ({ ok: true, receipt: { ok: false, at: 1000, message: '模型超时' } }),
+      },
+    ],
+    featureFlag: { enabled: true, shadow: false },
+    now: () => 1000,
+  })
+  failingHub.start()
+  const result = await failingHub.tick()
+  assert.equal(result.ok, true)
+  assert.equal(result.executed, true)
+  assert.equal(result.success, false)
+  assert.equal(calls.fails.length, 1)
+  assert.equal(calls.fails[0].id, 'tb-9')
+  assert.equal(calls.fails[0].error.message, '模型超时')
+  assert.equal(calls.feedbacks[0].outcome, 'failure')
+  assert.equal(calls.promotions, 0, '失败不升级方法')
+  assert.equal(result.candidate, null)
+  assert.equal(failingHub.mode(), 'full')
+})
+
+test('hub D4：缺 adapter / adapter 抛错 都隔离且任务收尾', async () => {
+  const fails = []
+  const make = (execute) =>
+    createHub({
+      taskBoard: {
+        list: () => [],
+        fail: (id, error) => {
+          fails.push({ id, error })
+          return { ok: true }
+        },
+        complete: () => ({ ok: true }),
+        snapshot: () => ({}),
+      },
+      scheduler: {
+        tick: () => ({
+          ok: true,
+          action: 'start',
+          task: { id: 'tb-1', activity: 'minecraft', kind: 'minecraft.build' },
+        }),
+        snapshot: () => ({}),
+      },
+      activityManifests: execute === null ? [] : [{ manifest: { id: 'minecraft' }, execute }],
+      featureFlag: { enabled: true, shadow: false },
+      now: () => 1000,
+    })
+  const noAdapter = make(null)
+  noAdapter.start()
+  const missing = await noAdapter.tick()
+  assert.equal(missing.ok, false)
+  assert.equal(missing.error.code, HUB_CODES.noAdapter)
+  assert.equal(fails.length, 1)
+
+  const throwing = make(async () => {
+    throw new Error('adapter exploded')
+  })
+  throwing.start()
+  const crashed = await throwing.tick()
+  assert.equal(crashed.ok, false)
+  assert.equal(crashed.error.code, HUB_CODES.adapterFailed)
+  assert.equal(fails.length, 2)
+  assert.equal(fails[1].error.message, 'adapter exploded')
+})
+
+test('hub D4：事件桥接（Task Board/Registry → Event Bus）', async () => {
+  const { hub, bus, calls } = makeHubFixture({ enabled: true, shadow: false })
+  hub.start()
+  let handler = null
+  let detached = false
+  const source = {
+    subscribe(fn) {
+      handler = fn
+      return () => {
+        detached = true
+      }
+    },
+  }
+  assert.equal(hub.attachEventSource('taskBoard', source).ok, true)
+  handler({ type: 'task.created', at: 1000, seq: 3, task: { id: 'tb-1' } })
+  assert.equal(calls.busAppends.length, 1)
+  const event = calls.busAppends[0]
+  assert.equal(event.activity, 'taskBoard'.toLowerCase())
+  assert.equal(event.type, 'task.created')
+  assert.equal(event.subject, 'tb-1')
+  assert.equal(event.payload.source, 'taskBoard')
+  assert.equal(event.payload.data.type, 'task.created')
+  assert.equal(validateEventEnvelope(event).ok, true)
+  // 非法来源事件被拒绝
+  assert.equal(hub.ingest('taskBoard', { at: 1000 }).code, HUB_CODES.eventBridgeFailed)
+  // off 模式不桥接
+  const offHub = makeHubFixture(HUB_DEFAULT_FEATURE_FLAG).hub
+  assert.equal(offHub.attachEventSource('taskBoard', source).skipped, true)
+  assert.equal(offHub.ingest('taskBoard', { type: 'task.created' }).skipped, true)
+  await hub.stop()
+  assert.equal(detached, true, 'stop 时解除事件订阅')
+  assert.equal(bus.snapshot().stored, 1)
+})
+
+test('hub D4：allowMemoryWrite 才写 Memory Gateway', async () => {
+  const { hub, calls } = makeHubFixture({ enabled: true, shadow: false })
+  hub.start()
+  await hub.tick()
+  assert.equal(calls.memoryWrites.length, 0)
+
+  const writing = makeHubFixture({ enabled: true, shadow: false })
+  const writeHub = createHub({
+    taskBoard: writing.board,
+    scheduler: writing.scheduler,
+    feedbackLedger: writing.ledger,
+    memoryGateway: writing.gateway,
+    activityManifests: [{ manifest: { id: 'chat' }, execute: writing.adapter.execute }],
+    featureFlag: { enabled: true, shadow: false },
+    allowMemoryWrite: true,
+    now: () => 1000,
+  })
+  writeHub.start()
+  const result = await writeHub.tick()
+  assert.equal(result.candidate.kind, 'method')
+  assert.equal(writing.calls.memoryWrites.length, 1)
+  assert.deepEqual(writing.calls.memoryWrites[0], { category: 'method', text: '方法候选' })
+  assert.equal(writeHub.snapshot().metrics.memoryWrites, 1)
+})
+
+test('hub D4：模块缺失降级与依赖异常隔离', async () => {
+  const empty = createHub({})
+  assert.equal(empty.mode(), 'off')
+  assert.equal((await empty.tick()).skipped, true)
+  const snapshot = empty.snapshot()
+  assert.equal(snapshot.available.taskBoard, false)
+  assert.equal(snapshot.available.scheduler, false)
+  assert.equal(snapshot.layers.taskBoard, null)
+  assert.equal(empty.health().ok, true)
+  assert.equal(empty.start().mode, 'off')
+
+  // full 模式缺 scheduler → 明确错误
+  const noScheduler = createHub({
+    taskBoard: { list: () => [], snapshot: () => ({}) },
+    featureFlag: { enabled: true, shadow: false },
+  })
+  noScheduler.start()
+  const result = await noScheduler.tick()
+  assert.equal(result.ok, false)
+  assert.equal(result.code, HUB_CODES.dependencyError)
+
+  // 某层 snapshot 抛错 → 聚合仍 ok，errors 记录该层
+  const brokenBoard = {
+    list: () => [],
+    snapshot() {
+      throw new Error('board snapshot boom')
+    },
+  }
+  const broken = createHub({ taskBoard: brokenBoard, featureFlag: { enabled: true, shadow: false } })
+  const brokenSnapshot = broken.snapshot()
+  assert.equal(brokenSnapshot.ok, true)
+  assert.equal(brokenSnapshot.errors.length, 1)
+  assert.equal(brokenSnapshot.errors[0].layer, 'taskBoard')
+  assert.equal(broken.health().errors, 1)
+})
+
+test('hub D4：stop 停止 World 并回到 off', async () => {
+  const { hub, calls } = makeHubFixture({ enabled: true, shadow: false })
+  hub.start()
+  await waitMs(0)
+  assert.deepEqual(calls.worldStarts, ['chat-world'])
+  const stopped = await hub.stop()
+  assert.equal(stopped.ok, true)
+  assert.equal(calls.worldStops, 1)
+  assert.equal(hub.mode(), 'off')
+  assert.equal((await hub.tick()).skipped, true)
+  assert.equal((await hub.stop()).already, true)
+  // 再次 start 可恢复（enabled 配置仍在）
+  assert.equal(hub.start().mode, 'full')
 })
