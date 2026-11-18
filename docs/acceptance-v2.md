@@ -14,6 +14,10 @@ HEAD：`53d0b6c`（Gate A–H 实现 + Activation H3–H6）
 | `npm run fault:inject -- --json` | 9/9 场景通过（模型超时/空响应、队列满/超时、任务取消/租约、重启、磁盘失败、未知事件保留） |
 | `npm run state:backup -- --dry-run --json` | exit 0；6551 文件 / 约 115.6MB，可备份、可恢复检查 |
 | `npm run logs:rotate -- --json` | exit 0；dry-run 不修改日志 |
+| 重复测试 | 5 × 858/858 pass |
+| 压力/故障注入 | 模型/任务/事件 3 轮；故障 9/9 × 3 |
+| 真实备份/恢复演练 | 6832 文件 / 115.7MB；restore ok=true |
+| 最终 soak | 见 docs/final-soak.md |
 | 路由 | 40 条（含 Hub/训练/模型策略） |
 | 工作区 | clean，origin/main 同步 |
 

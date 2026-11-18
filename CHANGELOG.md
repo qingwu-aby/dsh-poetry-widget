@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.16.3 最终 soak**：5×858 测试、模型/任务/事件压力、故障注入 9/9×3、真实备份 6832 文件 + 恢复演练；文档见 docs/final-soak.md。
 - **v0.16.2 Activation H5/H6**：game-memory 写入桥（默认旧路径，memoryWrite 双写 Gateway）；训练 runner 注入（包装 self-train.sh，默认关闭、需 enabled+confirm、支持取消/日志）。858 tests。
 - **v0.16.1 Activation H3/H4**：Hub full 模式真实 Chat/Minecraft 执行适配器与受控 `task.create`；设置页训练配置区（二次确认、runner 不可用提示、config 写入校验）。849 tests。
 - **v0.16.0 Activity Hub 基建（Gate A–H）**：模型网关加固、Task/World 监管、Activity 权限、备份恢复、可观测、成本闸门、事件契约、压测/故障注入；Hub Core（EventBus/TaskBoard/Scheduler/Registry/Control API）、Memory Gateway/Feedback/质量隐私、Chat/Minecraft Activity、Hub Runtime（默认 off）、模型策略配置与设置页、训练配置/评估/回滚骨架与 API。835 tests，详见 docs/acceptance-v2.md。
