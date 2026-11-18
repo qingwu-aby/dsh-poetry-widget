@@ -1,10 +1,12 @@
 // kernel 基础设施单测（W0/W1）
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { summarizeModelBudget, summarizeModelGate } from '../lib/composition/health.mjs'
 import {
   ACTIVITY_MANIFEST_ERROR_CODES,
@@ -36,6 +38,20 @@ import { createPluginLogger } from '../lib/kernel/logger.mjs'
 import { createModelCaller } from '../lib/kernel/model-call.mjs'
 import { createServiceRegistry } from '../lib/kernel/service.mjs'
 import { createStateRegistry, migrateAll } from '../lib/kernel/state-schema.mjs'
+import {
+  createStateBackup,
+  formatBackupStamp,
+  listStateBackups,
+  resolveStateHome,
+  STATE_BACKUP_KIND,
+  sha256Hex,
+} from '../scripts/state-backup.mjs'
+import {
+  findLatestStateBackup,
+  resolveRestoreWorkRoot,
+  restoreStateBackup,
+  verifyStateBackup,
+} from '../scripts/state-restore-check.mjs'
 
 function tmpDir(name) {
   return mkdtempSync(path.join(os.tmpdir(), `dshp-${name}-`))
@@ -1028,4 +1044,235 @@ test('activity-manifest A3：resources/world 校验与未知字段容忍', () =>
   const forward = validateActivityManifest(validManifest({ futureField: { a: 1 } }))
   assert.equal(forward.ok, true)
   assert.equal(forward.manifest.futureField, undefined)
+})
+
+// ---------------------------------------------------------------------------
+// Gate A4：状态备份 / 恢复演练 / 迁移方案（scripts/state-backup.mjs 等）
+// ---------------------------------------------------------------------------
+
+const STATE_TEST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+function createStateFixture() {
+  const home = tmpDir('state-home')
+  const stateDir = path.join(home, '.dsh-poetry')
+  const memoryDir = path.join(home, 'agent-memory')
+  mkdirSync(path.join(stateDir, 'nested'), { recursive: true })
+  mkdirSync(path.join(memoryDir, 'backups', 'old'), { recursive: true })
+  mkdirSync(path.join(memoryDir, 'works'), { recursive: true })
+  writeFileSync(path.join(stateDir, 'settings.json'), JSON.stringify({ scale: 1 }))
+  writeFileSync(path.join(stateDir, 'nested', 'state.json'), '{"v":1}')
+  writeFileSync(path.join(memoryDir, 'journal.jsonl'), '{"kind":"thought"}\n')
+  writeFileSync(path.join(memoryDir, 'works', 'note.md'), '作品')
+  // 不应被备份：嵌套备份 / 临时文件
+  writeFileSync(path.join(memoryDir, 'backups', 'old', 'manifest.json'), '{"kind":"old"}')
+  writeFileSync(path.join(memoryDir, 'pending.tmp'), 'tmp')
+  return { home, stateDir, memoryDir }
+}
+
+function listFilesRecursive(root) {
+  const out = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) out.push(...listFilesRecursive(full))
+    else if (entry.isFile()) out.push(full)
+  }
+  return out
+}
+
+test('state-backup A4：manifest 记录大小/哈希，排除嵌套备份与临时文件', () => {
+  const { home } = createStateFixture()
+  const report = createStateBackup({ home, keep: 3, now: 1_700_000_000_000 })
+  assert.equal(report.ok, true)
+  assert.equal(report.dryRun, false)
+  assert.equal(report.id, formatBackupStamp(1_700_000_000_000))
+  assert.equal(report.totals.files, 4)
+  assert.ok(report.totals.bytes > 0)
+
+  const manifestPath = path.join(report.dir, 'manifest.json')
+  assert.ok(existsSync(manifestPath), '应写入 manifest.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  assert.equal(manifest.kind, STATE_BACKUP_KIND)
+  assert.equal(manifest.v, 1)
+  assert.equal(manifest.totals.files, 4)
+  assert.deepEqual(manifest.files.map((item) => item.path).sort(), [
+    'agent-memory/journal.jsonl',
+    'agent-memory/works/note.md',
+    'dsh-poetry/nested/state.json',
+    'dsh-poetry/settings.json',
+  ])
+  for (const item of manifest.files) {
+    const full = path.join(report.dir, ...item.path.split('/'))
+    const buffer = readFileSync(full)
+    assert.equal(item.size, buffer.length)
+    assert.equal(item.sha256, sha256Hex(buffer), `${item.path} 哈希应一致`)
+  }
+  const skippedReasons = report.skipped.map((item) => item.reason)
+  assert.ok(skippedReasons.includes('excluded-dir'), '嵌套 backups 应跳过')
+  assert.ok(skippedReasons.includes('temp-file'), '.tmp 应跳过')
+  assert.deepEqual(
+    listStateBackups(report.outDir).map((item) => item.id),
+    [report.id],
+  )
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('state-backup A4：dry-run 不写盘；保留策略只清理自己的备份', () => {
+  const { home } = createStateFixture()
+  const dry = createStateBackup({ home, keep: 2, dryRun: true, now: 1_700_000_000_000 })
+  assert.equal(dry.ok, true)
+  assert.equal(dry.dryRun, true)
+  assert.equal(dry.totals.files, 4)
+  assert.equal(existsSync(dry.outDir), false, 'dry-run 不应创建备份目录')
+
+  const first = createStateBackup({ home, keep: 2, now: 1_700_000_000_000 })
+  const second = createStateBackup({ home, keep: 2, now: 1_700_000_010_000 })
+  const third = createStateBackup({ home, keep: 2, now: 1_700_000_020_000 })
+  assert.deepEqual(third.kept, [third.id, second.id])
+  assert.deepEqual(third.pruned, [first.id])
+  assert.equal(existsSync(first.dir), false, '超出保留份数的旧备份被清理')
+  assert.equal(existsSync(second.dir), true)
+  assert.equal(existsSync(third.dir), true)
+
+  // 外来目录（没有本脚本 manifest）不会被清理
+  const foreign = path.join(third.outDir, 'manual-backup')
+  mkdirSync(foreign, { recursive: true })
+  writeFileSync(path.join(foreign, 'keep.txt'), 'do not delete')
+  createStateBackup({ home, keep: 1, now: 1_700_000_030_000 })
+  assert.equal(existsSync(foreign), true, '非本脚本生成的目录必须保留')
+  assert.equal(readFileSync(path.join(foreign, 'keep.txt'), 'utf8'), 'do not delete')
+
+  // --no-prune 不清理
+  const noPrune = createStateBackup({ home, keep: 1, prune: false, now: 1_700_000_040_000 })
+  assert.ok(noPrune.pruned.length >= 1)
+  assert.equal(existsSync(noPrune.dir), true)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('state-restore-check A4：备份→临时恢复→校验通过，live 数据不变', () => {
+  const { home, stateDir } = createStateFixture()
+  const backup = createStateBackup({ home, keep: 3, now: 1_700_000_000_000 })
+  assert.equal(backup.ok, true)
+  const liveBefore = listFilesRecursive(stateDir).map((file) => [
+    path.relative(home, file),
+    sha256Hex(readFileSync(file)),
+  ])
+
+  const verified = verifyStateBackup(backup.dir)
+  assert.equal(verified.ok, true)
+  assert.equal(verified.totals.files, 4)
+  assert.ok(verified.files.every((item) => item.ok))
+
+  const drill = restoreStateBackup({ backupDir: backup.dir, home })
+  assert.equal(drill.ok, true, JSON.stringify(drill.errors))
+  assert.equal(drill.restored.files, 4)
+  assert.equal(drill.restored.bytes, verified.totals.bytes)
+  assert.equal(drill.keptTemp, false)
+  assert.equal(existsSync(drill.tempDir), false, '默认演练后删除临时目录')
+  assert.ok(drill.tempDir.startsWith(os.tmpdir()), '演练目录必须在系统临时目录下')
+
+  const liveAfter = listFilesRecursive(stateDir).map((file) => [
+    path.relative(home, file),
+    sha256Hex(readFileSync(file)),
+  ])
+  assert.deepEqual(liveAfter, liveBefore, '演练不得改动 live 数据')
+
+  const kept = restoreStateBackup({ backupDir: backup.dir, home, keepTemp: true })
+  assert.equal(kept.ok, true)
+  assert.equal(existsSync(kept.tempDir), true)
+  assert.ok(existsSync(path.join(kept.tempDir, 'dsh-poetry', 'settings.json')))
+  assert.ok(existsSync(path.join(kept.tempDir, 'restore-check-report.json')))
+  rmSync(kept.tempDir, { recursive: true, force: true })
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('state-restore-check A4：坏文件/路径穿越/错 kind 被拒绝', () => {
+  const { home } = createStateFixture()
+  const backup = createStateBackup({ home, keep: 3, now: 1_700_000_000_000 })
+  // 篡改备份文件（保持长度，只改内容）→ 哈希不一致
+  const target = path.join(backup.dir, 'dsh-poetry', 'settings.json')
+  const original = readFileSync(target)
+  writeFileSync(target, Buffer.from('x'.repeat(original.length)))
+  const corrupted = verifyStateBackup(backup.dir)
+  assert.equal(corrupted.ok, false)
+  assert.ok(corrupted.files.some((item) => item.error === '哈希不一致'))
+  const drill = restoreStateBackup({ backupDir: backup.dir, home })
+  assert.equal(drill.ok, false, '校验失败不得继续恢复')
+
+  // 路径穿越 manifest → 结构校验拒绝
+  const evilDir = path.join(backup.outDir, 'evil')
+  mkdirSync(evilDir, { recursive: true })
+  writeFileSync(
+    path.join(evilDir, 'manifest.json'),
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      kind: STATE_BACKUP_KIND,
+      id: 'evil',
+      createdAt: 1,
+      files: [{ path: '../escape.json', source: 'x', size: 1, sha256: 'a'.repeat(64) }],
+      totals: { files: 1, bytes: 1 },
+    }),
+  )
+  const evil = verifyStateBackup(evilDir)
+  assert.equal(evil.ok, false)
+  assert.ok(evil.errors.some((error) => error.includes('安全的相对路径')))
+
+  // kind 不对 → 拒绝
+  const wrongKind = path.join(backup.outDir, 'wrong-kind')
+  mkdirSync(wrongKind, { recursive: true })
+  writeFileSync(path.join(wrongKind, 'manifest.json'), JSON.stringify({ ok: true, v: 1, kind: 'other', files: [] }))
+  assert.equal(verifyStateBackup(wrongKind).ok, false)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('state-restore-check A4：拒绝在 live 目录内演练；无备份时 latest 为空', () => {
+  const { home } = createStateFixture()
+  const inside = resolveRestoreWorkRoot({ home, workdir: path.join(home, 'tmp-drill') })
+  assert.equal(inside.ok, false)
+  assert.match(inside.errors[0], /live 数据目录内/)
+  const outside = resolveRestoreWorkRoot({ home, workdir: os.tmpdir() })
+  assert.equal(outside.ok, true)
+  assert.equal(resolveStateHome({ env: {}, home }), home)
+
+  const emptyHome = tmpDir('state-empty')
+  assert.equal(findLatestStateBackup(path.join(emptyHome, 'state-backups')), null)
+  const backup = createStateBackup({ home, keep: 2, now: 1_700_000_000_000 })
+  const latest = findLatestStateBackup(backup.outDir)
+  assert.equal(latest.id, backup.id)
+  rmSync(home, { recursive: true, force: true })
+  rmSync(emptyHome, { recursive: true, force: true })
+})
+
+test('state-backup A4：CLI 可 dry-run / JSON 输出（不触碰真实 home）', () => {
+  const { home } = createStateFixture()
+  const dry = execFileSync(
+    process.execPath,
+    [path.join(STATE_TEST_ROOT, 'scripts', 'state-backup.mjs'), '--home', home, '--dry-run', '--json'],
+    { encoding: 'utf8' },
+  )
+  const dryReport = JSON.parse(dry)
+  assert.equal(dryReport.ok, true)
+  assert.equal(dryReport.dryRun, true)
+  assert.equal(dryReport.totals.files, 4)
+
+  const real = createStateBackup({ home, keep: 2, now: 1_700_000_000_000 })
+  const check = execFileSync(
+    process.execPath,
+    [
+      path.join(STATE_TEST_ROOT, 'scripts', 'state-restore-check.mjs'),
+      '--backup',
+      real.dir,
+      '--home',
+      home,
+      '--no-copy',
+      '--json',
+    ],
+    { encoding: 'utf8' },
+  )
+  const checkReport = JSON.parse(check)
+  assert.equal(checkReport.ok, true)
+  assert.equal(checkReport.copy, false)
+  assert.equal(checkReport.restored.files, 4)
+  assert.equal(formatBackupStamp(0).length, 15)
+  rmSync(home, { recursive: true, force: true })
 })
