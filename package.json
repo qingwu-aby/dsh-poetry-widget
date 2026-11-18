@@ -99,6 +99,7 @@
     "eval:turing:judge": "node scripts/eval/turing/judge.mjs",
     "state:audit": "node scripts/audit-state.mjs",
     "state:backup": "node scripts/state-backup.mjs",
-    "state:restore-check": "node scripts/state-restore-check.mjs"
+    "state:restore-check": "node scripts/state-restore-check.mjs",
+    "logs:rotate": "node scripts/log-rotate.mjs"
   }
 }
