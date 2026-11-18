@@ -8616,7 +8616,7 @@ test('hub-runtime H3：off/shadow 不注入真实 adapter、不执行任务', as
 
 test('hub-runtime H3：full 模式 chat 任务经 chatBridge 执行并回 receipt', async () => {
   const fixture = makeH3Fixture({ enabled: true, shadow: false })
-  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft', 'reading'])
+  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft', 'reading', 'study', 'video'])
   const res = hubFakeRes()
   await fixture.handler(
     hubFakeReq('POST', {
@@ -11364,4 +11364,161 @@ test('video-activity L5：provider 错误隔离 + 注入 store/自定义主题�
   assert.equal(noted.ok, true)
   assert.equal(noted.facts.topics.length, 1, '主题上限生效')
   assert.equal(custom.list().length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Gate L6：Study/Video 运行时接入 + Activity 注册
+// ---------------------------------------------------------------------------
+
+function makeL6Fixture(options = {}) {
+  const dir = tmpDir('l6-runtime')
+  const bookPath = path.join(dir, 'book.txt')
+  writeFileSync(bookPath, '第一章。\n\n第二章。'.repeat(20))
+  const searchCalls = []
+  const askCalls = []
+  const manifests = options.noAdapter
+    ? []
+    : createRealActivityAdapters({
+        chatBridgeProvider: () => ({
+          async chat() {
+            return { ok: true, reply: 'x' }
+          },
+        }),
+        minecraftWorldProvider: () => ({
+          decide: () => ({ ok: true }),
+          recordReceipt: () => ({ ok: true, lastReceipt: null }),
+        }),
+        booksDir: dir,
+        readingPageChars: 60,
+        studySearch: async (query) => {
+          searchCalls.push(query)
+          return [
+            { title: '来源 A', url: 'https://a.example', snippet: 'A' },
+            { title: '来源 B', url: 'https://b.example', snippet: 'B' },
+          ]
+        },
+        studyAsk: async (question) => {
+          askCalls.push(question)
+          return '先查资料'
+        },
+        now: () => 1000,
+      })
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: false },
+    activityManifests: manifests,
+    now: () => 1000,
+  })
+  runtime.start()
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  return { dir, bookPath, runtime, handler, searchCalls, askCalls }
+}
+
+async function l6Create(fixture, kind, activity, payload, key) {
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'POST',
+      {
+        action: 'task.create',
+        kind,
+        activity,
+        payload,
+        idempotencyKey: key,
+      },
+      { url: HUB_ROUTE },
+    ),
+    res,
+  )
+  return res.json()
+}
+
+test('hub-routes L6：study adapter 注入真实 search/ask，task.create study 闭环', async () => {
+  const fixture = makeL6Fixture()
+  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft', 'reading', 'study', 'video'])
+  const asked = await l6Create(
+    fixture,
+    'study.research',
+    'study',
+    { tool: 'study.ask', arguments: { question: '为什么天是蓝的？' } },
+    'l6-ask',
+  )
+  assert.equal(asked.ok, true)
+  assert.equal(asked.success, true)
+  assert.equal(asked.receipt.facts.hasAnswer, true)
+  assert.deepEqual(fixture.askCalls, ['为什么天是蓝的？'])
+  const searched = await l6Create(
+    fixture,
+    'study.research',
+    'study',
+    { tool: 'search', arguments: { query: '瑞利散射' } },
+    'l6-search',
+  )
+  assert.equal(searched.success, true)
+  assert.equal(searched.receipt.facts.count, 2)
+  assert.deepEqual(fixture.searchCalls, ['瑞利散射'])
+  const note = await l6Create(
+    fixture,
+    'study.note',
+    'study',
+    { tool: 'note', arguments: { text: '可能是瑞利散射', kind: 'hypothesis' } },
+    'l6-note',
+  )
+  assert.equal(note.success, true)
+  assert.equal(note.receipt.facts.kind, 'hypothesis')
+  const finished = await l6Create(fixture, 'study.research', 'study', { tool: 'finish', arguments: {} }, 'l6-finish')
+  assert.equal(finished.success, true)
+  assert.equal(finished.receipt.facts.sources, 2)
+  // 简写 payload（query → search）
+  const shorthand = await l6Create(fixture, 'study.research', 'study', { query: '简写检索' }, 'l6-shorthand')
+  assert.equal(shorthand.success, true)
+  assert.equal(shorthand.receipt.facts.query, '简写检索')
+  // 任务板/反馈
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(searched.task.id).status, 'done')
+  assert.equal(fixture.runtime.getInstances().feedbackLedger.snapshot().records >= 5, true)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes L6：video 明确 VIDEO_PROVIDER_UNAVAILABLE（不伪造成功）', async () => {
+  const fixture = makeL6Fixture()
+  const video = await l6Create(fixture, 'video.watch', 'video', { url: 'https://example/v/1' }, 'l6-video')
+  assert.equal(video.ok, true, '任务创建成功')
+  assert.equal(video.success, false, '不伪造成功')
+  assert.equal(video.receipt.ok, false)
+  assert.equal(video.receipt.facts.code, 'VIDEO_PROVIDER_UNAVAILABLE')
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(video.task.id).status, 'failed')
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime L6：reading/study/video manifests 注册（off/shadow 可见、不执行）', async () => {
+  const fixture = makeL6Fixture({ featureFlag: { enabled: true, shadow: true } })
+  const res = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), res)
+  const ids = res
+    .json()
+    .activities.activities.map((activity) => activity.id)
+    .sort()
+  for (const id of ['reading', 'study', 'video']) assert.equal(ids.indexOf(id) >= 0, true, 'Activity 列表包含 ' + id)
+  // off/shadow 不执行、不创建任务
+  const blocked = await l6Create(fixture, 'study.research', 'study', { query: 'x' }, 'l6-shadow')
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.code, 'HUB_FULL_REQUIRED')
+  assert.equal(fixture.runtime.getInstances().taskBoard.list().length, 0)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes L6：无 study adapter 明确失败', async () => {
+  const fixture = makeL6Fixture({ noAdapter: true })
+  const failed = await l6Create(fixture, 'study.research', 'study', { query: 'x' }, 'l6-no-adapter')
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, 'HUB_NO_ACTIVITY_ADAPTER')
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
 })
