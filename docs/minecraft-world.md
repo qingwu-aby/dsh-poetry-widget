@@ -121,3 +121,5 @@ archive/
   `{name, blocks:[{dx,dy,dz,block}]}`，相对脚下坐标，dx/dz −6..6，dy 0..5，方块白名单，6–60 块；
 - 计划存到 `build-plan.json`；`mc_build` 施工，**不再固定 3×3 小屋**；
 - 施工器：清场地 → 站定 → 逐块放置 + 读回；180 秒硬超时，可被中断；≥80% 成功才算完成。
+
+计划生成使用 `thinking` / 3000 tokens / 60s；默认最多 30 块，避免推理 token 把 JSON 挤掉。
