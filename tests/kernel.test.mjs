@@ -6334,7 +6334,7 @@ test('hub-runtime E1：full 模式启动/执行/停止/dispose', async () => {
 })
 
 test('hub-runtime E1：模块缺失降级与错误隔离', async () => {
-  const runtime = createHubRuntime({})
+  const runtime = createHubRuntime({ assembleHub: false })
   assert.equal(runtime.start().ok, true)
   const snapshot = runtime.snapshot()
   assert.equal(snapshot.ok, true)
@@ -6567,7 +6567,11 @@ test('chat shadow E2：缺少 messageId 时生成稳定 id', async () => {
 })
 
 test('chat shadow E2：hubRuntime.ingest 在无 Event Bus 时记录 shadow 环', () => {
-  const runtime = createHubRuntime({ featureFlag: { enabled: true, shadow: true }, now: () => 1000 })
+  const runtime = createHubRuntime({
+    assembleHub: false,
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
   runtime.start()
   const result = runtime.ingest('chat', { type: 'chat.received', at: 1000, payload: { peerId: 'p1' } })
   assert.equal(result.ok, true)
@@ -6578,7 +6582,11 @@ test('chat shadow E2：hubRuntime.ingest 在无 Event Bus 时记录 shadow 环',
   assert.equal(snapshot.shadowEvents[0].source, 'chat')
   runtime.dispose()
 
-  const offRuntime = createHubRuntime({ featureFlag: { enabled: false, shadow: true }, now: () => 1000 })
+  const offRuntime = createHubRuntime({
+    assembleHub: false,
+    featureFlag: { enabled: false, shadow: true },
+    now: () => 1000,
+  })
   assert.equal(offRuntime.ingest('chat', { type: 'chat.received' }).skipped, true)
   assert.equal(offRuntime.snapshot().shadowEventCount, 0)
   offRuntime.dispose()
@@ -6996,4 +7004,182 @@ test('hub-runtime E4：dispose 后查询明确报错；snapshot/health 指标可
   assert.equal(after.code, 'HUB_RUNTIME_DISPOSED')
   assert.equal(runtime.snapshot().disposed, true)
   rmSync(root, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate F1：完整 Hub 装配（hub-runtime 自动创建 EventBus/TaskBoard/Scheduler/Registry/...）
+// ---------------------------------------------------------------------------
+
+test('hub-runtime F1：完整装配 snapshot（图完整、manifest 已注册）', () => {
+  const runtime = createHubRuntime({ logger: { warn() {} }, now: () => 1000 })
+  const snapshot = runtime.snapshot()
+  assert.equal(snapshot.assembled, true)
+  assert.equal(snapshot.hub.available.eventBus, true)
+  assert.equal(snapshot.hub.available.taskBoard, true)
+  assert.equal(snapshot.hub.available.scheduler, true)
+  assert.equal(snapshot.hub.available.registry, true)
+  assert.equal(snapshot.hub.available.feedbackLedger, true)
+  assert.equal(snapshot.hub.available.worldSupervisor, true)
+  assert.ok(snapshot.hub.layers.eventBus !== null)
+  assert.ok(snapshot.hub.layers.taskBoard !== null)
+  assert.ok(snapshot.hub.layers.scheduler !== null)
+  assert.ok(snapshot.hub.layers.registry !== null)
+  assert.ok(snapshot.hub.layers.feedbackLedger !== null)
+  assert.ok(snapshot.hub.layers.worldSupervisor !== null)
+  assert.deepEqual(snapshot.hub.layers.registry.activities.map((item) => item.id).sort(), ['chat', 'minecraft'])
+  const instances = runtime.getInstances()
+  for (const key of ['eventBus', 'taskBoard', 'scheduler', 'registry', 'feedbackLedger', 'worldSupervisor']) {
+    assert.ok(instances[key] !== null, `${key} 已装配`)
+  }
+  // 默认 off：装配不等于运行
+  assert.equal(snapshot.mode, 'off')
+  assert.equal(snapshot.hub.state, 'created')
+  assert.equal(instances.worldSupervisor.snapshot().total, 0, '没有启动任何真实 World')
+  runtime.dispose()
+})
+
+test('hub-runtime F1：off 无副作用（不桥接事件/不运行调度）', async () => {
+  const runtime = createHubRuntime({ logger: { warn() {} }, now: () => 1000 })
+  const { eventBus, taskBoard, registry } = runtime.getInstances()
+  runtime.start()
+  assert.equal(runtime.mode(), 'off')
+  taskBoard.create({ activity: 'chat', key: 'k-off' })
+  registry.enable('chat')
+  const tick = await runtime.tick()
+  assert.equal(tick.skipped, true)
+  assert.equal(eventBus.snapshot().stored, 0, 'off 模式不桥接任何事件')
+  assert.equal(runtime.snapshot().hub.metrics.skippedTicks, 1)
+  assert.equal(runtime.snapshot().hub.metrics.fullTicks, 0)
+  runtime.dispose()
+})
+
+test('hub-runtime F1：shadow 下 TaskBoard/Registry 事件进 EventBus', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  const { eventBus, taskBoard, registry } = runtime.getInstances()
+  runtime.start()
+  assert.equal(runtime.mode(), 'shadow')
+
+  taskBoard.create({ activity: 'chat', key: 'k-shadow' })
+  const afterTask = eventBus.snapshot().stored
+  assert.ok(afterTask >= 1, 'TaskBoard onEvent → EventBus')
+  const stored = []
+  const unsubscribe = eventBus.subscribe('*', (event) => stored.push(event))
+  taskBoard.create({ activity: 'chat', key: 'k-shadow-2' })
+  await eventBus.flush()
+  assert.ok(stored.some((event) => event.type === 'task.created'))
+  const created = stored.find((event) => event.type === 'task.created')
+  assert.equal(created.activity, 'taskboard')
+  assert.equal(created.payload.data.type, 'task.created')
+
+  registry.enable('chat')
+  await eventBus.flush()
+  assert.ok(
+    stored.some((event) => event.type === 'activity.enabled'),
+    'Registry onEvent → EventBus',
+  )
+
+  // 直接 ingest 已是 envelope 的事件 → 原样进 EventBus
+  const chatEvent = toChatEvent(
+    { peerId: 'p1', messageId: 'm-1', text: '你好' },
+    { now: () => 1000, random: () => 0.5 },
+  )
+  assert.equal(chatEvent.ok, true)
+  const ingested = runtime.ingest('chat', chatEvent.event)
+  assert.equal(ingested.ok, true)
+  assert.equal(ingested.passthrough, true)
+  await eventBus.flush()
+  assert.ok(stored.some((event) => event.type === 'chat.received' && event.payload.peerId === 'p1'))
+  unsubscribe()
+  runtime.dispose()
+})
+
+test('hub-runtime F1：事件桥接失败隔离（EventBus 抛错不影响业务）', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    eventBus: {
+      append() {
+        throw new Error('bus down')
+      },
+      snapshot: () => ({ stored: 0 }),
+    },
+    now: () => 1000,
+  })
+  runtime.start()
+  const { taskBoard } = runtime.getInstances()
+  const created = taskBoard.create({ activity: 'chat', key: 'k-fail' })
+  assert.equal(created.ok, true, '桥接失败不影响任务板')
+  const tick = await runtime.tick()
+  assert.equal(tick.ok, true)
+  assert.equal(runtime.snapshot().ok, true)
+  runtime.dispose()
+})
+
+test('hub-runtime F1：assembleHub:false 保持 E 组降级形态', async () => {
+  const runtime = createHubRuntime({ assembleHub: false, logger: { warn() {} } })
+  const snapshot = runtime.snapshot()
+  assert.equal(snapshot.assembled, false)
+  assert.equal(snapshot.hub.available.taskBoard, false)
+  assert.equal(snapshot.hub.available.eventBus, false)
+  assert.equal(snapshot.hub.layers.taskBoard, null)
+  assert.equal((await runtime.tick()).skipped, true)
+  assert.equal(runtime.health().ok, true)
+  runtime.dispose()
+})
+
+test('hub-runtime F1：dispose 清理（桥接停止/查询拒绝）', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  const { eventBus, taskBoard } = runtime.getInstances()
+  runtime.start()
+  taskBoard.create({ activity: 'chat', key: 'k-before-dispose' })
+  const before = eventBus.snapshot().stored
+  assert.ok(before >= 1)
+  runtime.dispose()
+  assert.equal(runtime.snapshot().disposed, true)
+  taskBoard.create({ activity: 'chat', key: 'k-after-dispose' })
+  assert.equal(eventBus.snapshot().stored, before, 'dispose 后不再桥接')
+  assert.equal((await runtime.queryMemory()).code, 'HUB_RUNTIME_DISPOSED')
+  runtime.dispose()
+})
+
+test('hub-runtime F1：health 反映完整装配（assembled/activities）', () => {
+  const runtime = createHubRuntime({ logger: { warn() {} }, now: () => 1000 })
+  const metrics = buildHealthMetrics({ hubRuntime: runtime }, 1000)
+  assert.equal(metrics.hub.available, true)
+  assert.equal(metrics.hub.assembled, true)
+  assert.equal(metrics.hub.activities, 2)
+  const empty = buildHealthMetrics({}, 1000)
+  assert.equal(empty.hub.assembled, false)
+  assert.equal(empty.hub.activities, 0)
+  runtime.dispose()
+})
+
+test('hub-runtime F1：registerHubRuntime 注册完整装配的生命周期', () => {
+  const registered = []
+  const serviceRuntime = {
+    register(name, handlers) {
+      registered.push({ name, handlers })
+    },
+  }
+  const runtime = registerHubRuntime(serviceRuntime, {
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  assert.equal(registered[0].name, 'Hub')
+  const snapshot = registered[0].handlers.snapshot()
+  assert.equal(snapshot.assembled, true)
+  assert.equal(snapshot.mode, 'off', '未 start 时 off')
+  registered[0].handlers.start()
+  assert.equal(runtime.snapshot().mode, 'shadow')
+  registered[0].handlers.dispose()
+  assert.equal(runtime.snapshot().disposed, true)
 })
