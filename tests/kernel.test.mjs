@@ -77,6 +77,16 @@ import {
   HUB_CONTROL_VERSION,
 } from '../lib/core/hub-control-api.mjs'
 import {
+  GAME_CATEGORY_MAP,
+  gameMemoryProvider,
+  JOURNAL_KIND_CATEGORY,
+  journalProvider,
+  MEMORY_ADAPTER_CODES,
+  MEMORY_ADAPTER_DEFAULTS,
+  MEMORY_ADAPTERS_VERSION,
+  methodMemoryProvider,
+} from '../lib/core/memory-adapters.mjs'
+import {
   createInMemoryMemoryProvider,
   createMemoryGateway,
   MEMORY_CATEGORIES,
@@ -4270,4 +4280,291 @@ test('feedback-ledger C2：snapshot 字段与 recent', () => {
   assert.equal(typeof snapshot.metrics.records, 'number')
   assert.equal(snapshot.thresholds.minSuccessRateForMethod, 0.6)
   assert.equal(FEEDBACK_LEDGER_DEFAULTS.maxRecords > 0, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate C3：现有记忆只读适配（lib/core/memory-adapters.mjs）——journal/game-memory/methods
+// ---------------------------------------------------------------------------
+
+function writeJournalFixture(dir, lines) {
+  writeFileSync(path.join(dir, 'journal.jsonl'), lines.join('\n'))
+}
+
+function makeMemoryAdapterFixture() {
+  const dir = tmpDir('memory-adapters')
+  writeJournalFixture(dir, [
+    JSON.stringify({ ts: 1000, kind: 'thought', text: '今天想了很久。' }),
+    'not-json',
+    '',
+    JSON.stringify({ ts: 2000, kind: 'learning', text: '学会了先看日志。' }),
+    JSON.stringify({ ts: 3000, kind: 'murmur', text: '有点想他。' }),
+  ])
+  writeFileSync(
+    path.join(dir, 'methods.json'),
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      entries: [
+        {
+          id: 'm1',
+          name: '先看日志',
+          howTo: '读失败日志再改',
+          source: '读哲学',
+          usedCount: 2,
+          successCount: 1,
+          lastAt: 3000,
+        },
+        {
+          id: 'm2',
+          name: '小步验证',
+          howTo: '一次只改一点',
+          source: '实践',
+          usedCount: 1,
+          successCount: 1,
+          lastAt: 2500,
+        },
+      ],
+    }),
+  )
+  const gameDir = path.join(dir, 'game-memory')
+  mkdirSync(path.join(gameDir, 'build'), { recursive: true })
+  mkdirSync(path.join(gameDir, 'log'), { recursive: true })
+  mkdirSync(path.join(gameDir, 'archive'), { recursive: true })
+  writeFileSync(path.join(gameDir, 'PARTNER_GAME.md'), '# 短画像\n一起玩的人：Yuan_JY，喜欢看海。\n')
+  writeFileSync(path.join(gameDir, 'world.md'), '- 世界：26.1 离线服务器（Yuan_JY）\n')
+  writeFileSync(path.join(gameDir, 'build/home.md'), '- 盖了 3×3 小屋（自己）[2026-11-01]\n')
+  writeFileSync(path.join(gameDir, 'inquiry.md'), '- 查了红石电路原理 [2026-11-02]\n')
+  writeFileSync(path.join(gameDir, 'methods.md'), '- 先搭地基再盖墙（实践）[2026-11-02]\n')
+  writeFileSync(path.join(gameDir, 'log/2026-11.md'), '- 一起挖矿到夜里（Yuan_JY）[2026-11-03]\n')
+  writeFileSync(path.join(gameDir, 'archive/old.md'), '- 归档事件（旧）[2025-01-01]\n')
+  return { dir, gameDir }
+}
+
+function listFilesDeep(root) {
+  const out = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name)
+    if (entry.isDirectory()) out.push(...listFilesDeep(full))
+    else if (entry.isFile()) out.push([path.relative(root, full), readFileSync(full, 'utf8')])
+  }
+  return out.sort((left, right) => left[0].localeCompare(right[0]))
+}
+
+test('memory-adapters C3：journal 只读解析（坏行跳过/过滤/limit）', () => {
+  const { dir } = makeMemoryAdapterFixture()
+  const provider = journalProvider({ dir })
+  assert.equal(provider.id, 'journal')
+  assert.equal(provider.permissions.write, false)
+  assert.equal(typeof provider.write, 'undefined')
+  const entries = provider.read({})
+  assert.equal(entries.length, 3, '坏行与空行跳过')
+  assert.equal(entries[0].category, 'episodic')
+  assert.equal(entries[1].category, 'semantic')
+  assert.equal(entries[0].at, 1000)
+  assert.deepEqual(entries[0].source, { kind: 'journal', id: 'journal.jsonl', activity: 'thought' })
+  assert.equal(entries[0].provenance.journalKind, 'thought')
+  assert.equal(entries[0].text, '今天想了很久。')
+  const stats = provider.snapshot().stats
+  assert.equal(stats.badLines, 1)
+  assert.equal(stats.entries, 3)
+  // 过滤/limit
+  assert.equal(provider.query({ category: 'semantic' }).length, 1)
+  assert.equal(provider.query({ text: '日志' }).length, 1)
+  assert.equal(provider.query({ activity: 'murmur' }).length, 1)
+  assert.equal(provider.query({ limit: 1 }).length, 1)
+  assert.equal(JOURNAL_KIND_CATEGORY.learning, 'semantic')
+  assert.equal(MEMORY_ADAPTERS_VERSION, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('memory-adapters C3：journal 缺失文件/大文件限流', () => {
+  const emptyDir = tmpDir('journal-empty')
+  const missing = journalProvider({ dir: emptyDir })
+  assert.deepEqual(missing.read({}), [])
+  assert.equal(missing.snapshot().stats.files, 0)
+
+  const dir = tmpDir('journal-big')
+  const lines = []
+  for (let index = 0; index < 200; index += 1) {
+    lines.push(JSON.stringify({ ts: 1000 + index, kind: 'thought', text: '第 ' + index + ' 条' }))
+  }
+  writeJournalFixture(dir, lines)
+  const capped = journalProvider({ dir, maxBytes: 400 })
+  const entries = capped.read({})
+  assert.ok(entries.length > 0 && entries.length < 200, '只读尾部，避免大文件阻塞')
+  assert.equal(capped.snapshot().stats.truncated, true)
+  assert.equal(entries[entries.length - 1].text, '第 199 条', '最新记录在尾部')
+  const lineCapped = journalProvider({ dir, maxLines: 3 })
+  assert.equal(lineCapped.read({}).length, 3, '行数上限')
+  rmSync(emptyDir, { recursive: true, force: true })
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('memory-adapters C3：game-memory workspace（短画像/分类/日志/归档开关）', () => {
+  const { gameDir } = makeMemoryAdapterFixture()
+  const provider = gameMemoryProvider({ dir: gameDir })
+  assert.equal(provider.permissions.write, false)
+  const entries = provider.read({})
+  const texts = entries.map((entry) => entry.text)
+  assert.ok(
+    texts.some((text) => text.includes('一起玩的人：Yuan_JY')),
+    '短画像',
+  )
+  assert.ok(texts.some((text) => text.includes('盖了 3×3 小屋')))
+  assert.ok(texts.some((text) => text.includes('查了红石电路原理')))
+  assert.ok(texts.some((text) => text.includes('一起挖矿到夜里')))
+  const build = entries.find((entry) => entry.text.includes('盖了 3×3 小屋'))
+  assert.equal(build.category, 'skill')
+  assert.equal(build.at, Date.parse('2026-11-01T00:00:00Z'))
+  assert.equal(build.provenance.activity, 'build')
+  assert.equal(
+    entries.some((entry) => entry.text.includes('归档事件')),
+    false,
+    '默认不读 archive',
+  )
+  const withArchive = gameMemoryProvider({ dir: gameDir, includeArchive: true }).read({})
+  assert.equal(
+    withArchive.some((entry) => entry.text.includes('归档事件')),
+    true,
+  )
+  const noLogs = gameMemoryProvider({ dir: gameDir, includeLogs: false }).read({})
+  assert.equal(
+    noLogs.some((entry) => entry.text.includes('一起挖矿')),
+    false,
+  )
+  assert.equal(GAME_CATEGORY_MAP.build, 'skill')
+  assert.equal(provider.query({ category: 'relationship' }).length, 1, '短画像')
+  rmSync(path.dirname(gameDir), { recursive: true, force: true })
+})
+
+test('memory-adapters C3：game-memory legacy JSON 与缺失目录', () => {
+  const dir = tmpDir('game-legacy')
+  writeFileSync(
+    path.join(dir, 'game-memory.json'),
+    JSON.stringify({
+      ok: true,
+      version: 1,
+      entries: [
+        { category: 'event', text: '第一次见面', at: 1000, source: 'Yuan_JY' },
+        { category: 'plan', text: '想盖一座灯塔', at: 2000, source: '' },
+        { category: 'build', text: '小屋 24/25 块', at: 3000, source: 'self' },
+      ],
+    }),
+  )
+  const provider = gameMemoryProvider({ dir })
+  const entries = provider.read({})
+  assert.equal(entries.length, 3)
+  assert.deepEqual(
+    entries.map((entry) => entry.category),
+    ['episodic', 'vision', 'skill'],
+  )
+  assert.equal(entries[0].source.kind, 'game-memory')
+  assert.equal(entries[0].provenance.source, 'Yuan_JY')
+  assert.equal(entries[1].at, 2000)
+  assert.equal(provider.query({ category: 'vision' }).length, 1)
+
+  const missing = gameMemoryProvider({ dir: path.join(dir, 'missing') })
+  assert.deepEqual(missing.read({}), [])
+  assert.equal(missing.snapshot().stats.files, 0)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('memory-adapters C3：methods.json 只读解析与错误码', () => {
+  const { dir } = makeMemoryAdapterFixture()
+  const provider = methodMemoryProvider({ dir })
+  const entries = provider.read({})
+  assert.equal(entries.length, 2)
+  assert.equal(entries[0].category, 'method')
+  assert.equal(entries[0].text, '先看日志：读失败日志再改')
+  assert.equal(entries[0].at, 3000)
+  assert.equal(entries[0].source.kind, 'method-memory')
+  assert.equal(entries[0].provenance.usedCount, 2)
+  assert.equal(provider.permissions.write, false)
+
+  const missing = methodMemoryProvider({ dir: path.join(dir, 'nope') })
+  assert.deepEqual(missing.read({}), [])
+
+  // 坏 JSON → parseError
+  const corruptDir = tmpDir('methods-corrupt')
+  writeFileSync(path.join(corruptDir, 'methods.json'), '{bad json')
+  const corrupt = methodMemoryProvider({ dir: corruptDir })
+  assert.throws(
+    () => corrupt.read({}),
+    (error) => error.code === MEMORY_ADAPTER_CODES.parseError,
+  )
+  assert.equal(corrupt.snapshot().stats.errors, 1)
+  // 超大 JSON → fileTooLarge
+  const bigDir = tmpDir('methods-big')
+  writeFileSync(
+    path.join(bigDir, 'methods.json'),
+    JSON.stringify({ ok: true, v: 1, entries: [{ name: '方法', howTo: '做很多很多事' }] }),
+  )
+  const big = methodMemoryProvider({ dir: bigDir, maxBytes: 10 })
+  assert.throws(
+    () => big.read({}),
+    (error) => error.code === MEMORY_ADAPTER_CODES.fileTooLarge,
+  )
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(corruptDir, { recursive: true, force: true })
+  rmSync(bigDir, { recursive: true, force: true })
+})
+
+test('memory-adapters C3：只读保证（不改文件/不新建文件/不可写）', () => {
+  const { dir, gameDir } = makeMemoryAdapterFixture()
+  const before = listFilesDeep(dir)
+  const journal = journalProvider({ dir })
+  const game = gameMemoryProvider({ dir: gameDir })
+  const methods = methodMemoryProvider({ dir })
+  journal.read({})
+  game.read({})
+  methods.read({})
+  const after = listFilesDeep(dir)
+  assert.deepEqual(after, before, '读取不修改/不新建任何文件')
+  for (const provider of [journal, game, methods]) {
+    assert.equal(provider.permissions.read, true)
+    assert.equal(provider.permissions.write, false)
+    assert.equal(typeof provider.write, 'undefined')
+  }
+  assert.equal(MEMORY_ADAPTER_DEFAULTS.maxLines > 0, true)
+  assert.throws(() => journalProvider({}), TypeError)
+  assert.throws(() => gameMemoryProvider({}), TypeError)
+  assert.throws(() => methodMemoryProvider({}), TypeError)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('memory-adapters C3：三类 provider 经 Gateway 聚合查询（含故障隔离）', async () => {
+  const { dir, gameDir } = makeMemoryAdapterFixture()
+  const gateway = createMemoryGateway({ now: () => 1000 })
+  const journal = journalProvider({ dir })
+  const game = gameMemoryProvider({ dir: gameDir })
+  const methods = methodMemoryProvider({ dir })
+  assert.equal(gateway.registerProvider(journal).ok, true)
+  assert.equal(gateway.registerProvider(game).ok, true)
+  assert.equal(gateway.registerProvider(methods).ok, true)
+  const all = await gateway.query({ limit: 50 })
+  assert.equal(all.ok, true)
+  const kinds = new Set(all.entries.map((entry) => entry.source.kind))
+  assert.deepEqual([...kinds].sort(), ['game-memory', 'journal', 'method-memory'])
+  const textQuery = await gateway.query({ text: '日志' })
+  assert.ok(textQuery.entries.length >= 2)
+  assert.ok(textQuery.entries.some((entry) => entry.source.kind === 'method-memory'))
+  const categoryQuery = await gateway.query({ category: 'method' })
+  assert.ok(categoryQuery.entries.every((entry) => entry.category === 'method'))
+  // 只读 provider 写入被 Gateway 拒绝
+  const denied = await gateway.write({
+    category: 'episodic',
+    text: '试图写只读记忆',
+    source: { kind: 'x', id: 'y' },
+    provider: 'journal',
+  })
+  assert.equal(denied.code, MEMORY_GATEWAY_CODES.permissionDenied)
+
+  // 故障隔离：坏 methods.json 抛错，其他 provider 仍可查询
+  writeFileSync(path.join(dir, 'methods.json'), '{bad')
+  const isolated = await gateway.query({ limit: 50 })
+  assert.equal(isolated.ok, true)
+  assert.ok(isolated.entries.some((entry) => entry.source.kind === 'journal'))
+  assert.equal(isolated.errors.length, 1)
+  assert.equal(isolated.errors[0].provider, 'method-memory')
+  rmSync(dir, { recursive: true, force: true })
 })
