@@ -241,6 +241,7 @@ import {
   TRAINING_SERVICE_CODES,
   TRAINING_SERVICE_VERSION,
 } from '../lib/domain/life/training-service.mjs'
+import { createGameMemoryWorkspace } from '../lib/domain/play/game-memory-workspace.mjs'
 import { createMinecraftWorld, MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
@@ -6298,8 +6299,8 @@ function makeHubRuntimeFixture(flag) {
 }
 
 test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > settings）', () => {
-  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true })
-  assert.deepEqual(resolveHubFeatureFlag({ env: {} }), { enabled: false, shadow: true })
+  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false })
+  assert.deepEqual(resolveHubFeatureFlag({ env: {} }), { enabled: false, shadow: true, memoryWrite: false })
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).shadow, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).enabled, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: '1' } }).shadow, false)
@@ -6308,13 +6309,14 @@ test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > 
   assert.deepEqual(resolveHubFeatureFlag({ settings: { hub: { enabled: true, shadow: false } } }), {
     enabled: true,
     shadow: false,
+    memoryWrite: false,
   })
   // 显式覆盖 env/settings
   const explicit = resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: true }, env: { DSH_POETRY_HUB: '1' } })
   assert.equal(explicit.enabled, true)
   assert.equal(explicit.shadow, true)
   assert.equal(HUB_RUNTIME_VERSION, 1)
-  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true })
+  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true, memoryWrite: false })
 })
 
 test('hub-runtime E1：默认 off 无副作用（不调度/不执行/不写事件）', async () => {
@@ -8697,4 +8699,178 @@ test('hub-runtime H3：executeTask 直接执行已存在任务', async () => {
   fixture.runtime.dispose()
   setActiveHubRuntime(null)
   rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate H5：Memory 写入桥（game-memory onRecord + Hub memoryWrite flag）
+// ---------------------------------------------------------------------------
+
+function h5WorkspaceFixture(options = {}) {
+  const dir = tmpDir('h5-game-memory')
+  const recorded = []
+  const workspace = createGameMemoryWorkspace({
+    dir,
+    git: false,
+    now: () => 1000,
+    ...(options.withHook === false
+      ? {}
+      : {
+          onRecord: (entry) => {
+            recorded.push(entry)
+            options.onRecord?.(entry)
+          },
+        }),
+  })
+  return { dir, workspace, recorded }
+}
+
+function h5DirFiles(dir) {
+  const out = {}
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) out[entry.name] = h5DirFiles(full)
+    else out[entry.name] = readFileSync(full, 'utf8')
+  }
+  return out
+}
+
+test('game-memory H5：onRecord 在旧写盘成功后调用，旧写入/文件不变', () => {
+  const withHook = h5WorkspaceFixture()
+  const withoutHook = h5WorkspaceFixture({ withHook: false })
+  const input = { category: 'event', text: '第一次见面', source: 'Yuan_JY' }
+  const first = withHook.workspace.record(input)
+  const baseline = withoutHook.workspace.record(input)
+  assert.equal(first.ok, true)
+  assert.equal(baseline.ok, true)
+  assert.deepEqual(first.entry, baseline.entry, '返回值不变')
+  assert.equal(withHook.recorded.length, 1, '旧写盘成功后调用 onRecord')
+  assert.deepEqual(withHook.recorded[0], { category: 'event', text: '第一次见面', at: 1000, source: 'Yuan_JY' })
+  assert.deepEqual(h5DirFiles(withHook.dir), h5DirFiles(withoutHook.dir), '文件内容与无回调完全一致')
+  // 重复记录 → 不写盘、不通知
+  const dup = withHook.workspace.record(input)
+  assert.equal(dup.ok, true)
+  assert.equal(dup.deduped, true)
+  assert.equal(withHook.recorded.length, 1, 'dedupe 不通知 onRecord')
+  // 非法输入 → 不通知
+  assert.equal(withHook.workspace.record({ category: 'event', text: '' }).ok, false)
+  assert.equal(withHook.recorded.length, 1)
+  rmSync(withHook.dir, { recursive: true, force: true })
+  rmSync(withoutHook.dir, { recursive: true, force: true })
+})
+
+test('game-memory H5：onRecord 抛错隔离（不影响旧写入）', () => {
+  const { dir, workspace, recorded } = h5WorkspaceFixture({
+    onRecord: () => {
+      throw new Error('bridge boom')
+    },
+  })
+  const result = workspace.record({ category: 'build', text: '盖了 3×3 小屋', source: 'self' })
+  assert.equal(result.ok, true, '回调抛错不影响 record 返回')
+  assert.equal(recorded.length, 1)
+  const files = h5DirFiles(dir)
+  assert.ok(Object.keys(files).includes('build'), '旧路径仍写盘')
+  assert.match(files.build['home.md'], /盖了 3×3 小屋/)
+  assert.match(files['PARTNER_GAME.md'], /盖了 3×3 小屋/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H5：memoryWrite 默认关闭（不写 Gateway）', async () => {
+  assert.equal(resolveHubFeatureFlag({}).memoryWrite, false)
+  assert.equal(resolveHubFeatureFlag({ env: {} }).memoryWrite, false)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_MEMORY_WRITE: 'gateway' } }).memoryWrite, true)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_MEMORY_WRITE: 'off' } }).memoryWrite, false)
+  assert.equal(resolveHubFeatureFlag({ settings: { memoryWrite: 'gateway' } }).memoryWrite, true)
+  assert.equal(resolveHubFeatureFlag({ settings: { hub: { memoryWrite: 'gateway' } } }).memoryWrite, true)
+  assert.equal(
+    resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: false, memoryWrite: true } }).memoryWrite,
+    true,
+  )
+  const writes = []
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: false, shadow: true, memoryWrite: false },
+    memoryGateway: {
+      registerProvider: () => ({ ok: true }),
+      write: (entry) => {
+        writes.push(entry)
+        return { ok: true }
+      },
+      snapshot: () => ({ metrics: { writes: writes.length }, conflicts: 0 }),
+    },
+    now: () => 1000,
+  })
+  const result = await runtime.recordMemory({ category: 'event', text: '不该写网关' })
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, true)
+  assert.equal(result.reason, 'memory-write-disabled')
+  assert.equal(writes.length, 0, 'flag 关闭零 Gateway 写入')
+  assert.equal(runtime.snapshot().memory.write, false)
+  runtime.dispose()
+})
+
+test('hub-runtime H5：memoryWrite 开启后 game-memory 记录进 Gateway', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_MEMORY_WRITE: 'gateway' },
+    now: () => 1000,
+  })
+  assert.equal(runtime.featureFlag.memoryWrite, true)
+  assert.equal(runtime.snapshot().memory.write, true)
+  const result = await runtime.recordMemory({ category: 'event', text: '第一次见面', at: 1000, source: 'Yuan_JY' })
+  assert.equal(result.ok, true)
+  assert.ok(result.entry !== null)
+  assert.equal(result.entry.category, 'episodic', 'game 分类映射到 Gateway category')
+  assert.equal(result.entry.text, '第一次见面')
+  assert.equal(result.entry.source.kind, 'game-memory')
+  assert.equal(runtime.memorySnapshot().metrics.writes >= 1, true, 'Gateway 有写入计数')
+  // 经 workspace onRecord 端到端：旧文件照写 + Gateway 记录
+  const dir = tmpDir('h5-e2e')
+  const workspace = createGameMemoryWorkspace({
+    dir,
+    git: false,
+    now: () => 1000,
+    onRecord: (entry) => {
+      runtime.recordMemory(entry).catch(() => {})
+    },
+  })
+  workspace.record({ category: 'player', text: '一起玩的人：Yuan_JY', source: 'self' })
+  await waitMs(0)
+  assert.match(readFileSync(path.join(dir, 'players.md'), 'utf8'), /一起玩的人：Yuan_JY/)
+  assert.equal(runtime.memorySnapshot().metrics.writes >= 2, true)
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H5：Gateway 失败不影响旧路径（失败隔离）', async () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: false, shadow: true, memoryWrite: true },
+    memoryGateway: {
+      registerProvider: () => ({ ok: true }),
+      write: () => {
+        throw new Error('gateway down')
+      },
+      snapshot: () => ({ metrics: {}, conflicts: 0 }),
+    },
+    now: () => 1000,
+  })
+  const failed = await runtime.recordMemory({ category: 'event', text: '网关失败' })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, 'HUB_MEMORY_WRITE_FAILED')
+  assert.equal(runtime.snapshot().ok, true, 'Hub 不崩')
+  const dir = tmpDir('h5-isolation')
+  const workspace = createGameMemoryWorkspace({
+    dir,
+    git: false,
+    now: () => 1000,
+    onRecord: (entry) => {
+      runtime.recordMemory(entry).catch(() => {})
+    },
+  })
+  const recorded = workspace.record({ category: 'event', text: '旧路径仍然成功', source: 'self' })
+  await waitMs(0)
+  assert.equal(recorded.ok, true)
+  assert.match(readFileSync(path.join(dir, 'log', '1970-01.md'), 'utf8'), /旧路径仍然成功/)
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
