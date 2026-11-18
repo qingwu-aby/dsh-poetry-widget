@@ -2,7 +2,7 @@
 
 日期：2026-11-18
 GUI：`http://127.0.0.1:49259`
-HEAD：`83d375b`（重启后复验；model-policy reset 修复已生效）
+HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 
 ## 1. 路由与状态
 
@@ -37,6 +37,16 @@ HEAD：`83d375b`（重启后复验；model-policy reset 修复已生效）
 - `GET /training.json`：enabled=false、phase=idle、runnerAvailable=true；
 - 设置页 Slot：dsh-little-whale active（order 30）；
 - Hub off 时 `task.create` 仍正确拒绝 `HUB_FULL_REQUIRED`。
+
+## 3.2 Shadow live 验证（2026-11-18）
+
+- 启动环境：`DSH_POETRY_HUB=shadow`（launchctl setenv + 重启继承）；
+- `hub.json`：`mode="shadow"`、`featureFlag.enabled=true`、`shadow=true`、`source=env`；
+- EventBus live：`stored=7`、`published=7`、`duplicates=0`、`rejected=0`；
+- 通过 `/api/dsh-poetry/chat.json` 发送一次 `shadow-smoke` 消息，回复正常（focus game 时 deferred），shadow 事件进入 EventBus；
+- Activity chat/minecraft 仍 `enabled=false/stopped`（shadow 不启动真实 World，符合设计）；
+- Memory 仍只读；训练仍关闭。
+- 注意：`shadowEventCount=0` 是因为已有 EventBus 时事件走总线，本地 shadow 环不再累积；EventBus metrics 才是正确证据。
 
 ## 4. 未验证
 
