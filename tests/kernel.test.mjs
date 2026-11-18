@@ -95,6 +95,25 @@ import {
   MEMORY_STATUSES,
 } from '../lib/core/memory-gateway.mjs'
 import {
+  buildMemoryDeletePlan,
+  buildMemoryExport,
+  createMemoryPrivacyController,
+  MEMORY_PRIVACY_CODES,
+  MEMORY_PRIVACY_DEFAULTS,
+  MEMORY_PRIVACY_VERSION,
+  sanitizeEntry,
+  sanitizeValue,
+} from '../lib/core/memory-privacy.mjs'
+import {
+  analyzeMemoryQuality,
+  MEMORY_QUALITY_ACTIONS,
+  MEMORY_QUALITY_CODES,
+  MEMORY_QUALITY_DEFAULTS,
+  MEMORY_QUALITY_VERSION,
+  MEMORY_SOURCE_TRUST,
+  similarity,
+} from '../lib/core/memory-quality.mjs'
+import {
   createScheduler,
   DEFAULT_PRIORITY_CLASSES,
   priorityClassOf,
@@ -4567,4 +4586,292 @@ test('memory-adapters C3：三类 provider 经 Gateway 聚合查询（含故障�
   assert.equal(isolated.errors.length, 1)
   assert.equal(isolated.errors[0].provider, 'method-memory')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate C4：记忆质量（lib/core/memory-quality.mjs）与隐私控制（lib/core/memory-privacy.mjs）
+// ---------------------------------------------------------------------------
+
+const QUALITY_NOW = 1_700_000_000_000
+const QUALITY_DAY = 24 * 60 * 60 * 1000
+
+function qualityEntry(overrides = {}) {
+  return {
+    id: 'mem-1',
+    category: 'episodic',
+    text: '今天在公园走了很久。',
+    at: QUALITY_NOW - QUALITY_DAY,
+    confidence: 0.8,
+    source: { kind: 'activity', id: 'chat' },
+    topic: 'park',
+    provenance: { activity: 'chat' },
+    ...overrides,
+  }
+}
+
+test('memory-quality C4：健康条目 keep，输出建议动作不写盘', () => {
+  const entries = [
+    qualityEntry(),
+    qualityEntry({
+      id: 'mem-2',
+      text: '今天学了新的方法。',
+      category: 'semantic',
+      topic: 'method',
+      source: { kind: 'journal', id: 'j1' },
+    }),
+  ]
+  const before = JSON.stringify(entries)
+  const analysis = analyzeMemoryQuality(entries, { now: QUALITY_NOW })
+  assert.equal(analysis.ok, true)
+  assert.equal(analysis.version, MEMORY_QUALITY_VERSION)
+  assert.deepEqual(
+    analysis.items.map((item) => item.action),
+    ['keep', 'keep'],
+  )
+  assert.equal(analysis.summary.keep, 2)
+  assert.equal(analysis.summary.total, 2)
+  assert.equal(JSON.stringify(entries), before, '质量分析不修改输入')
+  assert.ok(MEMORY_QUALITY_ACTIONS.includes('merge'))
+  assert.ok(MEMORY_SOURCE_TRUST.activity > MEMORY_SOURCE_TRUST.unknown)
+  assert.equal(MEMORY_QUALITY_DEFAULTS.minConfidence, 0.3)
+  assert.equal(analyzeMemoryQuality('nope').code, MEMORY_QUALITY_CODES.invalidInput)
+})
+
+test('memory-quality C4：近似去重合并（代表条目 + mergeWith）', () => {
+  const entries = [
+    qualityEntry({ id: 'a', text: '今天在公园走了很久。', confidence: 0.9 }),
+    qualityEntry({ id: 'b', text: '今天在公园走了很久。', confidence: 0.5, source: { kind: 'journal', id: 'j1' } }),
+    qualityEntry({ id: 'c', text: '今天在公园走了很久很久。', confidence: 0.6 }),
+    qualityEntry({ id: 'd', text: '完全不同的记忆内容。', confidence: 0.8, topic: 'other' }),
+  ]
+  const analysis = analyzeMemoryQuality(entries, { now: QUALITY_NOW })
+  const byId = Object.fromEntries(analysis.items.map((item) => [item.id, item]))
+  assert.equal(byId.a.action, 'keep', '最高分作为代表')
+  assert.equal(byId.b.action, 'merge')
+  assert.equal(byId.b.mergeWith, 'a')
+  assert.equal(byId.c.action, 'merge')
+  assert.equal(byId.d.action, 'keep')
+  assert.equal(analysis.summary.duplicates, 2)
+  assert.equal(analysis.groups.length, 1)
+  assert.equal(analysis.groups[0].representativeId, 'a')
+  assert.ok(analysis.groups[0].memberIds.includes('b'))
+  assert.ok(similarity('今天在公园走了很久。', '今天在公园走了很久很久。') > 0.8)
+  assert.equal(similarity('完全不同的记忆内容。', '今天在公园走了很久。') < 0.3, true)
+})
+
+test('memory-quality C4：冲突保留（不静默覆盖，低可信建议 archive）', () => {
+  const entries = [
+    qualityEntry({
+      id: 'keep-me',
+      text: '今天在公园走了很久。',
+      confidence: 0.9,
+      source: { kind: 'activity', id: 'a' },
+    }),
+    qualityEntry({ id: 'loser', text: '今天根本没有去公园。', confidence: 0.5, source: { kind: 'model', id: 'm' } }),
+  ]
+  const analysis = analyzeMemoryQuality(entries, { now: QUALITY_NOW })
+  const byId = Object.fromEntries(analysis.items.map((item) => [item.id, item]))
+  assert.equal(byId['keep-me'].action, 'keep')
+  assert.equal(byId.loser.action, 'archive')
+  assert.deepEqual(byId.loser.reasons, ['conflict'])
+  assert.equal(analysis.conflicts.length, 1)
+  assert.equal(analysis.conflicts[0].keptId, 'keep-me')
+  assert.deepEqual(analysis.conflicts[0].conflictingIds, ['loser'])
+  assert.equal(analysis.summary.conflicts, 1)
+  assert.equal(analysis.items.length, 2, '冲突双方都保留在建议里（不丢数据）')
+})
+
+test('memory-quality C4：来源可信度与过期策略（archive/drop）', () => {
+  const entries = [
+    qualityEntry({ id: 'fresh', text: '新鲜的记忆内容。', at: QUALITY_NOW - QUALITY_DAY, topic: 'fresh' }),
+    qualityEntry({ id: 'expired', text: '过期的记忆内容。', at: QUALITY_NOW - 40 * QUALITY_DAY, topic: 'expired' }),
+    qualityEntry({ id: 'very-old', text: '太旧的记忆内容。', at: QUALITY_NOW - 90 * QUALITY_DAY, topic: 'very-old' }),
+    qualityEntry({
+      id: 'method-old',
+      text: '老方法内容。',
+      category: 'method',
+      topic: 'm',
+      at: QUALITY_NOW - 1000 * QUALITY_DAY,
+      source: { kind: 'activity' },
+    }),
+    qualityEntry({ id: 'unknown-source', text: '未知来源内容。', source: {}, topic: 'u' }),
+    qualityEntry({
+      id: 'low-confidence',
+      text: '低置信内容。',
+      confidence: 0.05,
+      source: { kind: 'activity' },
+      topic: 'l',
+    }),
+    qualityEntry({ id: 'untrusted', text: '不可信来源内容。', confidence: 0.6, source: { kind: 'model' }, topic: 'x' }),
+  ]
+  const analysis = analyzeMemoryQuality(entries, { now: QUALITY_NOW, lowTrustThreshold: 0.6 })
+  const byId = Object.fromEntries(analysis.items.map((item) => [item.id, item]))
+  assert.equal(byId.fresh.action, 'keep')
+  assert.equal(byId.expired.action, 'archive')
+  assert.deepEqual(byId.expired.reasons, ['expired'])
+  assert.equal(byId['very-old'].action, 'drop')
+  assert.deepEqual(byId['very-old'].reasons, ['very-old'])
+  assert.equal(byId['method-old'].action, 'keep', 'method 不过期')
+  assert.equal(byId['unknown-source'].action, 'archive')
+  assert.deepEqual(byId['unknown-source'].reasons, ['unknown-source'])
+  assert.equal(byId['low-confidence'].action, 'drop')
+  assert.equal(byId.untrusted.action, 'archive')
+  assert.deepEqual(byId.untrusted.reasons, ['untrusted-source'])
+  // 自定义 TTL
+  const custom = analyzeMemoryQuality(entries, { now: QUALITY_NOW, categoryTtlMs: { episodic: 0 } })
+  assert.equal(custom.items.find((item) => item.id === 'expired').action, 'keep')
+})
+
+test('memory-quality C4：污染检测（未知来源/低置信/异常重复/非法条目）', () => {
+  const entries = [
+    qualityEntry({ id: 'dup-1', text: '重复污染文本。', confidence: 0.9, topic: 'dup' }),
+    qualityEntry({ id: 'dup-2', text: '重复污染文本。', confidence: 0.9, topic: 'dup' }),
+    qualityEntry({ id: 'dup-3', text: '重复污染文本。', confidence: 0.9, topic: 'dup' }),
+    qualityEntry({ id: 'dup-4', text: '重复污染文本。', confidence: 0.9, topic: 'dup' }),
+    null,
+    { id: 'empty-text', category: 'episodic', text: '   ', source: { kind: 'activity' } },
+  ]
+  const analysis = analyzeMemoryQuality(entries, { now: QUALITY_NOW, maxRepetition: 3 })
+  const dupItems = analysis.items.filter((item) => item.id.startsWith('dup-'))
+  assert.equal(dupItems.filter((item) => item.action === 'keep').length, 1)
+  assert.equal(dupItems.filter((item) => item.action === 'merge').length, 3)
+  assert.ok(dupItems.some((item) => item.reasons.includes('abnormal-repetition')))
+  assert.equal(analysis.groups[0].repetition, true)
+  assert.equal(analysis.invalid.length, 2)
+  assert.equal(analysis.summary.invalid, 2)
+  assert.equal(analysis.summary.polluted, 3)
+})
+
+test('memory-quality C4：选项覆盖与非法输入', () => {
+  const entries = [qualityEntry({ id: 'x', confidence: 0.2, source: { kind: 'journal', id: 'j' } })]
+  assert.equal(analyzeMemoryQuality(entries, { now: QUALITY_NOW }).items[0].action, 'archive')
+  assert.equal(analyzeMemoryQuality(entries, { now: QUALITY_NOW, minConfidence: 0.1 }).items[0].action, 'keep')
+  assert.equal(analyzeMemoryQuality(entries, { now: QUALITY_NOW, hardMinConfidence: 0.5 }).items[0].action, 'drop')
+  assert.equal(analyzeMemoryQuality([], { now: QUALITY_NOW }).summary.total, 0)
+  assert.equal(analyzeMemoryQuality(null).ok, false)
+})
+
+function privacyFixtureEntries() {
+  return [
+    {
+      id: 'e1',
+      category: 'episodic',
+      text: '今天在公园走了很久。',
+      at: QUALITY_NOW - QUALITY_DAY,
+      confidence: 0.8,
+      source: { kind: 'activity', id: 'chat' },
+      provenance: { activity: 'chat', token: 'sk-secret12345678' },
+      meta: { apiKey: 'sk-abcdefgh12345678', note: '普通备注' },
+    },
+    {
+      id: 'e2',
+      category: 'semantic',
+      text: '学到了新方法。',
+      at: QUALITY_NOW - 2 * QUALITY_DAY,
+      confidence: 0.9,
+      source: { kind: 'journal', id: 'j1' },
+      provenance: { activity: 'reading' },
+      meta: { password: 'hunter2', normal: 'ok' },
+    },
+    {
+      id: 'e3',
+      category: 'episodic',
+      text: '另一段记忆。',
+      at: QUALITY_NOW - 3 * QUALITY_DAY,
+      confidence: 0.6,
+      source: { kind: 'activity', id: 'chat' },
+      provenance: { activity: 'chat' },
+    },
+  ]
+}
+
+test('memory-privacy C4：导出脱敏（不含密钥）与 manifest', () => {
+  const entries = privacyFixtureEntries()
+  const built = buildMemoryExport({ entries, now: QUALITY_NOW })
+  assert.equal(built.ok, true)
+  assert.equal(built.export.manifest.kind, 'memory-export')
+  assert.equal(built.export.manifest.counts.entries, 3)
+  assert.equal(built.export.manifest.counts.byCategory.episodic, 2)
+  assert.match(built.export.manifest.integrity.sha256, /^[0-9a-f]{64}$/)
+  const json = built.export.json
+  assert.equal(json.includes('sk-abcdefgh12345678'), false, '密钥值脱敏')
+  assert.equal(json.includes('hunter2'), false, '密码值脱敏')
+  assert.equal(json.includes('"apiKey": "[redacted]"'), true)
+  assert.equal(json.includes('"password": "[redacted]"'), true)
+  assert.equal(json.includes('普通备注'), true, '普通内容保留')
+  assert.equal(json.includes('今天在公园走了很久。'), true, '记忆正文保留（用户自己的数据）')
+  const parsed = JSON.parse(json)
+  assert.equal(parsed.entries.length, 3)
+  assert.equal(MEMORY_PRIVACY_VERSION, 1)
+  assert.equal(sanitizeValue({ secret: 'x', normal: 'y' }).secret, '[redacted]')
+  assert.equal(sanitizeEntry(null), null)
+})
+
+test('memory-privacy C4：导出过滤与 limit', () => {
+  const entries = privacyFixtureEntries()
+  const filtered = buildMemoryExport({
+    entries,
+    filter: { category: 'episodic', sourceKind: 'activity' },
+    now: QUALITY_NOW,
+  })
+  assert.equal(filtered.export.entries.length, 2)
+  assert.equal(filtered.export.manifest.filter.category, 'episodic')
+  const byActivity = buildMemoryExport({ entries, filter: { activity: 'reading' }, now: QUALITY_NOW })
+  assert.equal(byActivity.export.entries.length, 1)
+  const byText = buildMemoryExport({ entries, filter: { text: '公园' }, now: QUALITY_NOW })
+  assert.equal(byText.export.entries.length, 1)
+  const byIds = buildMemoryExport({ entries, filter: { ids: ['e2'] }, now: QUALITY_NOW })
+  assert.equal(byIds.export.entries[0].id, 'e2')
+  const limited = buildMemoryExport({ entries, limit: 1, now: QUALITY_NOW })
+  assert.equal(limited.export.entries.length, 1)
+  assert.equal(buildMemoryExport({ entries, filter: { category: '' } }).ok, false)
+  assert.equal(buildMemoryExport({ entries: 'nope' }).code, MEMORY_PRIVACY_CODES.invalidInput)
+})
+
+test('memory-privacy C4：删除计划默认 dry-run（不删数据）', () => {
+  const entries = privacyFixtureEntries()
+  const before = JSON.stringify(entries)
+  const planned = buildMemoryDeletePlan({ entries, filter: { category: 'episodic' }, now: QUALITY_NOW })
+  assert.equal(planned.ok, true)
+  assert.equal(planned.plan.kind, 'memory-delete-plan')
+  assert.equal(planned.plan.dryRun, true)
+  assert.equal(planned.plan.requiresConfirmation, true)
+  assert.equal(planned.plan.executed, false)
+  assert.equal(planned.plan.counts.entries, 2)
+  assert.deepEqual(
+    planned.plan.matched.map((item) => item.id),
+    ['e1', 'e3'],
+  )
+  assert.equal(JSON.stringify(entries), before, '生成计划不修改数据')
+  const confirmed = buildMemoryDeletePlan({ entries, filter: { ids: ['e1'] }, now: QUALITY_NOW, confirm: true })
+  assert.equal(confirmed.plan.dryRun, false)
+  assert.equal(confirmed.plan.approved, true)
+  assert.equal(confirmed.plan.executed, false, '模块从不执行删除')
+  assert.equal(buildMemoryDeletePlan({ entries, filter: { category: 'nope' } }).plan.counts.entries, 0)
+  assert.equal(buildMemoryDeletePlan({ entries: 'nope' }).code, MEMORY_PRIVACY_CODES.invalidInput)
+})
+
+test('memory-privacy C4：审计事件（who/when/what，不记录正文）', () => {
+  const entries = privacyFixtureEntries()
+  let clock = QUALITY_NOW
+  const controller = createMemoryPrivacyController({ now: () => clock })
+  const exported = controller.export({ entries, actor: 'user-a', filter: { category: 'episodic' } })
+  assert.equal(exported.ok, true)
+  clock += 1000
+  const planned = controller.delete({ entries, actor: 'user-a', filter: { category: 'episodic' } })
+  assert.equal(planned.ok, true)
+  const audit = controller.listAudit()
+  assert.equal(audit.length, 2)
+  const latest = audit[0]
+  assert.equal(latest.action, 'delete-plan')
+  assert.equal(latest.actor, 'user-a')
+  assert.equal(latest.at, QUALITY_NOW + 1000)
+  assert.equal(latest.counts.entries, 2)
+  assert.equal(JSON.stringify(latest).includes('今天在公园走了很久。'), false, '审计不记录正文')
+  assert.equal(controller.listAudit({ action: 'export' }).length, 1)
+  assert.equal(controller.listAudit({ actor: 'someone-else' }).length, 0)
+  assert.equal(controller.listAudit({ limit: 1 }).length, 1)
+  assert.equal(controller.snapshot().auditEvents, 2)
+  assert.equal(controller.export({ entries, actor: '' }).code, MEMORY_PRIVACY_CODES.invalidActor)
+  assert.equal(MEMORY_PRIVACY_DEFAULTS.auditLimit > 0, true)
 })
