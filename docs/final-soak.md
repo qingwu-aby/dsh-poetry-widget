@@ -73,3 +73,9 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
   - 事件 500 丢弃（有界，符合容量）；
   - 故障场景 9/9 通过，0 errors；
 - 真实 24h soak 未执行；O1 设置页截图因 browser-skill 未连接未执行；O2 需重启加载最新路由后做 live 冒烟。
+
+
+## 8. 10 轮扩展 soak（补充）
+
+- 10 轮独立 `load-baseline --scenario all` + `fault-inject`：**0 轮异常**（0 errors、故障 9/9）；
+- 仍非 24h 连续运行；真实 provider/游戏长稳需单独安排。

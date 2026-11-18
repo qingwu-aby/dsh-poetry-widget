@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.22.1 扩展 soak**：10 轮 load/fault 全通过；980 tests。
 - **v0.22.0 K4/O 收口**：记忆污染回归评估；3 轮 soak/fault 通过；980 tests。O1/O2/O3(24h) 仍待浏览器/重启/长时间运行。
 - **v0.21.0 N/M/O 批次**：权限执行、记忆/权限 UI、多会话基础、成本策略 UI、运维自动化、发布检查、事件路由、Video 本地 provider；976 tests，soak/fault 通过。
 - **v0.20.0 M2/M3 训练**：评估器读取 self-train report/history 真实评分；训练 drill 默认 dry-run，--confirm+env 才真实运行；938 tests。
