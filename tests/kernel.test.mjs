@@ -10075,3 +10075,152 @@ test('hub-routes J3：off/shadow 的 minecraft 任务仍走原 adapter 路径（
   runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
 })
+
+// ---------------------------------------------------------------------------
+// Gate J5：Chat 上下文等价（full 接管时 graphLines/relationship/emotion/... 经 Hub 透传）
+// ---------------------------------------------------------------------------
+
+function makeJ5ChatFixture(options = {}) {
+  const dir = tmpDir('j5-chat')
+  const adapterCalls = []
+  const bridgeCalls = []
+  const long = (prefix) => Array.from({ length: 20 }, (_, index) => prefix + index + 'x'.repeat(500))
+  let runtime = null
+  const fakeAdapter = {
+    manifest: CHAT_MANIFEST_RAW,
+    execute: async (task) => {
+      adapterCalls.push(task)
+      return { ok: true, receipt: { ok: true, at: 1000, text: 'hub reply', taskKey: task.key } }
+    },
+  }
+  runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: false },
+    activityManifests: [fakeAdapter],
+    chatTurnRunner: (input) => createChatTurnRunner(() => runtime)(input),
+    now: () => 1000,
+  })
+  runtime.start()
+  const deps = {
+    hubRuntime: runtime,
+    chatTakeover: options.chatTakeover,
+    logger: { warn() {} },
+    chatBridge: {
+      async chat(payload) {
+        bridgeCalls.push(payload)
+        return { ok: true, reply: 'old bridge reply', felt: '平静', murmur: '' }
+      },
+      drainPending: () => [],
+    },
+    knowledgeGraph: {
+      digest: () => (options.huge ? long('graph') : ['图谱：她记得公园']),
+      spread: () => (options.huge ? long('spread') : ['扩散：上次的约定']),
+    },
+    internalRules: { digest: () => ['规则：先听完'] },
+    styleExemplars: { pick: () => ['例句：嗯，我在'] },
+    relationship: { digest: () => ['关系：一起走过夜路'], ingest: async () => ({ entries: [] }) },
+    emotional: { digest: () => ['情绪：平静'], recordFromChat: () => {} },
+    dailyLife: { digest: () => ['日常：刚吃过饭'] },
+    commitments: { digest: () => ['承诺：晚上聊'], addAgreement: () => {} },
+    methodMemory: { digest: () => ['方法：先看日志'] },
+    memoryDir: dir,
+  }
+  const service = createChatHttpService(deps)
+  return { service, deps, runtime, adapterCalls, bridgeCalls, dir }
+}
+
+test('chat J5：full 接管时 adapter 收到完整上下文（与旧路径字段对齐）', async () => {
+  const fixture = makeJ5ChatFixture()
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-j5' })
+  assert.equal(result.ok, true)
+  assert.equal(fixture.adapterCalls.length, 1)
+  assert.equal(fixture.bridgeCalls.length, 0)
+  const context = fixture.adapterCalls[0].payload.context
+  assert.ok(context !== null && typeof context === 'object', 'task.payload.context 存在')
+  assert.deepEqual(context.graphLines, ['图谱：她记得公园'])
+  assert.deepEqual(context.spreadLines, ['扩散：上次的约定'])
+  assert.deepEqual(context.moralLines, [])
+  assert.deepEqual(context.rulesLines, ['规则：先听完'])
+  assert.deepEqual(context.exemplars, ['例句：嗯，我在'])
+  assert.deepEqual(context.relationshipLines, ['关系：一起走过夜路'])
+  assert.deepEqual(context.emotionLines, ['情绪：平静'])
+  assert.deepEqual(context.dailyLifeLines, ['日常：刚吃过饭'])
+  assert.deepEqual(context.commitmentLines, ['承诺：晚上聊'])
+  assert.deepEqual(context.methodLines, ['方法：先看日志'])
+  assert.equal(context.imageContext, '')
+  assert.equal(context.imageRequested, false)
+  assert.equal(context.imageHint, null)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J5：off/shadow 旧路径入参不变（上下文仍直接给 chatBridge）', async () => {
+  const fixture = makeJ5ChatFixture({ featureFlag: { enabled: true, shadow: true } })
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-j5-old' })
+  assert.equal(result.ok, true)
+  assert.equal(fixture.adapterCalls.length, 0)
+  assert.equal(fixture.bridgeCalls.length, 1)
+  const payload = fixture.bridgeCalls[0]
+  assert.deepEqual(payload.graphLines, ['图谱：她记得公园'])
+  assert.deepEqual(payload.relationshipLines, ['关系：一起走过夜路'])
+  assert.deepEqual(payload.emotionLines, ['情绪：平静'])
+  assert.deepEqual(payload.methodLines, ['方法：先看日志'])
+  assert.equal(payload.imageRequested, false)
+  assert.equal(payload.imageHint, null)
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J5：上下文大小限制（数组 ≤8 条、字符串 ≤400）', async () => {
+  const fixture = makeJ5ChatFixture({ huge: true })
+  const result = await fixture.service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-j5-huge' })
+  assert.equal(result.ok, true)
+  const context = fixture.adapterCalls[0].payload.context
+  for (const field of ['graphLines', 'spreadLines']) {
+    assert.equal(context[field].length, 8, field + ' 最多 8 条')
+    assert.equal(
+      context[field].every((line) => line.length <= 400),
+      true,
+      field + ' 每条 ≤400 字符',
+    )
+  }
+  fixture.runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('chat J5：hub-routes chat adapter 从 task.payload.context 还原并传给 chatBridge（无 context 兼容）', async () => {
+  const bridgeCalls = []
+  const adapters = createRealActivityAdapters({
+    chatBridgeProvider: () => ({
+      async chat(payload) {
+        bridgeCalls.push(payload)
+        return { ok: true, reply: 'ok' }
+      },
+    }),
+    now: () => 1000,
+  })
+  const chatAdapter = adapters.find((item) => item.manifest.id === 'chat')
+  assert.ok(chatAdapter !== undefined)
+  const task = {
+    key: 'chat-turn:peer-1:m-ctx',
+    payload: {
+      peerId: 'peer-1',
+      messageId: 'm-ctx',
+      text: '你好',
+      context: { graphLines: ['图谱'], imageContext: '图', imageRequested: true, imageHint: { name: 'a.png' } },
+    },
+  }
+  const result = await chatAdapter.execute(task)
+  assert.equal(result.ok, true)
+  assert.equal(bridgeCalls.length, 1)
+  assert.deepEqual(bridgeCalls[0].graphLines, ['图谱'])
+  assert.equal(bridgeCalls[0].imageContext, '图')
+  assert.equal(bridgeCalls[0].imageRequested, true)
+  assert.deepEqual(bridgeCalls[0].imageHint, { name: 'a.png' })
+  assert.equal(bridgeCalls[0].text, '你好')
+  assert.equal(bridgeCalls[0].peerId, 'peer-1')
+  // 无 context → 与旧行为一致（只传 text/peerId）
+  const plain = await chatAdapter.execute({ key: 'k', payload: { peerId: 'p', messageId: 'm', text: 'hi' } })
+  assert.equal(plain.ok, true)
+  assert.deepEqual(bridgeCalls[1], { text: 'hi', peerId: 'p' })
+})
