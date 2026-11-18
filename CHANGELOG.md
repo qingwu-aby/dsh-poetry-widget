@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.16.0 Activity Hub 基建（Gate A–H）**：模型网关加固、Task/World 监管、Activity 权限、备份恢复、可观测、成本闸门、事件契约、压测/故障注入；Hub Core（EventBus/TaskBoard/Scheduler/Registry/Control API）、Memory Gateway/Feedback/质量隐私、Chat/Minecraft Activity、Hub Runtime（默认 off）、模型策略配置与设置页、训练配置/评估/回滚骨架与 API。835 tests，详见 docs/acceptance-v2.md。
 - **v0.15.0 可配置 token 上限，默认不封顶**：新增设置 `modelTokenLimit`（0/留空 = 不封顶）；游戏决策/建造计划/调研/学习/实践复盘统一读取；`resolveCandidateMaxTokens(0)` 显式返回 0 并让 provider 使用模型自身上限，不再套候选 floor；插件设置页可改。
 - **v0.14.2 蓝图解析兼容**：接受 `minecraft:dirt` 前缀并归一化；解析失败记录原始输出，便于定位模型 JSON 偏差。
 - **v0.14.1 建造计划生成修复**：蓝图生成改用 `thinking` 角色、maxTokens 3000、60s 超时；块数上限降到 30，避免 reasoning 吃光输出导致 `llm` 空响应。
