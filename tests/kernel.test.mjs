@@ -6807,3 +6807,193 @@ test('minecraft shadow E3：不增加记忆写入（gameMemory 调用不变）',
   withoutHook.recordReceipt(receipt)
   assert.deepEqual(callsWith, callsWithout, 'shadow 钩子不新增记忆写入')
 })
+
+// ---------------------------------------------------------------------------
+// Gate E4：Memory Gateway 只读接入（lib/composition/hub-runtime.mjs）——现有记忆可查询、零写入
+// ---------------------------------------------------------------------------
+
+function makeMemoryRuntimeFixture(options = {}) {
+  const root = tmpDir('hub-memory')
+  const agentMemoryDir = path.join(root, 'agent-memory')
+  const gameMemoryDir = path.join(root, 'game-memory')
+  mkdirSync(agentMemoryDir, { recursive: true })
+  mkdirSync(path.join(gameMemoryDir, 'build'), { recursive: true })
+  mkdirSync(path.join(gameMemoryDir, 'log'), { recursive: true })
+  writeFileSync(
+    path.join(agentMemoryDir, 'journal.jsonl'),
+    [
+      JSON.stringify({ ts: 1000, kind: 'thought', text: '今天在公园走了很久。' }),
+      'not-json',
+      JSON.stringify({ ts: 2000, kind: 'learning', text: '学会了先看日志再改代码。' }),
+    ].join('\n'),
+  )
+  writeFileSync(path.join(gameMemoryDir, 'PARTNER_GAME.md'), '# 短画像\n一起玩的人：Yuan_JY，喜欢看海。\n')
+  writeFileSync(path.join(gameMemoryDir, 'build/home.md'), '- 盖了 3×3 小屋（自己）[2026-11-01]\n')
+  writeFileSync(path.join(gameMemoryDir, 'log/2026-11.md'), '- 一起挖矿到夜里（Yuan_JY）[2026-11-03]\n')
+  writeFileSync(
+    path.join(root, 'methods.json'),
+    JSON.stringify({
+      ok: true,
+      v: 1,
+      entries: [
+        {
+          id: 'm1',
+          name: '先看日志',
+          howTo: '读失败日志再改',
+          source: '实践',
+          usedCount: 2,
+          successCount: 1,
+          lastAt: 3000,
+        },
+      ],
+    }),
+  )
+  const memoryPaths = {
+    agentMemoryDir,
+    gameMemoryDir,
+    methodsFile: path.join(root, 'methods.json'),
+  }
+  const runtime = createHubRuntime({
+    memoryPaths,
+    featureFlag: options.featureFlag ?? { enabled: false, shadow: true },
+    logger: { warn() {} },
+    now: () => 1000,
+  })
+  return { root, agentMemoryDir, gameMemoryDir, memoryPaths, runtime }
+}
+
+test('hub-runtime E4：真实 fixture 目录查询（journal/game-memory/methods 聚合）', async () => {
+  const { root, agentMemoryDir, gameMemoryDir, runtime } = makeMemoryRuntimeFixture()
+  const before = {
+    journal: readFileSync(path.join(agentMemoryDir, 'journal.jsonl'), 'utf8'),
+    game: readFileSync(path.join(gameMemoryDir, 'PARTNER_GAME.md'), 'utf8'),
+    methods: readFileSync(path.join(root, 'methods.json'), 'utf8'),
+  }
+  const result = await runtime.queryMemory({ limit: 50 })
+  assert.equal(result.ok, true)
+  assert.ok(result.total >= 5, '聚合三类 provider')
+  const kinds = new Set(result.entries.map((entry) => entry.source.kind))
+  assert.deepEqual([...kinds].sort(), ['game-memory', 'journal', 'method-memory'])
+  assert.ok(result.entries.some((entry) => entry.text.includes('公园')))
+  assert.ok(result.entries.some((entry) => entry.text.includes('盖了 3×3 小屋')))
+  assert.ok(result.entries.some((entry) => entry.text.includes('先看日志')))
+  const snapshot = runtime.snapshot()
+  assert.equal(snapshot.memory.available, true)
+  assert.deepEqual(snapshot.memory.providers.sort(), ['game-memory', 'journal', 'method-memory'])
+  assert.equal(runtime.health().memory.available, true)
+  // 只读：查询前后文件内容完全一致（无写入/无新文件）
+  assert.equal(readFileSync(path.join(agentMemoryDir, 'journal.jsonl'), 'utf8'), before.journal)
+  assert.equal(readFileSync(path.join(gameMemoryDir, 'PARTNER_GAME.md'), 'utf8'), before.game)
+  assert.equal(readFileSync(path.join(root, 'methods.json'), 'utf8'), before.methods)
+  assert.deepEqual(readdirSync(root).sort(), ['agent-memory', 'game-memory', 'methods.json'])
+  runtime.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('hub-runtime E4：off 模式仍可查询（只读，不依赖 Hub 启停）', async () => {
+  const { root, runtime } = makeMemoryRuntimeFixture({ featureFlag: { enabled: false, shadow: true } })
+  assert.equal(runtime.snapshot().mode, 'off')
+  const result = await runtime.queryMemory({ text: '日志' })
+  assert.equal(result.ok, true)
+  assert.ok(result.entries.length >= 1, 'off 也能只读查询')
+  assert.equal(
+    result.entries.some((entry) => entry.text.includes('日志')),
+    true,
+  )
+  assert.equal(runtime.snapshot().hub.metrics.ticks, 0, '查询不触发调度')
+  runtime.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('hub-runtime E4：provider 缺失/无 memoryPaths 降级', async () => {
+  const missingRoot = tmpDir('hub-memory-missing')
+  const runtime = createHubRuntime({
+    memoryPaths: {
+      agentMemoryDir: path.join(missingRoot, 'no-agent'),
+      gameMemoryDir: path.join(missingRoot, 'no-game'),
+      methodsFile: path.join(missingRoot, 'no-methods.json'),
+    },
+    logger: { warn() {} },
+    now: () => 1000,
+  })
+  const result = await runtime.queryMemory()
+  assert.equal(result.ok, true)
+  assert.equal(result.entries.length, 0, '缺失文件 → 空结果不抛错')
+  assert.equal(result.errors.length, 0)
+  runtime.dispose()
+  rmSync(missingRoot, { recursive: true, force: true })
+
+  const noPaths = createHubRuntime({ logger: { warn() {} } })
+  const unavailable = await noPaths.queryMemory()
+  assert.equal(unavailable.ok, false)
+  assert.equal(unavailable.code, 'HUB_RUNTIME_MEMORY_UNAVAILABLE')
+  assert.equal(noPaths.snapshot().memory.available, false)
+  noPaths.dispose()
+})
+
+test('hub-runtime E4：写入被拒绝（只读 provider，文件不变）', async () => {
+  const { root, agentMemoryDir, runtime } = makeMemoryRuntimeFixture()
+  const gateway = runtime.getMemoryGateway()
+  assert.ok(gateway !== null)
+  const journalBefore = readFileSync(path.join(agentMemoryDir, 'journal.jsonl'), 'utf8')
+  const denied = await gateway.write({
+    category: 'episodic',
+    text: '试图写入只读记忆',
+    source: { kind: 'activity', id: 'chat' },
+    provider: 'journal',
+  })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.code, MEMORY_GATEWAY_CODES.permissionDenied)
+  assert.equal(readFileSync(path.join(agentMemoryDir, 'journal.jsonl'), 'utf8'), journalBefore, '无任何写入')
+  runtime.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('hub-runtime E4：查询错误隔离（坏 methods.json 不影响其他 provider）', async () => {
+  const { root, agentMemoryDir, runtime } = makeMemoryRuntimeFixture()
+  writeFileSync(path.join(root, 'methods.json'), '{bad json')
+  const result = await runtime.queryMemory({ limit: 50 })
+  assert.equal(result.ok, true)
+  assert.ok(
+    result.entries.some((entry) => entry.source.kind === 'journal'),
+    '其他 provider 仍可查询',
+  )
+  assert.ok(
+    result.errors.some((error) => error.provider === 'method-memory'),
+    '坏 provider 记入 errors',
+  )
+  assert.equal(readFileSync(path.join(agentMemoryDir, 'journal.jsonl'), 'utf8').includes('公园'), true)
+  runtime.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('hub-runtime E4：limit 限制与不缓存（文件变化立即可见）', async () => {
+  const { root, agentMemoryDir, runtime } = makeMemoryRuntimeFixture()
+  const capped = await runtime.queryMemory({ limit: 999 })
+  assert.equal(capped.limit, 50, 'limit 上限 50')
+  assert.ok(capped.entries.length <= 50)
+  const firstCount = (await runtime.queryMemory({ limit: 50 })).total
+  const journalPath = path.join(agentMemoryDir, 'journal.jsonl')
+  writeFileSync(
+    journalPath,
+    readFileSync(journalPath, 'utf8') + '\n' + JSON.stringify({ ts: 4000, kind: 'thought', text: '新写入的日记。' }),
+  )
+  const second = await runtime.queryMemory({ limit: 50 })
+  assert.ok(second.total > firstCount, '每次查询重新读文件（不缓存 live 内容）')
+  assert.ok(second.entries.some((entry) => entry.text.includes('新写入的日记')))
+  runtime.dispose()
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('hub-runtime E4：dispose 后查询明确报错；snapshot/health 指标可用', async () => {
+  const { root, runtime } = makeMemoryRuntimeFixture()
+  assert.equal(runtime.health().memory.queries, 0)
+  await runtime.queryMemory({})
+  assert.equal(runtime.health().memory.queries, 1)
+  runtime.dispose()
+  const after = await runtime.queryMemory({})
+  assert.equal(after.ok, false)
+  assert.equal(after.code, 'HUB_RUNTIME_DISPOSED')
+  assert.equal(runtime.snapshot().disposed, true)
+  rmSync(root, { recursive: true, force: true })
+})
