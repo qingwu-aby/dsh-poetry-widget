@@ -12,9 +12,17 @@ import {
   buildHealthMetrics,
   buildRuntimeSnapshot,
   HEALTH_ALERT_THRESHOLDS,
+  summarizeHub,
   summarizeModelBudget,
   summarizeModelGate,
 } from '../lib/composition/health.mjs'
+import {
+  createHubRuntime,
+  HUB_RUNTIME_DEFAULT_FLAG,
+  HUB_RUNTIME_VERSION,
+  registerHubRuntime,
+  resolveHubFeatureFlag,
+} from '../lib/composition/hub-runtime.mjs'
 import {
   ACTIVITY_MANIFEST_ERROR_CODES,
   ACTIVITY_PERMISSIONS,
@@ -6138,4 +6146,287 @@ test('hub D4：stop 停止 World 并回到 off', async () => {
   assert.equal((await hub.stop()).already, true)
   // 再次 start 可恢复（enabled 配置仍在）
   assert.equal(hub.start().mode, 'full')
+})
+
+// ---------------------------------------------------------------------------
+// Gate E1：Hub Runtime 装配（lib/composition/hub-runtime.mjs）——默认 off/shadow、零副作用
+// ---------------------------------------------------------------------------
+
+function makeHubRuntimeFixture(flag) {
+  const calls = {
+    busAppends: 0,
+    schedulerTicks: 0,
+    completes: 0,
+    executes: 0,
+    feedbacks: 0,
+    worldStarts: 0,
+    worldStops: 0,
+  }
+  const eventBus = {
+    append() {
+      calls.busAppends += 1
+      return { ok: true }
+    },
+    snapshot: () => ({ stored: calls.busAppends }),
+  }
+  const taskBoard = {
+    list: () => [
+      {
+        id: 'tb-1',
+        activity: 'chat',
+        kind: 'chat.turn',
+        key: 'chat.turn:p:m',
+        priority: 5,
+        createdAt: 1000,
+        status: 'queued',
+        title: '回复 p',
+      },
+    ],
+    complete: () => {
+      calls.completes += 1
+      return { ok: true }
+    },
+    fail: () => ({ ok: true }),
+    snapshot: () => ({ total: 1 }),
+  }
+  const scheduler = {
+    tick: () => {
+      calls.schedulerTicks += 1
+      return { ok: true, action: 'start', task: { id: 'tb-1', activity: 'chat', kind: 'chat.turn', title: '回复 p' } }
+    },
+    snapshot: () => ({ foreground: null }),
+  }
+  const feedbackLedger = {
+    record: () => {
+      calls.feedbacks += 1
+      return { ok: true, record: { id: 'fb-1', outcome: 'success' } }
+    },
+    promoteToMethod: () => ({
+      ok: true,
+      candidate: { kind: 'method', memoryEntry: { category: 'method', text: 'x' } },
+    }),
+    snapshot: () => ({ records: 1 }),
+  }
+  const adapter = {
+    async execute() {
+      calls.executes += 1
+      return { ok: true, receipt: { ok: true, at: 1000 } }
+    },
+  }
+  const worldSupervisor = {
+    list: () => [{ id: 'chat-world', state: 'stopped' }],
+    startWorld: async () => {
+      calls.worldStarts += 1
+      return { ok: true }
+    },
+    stopAll: async () => {
+      calls.worldStops += 1
+      return { ok: true }
+    },
+    snapshot: () => ({ total: 1 }),
+  }
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    env: {},
+    settings: {},
+    eventBus,
+    taskBoard,
+    scheduler,
+    feedbackLedger,
+    worldSupervisor,
+    activityManifests: [{ manifest: { id: 'chat' }, execute: adapter.execute }],
+    featureFlag: flag,
+    now: () => 1000,
+  })
+  return { runtime, calls }
+}
+
+test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > settings）', () => {
+  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true })
+  assert.deepEqual(resolveHubFeatureFlag({ env: {} }), { enabled: false, shadow: true })
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).shadow, true)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).enabled, true)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: '1' } }).shadow, false)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'on' } }).enabled, true)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'off' } }).enabled, false)
+  assert.deepEqual(resolveHubFeatureFlag({ settings: { hub: { enabled: true, shadow: false } } }), {
+    enabled: true,
+    shadow: false,
+  })
+  // 显式覆盖 env/settings
+  const explicit = resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: true }, env: { DSH_POETRY_HUB: '1' } })
+  assert.equal(explicit.enabled, true)
+  assert.equal(explicit.shadow, true)
+  assert.equal(HUB_RUNTIME_VERSION, 1)
+  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true })
+})
+
+test('hub-runtime E1：默认 off 无副作用（不调度/不执行/不写事件）', async () => {
+  const { runtime, calls } = makeHubRuntimeFixture(undefined)
+  assert.equal(runtime.featureFlag.enabled, false)
+  assert.equal(runtime.snapshot().mode, 'off')
+  assert.equal(runtime.snapshot().started, false)
+  const started = runtime.start()
+  assert.equal(started.ok, true)
+  assert.equal(started.mode, 'off')
+  const tick = await runtime.tick()
+  assert.equal(tick.skipped, true)
+  assert.equal(tick.mode, 'off')
+  assert.equal(calls.schedulerTicks, 0)
+  assert.equal(calls.executes, 0)
+  assert.equal(calls.completes, 0)
+  assert.equal(calls.busAppends, 0)
+  assert.equal(calls.feedbacks, 0)
+  assert.equal(calls.worldStarts, 0)
+  const health = runtime.health()
+  assert.equal(health.ok, true)
+  assert.equal(health.mode, 'off')
+  assert.equal(health.enabled, false)
+  await runtime.stop()
+  assert.equal(runtime.snapshot().started, false)
+})
+
+test('hub-runtime E1：shadow 模式只读（不调用 scheduler.tick、不执行）', async () => {
+  const { runtime, calls } = makeHubRuntimeFixture({ enabled: true, shadow: true })
+  runtime.start()
+  assert.equal(runtime.snapshot().mode, 'shadow')
+  const tick = await runtime.tick()
+  assert.equal(tick.mode, 'shadow')
+  assert.equal(tick.executed, false)
+  assert.equal(tick.decision.action, 'would-start')
+  assert.equal(tick.decision.task.id, 'tb-1')
+  assert.equal(calls.schedulerTicks, 0)
+  assert.equal(calls.executes, 0)
+  assert.equal(calls.completes, 0)
+  assert.equal(calls.busAppends, 0)
+  assert.equal(runtime.snapshot().hub.metrics.shadowTicks, 1)
+  assert.equal(runtime.health().shadow, true)
+})
+
+test('hub-runtime E1：full 模式启动/执行/停止/dispose', async () => {
+  const { runtime, calls } = makeHubRuntimeFixture({ enabled: true, shadow: false })
+  const started = runtime.start()
+  assert.equal(started.ok, true)
+  assert.equal(runtime.snapshot().mode, 'full')
+  await waitMs(0)
+  assert.equal(calls.worldStarts, 1, 'full 模式启动已注册 World')
+  const tick = await runtime.tick()
+  assert.equal(tick.ok, true)
+  assert.equal(tick.executed, true)
+  assert.equal(calls.schedulerTicks, 1)
+  assert.equal(calls.executes, 1)
+  assert.equal(calls.completes, 1)
+  assert.equal(calls.feedbacks, 1)
+  assert.equal(runtime.snapshot().started, true)
+  const stopped = await runtime.stop()
+  assert.equal(stopped.ok, true)
+  assert.equal(runtime.snapshot().mode, 'off')
+  assert.equal(calls.worldStops, 1)
+  assert.equal(runtime.dispose().ok, true)
+  assert.equal(runtime.snapshot().disposed, true)
+  assert.equal(runtime.dispose().already, true, 'dispose 幂等')
+  assert.equal((await runtime.tick()).code, 'HUB_RUNTIME_DISPOSED')
+})
+
+test('hub-runtime E1：模块缺失降级与错误隔离', async () => {
+  const runtime = createHubRuntime({})
+  assert.equal(runtime.start().ok, true)
+  const snapshot = runtime.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.hub.available.taskBoard, false)
+  assert.equal(snapshot.hub.available.scheduler, false)
+  assert.equal(runtime.health().ok, true)
+  const tick = await runtime.tick()
+  assert.equal(tick.skipped, true)
+  runtime.dispose()
+
+  // Hub 内部异常不抛到运行时
+  const brokenScheduler = {
+    tick() {
+      throw new Error('scheduler boom')
+    },
+    snapshot() {
+      throw new Error('snapshot boom')
+    },
+  }
+  const broken = createHubRuntime({
+    scheduler: brokenScheduler,
+    taskBoard: { list: () => [], snapshot: () => ({}) },
+    featureFlag: { enabled: true, shadow: false },
+    logger: { warn() {} },
+  })
+  broken.start()
+  const result = await broken.tick()
+  assert.equal(result.ok, false)
+  assert.equal(result.code, 'HUB_RUNTIME_TICK_FAILED')
+  const brokenSnapshot = broken.snapshot()
+  assert.equal(brokenSnapshot.ok, true)
+  assert.ok(brokenSnapshot.hub.errors.length >= 1)
+  assert.ok(brokenSnapshot.lastError !== null)
+})
+
+test('hub-runtime E1：registerHubRuntime 生命周期接线（可注入 serviceRuntime）', () => {
+  const registered = []
+  const serviceRuntime = {
+    register(name, handlers) {
+      registered.push({ name, handlers })
+    },
+  }
+  const runtime = registerHubRuntime(serviceRuntime, {
+    featureFlag: { enabled: true, shadow: true },
+    logger: { warn() {} },
+  })
+  assert.equal(registered.length, 1)
+  assert.equal(registered[0].name, 'Hub')
+  assert.equal(typeof registered[0].handlers.start, 'function')
+  assert.equal(typeof registered[0].handlers.dispose, 'function')
+  assert.equal(registered[0].handlers.snapshot().mode, 'off')
+  registered[0].handlers.start()
+  assert.equal(runtime.snapshot().started, true)
+  assert.equal(runtime.snapshot().mode, 'shadow')
+  registered[0].handlers.dispose()
+  assert.equal(runtime.snapshot().disposed, true)
+
+  // register 抛错（重复注册等）也不影响运行时创建
+  const throwing = {
+    register() {
+      throw new Error('duplicate service')
+    },
+  }
+  const fallback = registerHubRuntime(throwing, {
+    featureFlag: { enabled: false, shadow: true },
+    logger: { warn() {} },
+  })
+  assert.equal(fallback.snapshot().mode, 'off')
+})
+
+test('hub-runtime E1：health 增加 hub 指标（available/mode/metrics）', () => {
+  const { runtime } = makeHubRuntimeFixture({ enabled: true, shadow: true })
+  const metrics = buildHealthMetrics({ hubRuntime: runtime }, 1000)
+  assert.equal(metrics.hub.available, true)
+  assert.equal(metrics.hub.mode, 'off', '未 start 时 off')
+  assert.equal(metrics.hub.enabled, true)
+  assert.equal(metrics.hub.shadow, true)
+  assert.equal(metrics.hub.metrics.ticks, 0)
+  assert.equal(typeof metrics.hub.metrics.executed, 'number')
+
+  runtime.start()
+  const started = buildHealthMetrics({ hub: runtime.snapshot() }, 1000)
+  assert.equal(started.hub.available, true)
+  assert.equal(started.hub.mode, 'shadow')
+  assert.equal(started.hub.state, 'running')
+
+  // 未接线 / 快照异常降级
+  const empty = buildHealthMetrics({}, 1000)
+  assert.equal(empty.hub.available, false)
+  assert.equal(empty.hub.mode, 'off')
+  assert.equal(empty.hub.metrics, null)
+  assert.equal(summarizeHub(null).available, false)
+  const throwing = summarizeHub({
+    snapshot() {
+      throw new Error('boom')
+    },
+  })
+  assert.equal(throwing.available, false)
+  assert.equal(throwing.reason, 'snapshot-failed')
 })
