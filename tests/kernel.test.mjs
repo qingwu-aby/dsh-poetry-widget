@@ -230,6 +230,13 @@ import {
   validateReceipt as validateMinecraftReceipt,
 } from '../lib/core/minecraft-activity.mjs'
 import {
+  createReadingActivity,
+  READING_ACTIVITY_VERSION,
+  READING_EVENTS,
+  READING_MANIFEST_RAW,
+  READING_TOOLS,
+} from '../lib/core/reading-activity.mjs'
+import {
   createScheduler,
   DEFAULT_PRIORITY_CLASSES,
   priorityClassOf,
@@ -271,6 +278,7 @@ import {
   MODEL_GATE_DEFAULTS,
   MODEL_GATE_REJECT_CODES,
 } from '../lib/domain/host/model-budget.mjs'
+import { BOOK_READER_CODES, createBookReader, paginate as paginateBook } from '../lib/domain/learning/book-reader.mjs'
 import { createMethodMemory } from '../lib/domain/learning/method-memory.mjs'
 import {
   createTrainingConfigStore,
@@ -10668,4 +10676,171 @@ test('activity-sdk L1：registerActivity 便捷注册（含拒绝路径）', () 
   assert.equal(registerActivity(registry, activity).ok, false, '重复注册拒绝')
   assert.equal(registerActivity(null, activity).code, ACTIVITY_SDK_CODES.invalidRegistry)
   assert.equal(registerActivity(registry, { ok: false }).code, ACTIVITY_SDK_CODES.invalidDefinition)
+})
+
+// ---------------------------------------------------------------------------
+// Gate L2：Reading Activity（本地书阅读 + 笔记/事件，用 L1 SDK 定义）
+// ---------------------------------------------------------------------------
+
+test('book-reader L2：txt/md 打开、分页、翻页、搜索、错误路径', () => {
+  const dir = tmpDir('l2-books')
+  const txt = path.join(dir, 'story.txt')
+  const md = path.join(dir, 'notes.md')
+  writeFileSync(txt, '第一段。\n\n第二段内容。\n\n第三段内容。'.repeat(20))
+  writeFileSync(md, '# 标题\n\n- 条目一\n- 条目二\n')
+  const reader = createBookReader({ rootDir: dir, maxChars: 60, now: () => 1000 })
+  const opened = reader.open(txt)
+  assert.equal(opened.ok, true)
+  assert.equal(opened.book.kind, 'text')
+  assert.equal(opened.book.title, 'story')
+  assert.equal(opened.book.pageCount > 1, true)
+  assert.equal(opened.book.chars > 0, true)
+  const page1 = reader.getPage(opened.book, 1)
+  assert.equal(page1.ok, true)
+  assert.equal(page1.page.index, 1)
+  assert.equal(page1.page.total, opened.book.pageCount)
+  assert.equal(typeof page1.page.text, 'string')
+  const last = reader.getPage(opened.book, opened.book.pageCount)
+  assert.equal(last.ok, true)
+  assert.equal(reader.getPage(opened.book, 0).code, BOOK_READER_CODES.invalidPage)
+  assert.equal(reader.getPage(opened.book, opened.book.pageCount + 1).code, BOOK_READER_CODES.invalidPage)
+  const found = reader.search(opened.book, '第二段')
+  assert.equal(found.ok, true)
+  assert.equal(found.matches.length >= 1, true)
+  assert.equal(found.matches[0].page >= 1, true)
+  const markdown = reader.open(md)
+  assert.equal(markdown.ok, true)
+  assert.equal(markdown.book.kind, 'markdown')
+  // 错误路径
+  assert.equal(reader.open('').code, BOOK_READER_CODES.invalidPath)
+  assert.equal(reader.open('bad\0path.txt').code, BOOK_READER_CODES.invalidPath)
+  assert.equal(reader.open(path.join(dir, 'missing.txt')).code, BOOK_READER_CODES.notFound)
+  assert.equal(reader.open(dir).code, BOOK_READER_CODES.notFile)
+  assert.equal(reader.open(path.join(dir, 'x.docx')).code, BOOK_READER_CODES.unsupported)
+  assert.equal(reader.open(path.join(dir, '..', 'outside.txt')).code, BOOK_READER_CODES.outsideRoot)
+  // 分页边界
+  assert.deepEqual(paginateBook('', { maxChars: 10 }), [''])
+  assert.equal(paginateBook('a'.repeat(25), { maxChars: 10 }).length, 3)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('book-reader L2：PDF 仅在 pdftotext 可用时读取（无依赖）', () => {
+  const dir = tmpDir('l2-pdf')
+  const pdf = path.join(dir, 'book.pdf')
+  writeFileSync(pdf, '%PDF-1.4 fake')
+  const missing = createBookReader({
+    rootDir: dir,
+    execPdfText: () => {
+      const error = new Error('spawn pdftotext ENOENT')
+      error.code = 'ENOENT'
+      throw error
+    },
+  })
+  const failed = missing.open(pdf)
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, BOOK_READER_CODES.pdfToolMissing)
+  assert.match(failed.message, /pdftotext/)
+  const working = createBookReader({ rootDir: dir, execPdfText: () => 'PDF 正文'.repeat(10), maxChars: 20 })
+  const opened = working.open(pdf)
+  assert.equal(opened.ok, true)
+  assert.equal(opened.book.kind, 'pdf')
+  assert.equal(opened.book.pageCount > 1, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('reading-activity L2：manifest/工具分发/笔记/事件/错误隔离', async () => {
+  const dir = tmpDir('l2-reading')
+  const bookPath = path.join(dir, 'book.txt')
+  writeFileSync(bookPath, '第一章。\n\n第二章。\n\n第三章。'.repeat(30))
+  const events = []
+  const reading = createReadingActivity({
+    rootDir: dir,
+    maxChars: 80,
+    onEvent: (event) => events.push(event),
+    now: () => 1000,
+  })
+  assert.equal(reading.ok, true)
+  assert.equal(READING_ACTIVITY_VERSION, 1)
+  const manifest = reading.activity.manifest
+  assert.equal(manifest.id, 'reading')
+  assert.deepEqual(manifest.tools, [...READING_TOOLS])
+  assert.deepEqual(manifest.events, Object.values(READING_EVENTS))
+  assert.deepEqual(
+    READING_MANIFEST_RAW.tasks.map((task) => task.kind),
+    ['reading.read', 'reading.note'],
+  )
+  // book.open
+  const opened = await reading.activity.execute({ payload: { tool: 'book.open', arguments: { path: bookPath } } })
+  assert.equal(opened.ok, true)
+  assert.equal(opened.facts.title, 'book')
+  assert.equal(events[0].type, READING_EVENTS.opened)
+  // book.page（第一页）
+  const page1 = await reading.activity.execute({ payload: { tool: 'book.page', arguments: { index: 1 } } })
+  assert.equal(page1.ok, true)
+  assert.equal(page1.facts.index, 1)
+  assert.equal(
+    events.some((event) => event.type === READING_EVENTS.page),
+    true,
+  )
+  // 翻到最后一页 → finished 事件
+  const total = reading.current.pageCount
+  const lastPage = await reading.activity.execute({ payload: { tool: 'book.page', arguments: { index: total } } })
+  assert.equal(lastPage.ok, true)
+  assert.equal(
+    events.some((event) => event.type === READING_EVENTS.finished),
+    true,
+  )
+  // 笔记 + 卡住
+  const note = await reading.activity.execute({
+    payload: { tool: 'book.note', arguments: { text: '这一页有启发', page: 1 } },
+  })
+  assert.equal(note.ok, true)
+  assert.equal(note.facts.kind, 'note')
+  assert.equal(reading.notes.list().length, 1)
+  assert.equal(
+    events.some((event) => event.type === READING_EVENTS.note),
+    true,
+  )
+  const stuck = await reading.activity.execute({
+    payload: { tool: 'book.note', arguments: { text: '这里没看懂', page: 2, stuck: true } },
+  })
+  assert.equal(stuck.ok, true)
+  assert.equal(stuck.facts.kind, 'stuck')
+  assert.equal(
+    events.some((event) => event.type === READING_EVENTS.stuck),
+    true,
+  )
+  // 高亮
+  const highlight = await reading.activity.execute({
+    payload: { tool: 'book.highlight', arguments: { page: 1, text: '第一章。' } },
+  })
+  assert.equal(highlight.ok, true)
+  assert.equal(highlight.facts.kind, 'highlight')
+  assert.equal(reading.notes.list({ kind: 'highlight' }).length, 1)
+  // 错误隔离：文件不存在 / 无书翻页 / 越界页码
+  const missing = await reading.activity.execute({
+    payload: { tool: 'book.open', arguments: { path: path.join(dir, 'nope.txt') } },
+  })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.facts.code, BOOK_READER_CODES.notFound)
+  const noBook = createReadingActivity({ rootDir: dir, now: () => 1000 })
+  assert.equal(
+    (await noBook.activity.execute({ payload: { tool: 'book.page', arguments: { index: 1 } } })).facts.code,
+    'READING_NO_BOOK',
+  )
+  assert.equal(
+    (await noBook.activity.execute({ payload: { tool: 'book.note', arguments: { text: '' } } })).facts.code,
+    'READING_NOTE_EMPTY',
+  )
+  // 健康/摘要
+  const health = await reading.activity.health()
+  assert.equal(health.ok, true)
+  assert.match(health.detail, /正在读/)
+  assert.equal(reading.snapshot().notes.total, 3)
+  // SDK 注册进 Registry
+  const registry = createActivityRegistry({ now: () => 1000 })
+  const registered = registerActivity(registry, reading.activity)
+  assert.equal(registered.ok, true)
+  assert.equal(registry.get('reading').id, 'reading')
+  rmSync(dir, { recursive: true, force: true })
 })
