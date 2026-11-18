@@ -453,6 +453,14 @@ import {
   runMaintenance,
 } from '../scripts/ops-maintenance.mjs'
 import {
+  formatReleaseReport,
+  parsePackJson,
+  parseReleaseCheckArgs,
+  RELEASE_REQUIRED_FILES,
+  RELEASE_REQUIRED_PACKED,
+  runReleaseCheck,
+} from '../scripts/release-check.mjs'
+import {
   createStateBackup,
   formatBackupStamp,
   listStateBackups,
@@ -13698,4 +13706,166 @@ test('activity-grants K5：授权后 reading 任务不再被 HUB_PERMISSION_DENI
   assert.equal(adapterCalls.length, 0)
   runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate N5：发布/升级/回滚检查（release-check，默认只读）
+// ---------------------------------------------------------------------------
+
+function makeN5ReleaseFixture() {
+  const dir = tmpDir('n5-release')
+  mkdirSync(path.join(dir, 'client-src'), { recursive: true })
+  mkdirSync(path.join(dir, 'docs'), { recursive: true })
+  writeFileSync(
+    path.join(dir, 'package.json'),
+    JSON.stringify(
+      { name: 'dsh-little-whale', version: '1.2.3', files: ['index.js', 'client.js', 'CHANGELOG.md', 'README.md'] },
+      null,
+      2,
+    ),
+  )
+  writeFileSync(path.join(dir, 'CHANGELOG.md'), '# Changelog\n\n## Unreleased\n\n- **v1.2.3**：测试版本。\n')
+  writeFileSync(path.join(dir, 'index.js'), '// index\n')
+  writeFileSync(path.join(dir, 'README.md'), '# readme\n')
+  writeFileSync(path.join(dir, 'client-src', 'app.js'), '// source\n')
+  writeFileSync(path.join(dir, 'client.js'), '// built\n')
+  // client.js 比源码新（构建新鲜）
+  const old = new Date(Date.now() - 60000)
+  utimesSync(path.join(dir, 'client-src', 'app.js'), old, old)
+  return { dir }
+}
+
+function makeN5Spawn(options = {}) {
+  const calls = []
+  const spawn = (command, args, spawnOptions) => {
+    calls.push({ command, args, options: spawnOptions })
+    if (options.fail) return { status: 1, stdout: '' }
+    if (options.build) return { status: 0, stdout: '' }
+    if (options.rawOutput !== undefined) return { status: 0, stdout: options.rawOutput }
+    const files = options.files ?? [
+      { path: 'index.js' },
+      { path: 'client.js' },
+      { path: 'CHANGELOG.md' },
+      { path: 'README.md' },
+      { path: 'lib/x.mjs' },
+    ]
+    const payload = [{ name: 'dsh-little-whale', version: '1.2.3', files }]
+    return { status: 0, stdout: (options.warnPrefix ?? '') + JSON.stringify(payload) }
+  }
+  return { spawn, calls }
+}
+
+test('release-check N5：全绿路径（版本/CHANGELOG/构建新鲜/必需文件/pack）', () => {
+  const fixture = makeN5ReleaseFixture()
+  const fake = makeN5Spawn()
+  const report = runReleaseCheck({ cwd: fixture.dir, spawn: fake.spawn, now: () => 5000 })
+  assert.equal(report.ok, true, JSON.stringify(report.errors))
+  assert.equal(report.packageVersion, '1.2.3')
+  assert.deepEqual(
+    report.checks.map((check) => check.id),
+    ['package', 'changelog', 'build-freshness', 'files', 'package-files', 'pack'],
+  )
+  assert.equal(
+    report.checks.every((check) => check.ok === true),
+    true,
+  )
+  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls[0].command, 'npm')
+  assert.deepEqual(fake.calls[0].args, ['pack', '--dry-run', '--json'])
+  assert.equal(JSON.parse(JSON.stringify(report)).ok, true)
+  const lines = formatReleaseReport(report)
+  assert.match(lines.join('\n'), /通过/)
+  assert.deepEqual(parseReleaseCheckArgs(['--json', '--build']), {
+    json: true,
+    build: true,
+    skipBuild: false,
+    help: false,
+    unknown: [],
+  })
+  assert.equal(RELEASE_REQUIRED_FILES.includes('index.js'), true)
+  assert.equal(RELEASE_REQUIRED_PACKED.includes('client.js'), true)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('release-check N5：版本/CHANGELOG/构建/pack 失败与 --skip-build/--build', () => {
+  const fixture = makeN5ReleaseFixture()
+  // CHANGELOG 缺条目
+  writeFileSync(path.join(fixture.dir, 'CHANGELOG.md'), '# Changelog\n\n- 旧版本\n')
+  const fake = makeN5Spawn()
+  const noChangelog = runReleaseCheck({ cwd: fixture.dir, spawn: fake.spawn })
+  assert.equal(noChangelog.ok, false)
+  assert.equal(noChangelog.checks.find((check) => check.id === 'changelog').ok, false)
+  // 非法版本
+  writeFileSync(path.join(fixture.dir, 'package.json'), JSON.stringify({ name: 'x', version: 'bad', files: [] }))
+  const badVersion = runReleaseCheck({ cwd: fixture.dir, spawn: fake.spawn, skipBuild: true })
+  assert.equal(badVersion.ok, false)
+  assert.equal(badVersion.checks.find((check) => check.id === 'package').ok, false)
+  // 构建过期
+  writeFileSync(
+    path.join(fixture.dir, 'package.json'),
+    JSON.stringify({ name: 'x', version: '1.2.3', files: ['index.js', 'client.js'] }),
+  )
+  writeFileSync(path.join(fixture.dir, 'CHANGELOG.md'), 'v1.2.3\n')
+  const fresh = new Date(Date.now() + 60000)
+  utimesSync(path.join(fixture.dir, 'client-src', 'app.js'), fresh, fresh)
+  const stale = runReleaseCheck({ cwd: fixture.dir, spawn: fake.spawn })
+  assert.equal(stale.checks.find((check) => check.id === 'build-freshness').ok, false)
+  const skipped = runReleaseCheck({ cwd: fixture.dir, spawn: fake.spawn, skipBuild: true })
+  assert.equal(skipped.checks.find((check) => check.id === 'build-freshness').ok, true)
+  assert.equal(
+    skipped.warnings.some((warning) => /skip-build/.test(warning)),
+    true,
+  )
+  // --build 调用 build:client
+  const buildFake = makeN5Spawn({ build: true })
+  const built = runReleaseCheck({ cwd: fixture.dir, spawn: buildFake.spawn, build: true })
+  assert.equal(
+    buildFake.calls.some((call) => call.args[0] === 'run' && call.args[1] === 'build:client'),
+    true,
+  )
+  assert.equal(
+    built.checks.some((check) => check.id === 'build' && check.ok === true),
+    true,
+  )
+  // pack 缺文件 / 解析失败
+  const missingPack = makeN5Spawn({ files: [{ path: 'index.js' }] })
+  const missing = runReleaseCheck({ cwd: fixture.dir, spawn: missingPack.spawn, skipBuild: true })
+  assert.equal(missing.checks.find((check) => check.id === 'pack').ok, false)
+  const brokenPack = makeN5Spawn({ rawOutput: 'not json at all' })
+  const unparseable = runReleaseCheck({ cwd: fixture.dir, spawn: brokenPack.spawn, skipBuild: true })
+  assert.equal(unparseable.checks.find((check) => check.id === 'pack').ok, false)
+  // 无 spawn → pack 失败（默认只读，需要 npm）
+  const noSpawn = runReleaseCheck({ cwd: fixture.dir, skipBuild: true })
+  assert.equal(noSpawn.checks.find((check) => check.id === 'pack').ok, false)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('release-check N5：parsePackJson 兼容警告前缀/坏输出；当前仓库通过（fake pack）', () => {
+  assert.equal(
+    parsePackJson('warning x\n[{"name":"a","version":"1.0.0","files":[{"path":"index.js"}]}]') !== null,
+    true,
+  )
+  assert.equal(parsePackJson('not json') === null, true)
+  assert.equal(parsePackJson('') === null, true)
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const version = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
+  const fake = makeN5Spawn()
+  fake.spawn = (command, args, spawnOptions) => {
+    if (args[0] === 'pack') {
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          {
+            name: 'dsh-little-whale',
+            version,
+            files: [{ path: 'index.js' }, { path: 'client.js' }, { path: 'CHANGELOG.md' }, { path: 'README.md' }],
+          },
+        ]),
+      }
+    }
+    return { status: 0, stdout: '' }
+  }
+  const report = runReleaseCheck({ cwd: ROOT, spawn: fake.spawn, skipBuild: true, now: () => 5000 })
+  assert.equal(report.ok, true, JSON.stringify(report.errors))
+  assert.equal(report.packageVersion, version)
 })
