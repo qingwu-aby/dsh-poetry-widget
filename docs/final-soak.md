@@ -79,3 +79,16 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
 
 - 10 轮独立 `load-baseline --scenario all` + `fault-inject`：**0 轮异常**（0 errors、故障 9/9）；
 - 仍非 24h 连续运行；真实 provider/游戏长稳需单独安排。
+
+
+## 9. O4 真实 provider 延迟（2026-11-18）
+
+对 `game-world` observe 做 3 次真实模型调用（本地宿主、当前 provider）：
+
+| 样本 | HTTP | 延迟 |
+|---|---|---|
+| 1 | 200 | 6.47s |
+| 2 | 200 | 4.76s |
+| 3 | 200 | 4.87s |
+
+均返回合法 `mc_explore` 决策；真实 provider p95 需更多样本/长时间采样，本次仅作冒烟。
