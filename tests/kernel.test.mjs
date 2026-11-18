@@ -386,6 +386,13 @@ import {
 import { createMemoryJournal } from '../lib/domain/memory/memory-journal.mjs'
 import { createGameMemoryWorkspace } from '../lib/domain/play/game-memory-workspace.mjs'
 import { createMinecraftWorld, MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
+import {
+  createLocalVideoProvider,
+  DEFAULT_VIDEOS_DIR,
+  LOCAL_VIDEO_CODES,
+  LOCAL_VIDEO_PROVIDER_VERSION,
+  VIDEO_EXTENSIONS,
+} from '../lib/domain/works/local-video-provider.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
 import { callCandidate, callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/kernel/llm-call.mjs'
@@ -11585,9 +11592,8 @@ test('hub-routes L6：video 明确 VIDEO_PROVIDER_UNAVAILABLE（不伪造成功�
   const fixture = makeL6Fixture()
   const video = await l6Create(fixture, 'video.watch', 'video', { url: 'https://example/v/1' }, 'l6-video')
   assert.equal(video.ok, true, '任务创建成功')
-  assert.equal(video.success, false, '不伪造成功')
+  assert.equal(video.success, false, '不伪造成功（L7 起本地 provider 可用，URL 仍非本地文件 → 失败）')
   assert.equal(video.receipt.ok, false)
-  assert.equal(video.receipt.facts.code, 'VIDEO_PROVIDER_UNAVAILABLE')
   const board = fixture.runtime.getInstances().taskBoard
   assert.equal(board.get(video.task.id).status, 'failed')
   fixture.runtime.dispose()
@@ -13222,4 +13228,239 @@ test('cost-policy N3：store overrides 合并进 cost guard（实时限额生效
   assert.equal(applied.ok, true)
   assert.equal(applied.effective.limits.total.minute, 0)
   rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate L7：Video 本地 provider 接入（本地视频 open/play/summary）
+// ---------------------------------------------------------------------------
+
+function makeL7VideoFixture() {
+  const dir = tmpDir('l7-video')
+  const video = path.join(dir, 'clip.mp4')
+  writeFileSync(video, 'fake mp4 bytes')
+  writeFileSync(path.join(dir, 'clip.md'), '# 旁注\n讲了三件事。')
+  writeFileSync(path.join(dir, 'clip.srt'), '1\n00:00:01,000 --> 00:00:02,000\n字幕')
+  const missingFfprobe = () => {
+    const error = new Error('spawn ffprobe ENOENT')
+    error.code = 'ENOENT'
+    throw error
+  }
+  const provider = createLocalVideoProvider({ rootDir: dir, execFile: missingFfprobe, now: () => 5000 })
+  return { dir, video, provider, missingFfprobe }
+}
+
+test('local-video-provider L7：open 路径/白名单/越界/ffprobe 可选/play/pause/summary', () => {
+  const fixture = makeL7VideoFixture()
+  assert.equal(LOCAL_VIDEO_PROVIDER_VERSION, 1)
+  assert.equal(DEFAULT_VIDEOS_DIR.includes('little-whale-videos'), true)
+  assert.equal(VIDEO_EXTENSIONS.includes('.mp4'), true)
+  const opened = fixture.provider.open('clip.mp4')
+  assert.equal(opened.ok, true)
+  assert.equal(opened.video.title, 'clip')
+  assert.equal(opened.video.durationMs, null, '无 ffprobe → null 不报错')
+  assert.equal(opened.video.path, fixture.video)
+  assert.equal(opened.video.id.startsWith('local-video-'), true)
+  // 绝对路径（root 内）
+  assert.equal(fixture.provider.open(fixture.video).ok, true)
+  // 越界/白名单/缺失/目录（provider 错误以带 code 的异常抛出，供 Activity 转成失败 receipt）
+  const codeOf = (fn) => {
+    try {
+      fn()
+      return null
+    } catch (error) {
+      return error && error.code ? error.code : null
+    }
+  }
+  assert.equal(
+    codeOf(() => fixture.provider.open('../outside.mp4')),
+    LOCAL_VIDEO_CODES.outsideRoot,
+  )
+  assert.equal(
+    codeOf(() => fixture.provider.open('bad.exe')),
+    LOCAL_VIDEO_CODES.unsupported,
+  )
+  assert.equal(
+    codeOf(() => fixture.provider.open('missing.mp4')),
+    LOCAL_VIDEO_CODES.notFound,
+  )
+  assert.equal(
+    codeOf(() => fixture.provider.open(fixture.dir)),
+    LOCAL_VIDEO_CODES.notFile,
+  )
+  assert.equal(
+    codeOf(() => fixture.provider.open('')),
+    LOCAL_VIDEO_CODES.invalidPath,
+  )
+  // play/pause 状态
+  assert.equal(fixture.provider.play().status, 'playing')
+  assert.equal(fixture.provider.pause().status, 'paused')
+  // summary：md 优先
+  const summary = fixture.provider.summary()
+  assert.equal(summary.ok, true)
+  assert.match(summary.summary, /讲了三件事/)
+  assert.equal(summary.kind, 'md')
+  // 无旁注 → null
+  const plainDir = tmpDir('l7-video-plain')
+  writeFileSync(path.join(plainDir, 'only.mp4'), 'x')
+  const plain = createLocalVideoProvider({ rootDir: plainDir, execFile: fixture.missingFfprobe })
+  plain.open('only.mp4')
+  const none = plain.summary()
+  assert.equal(none.ok, true)
+  assert.equal(none.summary, null)
+  // ffprobe 可用 → durationMs
+  const probed = createLocalVideoProvider({
+    rootDir: fixture.dir,
+    execFile: () => '123.5\n',
+  })
+  const openedProbed = probed.open('clip.mp4')
+  assert.equal(openedProbed.video.durationMs, 123500)
+  assert.equal(probed.snapshot().current.title, 'clip')
+  rmSync(fixture.dir, { recursive: true, force: true })
+  rmSync(plainDir, { recursive: true, force: true })
+})
+
+test('hub-routes L7：task.create video 本地 open/play/summary/note 成功回执', async () => {
+  const fixture = makeL7VideoFixture()
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: createRealActivityAdapters({ videosDir: fixture.dir, now: () => 5000 }),
+    now: () => 5000,
+  })
+  runtime.start()
+  const tokenFile = path.join(fixture.dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  async function createVideo(payload, key, kind = 'video.watch') {
+    const res = hubFakeRes()
+    await handler(
+      hubFakeReq(
+        'POST',
+        { action: 'task.create', kind, activity: 'video', payload, idempotencyKey: key },
+        { url: HUB_ROUTE },
+      ),
+      res,
+    )
+    return res.json()
+  }
+  const opened = await createVideo({ path: 'clip.mp4' }, 'l7-open')
+  assert.equal(opened.ok, true)
+  assert.equal(opened.success, true)
+  assert.equal(opened.receipt.facts.title, 'clip')
+  assert.equal(opened.receipt.facts.videoId.length > 0, true)
+  const played = await createVideo({ tool: 'video.play' }, 'l7-play')
+  assert.equal(played.success, true)
+  assert.equal(played.receipt.facts.status, 'playing')
+  const paused = await createVideo({ tool: 'video.pause' }, 'l7-pause')
+  assert.equal(paused.success, true)
+  assert.equal(paused.receipt.facts.status, 'paused')
+  const summary = await createVideo({ tool: 'video.summary' }, 'l7-summary', 'video.summary')
+  assert.equal(summary.success, true)
+  assert.match(summary.receipt.facts.summary, /讲了三件事/)
+  const note = await createVideo({ tool: 'video.note', arguments: { text: '这段不错', topics: ['学习'] } }, 'l7-note')
+  assert.equal(note.success, true)
+  assert.equal(note.receipt.facts.topics.includes('学习'), true)
+  // 错误：文件不存在 / 越界 / payload 非法
+  const missing = await createVideo({ path: 'nope.mp4' }, 'l7-missing')
+  assert.equal(missing.success, false)
+  assert.equal(missing.receipt.facts.code, 'VIDEO_OPEN_FAILED')
+  assert.match(missing.receipt.detail, /视频不存在/)
+  const escapedVideo = await createVideo({ path: '../outside.mp4' }, 'l7-escape')
+  assert.equal(escapedVideo.success, false)
+  assert.equal(escapedVideo.receipt.facts.code, 'VIDEO_OPEN_FAILED')
+  assert.match(escapedVideo.receipt.detail, /越界/)
+  const invalid = await createVideo({}, 'l7-invalid')
+  assert.equal(invalid.success, false)
+  assert.equal(invalid.receipt.facts.code, 'VIDEO_INVALID_INPUT')
+  runtime.dispose()
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-routes L7：video provider 可覆盖 + 错误隔离', async () => {
+  const dir = tmpDir('l7-override')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const calls = []
+  const fakeProvider = {
+    open: async (input) => {
+      calls.push(['open', input])
+      return { id: 'fake-v1', title: '假视频', url: String(input), duration: 60 }
+    },
+    play: async () => {
+      calls.push(['play'])
+      return { ok: true }
+    },
+    pause: async () => {
+      calls.push(['pause'])
+      return { ok: true }
+    },
+    summary: async () => {
+      calls.push(['summary'])
+      return { summary: '假摘要', topics: ['T'] }
+    },
+  }
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: createRealActivityAdapters({ videoProvider: fakeProvider, now: () => 5000 }),
+    now: () => 5000,
+  })
+  runtime.start()
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  const res = hubFakeRes()
+  await handler(
+    hubFakeReq(
+      'POST',
+      {
+        action: 'task.create',
+        kind: 'video.watch',
+        activity: 'video',
+        payload: { url: 'https://example/v' },
+        idempotencyKey: 'l7-fake',
+      },
+      { url: HUB_ROUTE },
+    ),
+    res,
+  )
+  const body = res.json()
+  assert.equal(body.success, true)
+  assert.equal(body.receipt.facts.videoId, 'fake-v1')
+  assert.deepEqual(calls[0], ['open', 'https://example/v'])
+  // provider 抛错 → 失败 receipt（不崩）
+  const brokenRuntime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: createRealActivityAdapters({
+      videoProvider: {
+        open: () => {
+          throw new Error('provider boom')
+        },
+      },
+      now: () => 5000,
+    }),
+    now: () => 5000,
+  })
+  brokenRuntime.start()
+  const brokenHandler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: brokenRuntime })
+  const brokenRes = hubFakeRes()
+  await brokenHandler(
+    hubFakeReq(
+      'POST',
+      {
+        action: 'task.create',
+        kind: 'video.watch',
+        activity: 'video',
+        payload: { url: 'x' },
+        idempotencyKey: 'l7-broken',
+      },
+      { url: HUB_ROUTE },
+    ),
+    brokenRes,
+  )
+  const broken = brokenRes.json()
+  assert.equal(broken.success, false)
+  assert.equal(broken.receipt.facts.code, 'VIDEO_OPEN_FAILED')
+  runtime.dispose()
+  brokenRuntime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
