@@ -39,6 +39,7 @@ test('World 工具解析：合法工具/参数夹取/非法回退', () => {
   assert.deepEqual(parseWorldCommand('{"tool":"mc_say","arguments":{"text":"嗨"}}').tool, 'mc_say')
   assert.equal(parseWorldCommand('{"tool":"mc_move_to","arguments":{"x":1,"z":2}}').tool, 'mc_move_to')
   assert.equal(parseWorldCommand('{"tool":"mc_move_to","arguments":{"x":1}}'), null)
+  assert.deepEqual(parseWorldCommand('{"tool":"mc_explore","arguments":{"direction":"east","distance":999}}'), { tool: 'mc_explore', arguments: { direction: 'east', distance: 256 }, reason: '' })
   assert.equal(parseWorldCommand('{"tool":"drop_all"}'), null)
   assert.equal(parseWorldCommand('不是 JSON'), null)
 })
