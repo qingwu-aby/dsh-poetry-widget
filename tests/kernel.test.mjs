@@ -54,6 +54,13 @@ import {
   validateEventEnvelope,
 } from '../lib/core/event-schema.mjs'
 import {
+  createMemoryTaskStore,
+  createTaskBoard,
+  TASK_BOARD_CODES,
+  TASK_BOARD_EVENTS,
+  TASK_BOARD_VERSION,
+} from '../lib/core/task-board.mjs'
+import {
   canTransition,
   createTaskSupervisor,
   TASK_ALLOWED_TRANSITIONS,
@@ -2584,4 +2591,266 @@ test('event-bus B1：snapshot 指标与版本字段', async () => {
   assert.equal(snapshot.lastReject, null)
   assert.equal(EVENT_BUS_DEFAULTS.maxEvents > 0, true)
   assert.equal(EVENT_BUS_DEFAULTS.maxReplay > 0, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate B2：Task Board（lib/core/task-board.mjs）——生命周期/幂等/持久重建/优先级/事件
+// ---------------------------------------------------------------------------
+
+test('task-board B2：完整生命周期与状态迁移', () => {
+  const events = []
+  const board = createTaskBoard({
+    now: () => 1000,
+    maxRunning: 2,
+    onEvent: (event) => events.push(event.type),
+  })
+  const created = board.create({ activity: 'chat', kind: 'reply', priority: 3, key: 'lifecycle' })
+  assert.equal(created.ok, true)
+  assert.equal(created.duplicate, false)
+  assert.equal(created.task.status, 'running', '有空槽时创建即运行')
+  const id = created.task.id
+  assert.equal(board.get(id).priority, 3)
+  assert.equal(board.get(id).activity, 'chat')
+
+  assert.equal(board.waiting(id).task.status, 'waiting')
+  assert.equal(board.resume(id).task.status, 'running')
+  assert.equal(board.blocked(id).task.status, 'blocked')
+  assert.equal(board.resume(id).task.status, 'running')
+  const done = board.complete(id, { text: 'ok' })
+  assert.equal(done.ok, true)
+  assert.equal(done.task.status, 'done')
+  assert.deepEqual(board.get(id).result, { text: 'ok' })
+  assert.ok(board.get(id).finishedAt !== null)
+
+  // 终态：重复 complete 幂等（already），cancel 明确拒绝
+  const again = board.complete(id)
+  assert.equal(again.ok, true)
+  assert.equal(again.already, true)
+  assert.equal(board.cancel(id).ok, false)
+  const counts = board.counts()
+  assert.equal(counts.byStatus.done, 1)
+  assert.equal(counts.active, 0)
+
+  for (const type of [
+    'task.created',
+    'task.started',
+    'task.waiting',
+    'task.resumed',
+    'task.blocked',
+    'task.completed',
+  ]) {
+    assert.ok(events.includes(type), `应发出 ${type}`)
+  }
+  assert.equal(TASK_BOARD_VERSION, 1)
+  assert.ok(TASK_BOARD_EVENTS.includes('task.created'))
+})
+
+test('task-board B2：幂等键（并发/终态/retry）', () => {
+  const board = createTaskBoard({ now: () => 1000, maxRunning: 1 })
+  const first = board.create({ activity: 'reading', key: 'daily-read', priority: 1 })
+  assert.equal(first.ok, true)
+  const duplicate = board.create({ activity: 'reading', key: 'daily-read' })
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.terminal, false)
+  assert.equal(duplicate.task.id, first.task.id, '同 key 不重复执行')
+  assert.equal(board.snapshot().total, 1)
+
+  board.complete(first.task.id, { done: true })
+  const terminalDuplicate = board.create({ activity: 'reading', key: 'daily-read' })
+  assert.equal(terminalDuplicate.duplicate, true)
+  assert.equal(terminalDuplicate.terminal, true)
+  assert.equal(board.snapshot().total, 1)
+  // 非终态 + retry:true 仍是 duplicate（不并发）
+  const running = board.create({ activity: 'reading', key: 'running-key' })
+  assert.equal(board.create({ activity: 'reading', key: 'running-key', retry: true }).duplicate, true)
+
+  // 终态 + retry:true → 新任务，attempts 延续
+  const retried = board.create({ activity: 'reading', key: 'daily-read', retry: true })
+  assert.equal(retried.ok, true)
+  assert.equal(retried.duplicate, false)
+  assert.notEqual(retried.task.id, first.task.id)
+  assert.equal(retried.task.attempts, 1, '排队中 attempts 尚未递增')
+  assert.equal(retried.task.status, 'queued', 'maxRunning=1 时排队')
+  assert.equal(running.task.status, 'running')
+  board.complete(running.task.id)
+  assert.equal(board.get(retried.task.id).attempts, 2, '重试任务真正开跑后 attempts=2')
+})
+
+test('task-board B2：重启重建（状态/幂等索引/可继续操作）', () => {
+  let clock = 1000
+  const store = createMemoryTaskStore()
+  const board = createTaskBoard({ now: () => clock, maxRunning: 4, store })
+  const a = board.create({ activity: 'chat', key: 'a', priority: 5 }).task
+  const b = board.create({ activity: 'reading', key: 'b', priority: 1 }).task
+  const c = board.create({ activity: 'chat', key: 'c', priority: 3 }).task
+  const d = board.create({ activity: 'task', key: 'd', priority: 0 }).task
+  board.waiting(b.id)
+  board.blocked(a.id)
+  board.complete(d.id, { ok: true })
+  const before = board.counts()
+  board.save()
+  clock += 10
+  const restored = createTaskBoard({ now: () => clock, maxRunning: 4, store })
+  const after = restored.counts()
+  assert.deepEqual(after.byStatus, before.byStatus, '重启后状态计数一致')
+  assert.equal(restored.get(a.id).status, 'blocked')
+  assert.equal(restored.get(b.id).status, 'waiting')
+  assert.equal(restored.get(d.id).status, 'done')
+  assert.equal(restored.get(d.id).attempts, 1)
+  // 幂等索引重建：同 key 不会重复执行
+  assert.equal(restored.create({ activity: 'chat', key: 'a' }).duplicate, true)
+  assert.equal(restored.create({ activity: 'chat', key: 'a' }).task.id, a.id)
+  // 重建后仍可继续操作
+  assert.equal(restored.complete(c.id, { done: true }).task.status, 'done')
+  assert.equal(restored.resume(b.id).task.status, 'running')
+  assert.equal(restored.resume(a.id).ok, true, 'blocked 任务恢复后继续')
+  const snapshot = restored.snapshot()
+  assert.equal(snapshot.metrics.restored > 0, true)
+  assert.ok(snapshot.store.saves > 0)
+})
+
+test('task-board B2：非法状态/参数/容量明确拒绝', () => {
+  const board = createTaskBoard({ now: () => 1000, maxRunning: 1, maxTasks: 2 })
+  assert.equal(board.get('missing'), null)
+  assert.equal(board.complete('missing').code, TASK_BOARD_CODES.notFound)
+  assert.equal(board.claim('missing').code, TASK_BOARD_CODES.notFound)
+  assert.equal(board.create({}).code, TASK_BOARD_CODES.invalidArgument)
+  assert.equal(board.create({ activity: '' }).code, TASK_BOARD_CODES.invalidArgument)
+
+  const first = board.create({ activity: 'chat' }).task
+  const second = board.create({ activity: 'chat' }).task
+  const third = board.create({ activity: 'chat' })
+  assert.equal(third.ok, false)
+  assert.equal(third.code, TASK_BOARD_CODES.capacity)
+  assert.match(third.message, /任务板已满/)
+  assert.equal(board.snapshot().total, 2)
+
+  // queued 任务不能直接 complete / waiting
+  const queuedId = second.id
+  assert.equal(board.get(queuedId).status, 'queued')
+  const illegal = board.complete(queuedId)
+  assert.equal(illegal.ok, false)
+  assert.equal(illegal.code, 'TASK_INVALID_TRANSITION')
+  assert.equal(board.waiting(queuedId).ok, false)
+  // 释放容量后可继续创建
+  board.complete(first.id)
+  assert.equal(board.create({ activity: 'chat' }).ok, true)
+})
+
+test('task-board B2：优先级排序 / next / 查询过滤', () => {
+  const board = createTaskBoard({ now: () => 1000, maxRunning: 1 })
+  const low = board.create({ activity: 'chat', key: 'low', priority: 1 }).task
+  const high = board.create({ activity: 'chat', key: 'high', priority: 9 }).task
+  const mid = board.create({ activity: 'reading', key: 'mid', priority: 5 }).task
+  assert.equal(low.status, 'running')
+  assert.equal(high.status, 'queued')
+  assert.equal(mid.status, 'queued')
+
+  const byPriority = board.list({ sort: 'priority' }).map((task) => task.id)
+  assert.deepEqual(byPriority, [high.id, mid.id, low.id], '优先级降序，其次创建时间')
+  assert.equal(board.next().id, high.id, 'next 返回优先级最高的 queued（只读）')
+  assert.equal(board.get(high.id).status, 'queued', 'next 不认领')
+  const claimed = board.claimNext('owner-1')
+  assert.equal(claimed.ok, true)
+  assert.equal(claimed.queued, true, 'maxRunning 已满时保持 queued')
+
+  assert.deepEqual(
+    board.list({ activity: 'reading' }).map((task) => task.id),
+    [mid.id],
+  )
+  assert.deepEqual(
+    board.list({ status: 'queued' }).map((task) => task.id),
+    [high.id, mid.id],
+  )
+  assert.equal(board.list({ limit: 1 }).length, 1)
+  board.complete(low.id)
+  assert.equal(
+    board.list({ status: 'running' }).length >= 1,
+    true,
+    '完成一个后监管器按 FIFO 补位（调度器后续再做优先级）',
+  )
+})
+
+test('task-board B2：事件顺序与非法事件记录', () => {
+  const events = []
+  const board = createTaskBoard({
+    now: () => 1000,
+    maxRunning: 1,
+    loadOnCreate: false,
+    onEvent: (event) => events.push(event),
+  })
+  const task = board.create({ activity: 'chat', key: 'evt' }).task
+  board.waiting(task.id)
+  board.resume(task.id)
+  board.complete(task.id, { ok: true })
+  board.create({ activity: 'chat', key: 'evt' })
+  board.create({})
+  const types = events.map((event) => event.type)
+  assert.deepEqual(types.slice(0, 6), [
+    'task.created',
+    'task.started',
+    'task.waiting',
+    'task.resumed',
+    'task.completed',
+    'task.duplicate',
+  ])
+  assert.equal(types[types.length - 1], 'task.rejected')
+  for (const event of events) {
+    assert.equal(typeof event.seq, 'number')
+    assert.equal(typeof event.at, 'number')
+  }
+  const created = events[0]
+  assert.equal(created.task.id, task.id)
+  assert.equal(board.snapshot().recentEvents.length <= 10, true)
+})
+
+test('task-board B2：store 失败隔离与 flush', async () => {
+  const errors = []
+  const failing = createTaskBoard({
+    now: () => 1000,
+    maxRunning: 2,
+    onError: (info) => errors.push(info),
+    store: {
+      load: () => null,
+      save: () => {
+        throw new Error('disk full')
+      },
+    },
+  })
+  const created = failing.create({ activity: 'chat' })
+  assert.equal(created.ok, true, 'store 失败不阻塞任务板')
+  assert.ok(failing.snapshot().store.saveErrors >= 1)
+  assert.equal(errors[0].scope, 'store')
+
+  // 异步 save 失败 → flush 后计数，不抛
+  let asyncCalls = 0
+  const asyncFailing = createTaskBoard({
+    now: () => 1000,
+    store: {
+      load: () => null,
+      save: () => {
+        asyncCalls += 1
+        return Promise.reject(new Error('async disk full'))
+      },
+    },
+  })
+  asyncFailing.create({ activity: 'chat' })
+  await asyncFailing.flush()
+  assert.equal(asyncCalls, 1)
+  assert.equal(asyncFailing.snapshot().store.saveErrors, 1)
+})
+
+test('task-board B2：restore 非法快照与空快照', () => {
+  const board = createTaskBoard({ now: () => 1000 })
+  const invalid = board.restore({ v: 1 })
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.code, TASK_BOARD_CODES.restoreFailed)
+  const empty = board.restore(null)
+  assert.equal(empty.ok, true)
+  assert.equal(empty.restored, 0)
+  assert.equal(board.snapshot().total, 0)
+  // 事件里有 restored 汇总
+  const restoredEvents = board.snapshot().recentEvents.filter((event) => event.type === 'task.restored')
+  assert.equal(restoredEvents.length >= 1, true)
 })
