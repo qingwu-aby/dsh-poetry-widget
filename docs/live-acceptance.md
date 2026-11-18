@@ -75,6 +75,15 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - bot 端已加 `DSH_MC_HOST_TASKS=1` 轮询（bot-play.mjs + start-bot.sh）；需 DSH 重启加载 J3 路由后生效；
 - 当前测试 893/893，check 绿。
 
+## 3.6 闭环 live 验证（2026-11-18）
+
+- full：`mode=full`，`featureFlag.persist=true`；
+- Chat 接管：`chat.json` 返回 Hub `receipt`，`task tb-1 chat.turn done`；旧 chat 直接路径停用；
+- Minecraft 队列：`task.create kind=minecraft.say` → `tb-2 waiting/queued` → bot claim → 执行 `mc_say` → receipt → 队列 done、Hub 任务 done；
+  bot 日志：`Hub 任务 mc_say` / `Hub 回执 成功`；
+- 持久化：`hub-taskboard.json`（2 tasks）、`hub-events.jsonl`（259 events）已生成；
+- 当前测试 893/893，check 绿。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
