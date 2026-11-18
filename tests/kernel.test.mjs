@@ -7,6 +7,12 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { summarizeModelBudget, summarizeModelGate } from '../lib/composition/health.mjs'
 import {
+  canTransition,
+  createTaskSupervisor,
+  TASK_ALLOWED_TRANSITIONS,
+  TASK_ERROR_CODES,
+} from '../lib/core/task-supervisor.mjs'
+import {
   createModelBudget,
   createModelGate,
   MODEL_GATE_DEFAULTS,
@@ -549,4 +555,239 @@ test('health A1：gate/budget 快照归一化（含最近拒绝原因）', () =>
     pendingWrite: false,
     flushIntervalMs: 0,
   })
+})
+
+// ---------------------------------------------------------------------------
+// Gate A2：Task 监管骨架（租约/超时/取消/幂等/并发/状态机）
+// ---------------------------------------------------------------------------
+
+test('task-supervisor A2：状态机主路径与非法迁移', () => {
+  const clock = 1000
+  const events = []
+  const sup = createTaskSupervisor({
+    now: () => clock,
+    leaseMs: 1000,
+    maxRunning: 2,
+    onEvent: (event) => events.push(event.type),
+  })
+  const submitted = sup.submit({ kind: 'chat', owner: 'hub', meta: { turn: 1 } })
+  assert.equal(submitted.ok, true)
+  assert.equal(submitted.duplicate, false)
+  assert.equal(submitted.task.state, 'running', '有空槽时 submit 直接开跑')
+  assert.equal(submitted.task.attempts, 1)
+  assert.equal(submitted.task.owner, 'hub')
+  assert.equal(submitted.task.leaseExpiresAt, clock + 1000)
+  assert.deepEqual(submitted.task.meta, { turn: 1 })
+  const id = submitted.task.id
+
+  assert.equal(sup.wait(id).task.state, 'waiting')
+  assert.equal(sup.resume(id).task.state, 'running')
+  assert.equal(sup.block(id).task.state, 'blocked')
+  assert.equal(sup.get(id).leaseExpiresAt, null, 'blocked 不持有租约')
+  assert.equal(sup.block(id).code, TASK_ERROR_CODES.invalidTransition, 'blocked→blocked 非法')
+  assert.equal(sup.resume(id).task.state, 'running')
+  const done = sup.complete(id, { text: 'ok' })
+  assert.equal(done.task.state, 'done')
+  assert.deepEqual(sup.get(id).result, { text: 'ok' })
+  assert.ok(sup.get(id).finishedAt !== null)
+
+  // 终态不可再迁移 / 未知状态 / 不存在
+  const again = sup.transition(id, 'running')
+  assert.equal(again.ok, false)
+  assert.equal(again.code, TASK_ERROR_CODES.invalidTransition)
+  assert.equal(sup.transition('missing', 'running').code, TASK_ERROR_CODES.notFound)
+  assert.equal(sup.transition(id, 'bogus').code, TASK_ERROR_CODES.invalidArgument)
+
+  // queued 不能直接 waiting；done 的迁移表为空
+  const sup2 = createTaskSupervisor({ now: () => clock, maxRunning: 1 })
+  sup2.submit({})
+  const queued = sup2.submit({}).task
+  assert.equal(queued.state, 'queued')
+  assert.equal(sup2.transition(queued.id, 'waiting').code, TASK_ERROR_CODES.invalidTransition)
+  assert.equal(canTransition('queued', 'running'), true)
+  assert.equal(canTransition('done', 'running'), false)
+  assert.deepEqual(TASK_ALLOWED_TRANSITIONS.done, [])
+
+  for (const type of ['task/queued', 'task/started', 'task/waiting', 'task/blocked', 'task/resumed', 'task/done']) {
+    assert.ok(events.includes(type), `应上报 ${type}`)
+  }
+})
+
+test('task-supervisor A2：并发上限、补位与槽位释放', () => {
+  const sup = createTaskSupervisor({ now: () => 1, leaseMs: 10_000, maxRunning: 2 })
+  const a = sup.submit({ key: 'a' }).task
+  const b = sup.submit({ key: 'b' }).task
+  const c = sup.submit({ key: 'c' }).task
+  assert.equal(a.state, 'running')
+  assert.equal(b.state, 'running')
+  assert.equal(c.state, 'queued', '超过 maxRunning 必须排队')
+  assert.deepEqual(sup.snapshot().byState, {
+    queued: 1,
+    running: 2,
+    waiting: 0,
+    blocked: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+  })
+  assert.equal(sup.snapshot().slotsUsed, 2)
+  assert.equal(sup.snapshot().maxRunning, 2)
+
+  sup.complete(a.id)
+  assert.equal(sup.get(c.id).state, 'running', '完成一个补一个')
+
+  const d = sup.submit({ key: 'd' }).task
+  assert.equal(d.state, 'queued', '两个槽位都被占用')
+  sup.block(b.id)
+  assert.equal(sup.get(d.id).state, 'running', 'blocked 释放槽位后队列补位')
+  const noCapacity = sup.resume(b.id)
+  assert.equal(noCapacity.code, TASK_ERROR_CODES.noCapacity, '无空槽时恢复被明确拒绝')
+
+  sup.complete(c.id)
+  assert.equal(sup.resume(b.id).task.state, 'running', '有槽位后可恢复')
+  assert.equal(sup.snapshot().slotsUsed, 2)
+})
+
+test('task-supervisor A2：租约过期自动 failed + 取消信号 + 心跳续租', () => {
+  let clock = 0
+  const events = []
+  const sup = createTaskSupervisor({
+    now: () => clock,
+    leaseMs: 100,
+    maxRunning: 1,
+    onEvent: (event) => events.push(event.type),
+  })
+  const task = sup.submit({ key: 'long', owner: 'hub' }).task
+  const signal = sup.signalFor(task.id)
+  let cancelSignals = 0
+  signal.onCancel(() => {
+    cancelSignals += 1
+  })
+  assert.equal(signal.cancelled, false)
+
+  clock = 50
+  assert.equal(sup.renew(task.id, { owner: 'hub' }).ok, true)
+  assert.equal(sup.get(task.id).leaseExpiresAt, 150, '续租从当前时间重新计时')
+  clock = 120
+  assert.equal(sup.tick().expired, 0, '续租后不超时')
+  assert.equal(sup.get(task.id).state, 'running')
+
+  clock = 151
+  const swept = sup.tick()
+  assert.equal(swept.expired, 1)
+  assert.equal(swept.tasks[0].state, 'failed')
+  assert.equal(swept.tasks[0].error.code, TASK_ERROR_CODES.leaseExpired)
+  assert.equal(cancelSignals, 1, '租约过期触发取消信号')
+  assert.equal(sup.get(task.id).leaseExpiresAt, null)
+  assert.equal(sup.snapshot().slotsUsed, 0, '过期后释放槽位')
+  assert.ok(events.includes('task/lease-expired'))
+
+  // 心跳时才发现已过期 → 明确 leaseExpired 错误，任务置 failed
+  clock = 1000
+  const second = sup.submit({ key: 'expire-on-renew', owner: 'a' }).task
+  clock = 1101
+  const late = sup.renew(second.id, { owner: 'a' })
+  assert.equal(late.code, TASK_ERROR_CODES.leaseExpired)
+  assert.equal(sup.get(second.id).state, 'failed')
+
+  // owner 不匹配
+  const third = sup.submit({ key: 'owner', owner: 'a' }).task
+  const mismatch = sup.renew(third.id, { owner: 'b' })
+  assert.equal(mismatch.code, TASK_ERROR_CODES.ownerMismatch)
+  assert.equal(sup.get(third.id).state, 'running')
+
+  // 终态不可续租
+  sup.complete(third.id)
+  assert.equal(sup.renew(third.id).code, TASK_ERROR_CODES.terminal)
+})
+
+test('task-supervisor A2：取消（running/queued）与取消信号', () => {
+  const sup = createTaskSupervisor({ now: () => 1, leaseMs: 10_000, maxRunning: 1 })
+  const running = sup.submit({ key: 'cancel-me' }).task
+  const signal = sup.signalFor(running.id)
+  const reasons = []
+  const off = signal.onCancel((payload) => reasons.push(payload.reason))
+  assert.equal(typeof off, 'function')
+  const cancelled = sup.cancel(running.id, { reason: '用户取消' })
+  assert.equal(cancelled.ok, true)
+  assert.equal(cancelled.task.state, 'cancelled')
+  assert.equal(cancelled.task.error.code, 'TASK_CANCELLED')
+  assert.equal(reasons.length, 1)
+  assert.equal(reasons[0], '用户取消')
+  assert.equal(signal.cancelled, true)
+  assert.equal(sup.get(running.id).leaseExpiresAt, null)
+  assert.equal(sup.snapshot().slotsUsed, 0)
+
+  const again = sup.cancel(running.id)
+  assert.equal(again.ok, true)
+  assert.equal(again.already, true, '重复取消幂等')
+  assert.equal(sup.complete(running.id).code, TASK_ERROR_CODES.invalidTransition, '取消后不能完成')
+
+  // queued 任务可取消，且不占用槽位
+  const holder = sup.submit({ key: 'holder' }).task
+  const queued = sup.submit({ key: 'queued-cancel' }).task
+  assert.equal(queued.state, 'queued')
+  const queuedCancelled = sup.cancel(queued.id)
+  assert.equal(queuedCancelled.ok, true)
+  assert.equal(sup.get(queued.id).state, 'cancelled')
+  assert.equal(sup.get(holder.id).state, 'running')
+  assert.equal(sup.snapshot().byState.cancelled, 2)
+
+  // 取消 done 任务 → 终态错误
+  sup.complete(holder.id)
+  assert.equal(sup.cancel(holder.id).code, TASK_ERROR_CODES.terminal)
+})
+
+test('task-supervisor A2：幂等键去重（并发/终态/显式重试）', () => {
+  const sup = createTaskSupervisor({ now: () => 1, leaseMs: 10_000, maxRunning: 1 })
+  const first = sup.submit({ key: 'daily-report', kind: 'report' })
+  assert.equal(first.ok, true)
+  assert.equal(first.task.state, 'running')
+
+  const duplicate = sup.submit({ key: 'daily-report', kind: 'report' })
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.terminal, false)
+  assert.equal(duplicate.task.id, first.task.id, '同 key 不会并发执行')
+  assert.equal(sup.list().length, 1)
+
+  sup.complete(first.task.id)
+  const terminalDuplicate = sup.submit({ key: 'daily-report' })
+  assert.equal(terminalDuplicate.duplicate, true)
+  assert.equal(terminalDuplicate.terminal, true)
+  assert.equal(sup.list().length, 1)
+
+  const retried = sup.submit({ key: 'daily-report', retry: true })
+  assert.equal(retried.duplicate, false)
+  assert.notEqual(retried.task.id, first.task.id)
+  assert.equal(retried.task.attempts, 2, '重试延续 attempts')
+  assert.equal(sup.list({ key: 'daily-report' }).length, 2)
+
+  // 无 key 不去重
+  const a = sup.submit({})
+  const b = sup.submit({})
+  assert.notEqual(a.task.id, b.task.id)
+})
+
+test('task-supervisor A2：事件回调异常不影响监管，非法迁移有事件', () => {
+  const rejected = []
+  const sup = createTaskSupervisor({
+    now: () => 1,
+    maxRunning: 1,
+    onEvent: (event) => {
+      if (event.type === 'task/transition-rejected') rejected.push(event.detail)
+      throw new Error('观测回调故障')
+    },
+  })
+  const task = sup.submit({ key: 'evt' })
+  assert.equal(task.ok, true, 'onEvent 抛错不能影响 submit')
+  assert.equal(task.task.state, 'running')
+  const illegal = sup.transition(task.task.id, 'queued')
+  assert.equal(illegal.ok, false)
+  assert.equal(illegal.code, TASK_ERROR_CODES.invalidTransition)
+  assert.equal(rejected.length, 1)
+  assert.equal(rejected[0].reason, 'illegal-transition')
+  const invalid = sup.transition(task.task.id, 'nope')
+  assert.equal(invalid.code, TASK_ERROR_CODES.invalidArgument)
+  assert.equal(rejected.length, 2)
 })
