@@ -1047,7 +1047,7 @@ test('index.js：加载话题库并注入 self-talk（mtime 文件、无新路�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 39, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + twin-state + chat + attention + memory + model-errors + 13 JSON + hub 控制路由 + model-policy 路由')
+    assert.equal(routes.length, 40, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + twin-state + chat + attention + memory + model-errors + 13 JSON + hub 控制路由 + model-policy 路由 + training 路由')
     assert.ok(logs.some((line) => line.includes('碎碎念话题库')), '启动日志打印话题库')
     assert.ok(logs.some((line) => line.includes('1 个话题')), '日志包含话题数量')
 

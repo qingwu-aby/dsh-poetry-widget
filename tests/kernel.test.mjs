@@ -37,6 +37,12 @@ import {
   validateModelPolicyInput,
 } from '../lib/composition/model-policy-routes.mjs'
 import {
+  createTrainingHandler,
+  registerTrainingRoute,
+  TRAINING_ACTIONS,
+  TRAINING_ROUTE,
+} from '../lib/composition/training-routes.mjs'
+import {
   ACTIVITY_MANIFEST_ERROR_CODES,
   ACTIVITY_PERMISSIONS,
   checkActivityPermission,
@@ -8258,4 +8264,174 @@ test('training-service G2：evaluator 注入（评分来自评估器）与不写
   assert.deepEqual(files, ['training-config.json'])
   assert.equal(store.read().config.adapter.current, 'adapters-candidate-3')
   rmSync(home, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate H2：训练服务运行时接入（lib/composition/training-routes.mjs）——默认关闭/受保护 API
+// ---------------------------------------------------------------------------
+
+function makeTrainingRouteFixture(options = {}) {
+  const dir = tmpDir('training-routes')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const store = createTrainingConfigStore({ file: path.join(dir, 'training-config.json'), now: () => 5000 })
+  if (options.config !== undefined) store.write(options.config)
+  const service = createTrainingService({
+    configStore: store,
+    runner: options.runner ?? null,
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const handler = createTrainingHandler({ service, tokenFile, fence: options.fence ?? null, logger: { warn() {} } })
+  return { dir, tokenFile, store, service, handler }
+}
+
+test('training-routes H2：GET 鉴权与默认关闭状态', async () => {
+  const denied = makeTrainingRouteFixture({ fence: { check: () => 'blocked' } })
+  const deniedRes = hubFakeRes()
+  await denied.handler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE }), deniedRes)
+  assert.equal(deniedRes.statusCode, 403)
+  rmSync(denied.dir, { recursive: true, force: true })
+
+  const { dir, store, handler } = makeTrainingRouteFixture({ fence: { check: () => 'blocked' } })
+  const tokenRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE + '?token=secret-token' }), tokenRes)
+  assert.equal(tokenRes.statusCode, 200)
+  const payload = tokenRes.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.available, true)
+  assert.equal(payload.status.enabled, false, '默认关闭')
+  assert.equal(payload.status.phase, 'idle')
+  assert.equal(payload.status.runnerAvailable, false)
+  assert.equal(payload.plan.ready, false)
+  assert.equal(payload.plan.blockedReason, 'disabled')
+  assert.equal(payload.config.file, store.file)
+  assert.equal(payload.config.config.enabled, false)
+  assert.ok(payload.actions.includes('run'))
+  assert.deepEqual(TRAINING_ACTIONS.slice(0, 3), ['status', 'plan', 'config'])
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('training-routes H2：POST 鉴权/默认关闭/confirm/无 runner', async () => {
+  const { dir, store, service, handler } = makeTrainingRouteFixture({ fence: { check: () => 'blocked' } })
+  const noAuth = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'run', confirm: true }), noAuth)
+  assert.equal(noAuth.statusCode, 403)
+
+  const disabled = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'run', confirm: true, token: 'secret-token' }), disabled)
+  assert.equal(disabled.statusCode, 200)
+  assert.equal(disabled.json().ok, false)
+  assert.equal(disabled.json().code, 'TRAINING_DISABLED', '默认关闭时 run 一律拒绝')
+
+  store.write({ enabled: true })
+  const noConfirm = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'run', token: 'secret-token' }), noConfirm)
+  assert.equal(noConfirm.json().code, 'TRAINING_CONFIRMATION_REQUIRED')
+  const noRunner = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'run', confirm: true, token: 'secret-token' }), noRunner)
+  assert.equal(noRunner.json().code, 'TRAINING_RUNNER_UNAVAILABLE', '运行时默认不注入 runner，不会启动训练')
+  assert.equal(service.status().phase, 'idle')
+  // 只读 action
+  const planRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'plan', token: 'secret-token' }), planRes)
+  assert.equal(planRes.json().ok, true)
+  assert.equal(planRes.json().status.enabled, true)
+  assert.equal(planRes.json().plan.blockedReason, 'runner-unavailable')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('training-routes H2：promote/rollback 需 confirm 且无候选时拒绝', async () => {
+  const { dir, handler } = makeTrainingRouteFixture({ config: { enabled: true } })
+  const promoteNoConfirm = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'promote', token: 'secret-token' }), promoteNoConfirm)
+  assert.equal(promoteNoConfirm.json().code, 'TRAINING_CONFIRMATION_REQUIRED')
+  const promote = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'promote', confirm: true, token: 'secret-token' }), promote)
+  assert.equal(promote.json().code, 'TRAINING_NO_CANDIDATE')
+  const rollback = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'rollback', confirm: true, token: 'secret-token' }), rollback)
+  assert.equal(rollback.json().code, 'TRAINING_NO_PREVIOUS')
+  const cancel = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'cancel', token: 'secret-token' }), cancel)
+  assert.equal(cancel.json().code, 'TRAINING_NOT_RUNNING')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('training-routes H2：错误分支（未知 action/非法 JSON/方法不允许）', async () => {
+  const { dir, handler } = makeTrainingRouteFixture()
+  const unknown = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'nope', token: 'secret-token' }), unknown)
+  assert.equal(unknown.statusCode, 400)
+  assert.equal(unknown.json().error, 'unknown_action')
+  const badJson = hubFakeRes()
+  await handler(
+    {
+      method: 'POST',
+      url: TRAINING_ROUTE,
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from('{bad')
+      },
+    },
+    badJson,
+  )
+  assert.equal(badJson.statusCode, 400)
+  assert.equal(badJson.json().error, 'invalid_json')
+  const notAllowed = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token' }), notAllowed)
+  assert.equal(notAllowed.statusCode, 405)
+  // fence 允许（无 token）
+  const fenceHandler = createTrainingHandler({ service: null, tokenFile: '', fence: { check: () => null } })
+  const noServiceGet = hubFakeRes()
+  await fenceHandler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE }), noServiceGet)
+  assert.equal(noServiceGet.statusCode, 200)
+  assert.equal(noServiceGet.json().available, false)
+  const noServiceRun = hubFakeRes()
+  await fenceHandler(hubFakeReq('POST', { action: 'run', confirm: true }), noServiceRun)
+  assert.equal(noServiceRun.json().code, 'TRAINING_UNAVAILABLE')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('training-routes H2：注册路由（http-wiring 契约）', () => {
+  const routes = []
+  const disposers = []
+  const webServer = {
+    register(route) {
+      routes.push(route)
+      return () => {}
+    },
+  }
+  const store = createTrainingConfigStore({
+    file: path.join(tmpDir('training-register'), 'training-config.json'),
+    now: () => 5000,
+  })
+  const service = createTrainingService({ configStore: store, now: () => 5000 })
+  const handler = registerTrainingRoute({
+    webServer,
+    disposers,
+    service,
+    tokenFile: '',
+    fence: null,
+    logger: { warn() {} },
+  })
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, TRAINING_ROUTE)
+  assert.equal(typeof handler, 'function')
+  assert.equal(disposers.length, 1)
+  assert.deepEqual(TRAINING_ACTIONS, ['status', 'plan', 'config', 'run', 'cancel', 'promote', 'rollback'])
+})
+
+test('training-routes H2：状态读取反映配置变更（仍不训练）', async () => {
+  const { dir, store, service, handler } = makeTrainingRouteFixture()
+  store.write({ enabled: true, intervalDays: 3, dataset: { sources: ['journal'], minEntries: 10 } })
+  const res = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: TRAINING_ROUTE + '?token=secret-token' }), res)
+  const payload = res.json()
+  assert.equal(payload.status.enabled, true)
+  assert.equal(payload.status.phase, 'idle', '打开 enabled 也不会自动训练')
+  assert.equal(payload.config.config.intervalDays, 3)
+  assert.equal(payload.config.config.dataset.minEntries, 10)
+  assert.equal(payload.plan.blockedReason, 'runner-unavailable')
+  assert.equal(service.audit().length, 0, '只读操作不产生训练审计')
+  rmSync(dir, { recursive: true, force: true })
 })
