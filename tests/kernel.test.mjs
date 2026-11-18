@@ -173,6 +173,13 @@ import {
   TASK_ERROR_CODES,
 } from '../lib/core/task-supervisor.mjs'
 import {
+  createWorldSupervisor,
+  WORLD_STATES,
+  WORLD_SUPERVISOR_CODES,
+  WORLD_SUPERVISOR_EVENTS,
+  WORLD_SUPERVISOR_VERSION,
+} from '../lib/core/world-supervisor.mjs'
+import {
   COST_REJECT_CODE,
   COST_SOFT_ALERT_CODE,
   createCostGuard,
@@ -234,7 +241,7 @@ function tmpDir(name) {
 }
 
 /** 可控定时器（Gate A1 测试用）：不依赖真实等待。 */
-function createFakeTimers() {
+function createWorldFakeTimers() {
   let nextId = 0
   const pending = new Map()
   return {
@@ -522,7 +529,7 @@ test('model-gate A1：队列满立即拒绝，不无限排队', async () => {
 })
 
 test('model-gate A1：排队超时拒绝且队列自愈（后续调用不受影响）', async () => {
-  const timers = createFakeTimers()
+  const timers = createWorldFakeTimers()
   const gate = createModelGate({ maxConcurrent: 1, maxQueue: 5, queueTimeoutMs: 50, timers, now: () => 1000 })
   const releaseFirst = await gate.acquire()
   const rejection = gate.acquire({ role: 'mood' }).then(
@@ -566,7 +573,7 @@ test('model-gate A1：env 可覆盖并发/队列/超时默认值', () => {
 test('model-budget A1：写盘节流合并 + flush 强制落盘（崩溃最多丢一个窗口）', () => {
   const dir = tmpDir('budget-throttle')
   const file = path.join(dir, 'model-budget.json')
-  const timers = createFakeTimers()
+  const timers = createWorldFakeTimers()
   const writes = []
   const budget = createModelBudget({
     file,
@@ -5406,4 +5413,322 @@ test('minecraft-activity D2：工厂绑定方法与自定义 worldId', async () 
   assert.equal(activity.toTask({ tool: 'mc_plan' }).task.kind, 'minecraft.plan')
   const invalidEvent = activity.toEvent('minecraft.unknown', {})
   assert.equal(invalidEvent.code, MINECRAFT_ACTIVITY_CODES.invalidEvent)
+})
+
+// ---------------------------------------------------------------------------
+// Gate D3：World Supervisor（lib/core/world-supervisor.mjs）——启停/健康/退避重启/隔离
+// ---------------------------------------------------------------------------
+
+function createSupervisorFakeTimers() {
+  const queue = []
+  return {
+    setTimeout(fn, ms) {
+      const handle = { fn, ms, cleared: false }
+      queue.push(handle)
+      return handle
+    },
+    clearTimeout(handle) {
+      if (handle) handle.cleared = true
+    },
+    pending() {
+      return queue.filter((handle) => !handle.cleared)
+    },
+    delays() {
+      return queue.filter((handle) => !handle.cleared).map((handle) => handle.ms)
+    },
+    runNext() {
+      const handle = queue.find((item) => !item.cleared)
+      if (!handle) return null
+      handle.cleared = true
+      handle.fn()
+      return handle
+    },
+  }
+}
+
+test('world-supervisor D3：注册校验与查询', () => {
+  const supervisor = createWorldSupervisor({ now: () => 1000, autoRestart: false })
+  assert.equal(supervisor.register({ id: 'chat', start: async () => {} }).ok, true)
+  assert.equal(supervisor.register({ id: 'chat', start: async () => {} }).code, WORLD_SUPERVISOR_CODES.duplicateWorld)
+  assert.equal(supervisor.register({ id: 'BAD', start: async () => {} }).code, WORLD_SUPERVISOR_CODES.invalidSpec)
+  assert.equal(supervisor.register({ id: 'nomethod' }).code, WORLD_SUPERVISOR_CODES.invalidSpec)
+  assert.equal(
+    supervisor.register({ id: 'badstop', start: async () => {}, stop: 'nope' }).code,
+    WORLD_SUPERVISOR_CODES.invalidSpec,
+  )
+  assert.equal(
+    supervisor.register({ id: 'badhealth', start: async () => {}, health: 1 }).code,
+    WORLD_SUPERVISOR_CODES.invalidSpec,
+  )
+  assert.equal(supervisor.get('chat').state, 'stopped')
+  assert.equal(supervisor.get('missing'), null)
+  assert.equal(supervisor.list().length, 1)
+  assert.equal(supervisor.list({ state: 'running' }).length, 0)
+  assert.equal(supervisor.unregister('chat').ok, true)
+  assert.equal(supervisor.unregister('chat').code, WORLD_SUPERVISOR_CODES.unknownWorld)
+  assert.ok(WORLD_STATES.includes('degraded'))
+  assert.ok(WORLD_SUPERVISOR_EVENTS.includes('world.restarting'))
+  assert.equal(WORLD_SUPERVISOR_VERSION, 1)
+})
+
+test('world-supervisor D3：启停与幂等', async () => {
+  const calls = []
+  const events = []
+  const supervisor = createWorldSupervisor({
+    now: () => 1000,
+    autoRestart: false,
+    onEvent: (event) => events.push(event.type),
+  })
+  supervisor.register({
+    id: 'chat-world',
+    start: async () => calls.push('start'),
+    stop: async () => calls.push('stop'),
+  })
+  const started = await supervisor.startWorld('chat-world')
+  assert.equal(started.ok, true)
+  assert.equal(started.state, 'running')
+  assert.deepEqual(calls, ['start'])
+  assert.equal((await supervisor.startWorld('chat-world')).already, true)
+  assert.equal(supervisor.get('chat-world').state, 'running')
+  const stopped = await supervisor.stopWorld('chat-world')
+  assert.equal(stopped.ok, true)
+  assert.equal(stopped.state, 'stopped')
+  assert.deepEqual(calls, ['start', 'stop'])
+  assert.equal((await supervisor.stopWorld('chat-world')).already, true)
+  assert.equal((await supervisor.startWorld('missing')).code, WORLD_SUPERVISOR_CODES.unknownWorld)
+  assert.ok(events.includes('world.started'))
+  assert.ok(events.includes('world.stopped'))
+  assert.equal(supervisor.snapshot().metrics.starts, 1)
+})
+
+test('world-supervisor D3：health 失败 → degraded → 恢复/重启', async () => {
+  const timers = createSupervisorFakeTimers()
+  let healthOk = true
+  const events = []
+  const supervisor = createWorldSupervisor({
+    now: () => 1000,
+    timers,
+    healthFailureThreshold: 2,
+    onEvent: (event) => events.push({ type: event.type, detail: event.detail }),
+  })
+  supervisor.register({
+    id: 'game-world',
+    start: async () => {},
+    stop: async () => {},
+    health: async () => (healthOk ? { ok: true } : { ok: false, detail: 'bot frozen' }),
+    backoffMs: 50,
+  })
+  await supervisor.startWorld('game-world')
+  assert.equal((await supervisor.probe('game-world')).ok, true)
+  assert.equal(supervisor.get('game-world').state, 'running')
+
+  healthOk = false
+  const firstFailure = await supervisor.probe('game-world')
+  assert.equal(firstFailure.ok, false)
+  assert.equal(firstFailure.state, 'degraded')
+  assert.equal(supervisor.get('game-world').health.consecutiveFailures, 1)
+  assert.ok(events.some((event) => event.type === 'world.health' && event.detail.ok === false))
+
+  // 未达阈值时恢复
+  healthOk = true
+  const recovered = await supervisor.probe('game-world')
+  assert.equal(recovered.ok, true)
+  assert.equal(supervisor.get('game-world').state, 'running')
+  assert.ok(events.some((event) => event.type === 'world.recovered'))
+
+  // 连续两次失败 → 按崩溃处理（退避重启）
+  healthOk = false
+  await supervisor.probe('game-world')
+  const crashed = await supervisor.probe('game-world')
+  assert.equal(crashed.ok, false)
+  assert.equal(supervisor.get('game-world').state, 'restarting')
+  assert.deepEqual(timers.delays(), [50])
+  assert.equal(supervisor.get('game-world').restarts, 1)
+
+  // 探测非运行状态明确报错
+  const notRunning = await supervisor.probe('missing')
+  assert.equal(notRunning.code, WORLD_SUPERVISOR_CODES.unknownWorld)
+})
+
+test('world-supervisor D3：崩溃重启指数退避与恢复', async () => {
+  const timers = createSupervisorFakeTimers()
+  const calls = []
+  const supervisor = createWorldSupervisor({ now: () => 1000, timers, autoRestart: true })
+  supervisor.register({
+    id: 'bot',
+    start: async (input) => calls.push(['start', input.restart === true, input.attempt]),
+    stop: async () => calls.push(['stop']),
+    maxRestarts: 3,
+    backoffMs: 100,
+    backoffFactor: 2,
+    maxBackoffMs: 1000,
+  })
+  await supervisor.startWorld('bot')
+  const crash1 = supervisor.crash('bot', 'process exit 1')
+  assert.equal(crash1.scheduled, true)
+  assert.equal(crash1.delayMs, 100)
+  assert.equal(supervisor.get('bot').state, 'restarting')
+  assert.deepEqual(timers.delays(), [100])
+
+  timers.runNext()
+  await supervisor.flush()
+  assert.equal(supervisor.get('bot').state, 'running')
+  assert.deepEqual(calls.slice(-2), [['stop'], ['start', true, 1]])
+
+  const crash2 = supervisor.crash('bot', 'process exit 2')
+  assert.equal(crash2.delayMs, 200, '指数退避')
+  assert.deepEqual(timers.delays(), [200])
+  timers.runNext()
+  await supervisor.flush()
+  const crash3 = supervisor.crash('bot', 'process exit 3')
+  assert.equal(crash3.delayMs, 400)
+  timers.runNext()
+  await supervisor.flush()
+  assert.equal(supervisor.get('bot').state, 'running')
+  const snapshot = supervisor.snapshot()
+  assert.equal(snapshot.metrics.crashes, 3)
+  assert.equal(snapshot.metrics.restarts, 3)
+})
+
+test('world-supervisor D3：重启超限 → error 且不再重试', async () => {
+  const timers = createSupervisorFakeTimers()
+  const events = []
+  const supervisor = createWorldSupervisor({ now: () => 1000, timers, onEvent: (event) => events.push(event) })
+  supervisor.register({ id: 'bot', start: async () => {}, maxRestarts: 1, backoffMs: 10 })
+  await supervisor.startWorld('bot')
+  assert.equal(supervisor.crash('bot', 'boom').scheduled, true)
+  // 重启进行中再次崩溃 → 超限
+  const exhausted = supervisor.crash('bot', 'boom again')
+  assert.equal(exhausted.scheduled, false)
+  assert.equal(exhausted.exhausted, true)
+  assert.equal(supervisor.get('bot').state, 'error')
+  assert.equal(supervisor.get('bot').lastError.code, WORLD_SUPERVISOR_CODES.restartExhausted)
+  assert.deepEqual(timers.delays(), [], '不再排重试定时器')
+  assert.ok(events.some((event) => event.type === 'world.error' && event.detail.reason === 'restart-exhausted'))
+  // 已 error 的崩溃上报被忽略
+  assert.equal(supervisor.crash('bot', 'ignored').code, WORLD_SUPERVISOR_CODES.crashIgnored)
+})
+
+test('world-supervisor D3：autoRestart=false 启动失败直接 error', async () => {
+  const events = []
+  const supervisor = createWorldSupervisor({
+    now: () => 1000,
+    autoRestart: false,
+    onEvent: (event) => events.push(event.type),
+  })
+  supervisor.register({
+    id: 'broken',
+    start: async () => {
+      throw new Error('cannot bind port')
+    },
+  })
+  const result = await supervisor.startWorld('broken')
+  assert.equal(result.ok, false)
+  assert.equal(result.code, WORLD_SUPERVISOR_CODES.startFailed)
+  assert.equal(result.state, 'error')
+  assert.equal(supervisor.get('broken').state, 'error')
+  assert.equal(supervisor.get('broken').lastError.message, 'cannot bind port')
+  assert.ok(events.includes('world.error'))
+})
+
+test('world-supervisor D3：隔离（一个 World 崩溃不影响其他）', async () => {
+  const timers = createSupervisorFakeTimers()
+  const calls = []
+  const supervisor = createWorldSupervisor({ now: () => 1000, timers, autoRestart: false })
+  supervisor.register({ id: 'good-world', start: async () => calls.push('good-start'), health: async () => true })
+  supervisor.register({
+    id: 'bad-world',
+    start: async () => {
+      throw new Error('bad world start failed')
+    },
+  })
+  await supervisor.startWorld('good-world')
+  const bad = await supervisor.startWorld('bad-world')
+  assert.equal(bad.state, 'error')
+  assert.equal(supervisor.get('good-world').state, 'running', '其他 World 不受影响')
+  assert.equal((await supervisor.probe('good-world')).ok, true)
+  assert.equal(supervisor.snapshot().byState.running, 1)
+  assert.equal(supervisor.snapshot().byState.error, 1)
+  // stopAll 也隔离
+  const stopped = await supervisor.stopAll()
+  assert.equal(stopped.ok, true)
+  assert.equal(stopped.results.length, 2)
+  assert.equal(supervisor.get('good-world').state, 'stopped')
+  assert.equal(supervisor.get('bad-world').state, 'stopped')
+  assert.deepEqual(calls, ['good-start'])
+})
+
+test('world-supervisor D3：stopAll 中单个 stop 抛错不影响其他', async () => {
+  const events = []
+  const supervisor = createWorldSupervisor({
+    now: () => 1000,
+    autoRestart: false,
+    onEvent: (event) => events.push(event.type),
+  })
+  supervisor.register({
+    id: 'one',
+    start: async () => {},
+    stop: async () => {
+      throw new Error('stop boom')
+    },
+  })
+  supervisor.register({ id: 'two', start: async () => {}, stop: async () => {} })
+  await supervisor.startWorld('one')
+  await supervisor.startWorld('two')
+  const result = await supervisor.stopAll()
+  assert.equal(result.ok, true)
+  assert.equal(supervisor.get('one').state, 'stopped')
+  assert.equal(supervisor.get('two').state, 'stopped')
+  assert.equal(supervisor.get('one').lastError.code, WORLD_SUPERVISOR_CODES.stopFailed)
+  assert.ok(events.includes('world.stopped'))
+})
+
+test('world-supervisor D3：手动 restart 重置重试预算；失败进入 error', async () => {
+  const timers = createSupervisorFakeTimers()
+  const calls = []
+  let startShouldFail = false
+  const supervisor = createWorldSupervisor({ now: () => 1000, timers })
+  supervisor.register({
+    id: 'bot',
+    start: async () => {
+      calls.push('start')
+      if (startShouldFail) throw new Error('manual restart failed')
+    },
+    stop: async () => calls.push('stop'),
+    maxRestarts: 1,
+  })
+  await supervisor.startWorld('bot')
+  supervisor.crash('bot', 'boom')
+  assert.equal(supervisor.get('bot').restarts, 1)
+  // 手动 restart：重置预算并立即重启
+  const restarted = await supervisor.restart('bot')
+  assert.equal(restarted.ok, true)
+  assert.equal(restarted.state, 'running')
+  assert.equal(supervisor.get('bot').restarts, 0, '手动重启重置重试预算')
+  assert.deepEqual(calls, ['start', 'stop', 'start'])
+  // 手动重启失败 → error（不自动再排）
+  startShouldFail = true
+  const failed = await supervisor.restart('bot')
+  assert.equal(failed.ok, false)
+  assert.equal(supervisor.get('bot').state, 'error')
+  assert.deepEqual(timers.delays(), [])
+})
+
+test('world-supervisor D3：snapshot 指标与 pending 清理', async () => {
+  const timers = createSupervisorFakeTimers()
+  const supervisor = createWorldSupervisor({ now: () => 1000, timers })
+  supervisor.register({ id: 'bot', start: async () => {}, backoffMs: 10 })
+  await supervisor.startWorld('bot')
+  supervisor.crash('bot', 'boom')
+  const snapshot = supervisor.snapshot()
+  assert.equal(snapshot.total, 1)
+  assert.equal(snapshot.byState.restarting, 1)
+  assert.equal(snapshot.pendingTimers, 1)
+  assert.equal(typeof snapshot.metrics.crashes, 'number')
+  timers.runNext()
+  await supervisor.flush()
+  const after = supervisor.snapshot()
+  assert.equal(after.byState.running, 1)
+  assert.equal(after.pendingTimers, 0)
+  assert.equal(after.pendingRestarts, 0)
 })
