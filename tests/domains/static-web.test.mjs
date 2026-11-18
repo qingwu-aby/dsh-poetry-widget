@@ -531,7 +531,8 @@ test('model-budget v1.81：按上海本地日计数、role/总预算、跨日重
   const snapshot = budget.snapshot()
   assert.equal(snapshot.total, 3)
   assert.equal(snapshot.day, '2026-10-26')
-  // 重启后仍读回当天计数
+  // 重启后仍读回当天计数（v3.1：写盘节流，优雅退出/检查点用 flush() 强制落盘）
+  budget.flush()
   const reread = createModelBudget({ file, env: { DSH_POETRY_DAILY_TOTAL: '3' }, now })
   assert.equal(reread.tryConsume('mood').ok, false, '跨进程同一天继续受预算约束')
   // 跨日重置
@@ -544,7 +545,15 @@ test('model-budget v1.81：按上海本地日计数、role/总预算、跨日重
   const gate = createModelGate({ maxConcurrent: 2 })
   const first = await gate.acquire()
   const second = await gate.acquire()
-  assert.deepEqual(gate.snapshot(), { active: 2, queued: 0, maxConcurrent: 2 })
+  const gateSnapshot = gate.snapshot()
+  assert.deepEqual(
+    { active: gateSnapshot.active, queued: gateSnapshot.queued, maxConcurrent: gateSnapshot.maxConcurrent },
+    { active: 2, queued: 0, maxConcurrent: 2 },
+  )
+  assert.equal(gateSnapshot.maxQueue, 24, '默认排队上限')
+  assert.equal(gateSnapshot.queueTimeoutMs, 30000, '默认排队超时')
+  assert.deepEqual(gateSnapshot.rejected, { queueFull: 0, timeout: 0 })
+  assert.equal(gateSnapshot.lastReject, null)
   let thirdReady = false
   const thirdSlot = gate.acquire().then((release) => {
     thirdReady = true
