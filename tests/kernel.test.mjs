@@ -292,6 +292,19 @@ import {
   SCHEDULER_VERSION,
 } from '../lib/core/scheduler.mjs'
 import {
+  admitHubTaskSession,
+  admitHubTaskSessionForCreate,
+  countActiveTasks,
+  createSessionScope,
+  DEFAULT_SESSION_ID,
+  filterTasksBySession,
+  normalizeSessionId,
+  SESSION_SCOPE_CODES,
+  SESSION_SCOPE_DEFAULTS,
+  SESSION_SCOPE_VERSION,
+  sessionIdFromUrl,
+} from '../lib/core/session-scope.mjs'
+import {
   createStudyActivity,
   createStudyNoteStore,
   STUDY_ACTIVITY_VERSION,
@@ -13868,4 +13881,176 @@ test('release-check N5：parsePackJson 兼容警告前缀/坏输出；当前仓�
   const report = runReleaseCheck({ cwd: ROOT, spawn: fake.spawn, skipBuild: true, now: () => 5000 })
   assert.equal(report.ok, true, JSON.stringify(report.errors))
   assert.equal(report.packageVersion, version)
+})
+
+// ---------------------------------------------------------------------------
+// Gate N2：多会话隔离（Session Scope）
+// ---------------------------------------------------------------------------
+
+test('session-scope N2：归一化/白名单/长度/默认单会话', () => {
+  assert.equal(SESSION_SCOPE_VERSION, 1)
+  assert.equal(DEFAULT_SESSION_ID, 'default')
+  assert.equal(SESSION_SCOPE_DEFAULTS.maxActivePerSession, 8)
+  assert.deepEqual(normalizeSessionId(undefined), { ok: true, sessionId: 'default' })
+  assert.deepEqual(normalizeSessionId(''), { ok: true, sessionId: 'default' })
+  assert.deepEqual(normalizeSessionId('  '), { ok: true, sessionId: 'default' })
+  assert.deepEqual(normalizeSessionId(' sess-a_1 '), { ok: true, sessionId: 'sess-a_1' })
+  assert.equal(normalizeSessionId('bad session').ok, false)
+  assert.equal(normalizeSessionId('a'.repeat(65)).ok, false)
+  assert.equal(normalizeSessionId(42).ok, false)
+  assert.equal(normalizeSessionId('a'.repeat(64)).ok, true)
+  const scope = createSessionScope({ maxActivePerSession: 2, budget: { modelCalls: 3, tokens: 100 }, now: () => 5000 })
+  assert.equal(scope.resolve('sess-a').sessionId, 'sess-a')
+  assert.equal(scope.defaultSession, 'default')
+  assert.equal(scope.maxActivePerSession, 2)
+  assert.deepEqual(scope.budget, { modelCalls: 3, tokens: 100 })
+})
+
+test('session-scope N2：归属/active 上限/预算/isolate/snapshot/reset', () => {
+  const scope = createSessionScope({ maxActivePerSession: 2, budget: { modelCalls: 3, tokens: 100 }, now: () => 5000 })
+  // 归属
+  assert.equal(scope.assertOwnership({ payload: { sessionId: 'sess-a' } }, 'sess-a').ok, true)
+  assert.equal(
+    scope.assertOwnership({ payload: { sessionId: 'sess-a' } }, 'sess-b').code,
+    SESSION_SCOPE_CODES.forbidden,
+  )
+  assert.equal(scope.assertOwnership({ payload: {} }, 'default').ok, true, '缺省视为 default')
+  assert.equal(scope.assertOwnership({ payload: {} }, 'sess-a').ok, false)
+  // isolate 注入 sessionId
+  const isolated = scope.isolate({ id: 't1', payload: { tool: 'x' } }, 'sess-a')
+  assert.equal(isolated.ok, true)
+  assert.equal(isolated.sessionId, 'sess-a')
+  assert.equal(isolated.task.payload.sessionId, 'sess-a')
+  assert.equal(isolated.task.payload.tool, 'x')
+  // active 上限
+  assert.equal(scope.admit('sess-a', 't1').ok, true)
+  assert.equal(scope.admit('sess-a', 't2').ok, true)
+  assert.equal(scope.admit('sess-a', 't3').code, SESSION_SCOPE_CODES.activeLimit)
+  assert.equal(scope.admit('sess-b', 't4').ok, true, '不同 session 互不影响')
+  assert.equal(scope.release('sess-a', 't1').released, true)
+  assert.equal(scope.admit('sess-a', 't3').ok, true)
+  // 预算
+  assert.equal(scope.checkBudget('sess-a', { modelCalls: 2 }).ok, true)
+  assert.equal(scope.checkBudget('sess-a', { modelCalls: 4 }).code, SESSION_SCOPE_CODES.budgetExceeded)
+  assert.equal(scope.consume('sess-a', { modelCalls: 2, tokens: 30 }).ok, true)
+  assert.equal(scope.consume('sess-a', { modelCalls: 2 }).code, SESSION_SCOPE_CODES.budgetExceeded)
+  assert.equal(scope.consume('sess-a', { tokens: 80 }).code, SESSION_SCOPE_CODES.budgetExceeded)
+  const usage = scope.usage('sess-a')
+  assert.equal(usage.modelCalls, 2)
+  assert.equal(usage.tokens, 30)
+  assert.equal(usage.remaining.modelCalls, 1)
+  // snapshot/reset
+  const snapshot = scope.snapshot()
+  assert.equal(
+    snapshot.sessions.some((entry) => entry.sessionId === 'sess-a' && entry.modelCalls === 2),
+    true,
+  )
+  assert.equal(
+    snapshot.sessions.some((entry) => entry.sessionId === 'sess-b'),
+    true,
+  )
+  scope.reset('sess-a')
+  assert.equal(scope.usage('sess-a').modelCalls, 0)
+  scope.reset()
+  assert.deepEqual(scope.snapshot().sessions, [])
+})
+
+test('session-scope N2：board active 统计/列表过滤/Hub 准入', () => {
+  const now = () => 5000
+  const board = createTaskBoard({ now })
+  board.create({ activity: 'chat', kind: 'chat.turn', payload: { sessionId: 'sess-a' }, key: 'a1' })
+  board.create({ activity: 'chat', kind: 'chat.turn', payload: { sessionId: 'sess-b' }, key: 'b1' })
+  board.create({ activity: 'chat', kind: 'chat.turn', payload: {}, key: 'd1' })
+  assert.equal(countActiveTasks(board, 'sess-a'), 1)
+  assert.equal(countActiveTasks(board, 'default'), 1, '缺省 sessionId 归 default')
+  const filtered = filterTasksBySession(board.list(), 'sess-a')
+  assert.equal(filtered.length, 1)
+  assert.equal(filtered[0].payload.sessionId, 'sess-a')
+  // Hub 准入：active 上限
+  const scope = createSessionScope({ maxActivePerSession: 1, now })
+  const denied = admitHubTaskSession({ scope, board, sessionId: 'sess-a', payload: {} })
+  assert.equal(denied.ok, false)
+  assert.equal(denied.code, SESSION_SCOPE_CODES.activeLimit)
+  const allowedB = admitHubTaskSession({ scope, board, sessionId: 'sess-c', payload: {} })
+  assert.equal(allowedB.ok, true)
+  // 非法 session
+  assert.equal(admitHubTaskSession({ scope, board, sessionId: 'bad id', payload: {} }).code, 'HUB_INVALID_SESSION')
+  // 未接入 scope
+  assert.equal(
+    admitHubTaskSession({ scope: null, board, sessionId: 'x', payload: {} }).code,
+    'HUB_SESSION_SCOPE_UNAVAILABLE',
+  )
+  // 准入成功即计 1 modelCall（ForCreate 变体）
+  const scope2 = createSessionScope({ maxActivePerSession: 8, budget: { modelCalls: 1, tokens: 100 }, now })
+  const first = admitHubTaskSessionForCreate(scope2, { sessionId: 'sess-c' }, {}, board)
+  assert.equal(first.ok, true)
+  assert.equal(first.sessionId, 'sess-c')
+  const second = admitHubTaskSessionForCreate(scope2, { sessionId: 'sess-c' }, {}, board)
+  assert.equal(second.ok, false)
+  assert.equal(second.code, SESSION_SCOPE_CODES.budgetExceeded)
+  // URL 解析
+  assert.equal(sessionIdFromUrl('/api/dsh-poetry/hub.json?sessionId=sess-a'), 'sess-a')
+  assert.equal(sessionIdFromUrl('/api/dsh-poetry/hub.json'), null)
+  assert.equal(sessionIdFromUrl('/api/dsh-poetry/hub.json?sessionId=bad%20id'), null)
+})
+
+test('hub-routes N2：task.create 带 sessionId、默认 default、列表按 session 过滤', async () => {
+  const dir = tmpDir('n2-hub')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const fakeProvider = {
+    open: async () => ({ id: 'fake-v', title: '视频', duration: 1 }),
+    play: async () => ({ ok: true }),
+    pause: async () => ({ ok: true }),
+    summary: async () => ({ summary: '摘要' }),
+  }
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: createRealActivityAdapters({ videoProvider: fakeProvider, now: () => 5000 }),
+    now: () => 5000,
+  })
+  runtime.start()
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  async function createVideo(sessionId, key) {
+    const body = {
+      action: 'task.create',
+      kind: 'video.watch',
+      activity: 'video',
+      payload: { url: 'https://example/v' },
+      idempotencyKey: key,
+    }
+    if (sessionId !== undefined) body.sessionId = sessionId
+    const res = hubFakeRes()
+    await handler(hubFakeReq('POST', body, { url: HUB_ROUTE }), res)
+    return res.json()
+  }
+  const sessionA = await createVideo('sess-a', 'n2-a')
+  assert.equal(sessionA.ok, true)
+  assert.equal(sessionA.success, true)
+  const sessionB = await createVideo('sess-b', 'n2-b')
+  assert.equal(sessionB.ok, true)
+  const defaultSession = await createVideo(undefined, 'n2-default')
+  assert.equal(defaultSession.ok, true)
+  const board = runtime.getInstances().taskBoard
+  const tasks = board.list()
+  assert.equal(tasks.length, 3)
+  assert.deepEqual(tasks.map((task) => task.payload.sessionId).sort(), ['default', 'sess-a', 'sess-b'])
+  // 非法 sessionId
+  const invalid = await createVideo('bad id', 'n2-bad')
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.code, 'HUB_INVALID_SESSION')
+  // GET 按 session 过滤
+  const getRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE + '?sessionId=sess-a' }), getRes)
+  const filtered = getRes.json()
+  assert.equal(filtered.ok, true)
+  assert.equal(filtered.tasks.list.length, 1)
+  assert.equal(filtered.tasks.list[0].payload.sessionId, 'sess-a')
+  // 不带 session → 全量（默认行为不变）
+  const allRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), allRes)
+  assert.equal(allRes.json().tasks.list.length, 3)
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
