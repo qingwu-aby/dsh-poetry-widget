@@ -9,7 +9,7 @@ export const SETTINGS_URL = '/api/dsh-poetry/settings.json'
   export const WRITE_KEYS = [
   'scale', 'showTones', 'mode', 'autoplay', 'snap', 'script',
   'hidden', 'theme', 'weatherCity', 'weatherPoem', 'mood', 'spontaneousPoem',
-  'qqBridge', 'twinOverlay', 'twinSystem',
+  'qqBridge', 'twinOverlay', 'twinSystem', 'modelTokenLimit',
   'lastPoemId', 'tutorialSeen',
   ]
   export const DEFAULT_SETTINGS = Object.freeze({
@@ -31,6 +31,7 @@ export const SETTINGS_URL = '/api/dsh-poetry/settings.json'
   twinSystem: true,
   lastPoemId: null,
   tutorialSeen: false,
+  modelTokenLimit: 0,
   updatedAt: 0,
   })
   function hasOwn(obj, key) {
@@ -67,6 +68,7 @@ export function normalizeSettings(raw) {
    twinSystem: typeof src.twinSystem === 'boolean' ? src.twinSystem : DEFAULT_SETTINGS.twinSystem,
    lastPoemId,
    tutorialSeen: typeof src.tutorialSeen === 'boolean' ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
+   modelTokenLimit: Number.isFinite(Number(src.modelTokenLimit)) && Number(src.modelTokenLimit) >= 0 ? Math.min(200000, Math.floor(Number(src.modelTokenLimit))) : DEFAULT_SETTINGS.modelTokenLimit,
    updatedAt: num(src.updatedAt, 0),
   }
   }

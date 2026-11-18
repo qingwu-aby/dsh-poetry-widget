@@ -79,6 +79,7 @@ export function createWhaleSettingsPage(React, h) {
       h('div', { style: styles.title }, '小鲸鱼'),
       row('大小', '挂件缩放 60%–160%', h('input', { type: 'range', min: 60, max: 160, step: 5, value: Math.round(settings.scale * 100), onChange: (event) => save({ scale: Number(event.target.value) / 100 }, 'scale') })),
       row('隐藏挂件', '隐藏后仍可通过双击空白处恢复', checkbox('hidden')),
+      row('模型 token 上限', '0 或留空 = 不封顶；填数字才限制单次输出', h('input', { type: 'number', min: 0, max: 200000, step: 1000, value: Number(settings.modelTokenLimit) || 0, style: { width: 110 }, onChange: (event) => save({ modelTokenLimit: Math.max(0, Math.floor(Number(event.target.value) || 0)) }, 'modelTokenLimit') })),
       row('心情', '让她对天气/时间有自己的心情', checkbox('mood')),
       row('自言自语', '每隔一两分钟可能说一句', checkbox('spontaneousPoem')),
       row('镜像浮层', '左下角第二只鲸鱼', checkbox('twinOverlay')),

@@ -14980,6 +14980,7 @@
     "qqBridge",
     "twinOverlay",
     "twinSystem",
+    "modelTokenLimit",
     "lastPoemId",
     "tutorialSeen"
   ];
@@ -15002,6 +15003,7 @@
     twinSystem: true,
     lastPoemId: null,
     tutorialSeen: false,
+    modelTokenLimit: 0,
     updatedAt: 0
   });
   function hasOwn(obj, key) {
@@ -15035,6 +15037,7 @@
       twinSystem: typeof src.twinSystem === "boolean" ? src.twinSystem : DEFAULT_SETTINGS.twinSystem,
       lastPoemId,
       tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
+      modelTokenLimit: Number.isFinite(Number(src.modelTokenLimit)) && Number(src.modelTokenLimit) >= 0 ? Math.min(2e5, Math.floor(Number(src.modelTokenLimit))) : DEFAULT_SETTINGS.modelTokenLimit,
       updatedAt: num(src.updatedAt, 0)
     };
   }
@@ -29660,6 +29663,7 @@
           h3("div", { style: styles.title }, "\u5C0F\u9CB8\u9C7C"),
           row("\u5927\u5C0F", "\u6302\u4EF6\u7F29\u653E 60%\u2013160%", h3("input", { type: "range", min: 60, max: 160, step: 5, value: Math.round(settings.scale * 100), onChange: (event) => save({ scale: Number(event.target.value) / 100 }, "scale") })),
           row("\u9690\u85CF\u6302\u4EF6", "\u9690\u85CF\u540E\u4ECD\u53EF\u901A\u8FC7\u53CC\u51FB\u7A7A\u767D\u5904\u6062\u590D", checkbox("hidden")),
+          row("\u6A21\u578B token \u4E0A\u9650", "0 \u6216\u7559\u7A7A = \u4E0D\u5C01\u9876\uFF1B\u586B\u6570\u5B57\u624D\u9650\u5236\u5355\u6B21\u8F93\u51FA", h3("input", { type: "number", min: 0, max: 2e5, step: 1e3, value: Number(settings.modelTokenLimit) || 0, style: { width: 110 }, onChange: (event) => save({ modelTokenLimit: Math.max(0, Math.floor(Number(event.target.value) || 0)) }, "modelTokenLimit") })),
           row("\u5FC3\u60C5", "\u8BA9\u5979\u5BF9\u5929\u6C14/\u65F6\u95F4\u6709\u81EA\u5DF1\u7684\u5FC3\u60C5", checkbox("mood")),
           row("\u81EA\u8A00\u81EA\u8BED", "\u6BCF\u9694\u4E00\u4E24\u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5", checkbox("spontaneousPoem")),
           row("\u955C\u50CF\u6D6E\u5C42", "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C", checkbox("twinOverlay")),
