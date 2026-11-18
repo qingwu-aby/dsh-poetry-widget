@@ -215,6 +215,20 @@ import {
   MODEL_GATE_DEFAULTS,
   MODEL_GATE_REJECT_CODES,
 } from '../lib/domain/host/model-budget.mjs'
+import {
+  createTrainingConfigStore,
+  defaultTrainingConfig,
+  normalizeTrainingConfig,
+  resolveTrainingConfigFile,
+  TRAINING_CONFIG_VERSION,
+  TRAINING_DATASET_SOURCES,
+} from '../lib/domain/life/training-config.mjs'
+import {
+  createTrainingService,
+  TRAINING_PHASES,
+  TRAINING_SERVICE_CODES,
+  TRAINING_SERVICE_VERSION,
+} from '../lib/domain/life/training-service.mjs'
 import { createMinecraftWorld, MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
@@ -7890,4 +7904,358 @@ test('model-policy-routes G1：注册路由并设置默认 overrides 提供者',
   } finally {
     setDefaultModelPolicyOverrides(previous)
   }
+})
+
+// ---------------------------------------------------------------------------
+// Gate G2：训练配置与评估/回滚骨架（lib/domain/life/training-*.mjs，默认关闭）
+// ---------------------------------------------------------------------------
+
+function makeTrainingFixture(options = {}) {
+  const home = tmpDir('training-home')
+  const store = createTrainingConfigStore({ home, now: () => 5000 })
+  if (options.config !== undefined) store.write(options.config)
+  const calls = { runner: 0, evaluator: 0, cancel: 0, dataset: 0 }
+  const runner =
+    options.runner === undefined
+      ? null
+      : async (input) => {
+          calls.runner += 1
+          return options.runner(input, calls)
+        }
+  const evaluator =
+    options.evaluator === undefined
+      ? null
+      : async (input) => {
+          calls.evaluator += 1
+          return options.evaluator(input, calls)
+        }
+  const cancelRun =
+    options.cancelRun === undefined
+      ? null
+      : async (input) => {
+          calls.cancel += 1
+          return options.cancelRun(input, calls)
+        }
+  const datasetStats =
+    options.datasetStats === undefined
+      ? null
+      : () => {
+          calls.dataset += 1
+          return options.datasetStats()
+        }
+  const service = createTrainingService({
+    configStore: store,
+    runner,
+    evaluator,
+    cancelRun,
+    datasetStats,
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  return { home, store, service, calls }
+}
+
+test('training-config G2：默认关闭与默认值（缺文件）', () => {
+  const { home, store } = makeTrainingFixture()
+  const state = store.read()
+  assert.equal(state.exists, false)
+  assert.deepEqual(state.config, defaultTrainingConfig())
+  assert.equal(state.config.enabled, false, '默认关闭')
+  assert.equal(state.errors.length, 0)
+  assert.equal(store.file, resolveTrainingConfigFile(home))
+  assert.match(store.file, /\.dsh-poetry\/training-config\.json$/)
+  assert.deepEqual(TRAINING_DATASET_SOURCES.slice(0, 2), ['journal', 'chat'])
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-config G2：非法值回退默认并报告（不崩）', () => {
+  const normalized = normalizeTrainingConfig({
+    enabled: 'yes',
+    intervalDays: 0,
+    dataset: { sources: ['journal', 'nope'], minEntries: 0 },
+    hyperparams: { rank: 0, steps: -1, lr: 2 },
+    eval: { minScore: 3 },
+    adapter: { current: '', candidate: 5 },
+    unknown: true,
+  })
+  assert.equal(normalized.ok, true)
+  const config = normalized.config
+  assert.equal(config.enabled, false)
+  assert.equal(config.intervalDays, 7)
+  assert.deepEqual(config.dataset.sources, ['journal'])
+  assert.equal(config.dataset.minEntries, 200)
+  assert.equal(config.hyperparams.rank, 8)
+  assert.equal(config.hyperparams.steps, 300)
+  assert.equal(config.hyperparams.lr, 0.0001)
+  assert.equal(config.eval.minScore, 0.6)
+  assert.equal(config.adapter.current, 'adapters-live')
+  assert.equal(config.adapter.candidate, null)
+  assert.ok(normalized.errors.length >= 8)
+  assert.equal(normalizeTrainingConfig(null).ok, true)
+  // 坏 JSON 文件 → 默认值 + errors
+  const { home, store } = makeTrainingFixture()
+  mkdirSync(path.dirname(store.file), { recursive: true })
+  writeFileSync(store.file, '{bad')
+  const state = store.read()
+  assert.equal(state.config.enabled, false)
+  assert.ok(state.errors.length >= 1)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-config G2：原子写/0600/版本/reset', () => {
+  const { home, store } = makeTrainingFixture()
+  const written = store.write({
+    enabled: true,
+    intervalDays: 3,
+    dataset: { sources: ['journal', 'feedback'], minEntries: 100 },
+    hyperparams: { rank: 16, steps: 500, lr: 0.0002 },
+    eval: { minScore: 0.8 },
+    adapter: { current: 'adapters-live', candidate: null },
+  })
+  assert.equal(written.ok, true)
+  const parsed = JSON.parse(readFileSync(store.file, 'utf8'))
+  assert.equal(parsed.version, TRAINING_CONFIG_VERSION)
+  assert.equal(parsed.enabled, true)
+  assert.equal(parsed.intervalDays, 3)
+  assert.deepEqual(parsed.dataset.sources, ['journal', 'feedback'])
+  assert.equal(parsed.hyperparams.rank, 16)
+  assert.equal(parsed.eval.minScore, 0.8)
+  assert.equal(parsed.updatedAt, 5000)
+  assert.equal(statSync(store.file).mode & 0o777, 0o600)
+  assert.deepEqual(readdirSync(path.dirname(store.file)), ['training-config.json'])
+  assert.equal(store.read().config.enabled, true)
+  store.reset()
+  assert.equal(store.read().config.enabled, false)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-service G2：status 默认关闭/不启动 runner', async () => {
+  const { home, service, calls } = makeTrainingFixture()
+  const status = service.status()
+  assert.equal(status.ok, true)
+  assert.equal(status.version, TRAINING_SERVICE_VERSION)
+  assert.equal(status.enabled, false)
+  assert.equal(status.phase, 'idle')
+  assert.equal(status.current, 'adapters-live')
+  assert.equal(status.runnerAvailable, false)
+  assert.equal(status.evaluatorAvailable, false)
+  assert.equal(status.dataset.available, false)
+  const result = await service.run({ confirm: true })
+  assert.equal(result.ok, false)
+  assert.equal(result.code, TRAINING_SERVICE_CODES.disabled)
+  assert.equal(calls.runner, 0, '默认不启动训练')
+  assert.ok(TRAINING_PHASES.includes('succeeded'))
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-service G2：plan（禁用/数据不足/就绪）', () => {
+  const disabled = makeTrainingFixture()
+  const disabledPlan = disabled.service.plan()
+  assert.equal(disabledPlan.ok, true)
+  assert.equal(disabledPlan.ready, false)
+  assert.equal(disabledPlan.blockedReason, 'disabled')
+  assert.equal(disabledPlan.requiresConfirmation, true)
+  assert.equal(disabledPlan.plan.steps.length, 5)
+  disabled.service.configStore.write({ enabled: true })
+  rmSync(disabled.home, { recursive: true, force: true })
+
+  const small = makeTrainingFixture({
+    config: { enabled: true },
+    datasetStats: () => ({ entries: 50, sources: ['journal'] }),
+  })
+  const smallPlan = small.service.plan()
+  assert.equal(smallPlan.ready, false)
+  assert.equal(smallPlan.blockedReason, 'insufficient-data')
+  assert.equal(smallPlan.plan.dataset.entries, 50)
+  assert.equal(smallPlan.plan.dataset.required, 200)
+  rmSync(small.home, { recursive: true, force: true })
+
+  const ready = makeTrainingFixture({
+    config: { enabled: true },
+    datasetStats: () => ({ entries: 500, sources: ['journal', 'feedback'] }),
+    runner: async () => ({ ok: true, candidate: { id: 'adapters-candidate-x' }, score: 0.9 }),
+  })
+  const readyPlan = ready.service.plan()
+  assert.equal(readyPlan.ready, true)
+  assert.equal(readyPlan.blockedReason, '')
+  assert.match(readyPlan.plan.candidateId, /^adapters-candidate-/)
+  assert.equal(readyPlan.plan.evalGate.minScore, 0.6)
+  rmSync(ready.home, { recursive: true, force: true })
+
+  const noRunner = makeTrainingFixture({ config: { enabled: true } })
+  assert.equal(noRunner.service.plan().blockedReason, 'runner-unavailable')
+  rmSync(noRunner.home, { recursive: true, force: true })
+})
+
+test('training-service G2：run 需要 enabled + confirm + runner + 数据量', async () => {
+  const disabled = makeTrainingFixture({ runner: async () => ({ ok: true, candidate: { id: 'a' } }) })
+  assert.equal((await disabled.service.run({ confirm: true })).code, TRAINING_SERVICE_CODES.disabled)
+  rmSync(disabled.home, { recursive: true, force: true })
+
+  const enabled = makeTrainingFixture({ config: { enabled: true } })
+  const noConfirm = await enabled.service.run({})
+  assert.equal(noConfirm.code, TRAINING_SERVICE_CODES.confirmationRequired)
+  assert.equal(enabled.calls.runner, 0)
+  const noRunner = await enabled.service.run({ confirm: true })
+  assert.equal(noRunner.code, TRAINING_SERVICE_CODES.runnerUnavailable)
+  rmSync(enabled.home, { recursive: true, force: true })
+
+  const small = makeTrainingFixture({
+    config: { enabled: true },
+    datasetStats: () => ({ entries: 10 }),
+    runner: async () => ({ ok: true, candidate: { id: 'a' } }),
+  })
+  const smallResult = await small.service.run({ confirm: true })
+  assert.equal(smallResult.code, TRAINING_SERVICE_CODES.datasetTooSmall)
+  assert.equal(smallResult.entries, 10)
+  rmSync(small.home, { recursive: true, force: true })
+})
+
+test('training-service G2：run 成功 → eval 通过 → promote（confirm）上线', async () => {
+  const { home, store, service, calls } = makeTrainingFixture({
+    config: { enabled: true },
+    datasetStats: () => ({ entries: 500 }),
+    runner: async () => ({ ok: true, candidate: { id: 'adapters-candidate-1', path: '/tmp/candidate' }, score: 0.9 }),
+  })
+  const run = await service.run({ confirm: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.passed, true)
+  assert.equal(calls.runner, 1)
+  assert.equal(service.status().phase, 'succeeded')
+  assert.equal(service.status().candidate.passed, true)
+  assert.equal(store.read().config.adapter.current, 'adapters-live', 'run 不改 current')
+  const auditActions = service.audit().map((entry) => entry.action)
+  assert.ok(auditActions.includes('run-start'))
+  assert.ok(auditActions.includes('run-succeeded'))
+
+  const noConfirm = service.promote({})
+  assert.equal(noConfirm.code, TRAINING_SERVICE_CODES.confirmationRequired)
+  assert.equal(store.read().config.adapter.current, 'adapters-live')
+  const promoted = service.promote({ confirm: true })
+  assert.equal(promoted.ok, true)
+  assert.equal(promoted.current, 'adapters-candidate-1')
+  assert.equal(promoted.previous, 'adapters-live')
+  assert.equal(service.status().phase, 'promoted')
+  const config = store.read().config
+  assert.equal(config.adapter.current, 'adapters-candidate-1')
+  assert.equal(config.adapter.previous, 'adapters-live')
+  assert.equal(config.adapter.candidate, null)
+  assert.ok(service.audit().some((entry) => entry.action === 'promoted'))
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-service G2：eval 未通过不可 promote；失败/取消不改 current', async () => {
+  const evalFail = makeTrainingFixture({
+    config: { enabled: true },
+    runner: async () => ({ ok: true, candidate: { id: 'adapters-candidate-bad' }, score: 0.2 }),
+  })
+  const run = await evalFail.service.run({ confirm: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.passed, false)
+  assert.equal(run.candidate.passed, false)
+  const rejected = evalFail.service.promote({ confirm: true })
+  assert.equal(rejected.code, TRAINING_SERVICE_CODES.evalNotPassed)
+  assert.equal(evalFail.store.read().config.adapter.current, 'adapters-live')
+  rmSync(evalFail.home, { recursive: true, force: true })
+
+  const failing = makeTrainingFixture({
+    config: { enabled: true },
+    runner: async () => ({ ok: false, message: 'OOM' }),
+  })
+  const failed = await failing.service.run({ confirm: true })
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, TRAINING_SERVICE_CODES.runFailed)
+  assert.equal(failing.service.status().phase, 'failed')
+  assert.equal(failing.service.status().lastError.message, 'OOM')
+  assert.equal(failing.store.read().config.adapter.current, 'adapters-live')
+  assert.ok(failing.service.audit().some((entry) => entry.action === 'run-failed'))
+  rmSync(failing.home, { recursive: true, force: true })
+
+  const throwing = makeTrainingFixture({
+    config: { enabled: true },
+    runner: async () => {
+      throw new Error('runner crashed')
+    },
+  })
+  const crashed = await throwing.service.run({ confirm: true })
+  assert.equal(crashed.code, TRAINING_SERVICE_CODES.runFailed)
+  assert.equal(throwing.store.read().config.adapter.current, 'adapters-live')
+  rmSync(throwing.home, { recursive: true, force: true })
+})
+
+test('training-service G2：取消（运行中）不改 current', async () => {
+  let release = null
+  const { home, store, service, calls } = makeTrainingFixture({
+    config: { enabled: true },
+    runner: () =>
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    cancelRun: () => {
+      release({ ok: false, cancelled: true })
+    },
+  })
+  const pending = service.run({ confirm: true })
+  await waitMs(0)
+  assert.equal(service.status().phase, 'running')
+  const cancelledRequest = await service.cancel()
+  assert.equal(cancelledRequest.ok, true)
+  assert.equal(cancelledRequest.requested, true)
+  const result = await pending
+  assert.equal(result.ok, false)
+  assert.equal(result.cancelled, true)
+  assert.equal(result.code, TRAINING_SERVICE_CODES.cancelled)
+  assert.equal(calls.cancel, 1)
+  assert.equal(service.status().phase, 'cancelled')
+  assert.equal(store.read().config.adapter.current, 'adapters-live')
+  assert.equal((await service.cancel()).code, TRAINING_SERVICE_CODES.notRunning)
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-service G2：rollback 回到 previous；无 previous 拒绝', async () => {
+  const { home, store, service } = makeTrainingFixture({
+    config: { enabled: true },
+    runner: async () => ({ ok: true, candidate: { id: 'adapters-candidate-2' }, score: 0.95 }),
+  })
+  await service.run({ confirm: true })
+  assert.equal(
+    service.rollback({ confirm: true }).code,
+    TRAINING_SERVICE_CODES.noPrevious,
+    '尚未 promote 时无 previous',
+  )
+  service.promote({ confirm: true })
+  assert.equal(store.read().config.adapter.current, 'adapters-candidate-2')
+  const noConfirm = service.rollback({})
+  assert.equal(noConfirm.code, TRAINING_SERVICE_CODES.confirmationRequired)
+  const rolled = service.rollback({ confirm: true })
+  assert.equal(rolled.ok, true)
+  assert.equal(rolled.current, 'adapters-live')
+  assert.equal(rolled.previous, 'adapters-candidate-2')
+  assert.equal(store.read().config.adapter.current, 'adapters-live')
+  assert.equal(service.status().phase, 'rolled-back')
+  // 指定 target 回滚
+  const toTarget = service.rollback({ confirm: true, target: 'adapters-candidate-2' })
+  assert.equal(toTarget.ok, true)
+  assert.equal(store.read().config.adapter.current, 'adapters-candidate-2')
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-service G2：evaluator 注入（评分来自评估器）与不写 adapter 文件', async () => {
+  const { home, store, service, calls } = makeTrainingFixture({
+    config: { enabled: true },
+    runner: async () => ({ ok: true, candidate: { id: 'adapters-candidate-3' } }),
+    evaluator: async () => ({ ok: true, score: 0.85, metrics: { ppl: 12.3 } }),
+  })
+  const run = await service.run({ confirm: true })
+  assert.equal(run.ok, true)
+  assert.equal(run.passed, true)
+  assert.equal(run.candidate.score, 0.85)
+  assert.deepEqual(run.candidate.metrics, { ppl: 12.3 })
+  assert.equal(calls.evaluator, 1)
+  service.promote({ confirm: true })
+  // 只写 training-config.json，不写 adapter 产物
+  const files = readdirSync(path.dirname(store.file)).sort()
+  assert.deepEqual(files, ['training-config.json'])
+  assert.equal(store.read().config.adapter.current, 'adapters-candidate-3')
+  rmSync(home, { recursive: true, force: true })
 })
