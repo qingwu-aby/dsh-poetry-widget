@@ -88,14 +88,14 @@
 
 批次 1 是最高价值：完成后 Hub 才真正“接管”聊天和 Minecraft，而不只是观测/手动触发。
 
-## 4. 评审时需要你拍板
+## 4. 已拍板（2026-11-18）
 
-1. **J2 聊天所有权**：full 时是否允许 Hub 接管聊天回复（旧 chat 停用）？这是避免双重回复的前提。
-2. **J3 Minecraft 驱动**：是否允许 Hub 任务队列直接驱动 bot 工具（需要 bot 轮询/回执协议）？
-3. **persist 默认**：是否把 `DSH_POETRY_HUB_PERSIST` 默认打开？（建议先 opt-in 跑一周）
-4. **训练数据范围**：是否允许用聊天/journal 训练本地语气层？是否需要排除某些来源？
-5. **Activity 优先级**：Reading / Video / Study 先做哪个？
-6. **UI 验收**：是否方便打开 browser-skill 扩展，让我做设置页截图/点击验收。
+1. **J2 聊天所有权**：Hub 接管后，原有 chat 回复路径停用，避免双重回复。
+2. **J3 Minecraft 驱动**：允许 Hub 任务队列直接驱动 bot 工具。
+3. **persist 默认**：`DSH_POETRY_HUB_PERSIST` 默认开启。
+4. **训练数据**：聊天/journal 可用于训练，后续补数据治理。
+5. **Activity 顺序**：Reading → Study → Video，之后扩展更多场景（包括她自己探索的）。
+6. **UI 验收**：browser-skill 连接后再补截图/点击验收（当前未连接）。
 
 ## 5. 总体 Definition of Done
 
