@@ -7301,3 +7301,93 @@ test('Gate I2 设置页：失败提示（Hub 读取/记忆查询被拒绝不崩�
   assert.match(textOf(deniedTree), /记忆查询失败：Hub 未启用/, '被拒绝显示错误而非假成功')
   denied.client.react._cleanup()
 })
+
+/* ------------------------------------------------------------------ */
+/* Gate I3：Hub 全量任务列表（tasks.list 优先 + recentEvents 回退）    */
+/* ------------------------------------------------------------------ */
+
+function i3HubWithList(list, overrides = {}) {
+  return i2HubPayload({
+    tasks: { ok: true, total: list.length, active: list.length, byStatus: { running: list.length }, list, recentEvents: [] },
+    ...overrides,
+  })
+}
+
+test('Gate I3 设置页：优先使用 tasks.list（超过 8 条也能显示）', async () => {
+  const list = Array.from({ length: 12 }, (_, index) => ({
+    id: 'tb-' + (index + 1),
+    kind: 'chat.turn',
+    activity: 'chat',
+    status: 'running',
+    priority: index,
+    createdAt: 1000 + index,
+    updatedAt: 1000 + index,
+    key: 'i3-' + index,
+    payload: null,
+  }))
+  const harness = makeSettingsPageHarness(i2Routes([], { hub: { tasks: { ok: true, total: 12, active: 12, byStatus: { running: 12 }, list, recentEvents: [] } } }))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /tb-1 · chat\.turn/)
+  assert.match(text, /tb-12 · chat\.turn/, '列表第 12 条也显示（不受 recentEvents 8 条限制）')
+  assert.ok(h1FindByAria(tree, '任务 tb-12 取消'), '列表任务仍有控制按钮')
+  harness.client.react._cleanup()
+})
+
+test('Gate I3 设置页：tasks.list 缺失/非法时回退 recentEvents', async () => {
+  const fallback = makeSettingsPageHarness(
+    i2Routes([], {
+      hub: {
+        tasks: {
+          ok: true,
+          total: 1,
+          byStatus: { running: 1 },
+          recentEvents: [
+            { type: 'task.created', seq: 1, at: 1000, task: { id: 'tb-legacy', kind: 'chat.turn', activity: 'chat', status: 'running', updatedAt: 1000 } },
+          ],
+        },
+      },
+    }),
+  )
+  const tree = await h1Render(fallback)
+  assert.match(textOf(tree), /tb-legacy · chat\.turn/, '无 list 时回退 recentEvents')
+  fallback.client.react._cleanup()
+
+  const invalid = makeSettingsPageHarness(
+    i2Routes([], {
+      hub: {
+        tasks: {
+          ok: true,
+          total: 1,
+          list: 'not-an-array',
+          recentEvents: [
+            { type: 'task.created', seq: 1, at: 1000, task: { id: 'tb-invalid', kind: 'chat.turn', activity: 'chat', status: 'waiting', updatedAt: 1000 } },
+          ],
+        },
+      },
+    }),
+  )
+  const invalidTree = await h1Render(invalid)
+  assert.match(textOf(invalidTree), /tb-invalid · chat\.turn/, 'list 非法时回退 recentEvents')
+  invalid.client.react._cleanup()
+})
+
+test('Gate I3 设置页：tasks.list 任务操作 POST body 正常', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(
+    i2Routes(posts, {
+      hub: i3HubWithList([
+        { id: 'tb-list-1', kind: 'chat.turn', activity: 'chat', status: 'running', priority: 0, createdAt: 1000, updatedAt: 1000 },
+      ]),
+    }),
+  )
+  let tree = await h1Render(harness)
+  h1FindByAria(tree, '任务 tb-list-1 暂停').props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'task.pause'), { action: 'task.pause', taskId: 'tb-list-1' })
+  tree = rerender(harness.client.react, harness.Page, {})
+  h1FindByAria(tree, '任务 tb-list-1 取消').props.onClick()
+  await flushTasks(2)
+  assert.deepEqual(posts.find((body) => body.action === 'task.cancel'), { action: 'task.cancel', taskId: 'tb-list-1' })
+  harness.client.react._cleanup()
+})

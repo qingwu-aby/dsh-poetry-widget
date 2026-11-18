@@ -103,6 +103,19 @@ function hubSummary(hub) {
 function hubTaskList(hub) {
   const data = hub && typeof hub === 'object' ? hub : {}
   const board = data.tasks && typeof data.tasks === 'object' ? data.tasks : {}
+  // Gate I3：优先用 GET /hub.json 的完整 tasks.list（≤100）；旧后端没有时回退 recentEvents。
+  if (Array.isArray(board.list) && board.list.length > 0) {
+    return board.list
+      .filter((task) => task && typeof task.id === 'string')
+      .slice(0, 100)
+      .map((task) => ({
+        id: task.id,
+        kind: typeof task.kind === 'string' ? task.kind : '',
+        activity: typeof task.activity === 'string' ? task.activity : '',
+        status: typeof task.status === 'string' ? task.status : '',
+        updatedAt: Number(task.updatedAt) || 0,
+      }))
+  }
   const events = Array.isArray(board.recentEvents) ? board.recentEvents : []
   const byId = new Map()
   for (const event of events) {

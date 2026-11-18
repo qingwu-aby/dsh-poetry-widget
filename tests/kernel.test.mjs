@@ -21,6 +21,7 @@ import {
 import {
   createHubHandler,
   createRealActivityAdapters,
+  executeActivityTask,
   HUB_ACTIONS,
   HUB_ROUTE,
   registerHubRoute,
@@ -8524,7 +8525,7 @@ test('hub-runtime H3：off/shadow 不注入真实 adapter、不执行任务', as
   assert.equal(offPost.json().code, 'HUB_FULL_REQUIRED')
   assert.equal(off.runtime.getInstances().taskBoard.snapshot().total, 0, 'feature flag 关闭时不创建任务')
   assert.equal(off.calls.chat, 0)
-  assert.equal((await off.runtime.executeTask('missing')).code, 'HUB_FULL_REQUIRED')
+  assert.equal((await executeActivityTask(off.runtime, 'missing')).code, 'HUB_FULL_REQUIRED')
   off.runtime.dispose()
   setActiveHubRuntime(null)
   rmSync(off.dir, { recursive: true, force: true })
@@ -8709,12 +8710,12 @@ test('hub-runtime H3：executeTask 直接执行已存在任务', async () => {
     payload: { peerId: 'p-direct', messageId: 'm-direct', text: '直接执行' },
   })
   assert.equal(created.ok, true)
-  const result = await fixture.runtime.executeTask(created.task.id)
+  const result = await executeActivityTask(fixture.runtime, created.task.id)
   assert.equal(result.ok, true)
   assert.equal(result.success, true)
   assert.equal(result.receipt.replyId, 'hub-chat-m-direct')
   assert.equal(board.get(created.task.id).status, 'done')
-  assert.equal((await fixture.runtime.executeTask('missing')).code, 'HUB_TASK_NOT_FOUND')
+  assert.equal((await executeActivityTask(fixture.runtime, 'missing')).code, 'HUB_TASK_NOT_FOUND')
   fixture.runtime.dispose()
   setActiveHubRuntime(null)
   rmSync(fixture.dir, { recursive: true, force: true })
@@ -9272,4 +9273,108 @@ test('hub-runtime I1：持久化失败隔离（store 抛错不影响 Hub/任务�
   assert.equal(disabled.enabled, false)
   assert.equal(disabled.taskStore, null)
   assert.equal(disabled.eventStore, null)
+})
+
+// ---------------------------------------------------------------------------
+// Gate I3：Hub 全量任务列表（runtime snapshot.taskList + GET tasks.list）
+// ---------------------------------------------------------------------------
+
+test('hub-runtime I3：snapshot.taskList 全量任务（≤100，含摘要字段）', () => {
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  const board = runtime.getInstances().taskBoard
+  for (let index = 0; index < 5; index += 1) {
+    board.create({
+      activity: 'chat',
+      kind: 'chat.turn',
+      key: 'i3-task-' + index,
+      priority: index,
+      payload: { peerId: 'p', messageId: 'm', text: 'hi' },
+    })
+  }
+  const snapshot = runtime.snapshot()
+  assert.equal(Array.isArray(snapshot.taskList), true)
+  assert.equal(snapshot.taskList.length, 5)
+  const first = snapshot.taskList[0]
+  for (const field of ['id', 'kind', 'activity', 'status', 'priority', 'createdAt', 'updatedAt', 'payload']) {
+    assert.ok(field in first, 'taskList 含 ' + field)
+  }
+  assert.deepEqual(first.payload.sort(), ['messageId', 'peerId', 'text'])
+  // 超过 100 条只取前 100
+  const big = createHubRuntime({ logger: { warn() {} }, featureFlag: { enabled: true, shadow: true }, now: () => 1000 })
+  const bigBoard = big.getInstances().taskBoard
+  for (let index = 0; index < 120; index += 1)
+    bigBoard.create({ activity: 'chat', kind: 'chat.turn', key: 'big-' + index })
+  assert.equal(big.snapshot().taskList.length, 100, 'limit 100')
+  // 无 taskBoard → 空数组
+  const bare = createHubRuntime({ assembleHub: false, logger: { warn() {} } })
+  assert.deepEqual(bare.snapshot().taskList, [])
+  runtime.dispose()
+  big.dispose()
+  bare.dispose()
+})
+
+test('hub-routes I3：GET hub.json tasks 契约（{ok,total,active,byStatus,list} + 兼容字段）', async () => {
+  const dir = tmpDir('i3-hub')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  runtime.start()
+  setActiveHubRuntime(runtime)
+  const board = runtime.getInstances().taskBoard
+  board.create({ activity: 'chat', kind: 'chat.turn', key: 'i3-a', priority: 5 })
+  board.create({ activity: 'chat', kind: 'chat.turn', key: 'i3-b' })
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  const res = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), res)
+  assert.equal(res.statusCode, 200)
+  const payload = res.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.available, true)
+  assert.equal(Array.isArray(payload.tasks.list), true)
+  assert.equal(payload.tasks.list.length, 2, '顶层 tasks.list 为全量列表')
+  assert.equal(payload.tasks.ok, true)
+  assert.equal(payload.tasks.total, 2)
+  assert.equal(typeof payload.tasks.active, 'number')
+  assert.equal(typeof payload.tasks.byStatus, 'object')
+  // 兼容字段保留
+  assert.equal(Array.isArray(payload.tasks.recentEvents), true)
+  assert.ok(payload.tasks.metrics !== undefined || payload.tasks.supervisor !== undefined, '兼容任务板快照字段仍在')
+  assert.equal(
+    payload.tasks.list.some((task) => task.key === 'i3-a'),
+    true,
+  )
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes I3：无 runtime taskList 时降级为空数组（不崩）', async () => {
+  const dir = tmpDir('i3-hub-bare')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const fakeRuntime = {
+    mode: () => 'off',
+    getInstances: () => ({
+      taskBoard: { snapshot: () => ({ ok: true, total: 0, active: 0, byStatus: {}, recentEvents: [] }) },
+    }),
+    snapshot: () => ({ ok: true, assembled: false }),
+    health: () => ({ ok: true }),
+    memorySnapshot: () => ({ available: false }),
+  }
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: fakeRuntime })
+  const res = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), res)
+  const payload = res.json()
+  assert.equal(payload.tasks.list.length, 0)
+  assert.equal(payload.tasks.total, 0)
+  assert.equal(payload.tasks.ok, true)
+  rmSync(dir, { recursive: true, force: true })
 })
