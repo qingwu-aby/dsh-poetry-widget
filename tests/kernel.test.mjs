@@ -3,7 +3,17 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -405,6 +415,14 @@ import {
   restoreRotatedLog,
   rotateLogs,
 } from '../scripts/log-rotate.mjs'
+import {
+  formatMaintenanceReport,
+  OPS_DEFAULT_STALE_MS,
+  OPS_MAINTENANCE_VERSION,
+  OPS_STEP_ORDER,
+  parseMaintenanceArgs,
+  runMaintenance,
+} from '../scripts/ops-maintenance.mjs'
 import {
   createStateBackup,
   formatBackupStamp,
@@ -12834,4 +12852,182 @@ test('memory-admin K3：路由注册（path/计数同步）', () => {
   assert.equal(routes.length, 1)
   assert.equal(routes[0].path, MEMORY_ADMIN_ROUTE)
   assert.equal(disposers.length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Gate N4：运维自动化（临时清理/备份/日志轮转，默认 dry-run）
+// ---------------------------------------------------------------------------
+
+function makeN4Fixture() {
+  const dir = tmpDir('n4-ops')
+  const home = path.join(dir, 'home')
+  const settingsDir = path.join(home, '.dsh-poetry')
+  const trainingLogs = path.join(settingsDir, 'training-logs')
+  const stateBackups = path.join(home, 'state-backups')
+  const logDir = path.join(dir, 'logs')
+  mkdirSync(settingsDir, { recursive: true })
+  mkdirSync(trainingLogs, { recursive: true })
+  mkdirSync(stateBackups, { recursive: true })
+  mkdirSync(logDir, { recursive: true })
+  const old = Date.now() - 2 * OPS_DEFAULT_STALE_MS
+  const stale = path.join(settingsDir, 'leftover.tmp')
+  const fresh = path.join(settingsDir, 'fresh.tmp')
+  const userFile = path.join(settingsDir, 'settings.json')
+  const backupTemp = path.join(stateBackups, '.tmp-state-backup-123')
+  writeFileSync(stale, 'stale temp data')
+  writeFileSync(fresh, 'fresh temp data')
+  writeFileSync(userFile, '{"keep":true}')
+  writeFileSync(backupTemp, 'backup temp')
+  utimesSync(stale, new Date(old), new Date(old))
+  utimesSync(backupTemp, new Date(old), new Date(old))
+  return { dir, home, settingsDir, trainingLogs, stateBackups, logDir, stale, fresh, userFile, backupTemp, old }
+}
+
+test('ops-maintenance N4：默认 dry-run 不执行，报告字段完整', () => {
+  assert.equal(OPS_MAINTENANCE_VERSION, 1)
+  assert.deepEqual(OPS_STEP_ORDER, ['cleanup-temp', 'backup', 'rotate-logs'])
+  const fixture = makeN4Fixture()
+  const report = runMaintenance({ home: fixture.home, logDir: fixture.logDir, now: () => Date.now() })
+  assert.equal(report.ok, true)
+  assert.equal(report.dryRun, true)
+  assert.equal(report.apply, false)
+  assert.deepEqual(
+    report.steps.map((step) => step.id),
+    ['cleanup-temp', 'backup', 'rotate-logs'],
+  )
+  assert.equal(
+    report.steps[0].actions.some((action) => action.path === fixture.stale),
+    true,
+    '列出过期临时文件',
+  )
+  assert.equal(
+    report.steps[0].actions.some((action) => action.path === fixture.fresh),
+    false,
+    '未过期不列',
+  )
+  assert.equal(
+    report.steps[0].actions.some((action) => action.path === fixture.userFile),
+    false,
+    '不碰用户文件',
+  )
+  assert.equal(
+    report.steps[0].actions.some((action) => action.path === fixture.backupTemp),
+    true,
+  )
+  assert.equal(existsSync(fixture.stale), true, 'dry-run 不删除')
+  assert.equal(existsSync(fixture.userFile), true)
+  assert.equal(typeof report.totals.actions, 'number')
+  assert.equal(typeof report.totals.bytes, 'number')
+  assert.equal(typeof report.totals.freed, 'number')
+  assert.equal(report.totals.errors, 0)
+  assert.equal(JSON.parse(JSON.stringify(report)).ok, true)
+  const lines = formatMaintenanceReport(report)
+  assert.equal(lines.join('\n').includes('dry-run'), true)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('ops-maintenance N4：apply 按序执行且清理生效（备份/轮转注入 fake）', () => {
+  const fixture = makeN4Fixture()
+  const calls = []
+  const steps = {
+    backup: (options) => {
+      calls.push({ id: 'backup', apply: options.apply })
+      return {
+        id: 'backup',
+        ok: true,
+        dryRun: !options.apply,
+        actions: [{ type: 'backup', id: 'b1', bytes: 100 }],
+        bytes: 100,
+        freed: 0,
+        errors: [],
+      }
+    },
+    'rotate-logs': (options) => {
+      calls.push({ id: 'rotate-logs', apply: options.apply })
+      return {
+        id: 'rotate-logs',
+        ok: true,
+        dryRun: !options.apply,
+        actions: [{ type: 'log-rotate', name: 'whale-x.log', bytes: 10 }],
+        bytes: 10,
+        freed: 5,
+        errors: [],
+      }
+    },
+  }
+  const report = runMaintenance({
+    home: fixture.home,
+    logDir: fixture.logDir,
+    apply: true,
+    steps,
+    now: () => Date.now(),
+  })
+  assert.equal(report.ok, true)
+  assert.equal(report.dryRun, false)
+  assert.equal(existsSync(fixture.stale), false, 'apply 删除过期临时文件')
+  assert.equal(existsSync(fixture.fresh), true, '未过期保留')
+  assert.equal(existsSync(fixture.userFile), true, '用户文件保留')
+  assert.equal(calls.length, 2)
+  assert.deepEqual(
+    calls.map((call) => call.id),
+    ['backup', 'rotate-logs'],
+  )
+  assert.equal(
+    calls.every((call) => call.apply === true),
+    true,
+  )
+  assert.equal(report.totals.freed >= 5, true)
+  assert.equal(report.totals.bytes >= 110, true)
+  // 步骤顺序
+  const order = []
+  const orderSteps = {
+    'cleanup-temp': () => {
+      order.push('cleanup-temp')
+      return { ok: true, actions: [], bytes: 0, freed: 0, errors: [] }
+    },
+    backup: () => {
+      order.push('backup')
+      return { ok: true, actions: [], bytes: 0, freed: 0, errors: [] }
+    },
+    'rotate-logs': () => {
+      order.push('rotate-logs')
+      return { ok: true, actions: [], bytes: 0, freed: 0, errors: [] }
+    },
+  }
+  runMaintenance({ home: fixture.home, logDir: fixture.logDir, steps: orderSteps })
+  assert.deepEqual(order, ['cleanup-temp', 'backup', 'rotate-logs'])
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('ops-maintenance N4：单步失败隔离（后续继续 + 退出码语义）', () => {
+  const fixture = makeN4Fixture()
+  const called = []
+  const steps = {
+    'cleanup-temp': () => {
+      called.push('cleanup-temp')
+      throw new Error('cleanup boom')
+    },
+    backup: () => {
+      called.push('backup')
+      return { ok: true, actions: [], bytes: 0, freed: 0, errors: [] }
+    },
+    'rotate-logs': () => {
+      called.push('rotate-logs')
+      return { ok: false, actions: [], bytes: 0, freed: 0, errors: ['rotate failed'] }
+    },
+  }
+  const report = runMaintenance({ home: fixture.home, logDir: fixture.logDir, steps })
+  assert.equal(report.ok, false)
+  assert.deepEqual(called, ['cleanup-temp', 'backup', 'rotate-logs'], '失败后继续执行后续步骤')
+  assert.equal(report.errors.length, 2)
+  assert.equal(report.errors[0].step, 'cleanup-temp')
+  assert.equal(report.errors[1].step, 'rotate-logs')
+  assert.equal(report.totals.errors >= 2, true)
+  // 参数解析
+  assert.deepEqual(parseMaintenanceArgs(['--apply', '--json', '--keep', '3']).apply, true)
+  assert.equal(parseMaintenanceArgs(['--apply', '--json']).json, true)
+  assert.deepEqual(parseMaintenanceArgs(['--keep', '3']).keep, 3)
+  assert.deepEqual(parseMaintenanceArgs(['--max-size', '10M']).maxBytes, 10 * 1024 * 1024)
+  assert.deepEqual(parseMaintenanceArgs(['--bogus']).unknown, ['--bogus'])
+  rmSync(fixture.dir, { recursive: true, force: true })
 })
