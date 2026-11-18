@@ -122,6 +122,13 @@ import {
   FEEDBACK_RECEIPT_KINDS,
   validateReceipt,
 } from '../lib/core/feedback-ledger.mjs'
+import {
+  createHubPersistence,
+  createJsonlEventStore,
+  createJsonTaskStore,
+  DEFAULT_EVENT_STORE_MAX_BYTES,
+  FILE_STORES_VERSION,
+} from '../lib/core/file-stores.mjs'
 import { createHub, HUB_CODES, HUB_DEFAULT_FEATURE_FLAG, HUB_MODES, HUB_STATES, HUB_VERSION } from '../lib/core/hub.mjs'
 import {
   createHubControlApi,
@@ -6305,8 +6312,13 @@ function makeHubRuntimeFixture(flag) {
 }
 
 test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > settings）', () => {
-  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false })
-  assert.deepEqual(resolveHubFeatureFlag({ env: {} }), { enabled: false, shadow: true, memoryWrite: false })
+  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false, persist: false })
+  assert.deepEqual(resolveHubFeatureFlag({ env: {} }), {
+    enabled: false,
+    shadow: true,
+    memoryWrite: false,
+    persist: false,
+  })
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).shadow, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).enabled, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: '1' } }).shadow, false)
@@ -6316,13 +6328,14 @@ test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > 
     enabled: true,
     shadow: false,
     memoryWrite: false,
+    persist: false,
   })
   // 显式覆盖 env/settings
   const explicit = resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: true }, env: { DSH_POETRY_HUB: '1' } })
   assert.equal(explicit.enabled, true)
   assert.equal(explicit.shadow, true)
   assert.equal(HUB_RUNTIME_VERSION, 1)
-  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true, memoryWrite: false })
+  assert.deepEqual(HUB_RUNTIME_DEFAULT_FLAG, { enabled: false, shadow: true, memoryWrite: false, persist: false })
 })
 
 test('hub-runtime E1：默认 off 无副作用（不调度/不执行/不写事件）', async () => {
@@ -9083,4 +9096,180 @@ test('training-runner H6：注入 training-service（run gate/成功/取消/失�
   assert.equal(failResult.code, TRAINING_SERVICE_CODES.runFailed)
   assert.equal(store.read().config.adapter.current, currentBefore, '失败不改 current')
   rmSync(home, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate I1：Hub 持久化（TaskBoard JSON 快照 + EventBus JSONL，opt-in）
+// ---------------------------------------------------------------------------
+
+test('file-stores I1：JSON 任务板 store 原子写/坏文件降级', () => {
+  const dir = tmpDir('i1-taskstore')
+  const file = path.join(dir, 'hub-taskboard.json')
+  const store = createJsonTaskStore({ file, now: () => 5000 })
+  assert.equal(store.load(), null, 'TaskBoard 契约：缺失 → null')
+  const missing = store.read()
+  assert.equal(missing.ok, true)
+  assert.equal(missing.data, null)
+  assert.equal(missing.exists, false)
+  const saved = store.save({ ok: true, v: 1, tasks: [{ id: 'tb-1' }] })
+  assert.equal(saved.ok, true)
+  assert.equal(statSync(file).mode & 0o777, 0o600, '文件 0600')
+  assert.deepEqual(readdirSync(dir), ['hub-taskboard.json'], '无临时文件残留')
+  assert.deepEqual(store.load().tasks, [{ id: 'tb-1' }])
+  const loaded = store.read()
+  assert.deepEqual(loaded.data.tasks, [{ id: 'tb-1' }])
+  assert.equal(store.snapshot().saves, 1)
+  assert.equal(store.snapshot().bytes > 0, true)
+  // 坏 JSON → null + errors（不抛）
+  writeFileSync(file, '{bad json')
+  assert.equal(store.load(), null)
+  const bad = store.read()
+  assert.equal(bad.data, null)
+  assert.ok(bad.errors.length >= 1)
+  // 空文件 → null
+  writeFileSync(file, '   ')
+  assert.equal(store.load(), null)
+  assert.equal(store.clear().ok, true)
+  assert.equal(existsSync(file), false)
+  assert.equal(FILE_STORES_VERSION, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('file-stores I1：JSONL 事件 store append/有界读取/坏行/轮转', () => {
+  const dir = tmpDir('i1-eventstore')
+  const file = path.join(dir, 'hub-events.jsonl')
+  const store = createJsonlEventStore({ file, maxBytes: 300, now: () => 5000 })
+  assert.equal(store.append({ type: 'task.created', n: 1 }).ok, true)
+  assert.equal(store.append({ type: 'task.created', n: 2 }).ok, true)
+  assert.equal(store.append({ type: 'task.created', n: 3 }).ok, true)
+  const all = store.readAll()
+  assert.equal(all.ok, true)
+  assert.deepEqual(
+    all.events.map((event) => event.n),
+    [1, 2, 3],
+  )
+  const tail = store.readTail({ maxLines: 2 })
+  assert.deepEqual(
+    tail.events.map((event) => event.n),
+    [2, 3],
+    'readTail 只取最近 N 条',
+  )
+  // 坏行跳过
+  writeFileSync(file, readFileSync(file, 'utf8') + 'not-json\n')
+  assert.equal(store.readAll().badLines, 1)
+  // 文件上限轮转
+  let last = null
+  for (let index = 0; index < 20; index += 1)
+    last = store.append({ type: 'task.created', n: 100 + index, pad: 'x'.repeat(40) })
+  assert.equal(last.ok, true)
+  assert.ok(store.snapshot().rotations >= 1, '超过 maxBytes 轮转')
+  assert.equal(existsSync(`${file}.1`), true)
+  assert.equal(DEFAULT_EVENT_STORE_MAX_BYTES > 0, true)
+  assert.equal(store.clear().ok, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime I1：persist flag 默认关闭（零写盘）', async () => {
+  assert.equal(resolveHubFeatureFlag({}).persist, false)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: '1' } }).persist, true)
+  assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB_PERSIST: '0' } }).persist, false)
+  assert.equal(resolveHubFeatureFlag({ settings: { persist: true } }).persist, true)
+  assert.equal(resolveHubFeatureFlag({ featureFlag: { persist: true } }).persist, true)
+  const dir = tmpDir('i1-off')
+  const paths = { taskBoardFile: path.join(dir, 'hub-taskboard.json'), eventFile: path.join(dir, 'hub-events.jsonl') }
+  const runtime = createHubRuntime({ logger: { warn() {} }, persistPaths: paths, now: () => 1000 })
+  assert.equal(runtime.snapshot().persist.enabled, false)
+  assert.equal(runtime.snapshot().persist.taskStore, null)
+  runtime.getInstances().taskBoard.create({ activity: 'chat', key: 'i1-off-task' })
+  runtime.dispose()
+  assert.equal(existsSync(paths.taskBoardFile), false, 'flag 关闭不写任务板文件')
+  assert.equal(existsSync(paths.eventFile), false, 'flag 关闭不写事件文件')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime I1：开启 persist 后重启恢复任务与事件', async () => {
+  const dir = tmpDir('i1-on')
+  const paths = { taskBoardFile: path.join(dir, 'hub-taskboard.json'), eventFile: path.join(dir, 'hub-events.jsonl') }
+  const first = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true, persist: true },
+    persistPaths: paths,
+    now: () => 1000,
+  })
+  first.start()
+  assert.equal(first.snapshot().persist.enabled, true)
+  const created = first.getInstances().taskBoard.create({ activity: 'chat', key: 'i1-task-1' })
+  assert.equal(created.ok, true)
+  await first.getInstances().eventBus.flush()
+  const firstPersist = first.snapshot().persist
+  assert.equal(firstPersist.taskStore.saves >= 1, true, '任务板状态变化保存')
+  assert.equal(firstPersist.eventStore.appends >= 1, true, '事件追加到 JSONL')
+  first.dispose()
+  assert.equal(existsSync(paths.taskBoardFile), true, '任务板快照已写盘')
+  assert.equal(existsSync(paths.eventFile), true, '事件 JSONL 已写盘')
+
+  const second = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true, persist: true },
+    persistPaths: paths,
+    persistReplay: 10,
+    now: () => 2000,
+  })
+  second.start()
+  const restored = second.snapshot().persist
+  assert.equal(restored.enabled, true)
+  assert.equal(restored.restoredTasks >= 1, true, '重启恢复任务数')
+  assert.equal(restored.restoredEvents >= 1, true, '启动可选回放最近 N 条')
+  assert.equal(restored.taskStore.bytes > 0, true)
+  assert.equal(restored.eventStore.bytes > 0, true)
+  const tasks = second.getInstances().taskBoard.list()
+  assert.ok(
+    tasks.some((task) => task.key === 'i1-task-1'),
+    '恢复的任务仍在任务板',
+  )
+  const persistedEvents = second.readPersistedEvents(10)
+  assert.equal(persistedEvents.enabled, true)
+  assert.ok(persistedEvents.events.some((event) => event.type === 'task.created'))
+  second.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-runtime I1：持久化失败隔离（store 抛错不影响 Hub/任务板）', async () => {
+  const failingTaskStore = {
+    file: '/tmp/failing-taskboard.json',
+    load() {
+      throw new Error('load boom')
+    },
+    save() {
+      throw new Error('save boom')
+    },
+    snapshot: () => ({ ok: true, errors: 1 }),
+  }
+  const failingEventStore = {
+    file: '/tmp/failing-events.jsonl',
+    append() {
+      throw new Error('append boom')
+    },
+    readTail: () => ({ ok: true, events: [] }),
+    snapshot: () => ({ ok: true, errors: 1 }),
+  }
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true, persist: true },
+    taskStore: failingTaskStore,
+    eventStore: failingEventStore,
+    now: () => 1000,
+  })
+  runtime.start()
+  assert.equal(runtime.snapshot().ok, true, 'Hub 不崩')
+  const created = runtime.getInstances().taskBoard.create({ activity: 'chat', key: 'i1-fail-task' })
+  assert.equal(created.ok, true, '任务板仍可用')
+  await runtime.getInstances().eventBus.flush()
+  assert.equal(runtime.getInstances().eventBus.snapshot().metrics.storeErrors >= 1, true, '事件 store 失败被计数隔离')
+  runtime.dispose()
+  // 持久化组合 helper 默认关闭
+  const disabled = createHubPersistence({ enabled: false })
+  assert.equal(disabled.enabled, false)
+  assert.equal(disabled.taskStore, null)
+  assert.equal(disabled.eventStore, null)
 })
