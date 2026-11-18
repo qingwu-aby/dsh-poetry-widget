@@ -17,6 +17,7 @@ import {
   summarizeModelBudget,
   summarizeModelGate,
 } from '../lib/composition/health.mjs'
+import { createHubHandler, HUB_ACTIONS, HUB_ROUTE, registerHubRoute } from '../lib/composition/hub-routes.mjs'
 import {
   createHubRuntime,
   createMinecraftShadowSink,
@@ -7182,4 +7183,305 @@ test('hub-runtime F1：registerHubRuntime 注册完整装配的生命周期', ()
   assert.equal(runtime.snapshot().mode, 'shadow')
   registered[0].handlers.dispose()
   assert.equal(runtime.snapshot().disposed, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate F2：Hub 控制 HTTP API（lib/composition/hub-routes.mjs）——鉴权/快照/控制/降级
+// ---------------------------------------------------------------------------
+
+function hubFakeReq(method, body, options = {}) {
+  const payload = body === undefined ? '' : JSON.stringify(body)
+  return {
+    method,
+    url: options.url ?? HUB_ROUTE,
+    headers: options.headers ?? {},
+    async *[Symbol.asyncIterator]() {
+      if (payload.length > 0) yield Buffer.from(payload)
+    },
+  }
+}
+
+function hubFakeRes() {
+  return {
+    statusCode: 0,
+    body: '',
+    writeHead(status) {
+      this.statusCode = status
+      return this
+    },
+    end(body) {
+      this.body = String(body)
+    },
+    json() {
+      return JSON.parse(this.body)
+    },
+  }
+}
+
+function makeHubRouteFixture(options = {}) {
+  const dir = tmpDir('hub-routes')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: true },
+    memoryPaths: options.memoryPaths ?? undefined,
+    now: () => 1000,
+  })
+  runtime.start()
+  setActiveHubRuntime(runtime)
+  const handler = createHubHandler({
+    tokenFile,
+    fence: options.fence ?? null,
+    hubRuntime: options.hubRuntime === undefined ? runtime : options.hubRuntime,
+    now: () => 1000,
+  })
+  return { dir, tokenFile, runtime, handler }
+}
+
+test('hub-routes F2：注册路由与 action 列表', () => {
+  const routes = []
+  const webServer = {
+    register(route) {
+      routes.push(route)
+      return () => {}
+    },
+  }
+  const disposers = []
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  setActiveHubRuntime(runtime)
+  const handler = registerHubRoute({ webServer, disposers, tokenFile: '', fence: null, logger: { warn() {} } })
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, HUB_ROUTE)
+  assert.equal(typeof handler, 'function')
+  assert.equal(disposers.length, 1)
+  assert.deepEqual(HUB_ACTIONS.slice(0, 3), ['task.pause', 'task.resume', 'task.cancel'])
+  assert.ok(HUB_ACTIONS.includes('memory.query'))
+  runtime.dispose()
+  setActiveHubRuntime(null)
+})
+
+test('hub-routes F2：GET 鉴权（fence/token）与 snapshot 结构', async () => {
+  const denied = makeHubRouteFixture({ fence: { check: () => 'blocked' } })
+  const deniedRes = hubFakeRes()
+  await denied.handler(hubFakeReq('GET'), deniedRes)
+  assert.equal(deniedRes.statusCode, 403)
+  assert.equal(deniedRes.json().ok, false)
+  denied.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(denied.dir, { recursive: true, force: true })
+
+  const { dir, runtime, handler } = makeHubRouteFixture({ fence: { check: () => 'blocked' } })
+  // fence 拒绝但 token 正确 → 允许
+  const tokenRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: HUB_ROUTE + '?token=secret-token' }), tokenRes)
+  assert.equal(tokenRes.statusCode, 200)
+  const snapshot = tokenRes.json()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.available, true)
+  assert.equal(snapshot.mode, 'shadow')
+  assert.equal(snapshot.assembled, true)
+  assert.ok(snapshot.hub !== null)
+  assert.ok(snapshot.tasks !== null)
+  assert.ok(snapshot.activities !== null)
+  assert.ok(snapshot.memory !== null)
+  assert.ok(snapshot.health !== null)
+  assert.equal(snapshot.tasks.total, 0)
+  assert.deepEqual(snapshot.activities.activities.map((item) => item.id).sort(), ['chat', 'minecraft'])
+  // fence 允许（无需 token）
+  const fenceHandler = createHubHandler({ tokenFile: '', fence: { check: () => null }, hubRuntime: runtime })
+  const fenceRes = hubFakeRes()
+  await fenceHandler(hubFakeReq('GET'), fenceRes)
+  assert.equal(fenceRes.statusCode, 200)
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：无 Hub 降级（GET available:false / POST HUB_UNAVAILABLE）', async () => {
+  setActiveHubRuntime(null)
+  const dir = tmpDir('hub-routes-nohub')
+  const tokenFile = path.join(dir, 'token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: null, now: () => 1000 })
+  const getRes = hubFakeRes()
+  await handler(hubFakeReq('GET'), getRes)
+  assert.equal(getRes.statusCode, 200)
+  assert.equal(getRes.json().available, false)
+  assert.equal(getRes.json().hub, null)
+  const postRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'memory.query', token: 'secret-token' }), postRes)
+  assert.equal(postRes.statusCode, 200)
+  assert.equal(postRes.json().ok, false)
+  assert.equal(postRes.json().code, 'HUB_UNAVAILABLE')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：POST 鉴权（token/fence）与错误分支', async () => {
+  const { dir, runtime, handler } = makeHubRouteFixture({ fence: { check: () => 'blocked' } })
+  const noAuth = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'hub.pauseAll' }), noAuth)
+  assert.equal(noAuth.statusCode, 403)
+  const wrongToken = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'hub.pauseAll', token: 'nope' }), wrongToken)
+  assert.equal(wrongToken.statusCode, 403)
+  const goodToken = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'hub.pauseAll', token: 'secret-token' }), goodToken)
+  assert.equal(goodToken.statusCode, 200)
+  assert.equal(goodToken.json().ok, true)
+  // fence 允许（无 token）
+  const fenceHandler = createHubHandler({ tokenFile: '', fence: { check: () => null }, hubRuntime: runtime })
+  const fenceRes = hubFakeRes()
+  await fenceHandler(hubFakeReq('POST', { action: 'hub.resumeAll' }), fenceRes)
+  assert.equal(fenceRes.statusCode, 200)
+  // 未知 action / 非法 JSON / 方法不允许
+  const unknown = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'nope', token: 'secret-token' }), unknown)
+  assert.equal(unknown.statusCode, 400)
+  assert.equal(unknown.json().error, 'unknown_action')
+  const badJson = hubFakeRes()
+  await handler(
+    {
+      method: 'POST',
+      url: HUB_ROUTE,
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from('{bad')
+      },
+    },
+    badJson,
+  )
+  assert.equal(badJson.statusCode, 400)
+  assert.equal(badJson.json().error, 'invalid_json')
+  const notAllowed = hubFakeRes()
+  await handler(hubFakeReq('PUT', { token: 'secret-token' }), notAllowed)
+  assert.equal(notAllowed.statusCode, 405)
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：任务控制（pause/resume/cancel）与参数错误', async () => {
+  const { dir, runtime, handler } = makeHubRouteFixture()
+  const board = runtime.getInstances().taskBoard
+  const task = board.create({ activity: 'chat', key: 'hub-task-1' }).task
+  assert.equal(task.status, 'running')
+  const pauseRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'task.pause', taskId: task.id, token: 'secret-token' }), pauseRes)
+  assert.equal(pauseRes.json().ok, true)
+  assert.equal(board.get(task.id).status, 'waiting')
+  const resumeRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'task.resume', taskId: task.id, token: 'secret-token' }), resumeRes)
+  assert.equal(resumeRes.json().ok, true)
+  assert.equal(board.get(task.id).status, 'running')
+  const cancelRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'task.cancel', taskId: task.id, token: 'secret-token' }), cancelRes)
+  assert.equal(cancelRes.json().ok, true)
+  assert.equal(board.get(task.id).status, 'cancelled')
+  const missing = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'task.pause', token: 'secret-token' }), missing)
+  assert.equal(missing.json().code, 'HUB_INVALID_ARGUMENT')
+  const notFound = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'task.cancel', taskId: 'missing', token: 'secret-token' }), notFound)
+  assert.equal(notFound.json().ok, false)
+  assert.equal(notFound.json().code, 'TASK_BOARD_NOT_FOUND')
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：活动控制（enable/disable）', async () => {
+  const { dir, runtime, handler } = makeHubRouteFixture()
+  const registry = runtime.getInstances().registry
+  const enableRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'activity.enable', activityId: 'chat', token: 'secret-token' }), enableRes)
+  assert.equal(enableRes.json().ok, true)
+  assert.equal(enableRes.json().activity.enabled, true)
+  assert.equal(registry.isEnabled('chat'), true)
+  const disableRes = hubFakeRes()
+  await handler(
+    hubFakeReq('POST', { action: 'activity.disable', activityId: 'chat', token: 'secret-token' }),
+    disableRes,
+  )
+  assert.equal(disableRes.json().ok, true)
+  assert.equal(registry.isEnabled('chat'), false)
+  const missing = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'activity.enable', token: 'secret-token' }), missing)
+  assert.equal(missing.json().code, 'HUB_INVALID_ARGUMENT')
+  const unknown = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'activity.enable', activityId: 'nope', token: 'secret-token' }), unknown)
+  assert.equal(unknown.json().code, 'ACTIVITY_NOT_FOUND')
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：hub.pauseAll/resumeAll', async () => {
+  const { dir, runtime, handler } = makeHubRouteFixture()
+  const pauseRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'hub.pauseAll', token: 'secret-token' }), pauseRes)
+  assert.equal(pauseRes.json().ok, true)
+  assert.equal(pauseRes.json().paused, true)
+  const resumeRes = hubFakeRes()
+  await handler(hubFakeReq('POST', { action: 'hub.resumeAll', token: 'secret-token' }), resumeRes)
+  assert.equal(resumeRes.json().ok, true)
+  assert.equal(resumeRes.json().paused, false)
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes F2：memory.query（只读、limit 上限、错误隔离）', async () => {
+  const memoryRoot = tmpDir('hub-routes-memory')
+  const agentMemoryDir = path.join(memoryRoot, 'agent-memory')
+  mkdirSync(agentMemoryDir, { recursive: true })
+  writeFileSync(
+    path.join(agentMemoryDir, 'journal.jsonl'),
+    JSON.stringify({ ts: 1000, kind: 'thought', text: '记忆里的公园。' }),
+  )
+  const { dir, runtime, handler } = makeHubRouteFixture({
+    memoryPaths: {
+      agentMemoryDir,
+      gameMemoryDir: path.join(memoryRoot, 'none'),
+      methodsFile: path.join(memoryRoot, 'none.json'),
+    },
+  })
+  const queryRes = hubFakeRes()
+  await handler(
+    hubFakeReq('POST', { action: 'memory.query', token: 'secret-token', filter: { text: '公园', limit: 999 } }),
+    queryRes,
+  )
+  assert.equal(queryRes.statusCode, 200)
+  const result = queryRes.json()
+  assert.equal(result.ok, true)
+  assert.equal(result.limit, 50)
+  assert.ok(result.entries.some((entry) => entry.text.includes('公园')))
+  // 错误隔离：queryMemory 抛错 → 500 JSON
+  const broken = {
+    mode: () => 'off',
+    getInstances: () => ({}),
+    snapshot: () => ({}),
+    health: () => ({}),
+    memorySnapshot: () => ({ available: false }),
+    queryMemory: async () => {
+      throw new Error('memory boom')
+    },
+  }
+  const brokenHandler = createHubHandler({
+    tokenFile: path.join(dir, 'chat-token'),
+    fence: { check: () => null },
+    hubRuntime: broken,
+  })
+  const brokenRes = hubFakeRes()
+  await brokenHandler(hubFakeReq('POST', { action: 'memory.query', token: 'secret-token' }), brokenRes)
+  assert.equal(brokenRes.statusCode, 500)
+  assert.equal(brokenRes.json().ok, false)
+  assert.equal(brokenRes.json().error.code, 'HUB_ROUTE_FAILED')
+  runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(memoryRoot, { recursive: true, force: true })
 })
