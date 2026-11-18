@@ -54,6 +54,14 @@ import {
   validateEventEnvelope,
 } from '../lib/core/event-schema.mjs'
 import {
+  createScheduler,
+  DEFAULT_PRIORITY_CLASSES,
+  priorityClassOf,
+  resolvePriorityClasses,
+  SCHEDULER_CODES,
+  SCHEDULER_VERSION,
+} from '../lib/core/scheduler.mjs'
+import {
   createMemoryTaskStore,
   createTaskBoard,
   TASK_BOARD_CODES,
@@ -2853,4 +2861,235 @@ test('task-board B2：restore 非法快照与空快照', () => {
   // 事件里有 restored 汇总
   const restoredEvents = board.snapshot().recentEvents.filter((event) => event.type === 'task.restored')
   assert.equal(restoredEvents.length >= 1, true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate B3：Scheduler（lib/core/scheduler.mjs）——单前台/抢占/恢复/后台槽位/暂停/饥饿
+// ---------------------------------------------------------------------------
+
+/** 测试用最小 Task Board 适配器（只实现调度器需要的接口）。 */
+function createFakeSchedulerBoard() {
+  const tasks = new Map()
+  let seq = 0
+  const clone = (task) => (task === null || task === undefined ? null : { ...task })
+  const add = (spec = {}) => {
+    seq += 1
+    const task = {
+      id: 'ft-' + seq,
+      activity: typeof spec.activity === 'string' ? spec.activity : 'background',
+      kind: typeof spec.kind === 'string' ? spec.kind : '',
+      priority: Number.isFinite(Number(spec.priority)) ? Number(spec.priority) : 0,
+      status: typeof spec.status === 'string' ? spec.status : 'queued',
+      owner: null,
+      createdAt: Number.isFinite(Number(spec.createdAt)) ? Number(spec.createdAt) : seq,
+      payload: null,
+    }
+    tasks.set(task.id, task)
+    return clone(task)
+  }
+  return {
+    add,
+    tasks,
+    list() {
+      return [...tasks.values()].map(clone)
+    },
+    get(id) {
+      return clone(tasks.get(id) ?? null)
+    },
+    claim(id, owner) {
+      const task = tasks.get(id)
+      if (task === undefined) return { ok: false, code: 'TASK_NOT_FOUND', message: 'missing' }
+      if (task.status !== 'queued') return { ok: false, code: 'TASK_INVALID_TRANSITION', message: 'not queued' }
+      task.status = 'running'
+      task.owner = owner ?? null
+      return { ok: true, task: clone(task) }
+    },
+    waiting(id) {
+      const task = tasks.get(id)
+      if (task === undefined || (task.status !== 'running' && task.status !== 'waiting')) {
+        return { ok: false, code: 'TASK_INVALID_TRANSITION', message: 'cannot wait' }
+      }
+      task.status = 'waiting'
+      return { ok: true, task: clone(task) }
+    },
+    resume(id) {
+      const task = tasks.get(id)
+      if (task === undefined || task.status !== 'waiting') {
+        return { ok: false, code: 'TASK_INVALID_TRANSITION', message: 'cannot resume' }
+      }
+      task.status = 'running'
+      return { ok: true, task: clone(task) }
+    },
+    complete(id) {
+      const task = tasks.get(id)
+      if (task === undefined) return { ok: false, message: 'missing' }
+      task.status = 'done'
+      return { ok: true, task: clone(task) }
+    },
+  }
+}
+
+test('scheduler B3：优先级选择与单前台', () => {
+  const board = createFakeSchedulerBoard()
+  const reading = board.add({ activity: 'reading' })
+  const chat = board.add({ activity: 'chat' })
+  const user = board.add({ activity: 'user' })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  const first = scheduler.tick()
+  assert.equal(first.action, 'start')
+  assert.equal(first.task.id, user.id, 'user 优先级最高')
+  assert.equal(board.tasks.get(chat.id).status, 'queued')
+  board.complete(user.id)
+  assert.equal(scheduler.tick().task.id, chat.id, 'user 完成后轮到 chat')
+  board.complete(chat.id)
+  assert.equal(scheduler.tick().task.id, reading.id)
+  board.complete(reading.id)
+  const idle = scheduler.tick()
+  assert.equal(idle.action, 'idle')
+  assert.equal(idle.reason, 'no-task')
+  assert.equal(scheduler.snapshot().metrics.starts, 3)
+  assert.equal(scheduler.snapshot().foreground, null)
+
+  assert.equal(priorityClassOf({ activity: 'user' }, DEFAULT_PRIORITY_CLASSES), 100)
+  assert.ok(
+    priorityClassOf({ activity: 'chat' }, DEFAULT_PRIORITY_CLASSES) >
+      priorityClassOf({ activity: 'reading' }, DEFAULT_PRIORITY_CLASSES),
+  )
+  assert.equal(priorityClassOf({ activity: 'unknown' }, DEFAULT_PRIORITY_CLASSES), 0)
+  assert.equal(resolvePriorityClasses({ user: 200 }).user, 200)
+  assert.equal(SCHEDULER_VERSION, 1)
+})
+
+test('scheduler B3：抢占与恢复（任务不丢）', () => {
+  const board = createFakeSchedulerBoard()
+  const chat = board.add({ activity: 'chat' })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  assert.equal(scheduler.tick().task.id, chat.id)
+  const user = board.add({ activity: 'user' })
+  const preempt = scheduler.tick()
+  assert.equal(preempt.action, 'preempt')
+  assert.equal(preempt.task.id, user.id)
+  assert.deepEqual(preempt.preempted, [chat.id])
+  assert.equal(board.tasks.get(chat.id).status, 'waiting', '被抢占任务置 waiting（保留在任务板）')
+  assert.equal(board.tasks.get(user.id).status, 'running')
+  assert.equal(scheduler.snapshot().metrics.preemptions, 1)
+  assert.deepEqual(scheduler.snapshot().preempted, [chat.id])
+
+  board.complete(user.id)
+  const resumed = scheduler.tick()
+  assert.equal(resumed.action, 'resume')
+  assert.equal(resumed.task.id, chat.id, '高优先级完成后自动恢复被抢占任务（re-claim）')
+  assert.equal(board.tasks.get(chat.id).status, 'running')
+  assert.equal(scheduler.snapshot().metrics.resumes, 1)
+  assert.deepEqual(scheduler.snapshot().preempted, [])
+})
+
+test('scheduler B3：后台槽位限制，空闲才跑后台', () => {
+  const board = createFakeSchedulerBoard()
+  const bg1 = board.add({ activity: 'background' })
+  const bg2 = board.add({ activity: 'background' })
+  const scheduler = createScheduler({ board, now: () => 1000, maxBackground: 1 })
+  const first = scheduler.tick()
+  assert.equal(first.action, 'background')
+  assert.equal(first.task.id, bg1.id)
+  const second = scheduler.tick()
+  assert.equal(second.action, 'idle', '后台槽位已满（maxBackground=1）')
+  assert.equal(board.tasks.get(bg2.id).status, 'queued')
+
+  // 前台到来：后台仍在跑，但前台优先启动
+  const chat = board.add({ activity: 'chat' })
+  const third = scheduler.tick()
+  assert.equal(third.action, 'start')
+  assert.equal(third.task.id, chat.id)
+  assert.equal(scheduler.snapshot().background.length, 1, '后台任务不抢前台')
+  assert.equal(board.tasks.get(bg2.id).status, 'queued')
+})
+
+test('scheduler B3：pauseAll / resumeAll（急停不丢任务）', () => {
+  const board = createFakeSchedulerBoard()
+  const chat = board.add({ activity: 'chat' })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  scheduler.tick()
+  assert.equal(board.tasks.get(chat.id).status, 'running')
+  const paused = scheduler.pauseAll()
+  assert.equal(paused.ok, true)
+  assert.equal(paused.paused, true)
+  assert.deepEqual(paused.parked, [chat.id])
+  assert.equal(board.tasks.get(chat.id).status, 'waiting', '急停默认 park 当前前台')
+  assert.equal(scheduler.tick().action, 'paused', '暂停期间不调度')
+  scheduler.resumeAll()
+  const resumed = scheduler.tick()
+  assert.equal(resumed.action, 'resume')
+  assert.equal(resumed.task.id, chat.id)
+  assert.equal(board.tasks.get(chat.id).status, 'running')
+  assert.equal(scheduler.snapshot().metrics.parks, 1)
+})
+
+test('scheduler B3：饥饿检测（排队超过阈值）', () => {
+  const board = createFakeSchedulerBoard()
+  const running = board.add({ activity: 'chat', status: 'running' })
+  const waitingForeground = board.add({ activity: 'chat' })
+  let clock = 1000
+  const scheduler = createScheduler({ board, now: () => clock, starvationMs: 100 })
+  assert.equal(scheduler.tick().action, 'idle', '前台在跑，不抢占同类')
+  clock = 1050
+  assert.deepEqual(scheduler.tick().starved, [], '未到阈值')
+  clock = 1120
+  const starved = scheduler.tick().starved
+  assert.equal(starved.length, 1)
+  assert.equal(starved[0].id, waitingForeground.id)
+  assert.ok(starved[0].waitedMs >= 100)
+  assert.equal(scheduler.snapshot().starved.length, 1)
+  board.complete(running.id)
+  assert.equal(scheduler.tick().action, 'start')
+  assert.equal(scheduler.tick().starved.length, 0, '被调度后不再饥饿')
+})
+
+test('scheduler B3：多前台归一化（保留最高优先级）', () => {
+  const board = createFakeSchedulerBoard()
+  const chat = board.add({ activity: 'chat', status: 'running' })
+  const reading = board.add({ activity: 'reading', status: 'running' })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  const decision = scheduler.tick()
+  assert.equal(decision.action, 'idle', '已有前台，无需 start')
+  assert.equal(scheduler.snapshot().foreground.id, chat.id, '保留最高优先级前台')
+  assert.equal(board.tasks.get(reading.id).status, 'waiting', '其余前台被置 waiting')
+  assert.ok(scheduler.snapshot().metrics.preemptions >= 1)
+})
+
+test('scheduler B3：无任务与非法 board', () => {
+  const board = createFakeSchedulerBoard()
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  const idle = scheduler.tick()
+  assert.equal(idle.ok, true)
+  assert.equal(idle.action, 'idle')
+  assert.equal(idle.reason, 'no-task')
+  assert.equal(scheduler.snapshot().foreground, null)
+  assert.equal(scheduler.snapshot().queue.length, 0)
+  assert.throws(() => createScheduler({}), TypeError)
+  assert.throws(() => createScheduler({ board: { list() {}, claim() {} } }), TypeError)
+})
+
+test('scheduler B3：与真实 Task Board 集成（单前台归一化→恢复不丢任务）', () => {
+  // 监管器 maxRunning=2（Hub 建议 ≥2）：任务板可能自动起多个 running，调度器负责收敛为单前台。
+  const board = createTaskBoard({ now: () => 1000, maxRunning: 2 })
+  const scheduler = createScheduler({ board, now: () => 1000 })
+  const chat = board.create({ activity: 'chat', key: 'chat-1' }).task
+  const user = board.create({ activity: 'user', key: 'user-1' }).task
+  assert.equal(chat.status, 'running')
+  assert.equal(user.status, 'running', '监管器有空槽时自动起跑')
+
+  const normalized = scheduler.tick()
+  assert.equal(normalized.action, 'idle')
+  assert.equal(scheduler.snapshot().foreground.id, user.id, '保留最高优先级作为唯一前台')
+  assert.equal(board.get(chat.id).status, 'waiting', '其余前台置 waiting（任务不丢）')
+  assert.ok(scheduler.snapshot().metrics.preemptions >= 1)
+
+  board.complete(user.id, { ok: true })
+  const resumed = scheduler.tick()
+  assert.equal(resumed.action, 'resume')
+  assert.equal(resumed.task.id, chat.id, '高优先级完成后自动恢复被抢占任务')
+  assert.equal(board.get(chat.id).status, 'running')
+  assert.equal(scheduler.snapshot().metrics.resumes, 1)
+  assert.equal(SCHEDULER_CODES.claimFailed, 'SCHEDULER_CLAIM_FAILED')
 })
