@@ -133,6 +133,25 @@ import {
   similarity,
 } from '../lib/core/memory-quality.mjs'
 import {
+  createMinecraftActivity,
+  getMinecraftManifest,
+  MINECRAFT_ACTIVITY_CODES,
+  MINECRAFT_ACTIVITY_ID,
+  MINECRAFT_ACTIVITY_VERSION,
+  MINECRAFT_EVENTS,
+  MINECRAFT_MANIFEST,
+  MINECRAFT_MANIFEST_RAW,
+  MINECRAFT_TASK_KINDS,
+  MINECRAFT_TOOL_NAMES,
+  MINECRAFT_TOOLS_SNAPSHOT,
+  toChatEvent as toMinecraftChatEvent,
+  toDeathEvent as toMinecraftDeathEvent,
+  toSpawnEvent as toMinecraftSpawnEvent,
+  toTask as toMinecraftTask,
+  toToolReceiptEvent as toMinecraftToolReceiptEvent,
+  validateReceipt as validateMinecraftReceipt,
+} from '../lib/core/minecraft-activity.mjs'
+import {
   createScheduler,
   DEFAULT_PRIORITY_CLASSES,
   priorityClassOf,
@@ -167,6 +186,7 @@ import {
   MODEL_GATE_DEFAULTS,
   MODEL_GATE_REJECT_CODES,
 } from '../lib/domain/host/model-budget.mjs'
+import { MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
 import { callCandidate, callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/kernel/llm-call.mjs'
@@ -5118,4 +5138,272 @@ test('chat-activity D1：createChatActivity 工厂注入默认 reply/时钟', as
   assert.equal(replied.event.type, CHAT_EVENTS.replied)
   const interrupted = activity.toInterruptedEvent(task, { ok: false, cancelled: true }, { reason: 'paused' })
   assert.equal(interrupted.event.payload.reason, 'paused')
+})
+
+// ---------------------------------------------------------------------------
+// Gate D2：Minecraft Activity（lib/core/minecraft-activity.mjs）——manifest/事件/工具/回执/取消
+// ---------------------------------------------------------------------------
+
+test('minecraft-activity D2：manifest 合法且工具与 MINECRAFT_TOOLS 对齐', () => {
+  const validated = validateActivityManifest(MINECRAFT_MANIFEST_RAW)
+  assert.equal(validated.ok, true, JSON.stringify(validated.errors ?? []))
+  assert.equal(validated.manifest.id, MINECRAFT_ACTIVITY_ID)
+  assert.deepEqual(
+    validated.manifest.events.slice().sort(),
+    [MINECRAFT_EVENTS.chat, MINECRAFT_EVENTS.death, MINECRAFT_EVENTS.spawn, MINECRAFT_EVENTS.toolReceipt].sort(),
+  )
+  assert.deepEqual(validated.manifest.tasks.map((task) => task.kind).sort(), MINECRAFT_TASK_KINDS.slice().sort())
+  // 工具清单与现有 domain MINECRAFT_TOOLS 完全对齐（名称 + 数量）
+  assert.deepEqual(MINECRAFT_MANIFEST.tools.slice().sort(), MINECRAFT_TOOLS.map((tool) => tool.name).sort())
+  assert.deepEqual(
+    MINECRAFT_TOOL_NAMES,
+    MINECRAFT_TOOLS.map((tool) => tool.name),
+  )
+  assert.equal(MINECRAFT_TOOLS_SNAPSHOT.length, MINECRAFT_TOOLS.length)
+  assert.equal(Object.isFrozen(MINECRAFT_MANIFEST), true)
+  assert.notEqual(getMinecraftManifest(), MINECRAFT_MANIFEST)
+  assert.equal(MINECRAFT_ACTIVITY_VERSION, 1)
+})
+
+test('minecraft-activity D2：spawn/death/chat 事件映射为统一 envelope', () => {
+  const spawn = toMinecraftSpawnEvent(
+    { player: 'Yuan_JY', position: '0,64,0', worldName: 'world' },
+    { now: () => 1000 },
+  )
+  assert.equal(spawn.ok, true)
+  assert.equal(spawn.event.type, MINECRAFT_EVENTS.spawn)
+  assert.equal(spawn.event.subject, 'world:main')
+  assert.equal(spawn.event.activity, 'minecraft')
+  assert.equal(spawn.event.at, 1000)
+  assert.equal(validateEventEnvelope(spawn.event).ok, true)
+  assert.equal(spawn.event.payload.player, 'Yuan_JY')
+
+  const death = toMinecraftDeathEvent({ player: 'Yuan_JY', cause: 'fell', position: '1,2,3' }, { now: () => 1000 })
+  assert.equal(death.event.type, MINECRAFT_EVENTS.death)
+  assert.equal(death.event.payload.cause, 'fell')
+  assert.equal(validateEventEnvelope(death.event).ok, true)
+
+  const chat = toMinecraftChatEvent({ player: 'Yuan_JY', text: '来挖矿呀' }, { now: () => 1000 })
+  assert.equal(chat.event.type, MINECRAFT_EVENTS.chat)
+  assert.equal(chat.event.payload.text, '来挖矿呀')
+  assert.equal(validateEventEnvelope(chat.event).ok, true)
+  assert.equal(toMinecraftChatEvent({ player: 'Yuan_JY', text: '  ' }).code, MINECRAFT_ACTIVITY_CODES.invalidEvent)
+})
+
+test('minecraft-activity D2：command → 统一 Task（kind 映射 + 幂等 key）', () => {
+  const build = toMinecraftTask({ id: 'cmd-1', tool: 'mc_build', arguments: {}, reason: '盖房子' })
+  assert.equal(build.ok, true)
+  assert.equal(build.task.activity, 'minecraft')
+  assert.equal(build.task.kind, 'minecraft.build')
+  assert.equal(build.task.key, 'minecraft:minecraft.build:cmd-1')
+  assert.equal(build.task.payload.tool, 'mc_build')
+  assert.equal(build.task.payload.reason, '盖房子')
+  assert.equal(
+    toMinecraftTask({ id: 'cmd-2', tool: 'mc_explore', arguments: { direction: 'north' } }).task.kind,
+    'minecraft.explore',
+  )
+  assert.equal(toMinecraftTask({ tool: 'mc_plan' }).task.kind, 'minecraft.plan')
+  assert.equal(toMinecraftTask({ tool: 'mc_inquire' }).task.kind, 'minecraft.inquire')
+  assert.equal(toMinecraftTask({ tool: 'mc_mine' }).task.kind, 'minecraft.explore')
+  assert.equal(toMinecraftTask({ tool: 'mc_place' }).task.kind, 'minecraft.build')
+  // 无 command.id：同 tool+args+at → 同 key（幂等）；不同 args → 不同 key
+  const hashedA = toMinecraftTask({ tool: 'mc_move_to', arguments: { x: 1, z: 2 }, at: 1000 }).task.key
+  const hashedB = toMinecraftTask({ tool: 'mc_move_to', arguments: { x: 1, z: 2 }, at: 1000 }).task.key
+  assert.equal(hashedA, hashedB)
+  assert.notEqual(hashedA, toMinecraftTask({ tool: 'mc_move_to', arguments: { x: 9, z: 9 }, at: 1000 }).task.key)
+  assert.equal(toMinecraftTask({ tool: 'nope' }).code, MINECRAFT_ACTIVITY_CODES.invalidTool)
+  assert.equal(toMinecraftTask({ tool: 'mc_build', arguments: 'nope' }).code, MINECRAFT_ACTIVITY_CODES.invalidArguments)
+})
+
+test('minecraft-activity D2：receipt 校验与 tool_receipt 事件', () => {
+  const valid = validateMinecraftReceipt(
+    { ok: true, tool: 'mc_move_to', detail: '到了', facts: { position: '1,2,3' } },
+    { now: () => 1000 },
+  )
+  assert.equal(valid.ok, true)
+  assert.equal(valid.receipt.tool, 'mc_move_to')
+  assert.equal(valid.receipt.detail, '到了')
+  assert.deepEqual(valid.receipt.facts, { position: '1,2,3' })
+  assert.equal(valid.receipt.at, 1000)
+  assert.equal(validateMinecraftReceipt({ tool: 'mc_move_to' }).code, MINECRAFT_ACTIVITY_CODES.invalidReceipt)
+  assert.equal(validateMinecraftReceipt({ ok: true, tool: 'nope' }).code, MINECRAFT_ACTIVITY_CODES.invalidTool)
+  assert.equal(
+    validateMinecraftReceipt({ ok: true, tool: 'mc_move_to', facts: [] }).code,
+    MINECRAFT_ACTIVITY_CODES.invalidReceipt,
+  )
+  assert.equal(validateMinecraftReceipt('nope').code, MINECRAFT_ACTIVITY_CODES.invalidReceipt)
+
+  const event = toMinecraftToolReceiptEvent(
+    valid.receipt,
+    { key: 'minecraft:minecraft.explore:cmd-1' },
+    { now: () => 1000 },
+  )
+  assert.equal(event.ok, true)
+  assert.equal(event.event.type, MINECRAFT_EVENTS.toolReceipt)
+  assert.equal(event.event.payload.tool, 'mc_move_to')
+  assert.equal(event.event.payload.ok, true)
+  assert.equal(event.event.payload.taskKey, 'minecraft:minecraft.explore:cmd-1')
+  assert.equal(validateEventEnvelope(event.event).ok, true)
+})
+
+test('minecraft-activity D2：observe 转发 world 决策（observation→command→Task）', async () => {
+  const calls = []
+  const activity = createMinecraftActivity({
+    now: () => 1000,
+    invoke: async (action, payload) => {
+      calls.push({ action, payload })
+      return {
+        ok: true,
+        command: { id: 'cmd-7', tool: 'mc_build', arguments: {}, reason: '盖房子' },
+        permission: 'control',
+      }
+    },
+  })
+  const result = await activity.observe({ position: '10,64,10', players: ['Yuan_JY'], health: 18, food: 12 })
+  assert.equal(result.ok, true)
+  assert.equal(result.interrupted, false)
+  assert.equal(result.observation.position, '10,64,10')
+  assert.equal(result.task.kind, 'minecraft.build')
+  assert.equal(result.task.key, 'minecraft:minecraft.build:cmd-7')
+  assert.equal(result.permission, 'control')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].action, 'observe')
+  assert.equal(calls[0].payload.activity, 'minecraft')
+  assert.equal(calls[0].payload.observation.position, '10,64,10')
+
+  // 中断
+  const interrupted = await createMinecraftActivity({
+    invoke: async () => ({ ok: true, interrupt: true, reason: '用户接管' }),
+  }).observe({ position: '0,64,0' })
+  assert.equal(interrupted.ok, true)
+  assert.equal(interrupted.interrupted, true)
+  assert.equal(interrupted.reason, '用户接管')
+  assert.equal(interrupted.task, null)
+
+  // 错误分支
+  const worldFail = await createMinecraftActivity({ invoke: async () => ({ ok: false, error: 'llm' }) }).observe({
+    position: '0,64,0',
+  })
+  assert.equal(worldFail.code, MINECRAFT_ACTIVITY_CODES.worldError)
+  const thrown = await createMinecraftActivity({
+    invoke: async () => {
+      throw new Error('world down')
+    },
+  }).observe({ position: '0,64,0' })
+  assert.equal(thrown.code, MINECRAFT_ACTIVITY_CODES.worldError)
+  const invalid = await createMinecraftActivity({ invoke: async () => ({ ok: true }) }).observe({})
+  assert.equal(invalid.code, MINECRAFT_ACTIVITY_CODES.invalidObservation)
+  const noInvoke = await createMinecraftActivity({}).observe({ position: '0,64,0' })
+  assert.equal(noInvoke.code, MINECRAFT_ACTIVITY_CODES.noInvoke)
+})
+
+test('minecraft-activity D2：execute 转发工具调用并返回 receipt/事件', async () => {
+  const calls = []
+  const activity = createMinecraftActivity({
+    now: () => 1000,
+    invoke: async (action, payload) => {
+      calls.push({ action, payload })
+      return { ok: true, receipt: { ok: true, tool: payload.tool, detail: '放了 3 块', facts: { placed: 3 } } }
+    },
+  })
+  const result = await activity.execute('mc_build', { goal: '小屋' })
+  assert.equal(result.ok, true)
+  assert.equal(result.receipt.ok, true)
+  assert.equal(result.receipt.tool, 'mc_build')
+  assert.equal(result.receipt.detail, '放了 3 块')
+  assert.deepEqual(result.receipt.facts, { placed: 3 })
+  assert.equal(result.receipt.durationMs, 0)
+  assert.equal(result.event.type, MINECRAFT_EVENTS.toolReceipt)
+  assert.equal(validateEventEnvelope(result.event).ok, true)
+  assert.equal(calls[0].action, 'execute')
+  assert.equal(calls[0].payload.tool, 'mc_build')
+  assert.deepEqual(calls[0].payload.arguments, { goal: '小屋' })
+
+  // world 返回失败回执：仍是合法 receipt（ok=false），不丢事实
+  const failed = await createMinecraftActivity({
+    invoke: async () => ({
+      ok: true,
+      receipt: { ok: false, tool: 'mc_mine', detail: '附近没有树', facts: { found: 0 } },
+    }),
+  }).execute('mc_mine', {})
+  assert.equal(failed.ok, true)
+  assert.equal(failed.receipt.ok, false)
+  assert.equal(failed.receipt.detail, '附近没有树')
+  assert.equal(failed.event.payload.ok, false)
+})
+
+test('minecraft-activity D2：execute 错误分支', async () => {
+  const activity = createMinecraftActivity({
+    invoke: async () => ({ ok: true, receipt: { ok: true, tool: 'mc_wait' } }),
+  })
+  assert.equal((await activity.execute('nope', {})).code, MINECRAFT_ACTIVITY_CODES.invalidTool)
+  assert.equal((await activity.execute('mc_wait', 'nope')).code, MINECRAFT_ACTIVITY_CODES.invalidArguments)
+  const thrown = await createMinecraftActivity({
+    invoke: async () => {
+      throw new Error('bot offline')
+    },
+  }).execute('mc_wait', {})
+  assert.equal(thrown.code, MINECRAFT_ACTIVITY_CODES.worldError)
+  assert.equal(thrown.receipt.ok, false)
+  assert.equal(thrown.receipt.tool, 'mc_wait')
+  const invalidReceipt = await createMinecraftActivity({
+    invoke: async () => ({ ok: true, receipt: { tool: 'mc_wait' } }),
+  }).execute('mc_wait', {})
+  assert.equal(invalidReceipt.code, MINECRAFT_ACTIVITY_CODES.invalidReceipt)
+  const noInvoke = await createMinecraftActivity({}).execute('mc_wait', {})
+  assert.equal(noInvoke.code, MINECRAFT_ACTIVITY_CODES.noInvoke)
+})
+
+test('minecraft-activity D2：中断返回 cancelled receipt（不调用 world）', async () => {
+  let calls = 0
+  const activity = createMinecraftActivity({
+    now: () => 1000,
+    invoke: () => {
+      calls += 1
+      return new Promise(() => {})
+    },
+  })
+  const preAborted = new AbortController()
+  preAborted.abort()
+  const pre = await activity.execute('mc_build', {}, { signal: preAborted.signal })
+  assert.equal(pre.ok, false)
+  assert.equal(pre.cancelled, true)
+  assert.equal(pre.code, MINECRAFT_ACTIVITY_CODES.cancelled)
+  assert.equal(pre.receipt.cancelled, true)
+  assert.equal(calls, 0)
+
+  const controller = new AbortController()
+  const pending = activity.execute('mc_build', {}, { signal: controller.signal })
+  setTimeout(() => controller.abort(), 0)
+  const cancelled = await pending
+  assert.equal(cancelled.cancelled, true)
+  assert.equal(cancelled.receipt.ok, false)
+  assert.equal(cancelled.receipt.tool, 'mc_build')
+
+  const observeAborted = await activity.observe({ position: '0,64,0' }, { signal: preAborted.signal })
+  assert.equal(observeAborted.cancelled, true)
+  assert.equal(observeAborted.code, MINECRAFT_ACTIVITY_CODES.cancelled)
+})
+
+test('minecraft-activity D2：工厂绑定方法与自定义 worldId', async () => {
+  const activity = createMinecraftActivity({
+    now: () => 5000,
+    worldId: 'smp',
+    invoke: async (action) =>
+      action === 'observe'
+        ? { ok: true, command: { tool: 'mc_explore', arguments: { direction: 'north' } } }
+        : { ok: true, receipt: { ok: true, tool: 'mc_explore', detail: '走了很远', facts: { distance: 64 } } },
+  })
+  assert.equal(activity.manifest.id, 'minecraft')
+  const event = activity.toSpawnEvent({ player: 'Yuan_JY' })
+  assert.equal(event.event.subject, 'world:smp')
+  assert.equal(event.event.at, 5000)
+  const observed = await activity.observe({ position: '0,64,0' })
+  assert.equal(observed.task.kind, 'minecraft.explore')
+  const executed = await activity.execute('mc_explore', { direction: 'north' })
+  assert.equal(executed.receipt.ok, true)
+  assert.equal(executed.event.subject, 'world:smp')
+  assert.equal(activity.toTask({ tool: 'mc_plan' }).task.kind, 'minecraft.plan')
+  const invalidEvent = activity.toEvent('minecraft.unknown', {})
+  assert.equal(invalidEvent.code, MINECRAFT_ACTIVITY_CODES.invalidEvent)
 })
