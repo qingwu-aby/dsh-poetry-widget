@@ -122,7 +122,7 @@ export function PoetryWidget(props) {
   // 顺序：toast → settings → panel → weather → data → spont → selfStatus → mood → mascot。
   const { toast, showToast, toastTimer } = useToast({ refs })
   const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs })
-  const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs })
+  const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs })
   const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings })
   const { viewport, mascotSize, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, ciBankRes, feihuaOpen } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs })
   const { spontPoem, spontPreview, wakeSpontaneous, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction })
@@ -657,7 +657,7 @@ export function PoetryWidget(props) {
 
   // 运行状态（v1.83）：面板停在设置 tab 时轮询 health.json，只读展示预算/心跳/模型失败。
   React.useEffect(() => {
-   if (!panelOpen || (panelTab !== 'settings' && panelTab !== 'growth') || settings.hidden) {
+   if (!panelOpen || panelTab !== 'growth' || settings.hidden) {
     setHealthStatus(null)
     return undefined
    }
@@ -845,7 +845,6 @@ export function PoetryWidget(props) {
     openPoetryModule,
     poetryEntryEnabled: POETRY_ENTRY_ENABLED,
     startPoetryTour,
-    openSettings: openSettingsPanel,
     openPanel,
     openPanelTab,
     anthologyRes,
@@ -938,6 +937,7 @@ export function PoetryWidget(props) {
     setStep,
     openPanel,
     handleMascotMediaError,
+    showToast,
    }))
    const bubbleNode = BubbleView({
     step,

@@ -47,15 +47,10 @@ export function usePanel(deps) {
    setPanelOpen(true)
   }
 
-  function openSettingsPanel() {
-   openPanelTab('settings')
-   setPanelOpen(true)
-  }
-
   function openPanel(tab) {
    noteInteraction()
    panelOpensRef.current += 1
-   if (tab === 'settings' || tab === 'growth' || tab === 'poetry' || POETRY_TABS.some((item) => item.id === tab)) {
+   if (tab === 'growth' || tab === 'poetry' || POETRY_TABS.some((item) => item.id === tab)) {
     openPanelTab(tab)
    } else {
     openPanelTab('growth')
@@ -63,5 +58,5 @@ export function usePanel(deps) {
    setPanelOpen(true)
   }
 
-  return { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel }
+  return { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openPanel }
 }

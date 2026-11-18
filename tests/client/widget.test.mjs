@@ -384,25 +384,28 @@ function rerender(react, component, props) {
 
 /** 面板若停在诗词二级菜单，先返回成长，再点主「设置」tab。 */
 function openPrimarySettings(tree, renderMain) {
+  // v0.12.0：设置已移到 DSH 插件设置页；测试通过 GrowthTab 的 api 检查同一容器状态。
   let current = tree
   const back = findAll(current, (node) => node.type === 'button' && node.props['aria-label'] === '返回成长')[0]
   if (back) {
     back.props.onClick()
     current = renderMain()
   }
-  const settingsTab = findAll(
-    current,
-    (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && !node.props.className.includes('dshp-subtab')
-      && textOf(node) === '设置',
-  )[0]
-  if (settingsTab) {
-    settingsTab.props.onClick()
+  const growthTab = findAll(current, (node) => node.type === 'button'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('dshp-tab')
+    && !node.props.className.includes('dshp-subtab')
+    && textOf(node) === '成长')[0]
+  if (growthTab) {
+    growthTab.props.onClick()
     current = renderMain()
   }
   return current
+}
+
+function settingsApiFromTree(tree) {
+  const growth = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
+  return growth && growth.props && growth.props.api ? { props: { api: growth.props.api } } : null
 }
 
 /** 测试里的“等待”改为推进虚拟时钟；并清掉已 cleanup 的客户端。 */
@@ -1067,7 +1070,7 @@ test('气泡序列：从诗词二级菜单进入，点形象依次推进 6 步�
   assert.match(textOf(bubbles[0]), /今日一诗/)
 })
 
-test('面板 3 顶层 tab（默认成长/图谱/设置）+ 诗词二级菜单；隐藏后热区双击可恢复', () => {
+test('面板 2 顶层 tab（默认成长/图谱）+ 诗词二级菜单；隐藏后热区双击可恢复', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -1079,12 +1082,12 @@ test('面板 3 顶层 tab（默认成长/图谱/设置）+ 诗词二级菜单；
   const tabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-primary-tab'))
-  assert.equal(tabs.length, 3)
-  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '图谱', '设置'])
+  assert.equal(tabs.length, 2)
+  assertDeep(tabs.map((tab) => textOf(tab)), ['成长', '图谱'])
   const poetryEntry = findAll(tree, (node) => node.type === 'button'
     && node.props['aria-label'] === '打开诗词二级菜单')[0]
   assert.ok(poetryEntry, '主面板应有诗词二级菜单入口')
-  // 右键默认打开设置；点击「成长」进入成长主页
+  // 右键默认打开面板（成长）；点击「成长」进入成长主页
   tabs[0].props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
   assert.ok(findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab').length, '成长 tab 应渲染 GrowthTab')
@@ -1112,17 +1115,8 @@ test('面板 3 顶层 tab（默认成长/图谱/设置）+ 诗词二级菜单；
   assert.ok(backButton, '诗词二级菜单应有返回按钮')
   backButton.props.onClick()
   tree = rerender(react, debug.PoetryWidget, {})
-  const settingsTopTab = findAll(tree, (node) => node.type === 'button'
-    && typeof node.props.className === 'string'
-    && node.props.className.includes('dshp-tab')
-    && textOf(node) === '设置')[0]
-  settingsTopTab.props.onClick()
-  tree = rerender(react, debug.PoetryWidget, {})
-  const settingsElement = findAll(
-    tree,
-    (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab',
-  )[0]
-  assert.ok(settingsElement, '设置 tab 应渲染 SettingsTab')
+  const settingsElement = settingsApiFromTree(tree)
+  assert.ok(settingsElement, '面板 API 可从 GrowthTab 取得')
   settingsElement.props.api.hideWidget()
   tree = rerender(react, debug.PoetryWidget, {})
   let root = findAll(tree, (node) => node.props && node.props['data-dsh-little-whale'] === 'root')[0]
@@ -2115,7 +2109,7 @@ test('天气集成（假 React 跑 effects）：rain → 立绘切换 + 天气 c
       panelButton.props.onClick()
       tree = renderMain()
       tree = openPrimarySettings(tree, renderMain)
-      const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+      const settingsElement = settingsApiFromTree(tree)
       assert.ok(settingsElement)
       assert.equal(settingsElement.props.api.weatherData.city, '北京')
       assert.equal(typeof settingsElement.props.api.refreshWeather, 'function')
@@ -2620,7 +2614,7 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     panelButton.props.onClick()
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
-    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsElement = settingsApiFromTree(tree)
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
     mainApi.previewSpontaneousPoem()
@@ -2646,8 +2640,8 @@ test('心情集成（假 React 跑 effects）：mood 开启即拉天气、心情
     tree = renderMain()
     mascot = findAll(tree, (node) => node.type === 'img')[0]
     assert.ok(
-      String(mascot.props.src).includes('dsh-whale-settings-peek.webp'),
-      '面板打开时应显示设置页探头图，实际：' + mascot.props.src,
+      String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'),
+      '面板打开时应显示工作台探头图，实际：' + mascot.props.src,
     )
     const closePanelButton = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '关闭面板')[0]
     assert.ok(closePanelButton)
@@ -3815,7 +3809,7 @@ test('自言自语模型集成：占位→模型 murmur、缓存、再说一句�
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
-    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsElement = settingsApiFromTree(tree)
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
     const findSpontCard = (currentTree) => findAll(currentTree, (node) => node.type === 'div'
@@ -4176,7 +4170,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     assert.ok(String(mascot.props.src).includes('dsh-whale-home-peek.webp'), '诗词今日面板应显示 home-peek，实际 ' + mascot.props.src)
     tree = openPrimarySettings(tree, renderMain)
     mascot = findAll(tree, (node) => node.type === 'img')[0]
-    assert.ok(String(mascot.props.src).includes('dsh-whale-settings-peek.webp'), '设置面板应显示 settings-peek，实际 ' + mascot.props.src)
+    assert.ok(String(mascot.props.src).includes('dsh-whale-workbench-peek.webp'), '面板应显示 workbench-peek，实际 ' + mascot.props.src)
     const poetryEntry = findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单')[0]
     assert.ok(poetryEntry, '应有诗词二级菜单入口')
     poetryEntry.props.onClick()
@@ -4193,7 +4187,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
 
     // 设置显示 label/reason/来源（模型）
     tree = openPrimarySettings(tree, renderMain)
-    const settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsElement = settingsApiFromTree(tree)
     assert.ok(settingsElement)
     assert.equal(settingsElement.props.api.moodSource, 'model')
     assert.equal(settingsElement.props.api.moodView.label, '发呆出神')
@@ -4217,7 +4211,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
     assert.ok(closePanelButton)
     closePanelButton.props.onClick()
     tree = renderMain()
-    const settingsAfter = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')
+    const settingsAfter = [settingsApiFromTree(tree)]
     // 面板关闭后重新打开设置以读回退状态
     const stage2 = findStage(tree)
     if (stage2) {
@@ -4229,7 +4223,7 @@ test('模型心情集成：图鉴懒加载→mood-ai 任意图生效、chip labe
       tree = renderMain()
       tree = openPrimarySettings(tree, renderMain)
     }
-    const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsEl = settingsApiFromTree(tree)
     assert.ok(settingsEl)
     assert.equal(settingsEl.props.api.moodAiFallback, false, '30min 内已有模型心情，失败时保留上一次')
     assert.equal(settingsEl.props.api.moodSource, 'model')
@@ -5265,7 +5259,7 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     assert.equal(moodAiCalls.length, 2, '同时段多个事件应合并为一次请求')
 
     // in-flight 时记 pending，完成后补发一次
-    let settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    let settingsElement = settingsApiFromTree(tree)
     assert.ok(settingsElement)
     const mainApi = settingsElement.props.api
     mode = 'deferred'
@@ -5307,7 +5301,7 @@ test('实时心情事件：2–4s 防抖合并、force=1、面板事件、in-fli
     tree = renderMain()
     assert.equal(moodAiCalls.length, 5)
     assert.ok(!textOf(tree).match(/失败|错误|不可用/), '心情失败不得弹错误')
-    settingsElement = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsElement = settingsApiFromTree(tree)
     if (settingsElement.length) assert.equal(settingsElement[0].props.api.moodSource, 'heuristic')
   } finally {
     react._cleanup()
@@ -5506,7 +5500,7 @@ test('晕眩集成：快拖播转圈 webm + 摇晃/星星/提示、1.5–2.5s �
     assert.ok(String(dizzyVideo.props.src).includes(encodeURIComponent('webm/小幅度原地360度旋转展示.webm')))
     assert.match(textOf(cat.tree), /别甩啦，头好晕…/)
     // 脉冲优先于晕眩
-    const settingsElement = findAll(cat.tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsElement = settingsApiFromTree(cat.tree)
     if (settingsElement) {
       settingsElement.props.api.pulseMascot('gameThink')
       cat.tree = cat.renderMain()
@@ -5723,7 +5717,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
-    return findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    return settingsApiFromTree(tree)
   }
   try {
     let tree = renderFresh(react, debug.PoetryWidget, {})
@@ -5742,7 +5736,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     fire(debounce)
     await sleep(20)
     tree = renderMain()
-    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsEl = settingsApiFromTree(tree)
     assert.ok(settingsEl)
     assert.equal(settingsEl.props.api.moodAiFallback, true, '首次失败应回退本地')
     assert.equal(settingsEl.props.api.moodSource, 'heuristic')
@@ -5755,7 +5749,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     fire(retryTimer)
     await sleep(20)
     tree = renderMain()
-    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsEl = settingsApiFromTree(tree)
     assert.equal(settingsEl.props.api.moodAiFallback, false)
     assert.equal(settingsEl.props.api.moodSource, 'model')
     assert.equal(settingsEl.props.api.moodAiStale, false)
@@ -5769,7 +5763,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     fire(immediate)
     await sleep(20)
     tree = renderMain()
-    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsEl = settingsApiFromTree(tree)
     assert.equal(settingsEl.props.api.moodAiFallback, false, '30min 内保留上一次模型心情')
     assert.equal(settingsEl.props.api.moodSource, 'model')
     assert.equal(settingsEl.props.api.moodAiStale, true)
@@ -5785,7 +5779,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
     fire(retryTimer)
     await sleep(20)
     tree = renderMain()
-    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsEl = settingsApiFromTree(tree)
     assert.equal(settingsEl.props.api.moodAiStale, false)
     assert.equal(settingsEl.props.api.moodAiFailure, '')
 
@@ -5798,7 +5792,7 @@ test('模型心情失败集成：首次失败回退、成功过则保留并重�
       fire(immediate)
       await sleep(20)
       tree = renderMain()
-      settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+      settingsEl = settingsApiFromTree(tree)
     }
     assert.equal(debug.MOOD_AI_MAX_RETRIES, 5)
     retryTimer = findTimer(debug.MOOD_AI_RETRY_MIN_MS, debug.MOOD_AI_RETRY_MAX_MS)
@@ -5941,7 +5935,7 @@ test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label
     stage.props.onPointerUp(pointerEvent(1))
     tree = renderMain()
     tree = openPrimarySettings(tree, renderMain)
-    let settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    let settingsEl = settingsApiFromTree(tree)
     assert.ok(settingsEl)
     settingsEl.props.api.refreshMoodNow()
     tree = renderMain()
@@ -5950,7 +5944,7 @@ test('self-talk 联动当前心情：startSpontaneousCard 带 moodView 的 label
     fire(immediate)
     await sleep(30)
     tree = renderMain()
-    settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    settingsEl = settingsApiFromTree(tree)
     assert.equal(settingsEl.props.api.moodSource, 'model')
     // 用预览一句直接触发 startSpontaneousCard
     settingsEl.props.api.previewSpontaneousPoem()
@@ -6106,9 +6100,9 @@ test('成长状态轮询：App 级请求 self.json、页面隐藏跳过、404 �
 /* 23. M40 信息架构：成长主页 + 诗词二级模块                            */
 /* ------------------------------------------------------------------ */
 
-test('M40 顶层 tab：成长/设置 + 诗词二级菜单，openPanel 深链', () => {
+test('M40 顶层 tab：成长/图谱 + 诗词二级菜单，openPanel 深链', () => {
   const { react, debug } = loadClient({ seed: CACHE_SEED })
-  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'graph', 'settings'])
+  assertDeep(debug.PANEL_TABS.map((tab) => tab.id), ['growth', 'graph'])
   assertDeep(debug.POETRY_TABS.map((tab) => tab.id), ['today', 'class', 'yun', 'ci', 'library', 'feihua', 'poetry-settings'])
   let tree = renderFresh(react, debug.PoetryWidget, {})
   const stage = findStage(tree)
@@ -6117,9 +6111,9 @@ test('M40 顶层 tab：成长/设置 + 诗词二级菜单，openPanel 深链', (
   const topTabs = findAll(tree, (node) => node.type === 'button'
     && typeof node.props.className === 'string'
     && node.props.className.includes('dshp-primary-tab'))
-  assert.equal(topTabs.length, 3)
+  assert.equal(topTabs.length, 2)
   assert.ok(findAll(tree, (node) => node.type === 'button' && node.props['aria-label'] === '打开诗词二级菜单').length, '应有诗词二级入口')
-  const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+  const settingsEl = settingsApiFromTree(tree)
   assert.ok(settingsEl)
   // openPanel('library') 深链 → poetry/library
   settingsEl.props.api.openPanel('library')
@@ -6320,18 +6314,7 @@ test('记忆中枢：仅成长 tab 轮询、隐藏跳过、POST 备份成功/失
     react._runEffects()
     await sleep(20)
     tree = renderMain()
-    assert.equal(memoryCalls, 0, '停在设置 tab 时不轮询 memory')
-    const growthTab = findAll(tree, (node) => node.type === 'button'
-      && typeof node.props.className === 'string'
-      && node.props.className.includes('dshp-tab')
-      && textOf(node) === '成长')[0]
-    assert.ok(growthTab)
-    growthTab.props.onClick()
-    tree = renderMain()
-    react._runEffects()
-    await sleep(20)
-    tree = renderMain()
-    assert.ok(memoryCalls >= 1, '成长 tab 应轮询 memory')
+    assert.ok(memoryCalls >= 1, '右键默认进入成长 tab，应轮询 memory')
     const growthEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'GrowthTab')[0]
     assert.ok(growthEl)
     let growthTree = debug.GrowthTab({ api: growthEl.props.api })
@@ -6601,7 +6584,7 @@ test('模型失败时自言自语安静：不出现本地气泡、无本地池�
     const stage = findStage(tree)
     stage.props.onContextMenu({ preventDefault() {} })
     tree = renderMain()
-    const settingsEl = findAll(tree, (node) => typeof node.type === 'function' && node.type.name === 'SettingsTab')[0]
+    const settingsEl = settingsApiFromTree(tree)
     assert.ok(settingsEl)
     const mainApi = settingsEl.props.api
     mainApi.previewSpontaneousPoem()
@@ -6611,7 +6594,7 @@ test('模型失败时自言自语安静：不出现本地气泡、无本地池�
       && typeof node.props.className === 'string'
       && node.props.className.includes('dshp-spont'))
     assert.equal(cards.length, 0, '模型失败不应出现本地 murmur 气泡')
-    const settingsText = textOf(settingsEl.type(settingsEl.props))
+    const settingsText = textOf(renderFresh(react, debug.SettingsTab, { api: settingsEl.props.api }))
     assert.ok(!settingsText.includes('当前使用本地句子池'), '设置不应有本地句子池兜底')
     assert.ok(!textOf(tree).match(/失败|错误|不可用/), '失败不得弹错误 toast')
     for (const name of ['MURMUR_POOL', 'MURMUR_TEMPLATES', 'MURMUR_TITLES', 'pickMurmur', 'fallbackSpontCard', 'selfTalkFallback']) {

@@ -26409,7 +26409,7 @@
 
   // client-src/widget/view/mascot-view.js
   function MascotView(props) {
-    const { settings, step, panelOpen, moodView, mascotExpression, moodCatalog, panelTab, poetryTab, dizzy, mealActive, motionFile, wanderFile, failedMascot, noteInteraction, showMascotExpression, pickMascotExpression: pickMascotExpression2, setStep, handleMascotKeyDown, openPanel, mascotVideoRef, handleMascotMediaError, weather, mascotPulse, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = props;
+    const { settings, step, panelOpen, moodView, mascotExpression, moodCatalog, panelTab, poetryTab, dizzy, mealActive, motionFile, wanderFile, failedMascot, noteInteraction, showMascotExpression, pickMascotExpression: pickMascotExpression2, setStep, handleMascotKeyDown, openPanel, mascotVideoRef, handleMascotMediaError, weather, mascotPulse, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, showToast } = props;
     const showHint = !settings.tutorialSeen && step < 0 && !panelOpen;
     const weatherOn = settings.weatherPoem || settings.mood;
     const imageInfo = mascotImageFor({
@@ -26450,7 +26450,7 @@
         onKeyDown: handleMascotKeyDown,
         onContextMenu: (event) => {
           event.preventDefault();
-          openPanel("settings");
+          openPanel("growth");
         }
       },
       h(
@@ -27123,21 +27123,17 @@
       openPanelTab("poetry");
       setPanelOpen(true);
     }
-    function openSettingsPanel() {
-      openPanelTab("settings");
-      setPanelOpen(true);
-    }
     function openPanel(tab) {
       noteInteraction();
       panelOpensRef.current += 1;
-      if (tab === "settings" || tab === "growth" || tab === "poetry" || POETRY_TABS.some((item) => item.id === tab)) {
+      if (tab === "growth" || tab === "poetry" || POETRY_TABS.some((item) => item.id === tab)) {
         openPanelTab(tab);
       } else {
         openPanelTab("growth");
       }
       setPanelOpen(true);
     }
-    return { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel };
+    return { panelOpen, setPanelOpen, panelTab, setPanelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openPanel };
   }
 
   // client-src/widget/hooks/use-weather.js
@@ -28601,7 +28597,7 @@
     const { userPickedPoemRef, petMediaEntriesRef, pressTimer, mascotTimerRef, mascotExprTimerRef, posRef, moodViewRef, selfStatusRef, clicksRef, panelOpensRef, lastInteractionRef, feihuaWinsRef, feihuaLossesRef, weatherRef, uiRef, recentSpokenRef, bridge } = refs;
     const { toast, showToast, toastTimer } = useToast({ refs });
     const { settings, settingsRef, saverRef, updateSettings, resetSettings, setSettings } = useSettings({ cacheRef, showToast, refs });
-    const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openSettingsPanel, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs });
+    const { panelOpen, setPanelOpen, panelTab, poetryTab, setPoetryTab, hideWidget, restoreWidget, noteInteraction, openPanelTab, openPoetryModule, openPanel } = usePanel({ updateSettings, setStep, panelTabs, refs });
     const { weatherRes, refreshWeather, weatherData, weather } = useWeather({ settingsRef, refs, settings });
     const { viewport, mascotSize, setCiBankWanted, poemsRes, reloadPoems, knowledgeRes, reloadKnowledge, yunRes, reloadYun, ciRes, reloadCi, anthologyRes, reloadAnthology, bankRes, reloadBank, pingshuiRes, reloadPingshui, moodCatalogRes, ciBankRes, feihuaOpen } = useData({ boot, settings, panelOpen, panelTab, poetryTab, step, weatherRes, resourceStore, useViewportSize, useResource, refs });
     const { spontPoem, spontPreview, wakeSpontaneous, showSpontCard, previewSpontaneousPoem, readAnotherSpontaneous, openSpontPoem, closeSpont, moodWakeSigRef } = useSpont({ settings, settingsRef, setSelectedPoemId, setLibraryFocus, setPanelOpen, openPanelTab, refs, panelOpen, step, weather, noteInteraction });
@@ -29046,7 +29042,7 @@
       };
     }, [panelOpen, panelTab, settings.hidden]);
     React.useEffect(() => {
-      if (!panelOpen || panelTab !== "settings" && panelTab !== "growth" || settings.hidden) {
+      if (!panelOpen || panelTab !== "growth" || settings.hidden) {
         setHealthStatus(null);
         return void 0;
       }
@@ -29224,7 +29220,6 @@
         openPoetryModule,
         poetryEntryEnabled: POETRY_ENTRY_ENABLED,
         startPoetryTour,
-        openSettings: openSettingsPanel,
         openPanel,
         openPanelTab,
         anthologyRes,
@@ -29313,7 +29308,8 @@
         pickMascotExpression,
         setStep,
         openPanel,
-        handleMascotMediaError
+        handleMascotMediaError,
+        showToast
       }));
       const bubbleNode = BubbleView({
         step,
@@ -29423,14 +29419,12 @@
   // client-src/panel-tabs.js
   var PANEL_TAB_DEFS = Object.freeze([
     { id: "growth", label: "\u6210\u957F" },
-    { id: "graph", label: "\u56FE\u8C31" },
-    { id: "settings", label: "\u8BBE\u7F6E" }
+    { id: "graph", label: "\u56FE\u8C31" }
   ]);
   function createPanelTabRouter(components) {
     const byId = /* @__PURE__ */ new Map([
       ["growth", components.GrowthTab],
-      ["graph", components.GraphTab],
-      ["settings", components.SettingsTab]
+      ["graph", components.GraphTab]
     ]);
     return {
       tabs: PANEL_TAB_DEFS,
@@ -29787,7 +29781,7 @@
         clearPetMediaCache
       });
       const { useViewportSize, useResource } = createHooks({ React, resourceStore });
-      const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab });
+      const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab });
       setRuntime({ React, h: h3, resourceStore, useViewportSize, useResource, panelTabs });
       const DEBUG = {
         ROUTE,

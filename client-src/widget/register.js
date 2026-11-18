@@ -65,7 +65,7 @@ window.__ModuleLoader__.load({
     clearPetMediaCache,
   })
   const { useViewportSize, useResource } = createHooks({ React, resourceStore })
-  const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab, SettingsTab })
+  const panelTabs = createPanelTabRouter({ GrowthTab, GraphTab })
   setRuntime({ React, h, resourceStore, useViewportSize, useResource, panelTabs })
   const DEBUG = {
   ROUTE,

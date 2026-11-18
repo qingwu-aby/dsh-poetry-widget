@@ -8,7 +8,7 @@ import { MASCOT_EXPRESSION_FILES, MASCOT_FILES } from '../models/constants.js'
 import { mascotFileFor, mascotFilePriority, mascotImageFor, mascotStateFor, mascotUrl, petMediaUrl } from '../models/mascot-model.js'
 
   export function MascotView(props) {
-  const { settings, step, panelOpen, moodView, mascotExpression, moodCatalog, panelTab, poetryTab, dizzy, mealActive, motionFile, wanderFile, failedMascot, noteInteraction, showMascotExpression, pickMascotExpression, setStep, handleMascotKeyDown, openPanel, mascotVideoRef, handleMascotMediaError, weather, mascotPulse, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel } = props
+  const { settings, step, panelOpen, moodView, mascotExpression, moodCatalog, panelTab, poetryTab, dizzy, mealActive, motionFile, wanderFile, failedMascot, noteInteraction, showMascotExpression, pickMascotExpression, setStep, handleMascotKeyDown, openPanel, mascotVideoRef, handleMascotMediaError, weather, mascotPulse, handlePointerDown, handlePointerMove, handlePointerUp, handlePointerCancel, showToast } = props
    const showHint = !settings.tutorialSeen && step < 0 && !panelOpen
    const weatherOn = settings.weatherPoem || settings.mood
    const imageInfo = mascotImageFor({
@@ -49,7 +49,7 @@ import { mascotFileFor, mascotFilePriority, mascotImageFor, mascotStateFor, masc
     onKeyDown: handleMascotKeyDown,
     onContextMenu: (event) => {
      event.preventDefault()
-     openPanel('settings')
+     openPanel('growth')
     },
     },
     h(
