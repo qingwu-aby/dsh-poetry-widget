@@ -17,10 +17,15 @@ import {
   summarizeModelBudget,
   summarizeModelGate,
 } from '../lib/composition/health.mjs'
-import { createHubHandler, HUB_ACTIONS, HUB_ROUTE, registerHubRoute } from '../lib/composition/hub-routes.mjs'
+import {
+  createHubHandler,
+  createRealActivityAdapters,
+  HUB_ACTIONS,
+  HUB_ROUTE,
+  registerHubRoute,
+} from '../lib/composition/hub-routes.mjs'
 import {
   createHubRuntime,
-  createMinecraftShadowSink,
   getActiveHubRuntime,
   HUB_RUNTIME_DEFAULT_FLAG,
   HUB_RUNTIME_VERSION,
@@ -36,6 +41,7 @@ import {
   registerModelPolicyRoute,
   validateModelPolicyInput,
 } from '../lib/composition/model-policy-routes.mjs'
+import { createMinecraftShadowSink } from '../lib/composition/plugin-runtime.mjs'
 import {
   createTrainingHandler,
   registerTrainingRoute,
@@ -7303,7 +7309,8 @@ test('hub-routes F2：注册路由与 action 列表', () => {
   assert.equal(routes[0].path, HUB_ROUTE)
   assert.equal(typeof handler, 'function')
   assert.equal(disposers.length, 1)
-  assert.deepEqual(HUB_ACTIONS.slice(0, 3), ['task.pause', 'task.resume', 'task.cancel'])
+  assert.equal(HUB_ACTIONS[0], 'task.create')
+  assert.deepEqual(HUB_ACTIONS.slice(1, 4), ['task.pause', 'task.resume', 'task.cancel'])
   assert.ok(HUB_ACTIONS.includes('memory.query'))
   runtime.dispose()
   setActiveHubRuntime(null)
@@ -8434,4 +8441,260 @@ test('training-routes H2：状态读取反映配置变更（仍不训练）', as
   assert.equal(payload.plan.blockedReason, 'runner-unavailable')
   assert.equal(service.audit().length, 0, '只读操作不产生训练审计')
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate H3：真实 Activity 执行适配器注入（hub-runtime + hub-routes task.create）
+// ---------------------------------------------------------------------------
+
+function makeH3Fixture(flag, options = {}) {
+  const calls = { chat: 0, decide: 0, recordReceipt: 0 }
+  const chatBridge = options.chatBridge ?? {
+    async chat(input) {
+      calls.chat += 1
+      return { ok: true, reply: '好呀：' + String(input.text || '').slice(0, 20) }
+    },
+  }
+  const minecraftWorld = options.minecraftWorld ?? {
+    decide(observation) {
+      calls.decide += 1
+      return { ok: true, command: { id: 'cmd-hub-1', tool: 'mc_wait', arguments: {}, reason: 'hub' }, observation }
+    },
+    recordReceipt(receipt) {
+      calls.recordReceipt += 1
+      return { ok: true, accepted: true, lastReceipt: { ...receipt, at: 1000 } }
+    },
+  }
+  const dir = tmpDir('h3-hub')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const activityManifests = createRealActivityAdapters({
+    chatBridgeProvider: () => chatBridge,
+    minecraftWorldProvider: () => minecraftWorld,
+    now: () => 1000,
+  })
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: flag,
+    activityManifests,
+    now: () => 1000,
+  })
+  runtime.start()
+  setActiveHubRuntime(runtime)
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  return { dir, tokenFile, runtime, handler, calls, chatBridge, minecraftWorld }
+}
+
+test('hub-runtime H3：off/shadow 不注入真实 adapter、不执行任务', async () => {
+  const off = makeH3Fixture({ enabled: false, shadow: true })
+  assert.deepEqual(off.runtime.getAdapters(), [], 'off 不注入 adapter')
+  assert.deepEqual(off.runtime.snapshot().adapters, [])
+  const offPost = hubFakeRes()
+  await off.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'chat.turn',
+      payload: { peerId: 'p', messageId: 'm', text: 'hi' },
+    }),
+    offPost,
+  )
+  assert.equal(offPost.statusCode, 200)
+  assert.equal(offPost.json().ok, false)
+  assert.equal(offPost.json().code, 'HUB_FULL_REQUIRED')
+  assert.equal(off.runtime.getInstances().taskBoard.snapshot().total, 0, 'feature flag 关闭时不创建任务')
+  assert.equal(off.calls.chat, 0)
+  assert.equal((await off.runtime.executeTask('missing')).code, 'HUB_FULL_REQUIRED')
+  off.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(off.dir, { recursive: true, force: true })
+
+  const shadow = makeH3Fixture({ enabled: true, shadow: true })
+  assert.deepEqual(shadow.runtime.getAdapters(), [], 'shadow 不注入 adapter')
+  const shadowPost = hubFakeRes()
+  await shadow.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'chat.turn',
+      payload: { peerId: 'p', messageId: 'm', text: 'hi' },
+    }),
+    shadowPost,
+  )
+  assert.equal(shadowPost.json().code, 'HUB_FULL_REQUIRED')
+  assert.equal(shadow.runtime.getInstances().taskBoard.snapshot().total, 0)
+  assert.equal(shadow.calls.chat, 0)
+  shadow.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(shadow.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：full 模式 chat 任务经 chatBridge 执行并回 receipt', async () => {
+  const fixture = makeH3Fixture({ enabled: true, shadow: false })
+  assert.deepEqual(fixture.runtime.getAdapters().sort(), ['chat', 'minecraft'])
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'chat.turn',
+      payload: { peerId: 'peer-1', messageId: 'm-1', text: '你好' },
+      idempotencyKey: 'hub-chat-1',
+    }),
+    res,
+  )
+  assert.equal(res.statusCode, 200)
+  const result = res.json()
+  assert.equal(result.ok, true)
+  assert.equal(result.executed, true)
+  assert.equal(result.success, true)
+  assert.equal(result.receipt.ok, true)
+  assert.equal(result.receipt.replyId, 'hub-chat-m-1')
+  assert.equal(fixture.calls.chat, 1, 'chatBridge 被真实调用一次')
+  const board = fixture.runtime.getInstances().taskBoard
+  const task = board.get(result.task.id)
+  assert.equal(task.status, 'done', 'receipt 回写任务板')
+  assert.ok(result.feedback !== null, 'receipt 进入反馈账本')
+  assert.ok(fixture.runtime.getInstances().feedbackLedger.snapshot().records >= 1)
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：full 模式 minecraft 任务经 world.recordReceipt 回写', async () => {
+  const fixture = makeH3Fixture({ enabled: true, shadow: false })
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'minecraft.build',
+      payload: { tool: 'mc_build', arguments: { goal: '小屋' } },
+      idempotencyKey: 'hub-mc-1',
+    }),
+    res,
+  )
+  const result = res.json()
+  assert.equal(result.ok, true)
+  assert.equal(result.executed, true)
+  assert.equal(result.success, true)
+  assert.equal(result.receipt.ok, true)
+  assert.equal(result.receipt.tool, 'mc_build')
+  assert.equal(fixture.calls.recordReceipt, 1, 'world.recordReceipt 被调用（receipt 回写）')
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(result.task.id).status, 'done')
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：idempotencyKey 去重（不重复执行）', async () => {
+  const fixture = makeH3Fixture({ enabled: true, shadow: false })
+  const payload = {
+    action: 'task.create',
+    kind: 'chat.turn',
+    payload: { peerId: 'p', messageId: 'm', text: 'hi' },
+    idempotencyKey: 'same-key',
+  }
+  const first = hubFakeRes()
+  await fixture.handler(hubFakeReq('POST', payload), first)
+  assert.equal(first.json().executed, true)
+  const second = hubFakeRes()
+  await fixture.handler(hubFakeReq('POST', payload), second)
+  assert.equal(second.json().ok, true)
+  assert.equal(second.json().duplicate, true)
+  assert.equal(second.json().executed, false)
+  assert.equal(fixture.calls.chat, 1, '重复 key 不重复执行')
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：执行错误隔离（bridge 抛错 → 任务失败但不崩）', async () => {
+  const fixture = makeH3Fixture(
+    { enabled: true, shadow: false },
+    {
+      chatBridge: {
+        async chat() {
+          throw new Error('bridge down')
+        },
+      },
+    },
+  )
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'chat.turn',
+      payload: { peerId: 'p', messageId: 'm', text: 'hi' },
+    }),
+    res,
+  )
+  const result = res.json()
+  assert.equal(result.ok, true)
+  assert.equal(result.executed, true)
+  assert.equal(result.success, false)
+  assert.equal(result.receipt.ok, false)
+  assert.equal(fixture.runtime.snapshot().ok, true, 'Hub 自身不崩')
+  const board = fixture.runtime.getInstances().taskBoard
+  assert.equal(board.get(result.task.id).status, 'failed')
+  // 下一个任务仍可执行
+  const retry = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', {
+      action: 'task.create',
+      kind: 'chat.turn',
+      payload: { peerId: 'p', messageId: 'm2', text: 'hi again' },
+    }),
+    retry,
+  )
+  assert.equal(retry.json().ok, true)
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：task.create 参数校验', async () => {
+  const fixture = makeH3Fixture({ enabled: true, shadow: false })
+  const missingKind = hubFakeRes()
+  await fixture.handler(hubFakeReq('POST', { action: 'task.create', payload: {} }), missingKind)
+  assert.equal(missingKind.json().code, 'HUB_INVALID_ARGUMENT')
+  const missingChatField = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { action: 'task.create', kind: 'chat.turn', payload: { peerId: 'p' } }),
+    missingChatField,
+  )
+  assert.equal(missingChatField.json().code, 'HUB_INVALID_ARGUMENT')
+  const unknownActivity = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { action: 'task.create', kind: 'unknown.run', activity: 'unknown', payload: {} }),
+    unknownActivity,
+  )
+  assert.equal(unknownActivity.json().code, 'HUB_NO_ACTIVITY_ADAPTER')
+  const noTask = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { action: 'task.create', kind: 'chat.turn', payload: { peerId: 'p', messageId: 'm' } }),
+    noTask,
+  )
+  assert.equal(noTask.json().code, 'HUB_INVALID_ARGUMENT')
+  assert.equal(fixture.runtime.getInstances().taskBoard.snapshot().total, 0, '校验失败不创建任务')
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('hub-runtime H3：executeTask 直接执行已存在任务', async () => {
+  const fixture = makeH3Fixture({ enabled: true, shadow: false })
+  const board = fixture.runtime.getInstances().taskBoard
+  const created = board.create({
+    activity: 'chat',
+    kind: 'chat.turn',
+    payload: { peerId: 'p-direct', messageId: 'm-direct', text: '直接执行' },
+  })
+  assert.equal(created.ok, true)
+  const result = await fixture.runtime.executeTask(created.task.id)
+  assert.equal(result.ok, true)
+  assert.equal(result.success, true)
+  assert.equal(result.receipt.replyId, 'hub-chat-m-direct')
+  assert.equal(board.get(created.task.id).status, 'done')
+  assert.equal((await fixture.runtime.executeTask('missing')).code, 'HUB_TASK_NOT_FOUND')
+  fixture.runtime.dispose()
+  setActiveHubRuntime(null)
+  rmSync(fixture.dir, { recursive: true, force: true })
 })
