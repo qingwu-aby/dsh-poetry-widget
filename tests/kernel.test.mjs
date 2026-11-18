@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -235,6 +236,11 @@ import {
   TRAINING_CONFIG_VERSION,
   TRAINING_DATASET_SOURCES,
 } from '../lib/domain/life/training-config.mjs'
+import {
+  createTrainingRunner,
+  TRAINING_RUNNER_CODES,
+  TRAINING_RUNNER_VERSION,
+} from '../lib/domain/life/training-runner.mjs'
 import {
   createTrainingService,
   TRAINING_PHASES,
@@ -8873,4 +8879,208 @@ test('hub-runtime H5：Gateway 失败不影响旧路径（失败隔离）', asyn
   assert.match(readFileSync(path.join(dir, 'log', '1970-01.md'), 'utf8'), /旧路径仍然成功/)
   runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate H6：训练 runner 注入（lib/domain/life/training-runner.mjs）——fake spawn，不真正训练
+// ---------------------------------------------------------------------------
+
+function makeFakeTrainingSpawn() {
+  const calls = []
+  const children = []
+  const kills = []
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options })
+    const child = new EventEmitter()
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = (signal) => {
+      kills.push(signal)
+      return true
+    }
+    children.push(child)
+    return child
+  }
+  return { spawn, calls, children, kills }
+}
+
+function makeTrainingRunnerFixture(options = {}) {
+  const home = tmpDir('h6-runner')
+  const script = path.join(home, 'self-train.sh')
+  writeFileSync(script, '#!/bin/bash\necho training\n')
+  const fake = makeFakeTrainingSpawn()
+  const runner = createTrainingRunner({
+    home,
+    script,
+    spawn: options.spawn ?? fake.spawn,
+    logDir: path.join(home, 'logs'),
+    now: () => 1000,
+    ...(options.maxLogBytes === undefined ? {} : { maxLogBytes: options.maxLogBytes }),
+    logger: { info() {} },
+  })
+  return { home, script, runner, fake }
+}
+
+test('training-runner H6：成功 spawn 返回 exitCode/logFile/candidate，环境变量可注入', async () => {
+  const { home, script, runner, fake } = makeTrainingRunnerFixture()
+  const promise = runner.run({
+    runId: 'run-1',
+    config: { hyperparams: { rank: 8, steps: 300, lr: 0.0001 } },
+    plan: { candidateId: 'adapters-candidate-run1' },
+  })
+  const child = fake.children[0]
+  child.stdout.emit('data', 'training output line\n')
+  child.stderr.emit('data', 'warning line\n')
+  child.emit('close', 0, null)
+  const result = await promise
+  assert.equal(result.ok, true)
+  assert.equal(result.exitCode, 0)
+  assert.equal(result.runId, 'run-1')
+  assert.equal(result.candidate.id, 'adapters-candidate-run1')
+  assert.equal(result.candidate.path, result.logFile)
+  assert.ok(existsSync(result.logFile), '日志文件存在')
+  const log = readFileSync(result.logFile, 'utf8')
+  assert.match(log, /training output line/)
+  assert.match(log, /warning line/)
+  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls[0].command, '/bin/bash')
+  assert.deepEqual(fake.calls[0].args, [script])
+  assert.equal(fake.calls[0].options.env.DSH_TRAINING_RUN_ID, 'run-1')
+  assert.equal(fake.calls[0].options.env.DSH_TRAINING_RANK, '8')
+  assert.equal(fake.calls[0].options.env.DSH_TRAINING_STEPS, '300')
+  assert.equal(fake.calls[0].options.env.DSH_TRAINING_LR, '0.0001')
+  assert.equal('DSH_TRAINING_UPLOAD' in fake.calls[0].options.env, false, '不注入上传/网络变量')
+  assert.deepEqual(runner.snapshot().running, [])
+  rmSync(home, { recursive: true, force: true })
+})
+
+test('training-runner H6：失败退出码/取消/spawn 错误', async () => {
+  const failed = makeTrainingRunnerFixture()
+  const failPromise = failed.runner.run({ runId: 'run-fail' })
+  failed.fake.children[0].emit('close', 1, null)
+  const failResult = await failPromise
+  assert.equal(failResult.ok, false)
+  assert.equal(failResult.exitCode, 1)
+  assert.match(failResult.message, /退出码 1/)
+  assert.ok(existsSync(failResult.logFile))
+  rmSync(failed.home, { recursive: true, force: true })
+
+  const cancelled = makeTrainingRunnerFixture()
+  const pending = cancelled.runner.run({ runId: 'run-cancel' })
+  assert.deepEqual(cancelled.runner.snapshot().running, ['run-cancel'])
+  const cancelResult = cancelled.runner.cancel('run-cancel')
+  assert.equal(cancelResult.ok, true)
+  assert.deepEqual(cancelled.fake.kills, ['SIGTERM'])
+  cancelled.fake.children[0].emit('close', null, 'SIGTERM')
+  const cancelledResult = await pending
+  assert.equal(cancelledResult.ok, false)
+  assert.equal(cancelledResult.cancelled, true)
+  assert.equal(cancelledResult.candidate, null)
+  assert.equal(cancelled.runner.cancel('run-cancel').code, TRAINING_RUNNER_CODES.notRunning)
+  rmSync(cancelled.home, { recursive: true, force: true })
+
+  const broken = makeTrainingRunnerFixture()
+  const brokenPromise = broken.runner.run({ runId: 'run-broken' })
+  broken.fake.children[0].emit('error', new Error('spawn ENOENT'))
+  const brokenResult = await brokenPromise
+  assert.equal(brokenResult.ok, false)
+  assert.equal(brokenResult.code, TRAINING_RUNNER_CODES.spawnFailed)
+  rmSync(broken.home, { recursive: true, force: true })
+})
+
+test('training-runner H6：脚本缺失/日志上限/默认快照（不真正训练）', async () => {
+  const home = tmpDir('h6-missing')
+  const fake = makeFakeTrainingSpawn()
+  const missingRunner = createTrainingRunner({
+    home,
+    script: path.join(home, 'nope.sh'),
+    spawn: fake.spawn,
+    now: () => 1000,
+  })
+  const missing = await missingRunner.run({ runId: 'x' })
+  assert.equal(missing.code, TRAINING_RUNNER_CODES.scriptMissing)
+  assert.equal(fake.calls.length, 0, '脚本缺失不 spawn')
+  rmSync(home, { recursive: true, force: true })
+
+  const capped = makeTrainingRunnerFixture({ maxLogBytes: 20 })
+  const cappedPromise = capped.runner.run({ runId: 'run-cap' })
+  capped.fake.children[0].stdout.emit('data', 'x'.repeat(200))
+  capped.fake.children[0].emit('close', 0, null)
+  const cappedResult = await cappedPromise
+  assert.ok(readFileSync(cappedResult.logFile, 'utf8').length <= 20, '日志按上限截断')
+  rmSync(capped.home, { recursive: true, force: true })
+
+  const runner = createTrainingRunner({ home: tmpDir('h6-snapshot'), spawn: fake.spawn })
+  const snapshot = runner.snapshot()
+  assert.equal(snapshot.version, TRAINING_RUNNER_VERSION)
+  assert.match(snapshot.script, /self-train\.sh$/)
+  assert.deepEqual(snapshot.running, [])
+  assert.equal(fake.calls.length, 0, '创建 runner 不 spawn')
+  rmSync(snapshot.logDir.split('/.dsh-poetry')[0], { recursive: true, force: true })
+})
+
+test('training-runner H6：注入 training-service（run gate/成功/取消/失败不改 current）', async () => {
+  const home = tmpDir('h6-service')
+  const store = createTrainingConfigStore({ file: path.join(home, 'training-config.json'), now: () => 5000 })
+  const fake = makeFakeTrainingSpawn()
+  const script = path.join(home, 'self-train.sh')
+  writeFileSync(script, '#!/bin/bash\necho ok\n')
+  const runner = createTrainingRunner({
+    home,
+    script,
+    spawn: fake.spawn,
+    logDir: path.join(home, 'logs'),
+    now: () => 5000,
+    logger: { info() {} },
+  })
+  const makeService = () =>
+    createTrainingService({
+      configStore: store,
+      runner: (input) => runner.run(input),
+      cancelRun: (input) => runner.cancel(input && input.runId),
+      evaluator: async () => ({ ok: true, score: 0.9 }),
+      now: () => 5000,
+      logger: { warn() {} },
+    })
+  const service = makeService()
+  assert.equal((await service.run({ confirm: true })).code, TRAINING_SERVICE_CODES.disabled, '默认关闭不训练')
+  store.write({ enabled: true })
+  assert.equal((await service.run({})).code, TRAINING_SERVICE_CODES.confirmationRequired, '缺 confirm 拒绝')
+  assert.equal(fake.calls.length, 0, '未满足条件不 spawn')
+  const runPromise = service.run({ confirm: true })
+  await waitMs(0)
+  assert.equal(fake.calls.length, 1, '满足 enabled+confirm 才 spawn')
+  fake.children[0].emit('close', 0, null)
+  const runResult = await runPromise
+  assert.equal(runResult.ok, true)
+  assert.equal(runResult.passed, true, 'evaluator 通过后 candidate passed')
+  assert.equal(store.read().config.adapter.current, 'adapters-live', 'run 不改 current')
+  service.promote({ confirm: true })
+  assert.equal(store.read().config.adapter.current, runResult.candidate.id)
+
+  // 取消：kill 子进程，current 不变
+  const currentBefore = store.read().config.adapter.current
+  const cancelPromise = makeService().run({ confirm: true })
+  await waitMs(0)
+  const cancelChild = fake.children[fake.children.length - 1]
+  const serviceForCancel = makeService()
+  // 用新的 service 无法拿到上一个 run 的引用；直接验证 runner cancel + close 行为
+  const cancelRunnerResult = runner.cancel('train-1-5000')
+  assert.equal(cancelRunnerResult.ok, true)
+  assert.deepEqual(fake.kills, ['SIGTERM'])
+  cancelChild.emit('close', null, 'SIGTERM')
+  await cancelPromise.catch(() => {})
+  assert.equal(store.read().config.adapter.current, currentBefore, '取消不改 current')
+  void serviceForCancel
+
+  // 失败：current 不变
+  const failService = makeService()
+  const failPromise = failService.run({ confirm: true })
+  await waitMs(0)
+  fake.children[fake.children.length - 1].emit('close', 2, null)
+  const failResult = await failPromise
+  assert.equal(failResult.ok, false)
+  assert.equal(failResult.code, TRAINING_SERVICE_CODES.runFailed)
+  assert.equal(store.read().config.adapter.current, currentBefore, '失败不改 current')
+  rmSync(home, { recursive: true, force: true })
 })
