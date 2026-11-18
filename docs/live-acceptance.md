@@ -90,6 +90,14 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - 截断 ≤8 条/数组、≤400 字/字符串；off/shadow 入参不变；
 - 当前测试 897/897；需重启加载 J5 后做 live 验证。
 
+## 3.8 Reading/Study live 验证（2026-11-18）
+
+- Activity 列表：chat/minecraft/reading/study/video 全部注册（均 stopped，按需执行）；
+- Reading：`task.create reading.read`（绝对路径）返回 `第 1/1 页`、`success=true`、feedback success；
+- 发现并修复：相对书路径未相对 booksDir 解析（`BOOK_OUTSIDE_ROOT`），提交 `79dedf7`；
+- Study：`task.create study.research` 真实 searchWeb 返回 4 条来源、success、feedback；
+- 训练 dataset：`available=true`、7752 条（journal/game-memory/methods）。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
