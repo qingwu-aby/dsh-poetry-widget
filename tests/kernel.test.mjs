@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { createChatHttpService } from '../lib/composition/chat-service.mjs'
 import {
   buildHealthAlerts,
   buildHealthMetrics,
@@ -18,10 +19,13 @@ import {
 } from '../lib/composition/health.mjs'
 import {
   createHubRuntime,
+  getActiveHubRuntime,
   HUB_RUNTIME_DEFAULT_FLAG,
   HUB_RUNTIME_VERSION,
   registerHubRuntime,
   resolveHubFeatureFlag,
+  sanitizeEventText,
+  setActiveHubRuntime,
 } from '../lib/composition/hub-runtime.mjs'
 import {
   ACTIVITY_MANIFEST_ERROR_CODES,
@@ -6429,4 +6433,187 @@ test('hub-runtime E1：health 增加 hub 指标（available/mode/metrics）', ()
   })
   assert.equal(throwing.available, false)
   assert.equal(throwing.reason, 'snapshot-failed')
+})
+
+// ---------------------------------------------------------------------------
+// Gate E2：Chat Activity shadow 接入（lib/composition/chat-service.mjs）——事件入 Hub，回复不变
+// ---------------------------------------------------------------------------
+
+function makeChatShadowFixture(options = {}) {
+  const warnings = []
+  const bridgeCalls = []
+  const appends = []
+  const dir = tmpDir('chat-shadow')
+  const eventBus = {
+    append(event) {
+      appends.push(event)
+      return { ok: true }
+    },
+    snapshot: () => ({ stored: appends.length }),
+  }
+  const hubRuntime = createHubRuntime({
+    eventBus,
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: true },
+    logger: { warn: (message) => warnings.push(message) },
+    now: () => 1000,
+  })
+  hubRuntime.start()
+  const deps = {
+    hubRuntime,
+    logger: { warn: (message) => warnings.push(message) },
+    chatBridge: {
+      async chat(payload) {
+        bridgeCalls.push(payload)
+        return { ok: true, reply: '你好呀', felt: '平静', murmur: '' }
+      },
+      drainPending: () => [],
+    },
+    knowledgeGraph: { digest: () => [], spread: () => [] },
+    relationship: { ingest: async () => ({ entries: [] }) },
+    emotional: { recordFromChat: () => {} },
+    memoryDir: dir,
+  }
+  const service = createChatHttpService(deps)
+  return { service, deps, hubRuntime, appends, bridgeCalls, warnings, dir }
+}
+
+test('chat shadow E2：shadow 下事件进入 Hub，回复路径不变', async () => {
+  const { service, appends, bridgeCalls, dir } = makeChatShadowFixture()
+  const result = await service.chat({ text: '你好', peerId: 'peer-1', messageId: 'm-1', channel: 'qq' })
+  assert.equal(result.ok, true)
+  assert.equal(result.reply, '你好呀', '回复不变')
+  assert.equal(bridgeCalls.length, 1)
+  assert.equal(bridgeCalls[0].text, '你好', 'chatBridge 入参不变')
+  assert.equal(appends.length, 1, 'shadow 事件进入 Event Bus')
+  const event = appends[0]
+  assert.equal(event.activity, 'chat')
+  assert.equal(event.type, 'chat.received')
+  assert.equal(event.payload.peerId, 'peer-1')
+  assert.equal(event.payload.messageId, 'm-1')
+  assert.equal(event.payload.text, '你好')
+  assert.equal(event.payload.channel, 'qq')
+  assert.equal(validateEventEnvelope(event).ok, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('chat shadow E2：off 模式不发事件、无副作用', async () => {
+  const { service, appends, bridgeCalls, dir } = makeChatShadowFixture({
+    featureFlag: { enabled: false, shadow: true },
+  })
+  const result = await service.chat({ text: '你好', peerId: 'peer-1' })
+  assert.equal(result.ok, true)
+  assert.equal(appends.length, 0, 'off 不发送事件')
+  assert.equal(bridgeCalls.length, 1, '回复照常')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('chat shadow E2：Hub 抛错不影响回复', async () => {
+  const { service, deps, bridgeCalls, warnings, dir } = makeChatShadowFixture()
+  deps.hubRuntime = {
+    mode: () => 'shadow',
+    ingest() {
+      throw new Error('hub ingest boom')
+    },
+  }
+  const result = await service.chat({ text: '你好', peerId: 'peer-1' })
+  assert.equal(result.ok, true)
+  assert.equal(result.reply, '你好呀')
+  assert.equal(bridgeCalls.length, 1)
+  assert.ok(
+    warnings.some((message) => message.includes('chat shadow 钩子失败')),
+    '失败只记录',
+  )
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('chat shadow E2：无效/空消息跳过，不阻塞回复', async () => {
+  const { service, appends, bridgeCalls, dir } = makeChatShadowFixture()
+  const result = await service.chat({ text: '   ', peerId: 'peer-1' })
+  assert.equal(result.ok, true)
+  assert.equal(bridgeCalls.length, 1)
+  assert.equal(appends.length, 0, '空文本不产生事件')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('chat shadow E2：text 脱敏/截断，不写敏感 token', async () => {
+  const { service, appends, dir } = makeChatShadowFixture()
+  const secret = 'sk-abcdef1234567890'
+  const longText = '看看这个 ' + secret + ' ' + '很长的内容'.repeat(200)
+  await service.chat({ text: longText, peerId: 'peer-1', messageId: 'm-secret' })
+  assert.equal(appends.length, 1)
+  const text = appends[0].payload.text
+  assert.equal(text.includes(secret), false, 'token 被脱敏')
+  assert.ok(text.includes('[redacted]'))
+  assert.ok(Array.from(text).length <= 500, '文本截断到 500 字')
+  rmSync(dir, { recursive: true, force: true })
+  assert.equal(sanitizeEventText('x'.repeat(600)).length, 500)
+  assert.equal(sanitizeEventText('ghp_abcdefgh12345678').includes('ghp_abcdefgh12345678'), false)
+})
+
+test('chat shadow E2：缺少 messageId 时生成稳定 id', async () => {
+  const { service, appends, dir } = makeChatShadowFixture()
+  await service.chat({ text: '同一句话', peerId: 'peer-1' })
+  await service.chat({ text: '同一句话', peerId: 'peer-1' })
+  await service.chat({ text: '另一句话', peerId: 'peer-1' })
+  assert.equal(appends.length, 3)
+  const first = appends[0].payload.messageId
+  const second = appends[1].payload.messageId
+  const third = appends[2].payload.messageId
+  assert.match(first, /^auto:[0-9a-f]{16}$/)
+  assert.equal(first, second, '同 peer+文本+时间 → 稳定 id')
+  assert.notEqual(first, third, '不同文本 → 不同 id')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('chat shadow E2：hubRuntime.ingest 在无 Event Bus 时记录 shadow 环', () => {
+  const runtime = createHubRuntime({ featureFlag: { enabled: true, shadow: true }, now: () => 1000 })
+  runtime.start()
+  const result = runtime.ingest('chat', { type: 'chat.received', at: 1000, payload: { peerId: 'p1' } })
+  assert.equal(result.ok, true)
+  assert.equal(result.recorded, true)
+  assert.equal(result.bridged, false)
+  const snapshot = runtime.snapshot()
+  assert.equal(snapshot.shadowEventCount, 1)
+  assert.equal(snapshot.shadowEvents[0].source, 'chat')
+  runtime.dispose()
+
+  const offRuntime = createHubRuntime({ featureFlag: { enabled: false, shadow: true }, now: () => 1000 })
+  assert.equal(offRuntime.ingest('chat', { type: 'chat.received' }).skipped, true)
+  assert.equal(offRuntime.snapshot().shadowEventCount, 0)
+  offRuntime.dispose()
+})
+
+test('chat shadow E2：无 hubRuntime 或经 active runtime 回退都能工作', async () => {
+  setActiveHubRuntime(null)
+  const { service, deps, bridgeCalls, dir } = makeChatShadowFixture()
+  deps.hubRuntime = undefined
+  const result = await service.chat({ text: '你好', peerId: 'peer-1' })
+  assert.equal(result.ok, true)
+  assert.equal(bridgeCalls.length, 1)
+  rmSync(dir, { recursive: true, force: true })
+
+  // 通过 active runtime 回退（真实运行时 registerHubRuntime 会设置它）
+  const appends = []
+  const runtime = createHubRuntime({
+    eventBus: {
+      append: (event) => {
+        appends.push(event)
+        return { ok: true }
+      },
+      snapshot: () => ({}),
+    },
+    featureFlag: { enabled: true, shadow: true },
+    logger: { warn() {} },
+    now: () => 1000,
+  })
+  runtime.start()
+  setActiveHubRuntime(runtime)
+  assert.equal(getActiveHubRuntime(), runtime)
+  const activeFixture = makeChatShadowFixture()
+  activeFixture.deps.hubRuntime = undefined
+  await activeFixture.service.chat({ text: '回退消息', peerId: 'peer-2' })
+  assert.equal(appends.length, 1, 'active runtime 回退生效')
+  setActiveHubRuntime(null)
+  runtime.dispose()
+  rmSync(activeFixture.dir, { recursive: true, force: true })
 })
