@@ -15,6 +15,22 @@
 - 设置页有模型/Hub/训练/任务控制台，但视觉/点击未验收（browser-skill 未连接）。
 - 权限只有 manifest 契约与查询，没有执行级拦截；多会话无隔离。
 
+## 2. 执行状态（2026-11-18）
+
+已完成：
+
+- **J2** Chat 所有权切换 Hub（full 接管，旧路径停用）— `b64f123`
+- **J3** Minecraft 任务队列 + bot claim/receipt — `4d9cb56`，live 验证 tb-2 done
+- **J4** Hub 持久化默认开启 — `8729516`，live restore 2 tasks
+- **J5** Chat 上下文等价 — `3f746f1`，897 tests
+- bot 端 Host 任务轮询 — 已改 `bot-play.mjs` / `start-bot.sh`
+
+未完成：
+- J1 事件→任务自动路由（目前显式 task.create）
+- K/L/M/N/O 全部
+
+下一批执行队列：K1 → K2 → L1 → L2 → L3 → L4 → M1 → M2。
+
 ## 2. 剩余任务总表
 
 ### J. 闭环：事件 → 任务 → World
