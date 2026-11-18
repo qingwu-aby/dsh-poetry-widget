@@ -2,7 +2,7 @@
 
 日期：2026-11-18
 GUI：`http://127.0.0.1:49259`
-HEAD：`f202b86`（含 model-policy reset 修复；宿主运行的是之前的 build，修复需下次重启生效）
+HEAD：`83d375b`（重启后复验；model-policy reset 修复已生效）
 
 ## 1. 路由与状态
 
@@ -28,6 +28,15 @@ HEAD：`f202b86`（含 model-policy reset 修复；宿主运行的是之前的 b
 ## 3. 发现并修复
 
 - `PUT /model-policy.json {reset:true}` 返回了 provider/model 的误报错误（空配置把 null 当非法）。已修复 `normalizeModelPolicy` 接受 null，提交 `f202b86`；宿主重启后生效。
+
+## 3.1 重启后复验（2026-11-18）
+
+- Hub：`available=true/assembled=true/mode=off`，activity chat/minecraft 已注册 stopped；
+- Memory：journal/game-memory/method-memory 只读 provider，`write=false`；
+- `PUT /model-policy.json {reset:true}`：`ok=true`、`reports=[]`（reset 误报已修复并 live 验证）；
+- `GET /training.json`：enabled=false、phase=idle、runnerAvailable=true；
+- 设置页 Slot：dsh-little-whale active（order 30）；
+- Hub off 时 `task.create` 仍正确拒绝 `HUB_FULL_REQUIRED`。
 
 ## 4. 未验证
 
