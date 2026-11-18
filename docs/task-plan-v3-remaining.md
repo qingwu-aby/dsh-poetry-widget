@@ -29,7 +29,9 @@
 - J1 事件→任务自动路由（目前显式 task.create）
 - K/L/M/N/O 全部
 
-下一批执行队列：K1 → K2 → L1 → L2 → L3 → L4 → M1 → M2。
+下一批执行队列：K1 → K2 → L1 → L2 → L3 → L4 → L5 → L6 → M1 → M2。
+
+截至 2026-11-18 已完成：K1 持久化 Gateway provider、K2 写入审计、L1 Activity SDK、L2 Reading、L3 Reading 运行时、L4 Study、L5 Video、L6 Study/Video 运行时注册、M1 训练数据集导出。
 
 ## 2. 剩余任务总表
 
