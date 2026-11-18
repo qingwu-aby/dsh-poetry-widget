@@ -19,6 +19,7 @@ import {
 } from '../lib/composition/health.mjs'
 import {
   createHubRuntime,
+  createMinecraftShadowSink,
   getActiveHubRuntime,
   HUB_RUNTIME_DEFAULT_FLAG,
   HUB_RUNTIME_VERSION,
@@ -206,7 +207,7 @@ import {
   MODEL_GATE_DEFAULTS,
   MODEL_GATE_REJECT_CODES,
 } from '../lib/domain/host/model-budget.mjs'
-import { MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
+import { createMinecraftWorld, MINECRAFT_TOOLS } from '../lib/domain/play/minecraft-world.mjs'
 import { describeConfig, readConfig } from '../lib/kernel/config.mjs'
 import { createJsonStore, readJson, writeJson } from '../lib/kernel/json-store.mjs'
 import { callCandidate, callModelForRole, configureModelRuntime, resetModelRuntime } from '../lib/kernel/llm-call.mjs'
@@ -6616,4 +6617,193 @@ test('chat shadow E2：无 hubRuntime 或经 active runtime 回退都能工作',
   setActiveHubRuntime(null)
   runtime.dispose()
   rmSync(activeFixture.dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate E3：Minecraft shadow 接入（minecraft-world onShadowEvent → Hub）——bot 行为不变
+// ---------------------------------------------------------------------------
+
+function makeMinecraftShadowFixture(options = {}) {
+  const appends = []
+  const warnings = []
+  const hubRuntime = createHubRuntime({
+    eventBus: {
+      append(event) {
+        appends.push(event)
+        return { ok: true }
+      },
+      snapshot: () => ({ stored: appends.length }),
+    },
+    featureFlag: options.featureFlag ?? { enabled: true, shadow: true },
+    logger: { warn: (message) => warnings.push(message) },
+    now: () => 1000,
+  })
+  hubRuntime.start()
+  const sink = createMinecraftShadowSink({
+    hubRuntime,
+    logger: { warn: (message) => warnings.push(message) },
+    worldId: 'smp',
+    now: () => 1000,
+  })
+  const world = createMinecraftWorld({ tokenFile: '', onShadowEvent: sink, now: () => 1000 })
+  return { hubRuntime, sink, world, appends, warnings }
+}
+
+test('minecraft shadow E3：receipt → minecraft.tool_receipt 事件，返回值不变', () => {
+  const { world, appends } = makeMinecraftShadowFixture()
+  const result = world.recordReceipt({
+    tool: 'mc_build',
+    ok: true,
+    detail: '放了 3 块',
+    facts: { placed: 3, position: '1,2,3' },
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.accepted, true)
+  assert.equal(result.lastReceipt.tool, 'mc_build')
+  assert.equal(result.lastReceipt.ok, true)
+  assert.equal(appends.length, 1)
+  const event = appends[0]
+  assert.equal(event.type, 'minecraft.tool_receipt')
+  assert.equal(event.activity, 'minecraft')
+  assert.equal(event.subject, 'world:smp')
+  assert.equal(event.payload.tool, 'mc_build')
+  assert.equal(event.payload.ok, true)
+  assert.equal(event.payload.detail, '放了 3 块')
+  assert.deepEqual(event.payload.facts, { placed: 3, position: '1,2,3' })
+  assert.equal(validateEventEnvelope(event).ok, true)
+})
+
+test('minecraft shadow E3：observe 事件（白名单观察字段，不含 token），返回不变', async () => {
+  const { world, appends } = makeMinecraftShadowFixture()
+  world.interrupt('聊天打断')
+  const observation = {
+    position: '0,64,0',
+    players: ['Yuan_JY'],
+    health: 18,
+    food: 12,
+    token: 'secret-token',
+    apiKey: 'sk-abcdef1234567890',
+  }
+  const result = await world.decide(observation)
+  assert.equal(result.ok, true)
+  assert.equal(result.interrupt, true)
+  assert.equal(result.reason, '聊天打断')
+  assert.equal(appends.length, 1)
+  const event = appends[0]
+  assert.equal(event.type, 'minecraft.observation')
+  assert.equal(event.payload.interrupted, true)
+  assert.equal(event.payload.reason, '聊天打断')
+  assert.equal(event.payload.observation.position, '0,64,0')
+  assert.equal(event.payload.observation.health, 18)
+  assert.deepEqual(event.payload.observation.players, ['Yuan_JY'])
+  const json = JSON.stringify(event)
+  assert.equal(json.includes('secret-token'), false, 'token 不进入事件')
+  assert.equal(json.includes('sk-abcdef1234567890'), false, 'apiKey 不进入事件')
+  assert.equal(validateEventEnvelope(event).ok, true)
+
+  // 与无钩子 world 的返回完全一致（bot 行为不变）
+  const plain = createMinecraftWorld({ tokenFile: '', now: () => 1000 })
+  plain.interrupt('聊天打断')
+  assert.deepEqual(await plain.decide(observation), result)
+})
+
+test('minecraft shadow E3：off 模式不发事件，响应不变', async () => {
+  const { world, appends } = makeMinecraftShadowFixture({ featureFlag: { enabled: false, shadow: true } })
+  world.recordReceipt({ tool: 'mc_say', ok: true, detail: '说了嗨' })
+  assert.equal(appends.length, 0)
+  world.interrupt('聊天')
+  const result = await world.decide({ position: '0,64,0' })
+  assert.equal(result.interrupt, true)
+  assert.equal(appends.length, 0)
+})
+
+test('minecraft shadow E3：Hub/sink 抛错不影响 bot 响应', async () => {
+  const warnings = []
+  const hubRuntime = {
+    mode: () => 'shadow',
+    ingest() {
+      throw new Error('hub ingest boom')
+    },
+  }
+  const sink = createMinecraftShadowSink({
+    hubRuntime,
+    logger: { warn: (message) => warnings.push(message) },
+    now: () => 1000,
+  })
+  const world = createMinecraftWorld({ tokenFile: '', onShadowEvent: sink, now: () => 1000 })
+  const receipt = world.recordReceipt({ tool: 'mc_wait', ok: true, detail: '等了 2 秒' })
+  assert.equal(receipt.ok, true)
+  assert.equal(receipt.lastReceipt.tool, 'mc_wait')
+  world.interrupt('聊天')
+  const decided = await world.decide({ position: '0,64,0' })
+  assert.equal(decided.interrupt, true)
+  assert.ok(warnings.some((message) => message.includes('minecraft shadow 钩子失败')))
+})
+
+test('minecraft shadow E3：invalid receipt / 非法观察被跳过', () => {
+  const { hubRuntime, sink, appends } = makeMinecraftShadowFixture()
+  sink({ kind: 'receipt', receipt: { ok: 'yes', tool: 'mc_wait' } })
+  sink({ kind: 'receipt', receipt: { ok: true } })
+  sink({ kind: 'receipt' })
+  sink(null)
+  sink({ kind: 'unknown' })
+  assert.equal(appends.length, 0)
+  // 合法 observe 仍可进入
+  sink({ kind: 'observe', ok: true, observation: { position: '1,2,3' } })
+  assert.equal(appends.length, 1)
+  assert.equal(appends[0].type, 'minecraft.observation')
+  assert.equal(hubRuntime.snapshot().hub.metrics.ticks, 0)
+})
+
+test('minecraft shadow E3：facts 截断/敏感键打码，observation 截断', async () => {
+  const { world, appends } = makeMinecraftShadowFixture()
+  const hugeFacts = { position: '1,2,3', token: 'secret-value', apiKey: 'sk-abcdef1234567890', note: 'x'.repeat(5000) }
+  for (let index = 0; index < 30; index += 1) hugeFacts['k' + index] = 'v'.repeat(200)
+  world.recordReceipt({ tool: 'mc_mine', ok: false, detail: '失败 sk-abcdef1234567890', facts: hugeFacts })
+  const receiptEvent = appends[0]
+  assert.equal(receiptEvent.payload.detail.includes('sk-abcdef1234567890'), false)
+  assert.ok(receiptEvent.payload.detail.includes('[redacted]'))
+  const factsJson = JSON.stringify(receiptEvent.payload.facts)
+  assert.equal(factsJson.includes('secret-value'), false)
+  assert.equal(factsJson.includes('sk-abcdef1234567890'), false)
+  assert.ok(factsJson.length <= 2100, 'facts 体积受限')
+
+  world.interrupt('聊天')
+  await world.decide({
+    position: '0,64,0',
+    players: Array.from({ length: 10 }, (_, index) => 'player' + index),
+    inventory: Array.from({ length: 12 }, (_, index) => 'item' + index),
+    lastChat: 'x'.repeat(500),
+  })
+  const observation = appends[1].payload.observation
+  assert.equal(observation.players.length, 6)
+  assert.equal(observation.inventory.length, 8)
+  assert.ok(Array.from(observation.lastChat).length <= 120)
+})
+
+test('minecraft shadow E3：不增加记忆写入（gameMemory 调用不变）', () => {
+  const callsWith = []
+  const callsWithout = []
+  const makeMemory = (calls) => ({
+    record: (entry) => calls.push(entry),
+    promptLines: () => [],
+  })
+  const withHook = createMinecraftWorld({
+    tokenFile: '',
+    onShadowEvent: createMinecraftShadowSink({
+      hubRuntime: (() => {
+        const runtime = createHubRuntime({ featureFlag: { enabled: true, shadow: true }, now: () => 1000 })
+        runtime.start()
+        return runtime
+      })(),
+      now: () => 1000,
+    }),
+    gameMemory: makeMemory(callsWith),
+    now: () => 1000,
+  })
+  const withoutHook = createMinecraftWorld({ tokenFile: '', gameMemory: makeMemory(callsWithout), now: () => 1000 })
+  const receipt = { tool: 'mc_build', ok: true, detail: '放了 3 块', facts: { placed: 3 } }
+  withHook.recordReceipt(receipt)
+  withoutHook.recordReceipt(receipt)
+  assert.deepEqual(callsWith, callsWithout, 'shadow 钩子不新增记忆写入')
 })
