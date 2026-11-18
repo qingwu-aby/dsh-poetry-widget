@@ -37,6 +37,12 @@ import {
   setActiveHubRuntime,
 } from '../lib/composition/hub-runtime.mjs'
 import {
+  createMemoryAdminHandler,
+  MEMORY_ADMIN_ACTIONS,
+  MEMORY_ADMIN_ROUTE,
+  registerMemoryAdminRoute,
+} from '../lib/composition/memory-admin-routes.mjs'
+import {
   createMinecraftTaskQueue,
   MINECRAFT_TASK_QUEUE_CODES,
   MINECRAFT_TASK_QUEUE_VERSION,
@@ -12605,4 +12611,227 @@ test('hub-runtime J1：router flag 默认 off；开启后事件→任务，chat 
   assert.equal(tasks[0].kind, 'minecraft.inquire')
   assert.equal(on.snapshot().router.metrics.created, 1)
   on.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Gate K3：记忆质量/隐私管理 API（memory-admin.json）
+// ---------------------------------------------------------------------------
+
+function makeK3Fixture() {
+  const entries = [
+    {
+      id: 'm1',
+      category: 'episodic',
+      text: '今天在公园走了很久',
+      at: 1000,
+      source: { kind: 'journal' },
+      provenance: { activity: 'journal' },
+      confidence: 0.8,
+    },
+    {
+      id: 'm2',
+      category: 'episodic',
+      text: '今天在公园走了很久。',
+      at: 1001,
+      source: { kind: 'journal' },
+      provenance: { activity: 'journal' },
+      confidence: 0.7,
+    },
+    {
+      id: 'm3',
+      category: 'semantic',
+      text: '记住：token=sk-secret12345678',
+      at: 1002,
+      source: { kind: 'method-memory' },
+      provenance: { activity: 'method' },
+      confidence: 0.5,
+    },
+  ]
+  const hubRuntime = {
+    queryMemory: async (filter) => ({
+      ok: true,
+      entries: entries.slice(0, filter && filter.limit ? filter.limit : entries.length),
+      total: entries.length,
+      limit: 50,
+    }),
+    memorySnapshot: () => ({
+      available: true,
+      write: false,
+      providers: ['file-memory'],
+      metrics: { writes: 3 },
+      conflicts: 0,
+    }),
+  }
+  const dir = tmpDir('k3-admin')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const exportsDir = path.join(dir, 'exports')
+  const handler = createMemoryAdminHandler({
+    hubRuntime,
+    tokenFile,
+    fence: { check: () => 'blocked' },
+    exportsDir,
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  return { dir, tokenFile, exportsDir, handler, entries, hubRuntime }
+}
+
+test('memory-admin K3：GET 质量摘要 + 鉴权 + 无 hub 降级', async () => {
+  const fixture = makeK3Fixture()
+  const denied = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: MEMORY_ADMIN_ROUTE }), denied)
+  assert.equal(denied.statusCode, 403)
+  const res = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: MEMORY_ADMIN_ROUTE + '?token=secret-token' }), res)
+  const payload = res.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.available, true)
+  assert.equal(payload.sample, 3)
+  assert.equal(payload.memory.providers[0], 'file-memory')
+  assert.equal(payload.quality.summary.total, 3)
+  assert.equal(payload.quality.summary.merge >= 1, true, '近重复被识别')
+  assert.deepEqual(payload.actions, [...MEMORY_ADMIN_ACTIONS])
+  // fence 放行
+  const fenceHandler = createMemoryAdminHandler({
+    hubRuntime: fixture.hubRuntime,
+    tokenFile: '',
+    fence: { check: () => null },
+  })
+  const fenceRes = hubFakeRes()
+  await fenceHandler(hubFakeReq('GET'), fenceRes)
+  assert.equal(fenceRes.json().available, true)
+  // 无 hubRuntime 降级
+  const bare = createMemoryAdminHandler({ hubRuntime: null, tokenFile: '', fence: { check: () => null } })
+  const bareRes = hubFakeRes()
+  await bare(hubFakeReq('GET'), bareRes)
+  assert.equal(bareRes.json().available, false)
+  // 坏数据隔离：queryMemory 抛错 → GET 不崩
+  const broken = createMemoryAdminHandler({
+    hubRuntime: {
+      queryMemory: () => {
+        throw new Error('boom')
+      },
+      memorySnapshot: () => {
+        throw new Error('boom')
+      },
+    },
+    tokenFile: '',
+    fence: { check: () => null },
+  })
+  const brokenRes = hubFakeRes()
+  await broken(hubFakeReq('GET'), brokenRes)
+  assert.equal(brokenRes.statusCode, 200)
+  assert.equal(brokenRes.json().sample, 0)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('memory-admin K3：quality.analyze 只分析不执行', async () => {
+  const fixture = makeK3Fixture()
+  const res = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'quality.analyze' }, { url: MEMORY_ADMIN_ROUTE }),
+    res,
+  )
+  const payload = res.json()
+  assert.equal(payload.ok, true)
+  assert.equal(payload.executed, false)
+  assert.equal(payload.items.length >= 3, true)
+  assert.deepEqual(payload.actions, ['keep', 'merge', 'archive', 'drop'])
+  assert.equal(
+    payload.items.some((item) => item.action === 'merge'),
+    true,
+  )
+  assert.match(payload.note, /只分析/)
+  // 未知 action
+  const unknown = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'nope' }, { url: MEMORY_ADMIN_ROUTE }),
+    unknown,
+  )
+  assert.equal(unknown.statusCode, 400)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('memory-admin K3：privacy.export 脱敏 + 默认不写文件/save 写 exports', async () => {
+  const fixture = makeK3Fixture()
+  const dry = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'privacy.export' }, { url: MEMORY_ADMIN_ROUTE }),
+    dry,
+  )
+  const dryBody = dry.json()
+  assert.equal(dryBody.ok, true)
+  assert.equal(dryBody.executed, false)
+  assert.equal(dryBody.saved, false)
+  assert.equal(dryBody.sizeBytes > 0, true)
+  assert.equal(typeof dryBody.json, 'string')
+  assert.match(dryBody.json, /sk-secret|\[redacted\]/)
+  assert.equal(existsSync(fixture.exportsDir), false, '默认不写文件')
+  // save:true → 写 exports 目录
+  const saved = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'privacy.export', save: true }, { url: MEMORY_ADMIN_ROUTE }),
+    saved,
+  )
+  const savedBody = saved.json()
+  assert.equal(savedBody.saved, true)
+  assert.equal(existsSync(savedBody.file), true)
+  assert.equal(statSync(savedBody.file).mode & 0o777, 0o600)
+  const written = JSON.parse(readFileSync(savedBody.file, 'utf8'))
+  assert.equal(written.manifest.kind, 'memory-export')
+  assert.equal(JSON.stringify(written).includes('sk-secret12345678'), false, '导出已脱敏')
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('memory-admin K3：privacy.delete.plan dry-run/confirm 均不删除', async () => {
+  const fixture = makeK3Fixture()
+  const dry = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'privacy.delete.plan' }, { url: MEMORY_ADMIN_ROUTE }),
+    dry,
+  )
+  const dryBody = dry.json()
+  assert.equal(dryBody.ok, true)
+  assert.equal(dryBody.executed, false)
+  assert.equal(dryBody.plan.dryRun, true)
+  assert.equal(dryBody.plan.approved, false)
+  assert.equal(dryBody.plan.requiresConfirmation, true)
+  assert.equal(dryBody.plan.counts.entries >= 1, true)
+  assert.match(dryBody.note, /不会删除/)
+  // confirm:true → approved 计划，但仍 executed:false / 无删除
+  const confirm = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'POST',
+      { token: 'secret-token', action: 'privacy.delete.plan', confirm: true },
+      { url: MEMORY_ADMIN_ROUTE },
+    ),
+    confirm,
+  )
+  const confirmBody = confirm.json()
+  assert.equal(confirmBody.executed, false)
+  assert.equal(confirmBody.plan.approved, true)
+  assert.equal(confirmBody.plan.executed, false)
+  assert.equal(confirmBody.plan.dryRun, false)
+  assert.match(confirmBody.note, /不会删除 live 记忆/)
+  // 原始样本仍在（没有任何删除动作）
+  assert.equal(fixture.entries.length, 3)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('memory-admin K3：路由注册（path/计数同步）', () => {
+  const routes = []
+  const disposers = []
+  const webServer = {
+    register: (route) => {
+      routes.push(route)
+      return () => {}
+    },
+  }
+  const handler = registerMemoryAdminRoute({ webServer, disposers, tokenFile: '', fence: null })
+  assert.equal(typeof handler, 'function')
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, MEMORY_ADMIN_ROUTE)
+  assert.equal(disposers.length, 1)
 })
