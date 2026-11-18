@@ -27,6 +27,13 @@ import {
   validateActivityManifest,
 } from '../lib/core/activity-manifest.mjs'
 import {
+  ACTIVITY_HEALTH_STATES,
+  ACTIVITY_REGISTRY_CODES,
+  ACTIVITY_REGISTRY_EVENTS,
+  ACTIVITY_REGISTRY_VERSION,
+  createActivityRegistry,
+} from '../lib/core/activity-registry.mjs'
+import {
   createEventBus,
   createMemoryEventStore,
   EVENT_BUS_CODES,
@@ -3092,4 +3099,312 @@ test('scheduler B3：与真实 Task Board 集成（单前台归一化→恢复�
   assert.equal(board.get(chat.id).status, 'running')
   assert.equal(scheduler.snapshot().metrics.resumes, 1)
   assert.equal(SCHEDULER_CODES.claimFailed, 'SCHEDULER_CLAIM_FAILED')
+})
+
+// ---------------------------------------------------------------------------
+// Gate B4：Activity Registry（lib/core/activity-registry.mjs）——manifest/启停/健康/权限查询
+// ---------------------------------------------------------------------------
+
+function makeActivityManifest(overrides = {}) {
+  return {
+    id: 'reading',
+    version: '1.0.0',
+    name: '读书',
+    events: ['reading.started', 'reading.finished'],
+    tasks: [{ kind: 'reading.read', goal: '读一章并留下笔记', priority: 30 }],
+    tools: ['book.open', 'book.note'],
+    permissions: ['fs.read:~/Books', 'model'],
+    resources: { model: true, foreground: false, maxMinutes: 60 },
+    ...overrides,
+  }
+}
+
+test('activity-registry B4：合法注册与摘要/查询', () => {
+  const events = []
+  const registry = createActivityRegistry({ now: () => 1000, onEvent: (event) => events.push(event) })
+  const result = registry.register(makeActivityManifest())
+  assert.equal(result.ok, true)
+  assert.equal(result.activity.id, 'reading')
+  assert.equal(result.activity.enabled, false)
+  assert.equal(result.activity.health, 'stopped')
+  assert.equal(result.activity.schedulable, false)
+  assert.deepEqual(
+    result.activity.permissions.map((item) => item.permission),
+    ['fs.read', 'model'],
+  )
+  assert.deepEqual(result.activity.permissions[0].label, '读取本机文件')
+  assert.deepEqual(result.activity.resources, { model: true, foreground: false, maxMinutes: 60 })
+  assert.deepEqual(result.activity.events, ['reading.started', 'reading.finished'])
+  assert.equal(result.activity.tasks.length, 1)
+  assert.equal(result.activity.tools.length, 2)
+
+  assert.equal(registry.has('reading'), true)
+  assert.equal(registry.isEnabled('reading'), false)
+  assert.equal(registry.get('reading').version, '1.0.0')
+  assert.equal(registry.get('missing'), null)
+  assert.deepEqual(
+    registry.list().map((item) => item.id),
+    ['reading'],
+  )
+  const described = registry.describe('reading')
+  assert.deepEqual(described.permissionStrings, ['fs.read:~/Books', 'model'])
+  assert.equal(described.taskCount, 1)
+  assert.equal(events[0].type, 'activity.registered')
+  assert.equal(ACTIVITY_REGISTRY_VERSION, 1)
+  assert.ok(ACTIVITY_REGISTRY_EVENTS.includes('activity.health'))
+  assert.ok(ACTIVITY_HEALTH_STATES.includes('degraded'))
+})
+
+test('activity-registry B4：非法 manifest / 重复 id / 非法 adapter / 容量', () => {
+  const registry = createActivityRegistry({ now: () => 1000, maxActivities: 2 })
+  const invalid = registry.register({ id: 'x' })
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.code, ACTIVITY_REGISTRY_CODES.invalidManifest)
+  assert.ok(Array.isArray(invalid.errors) && invalid.errors.length > 0)
+
+  const unknownPermission = registry.register(makeActivityManifest({ permissions: ['fs.delete'] }))
+  assert.equal(unknownPermission.ok, false)
+  assert.equal(unknownPermission.code, ACTIVITY_REGISTRY_CODES.invalidManifest)
+
+  assert.equal(registry.register(makeActivityManifest()).ok, true)
+  const duplicate = registry.register(makeActivityManifest())
+  assert.equal(duplicate.ok, false)
+  assert.equal(duplicate.code, ACTIVITY_REGISTRY_CODES.duplicateId)
+
+  const badAdapter = registry.register(makeActivityManifest({ id: 'bad-adapter' }), { start: 'nope' })
+  assert.equal(badAdapter.ok, false)
+  assert.equal(badAdapter.code, ACTIVITY_REGISTRY_CODES.invalidArgument)
+
+  assert.equal(registry.register(makeActivityManifest({ id: 'chat' })).ok, true)
+  const capacity = registry.register(makeActivityManifest({ id: 'mood' }))
+  assert.equal(capacity.ok, false)
+  assert.equal(capacity.code, ACTIVITY_REGISTRY_CODES.capacity)
+  assert.equal(registry.snapshot().total, 2)
+})
+
+test('activity-registry B4：启停调用 adapter 且互相隔离', () => {
+  const calls = []
+  const errors = []
+  const events = []
+  const registry = createActivityRegistry({
+    now: () => 1000,
+    onEvent: (event) => events.push(event.type),
+    onError: (info) => errors.push(info),
+  })
+  registry.register(makeActivityManifest(), {
+    start: () => calls.push('reading.start'),
+    stop: () => calls.push('reading.stop'),
+  })
+  registry.register(
+    makeActivityManifest({
+      id: 'chat',
+      events: ['chat.started'],
+      tasks: [{ kind: 'chat.reply', goal: '回复' }],
+      tools: ['chat.send'],
+      permissions: ['model'],
+    }),
+    {
+      start: () => {
+        calls.push('chat.start')
+        throw new Error('chat start failed')
+      },
+      stop: () => calls.push('chat.stop'),
+    },
+  )
+
+  const enabled = registry.enable('reading')
+  assert.equal(enabled.ok, true)
+  assert.equal(registry.isEnabled('reading'), true)
+  assert.equal(registry.healthOf('reading'), 'healthy')
+  assert.equal(registry.canSchedule('reading'), true)
+
+  const failed = registry.enable('chat')
+  assert.equal(failed.ok, false)
+  assert.equal(failed.code, ACTIVITY_REGISTRY_CODES.adapterError)
+  assert.equal(registry.isEnabled('chat'), false, '启动失败不置 enabled')
+  assert.equal(registry.healthOf('chat'), 'error')
+  assert.equal(errors.length, 1)
+
+  // 一个失败不影响另一个
+  assert.equal(registry.canSchedule('reading'), true)
+  const disabled = registry.disable('reading')
+  assert.equal(disabled.ok, true)
+  assert.equal(registry.isEnabled('reading'), false)
+  assert.equal(registry.healthOf('reading'), 'stopped')
+  assert.deepEqual(calls, ['reading.start', 'chat.start', 'reading.stop'])
+  for (const type of ['activity.enabled', 'activity.disabled', 'activity.error']) {
+    assert.ok(events.includes(type), `应发出 ${type}`)
+  }
+  assert.equal(registry.disable('reading').already, true, '重复停用幂等')
+  assert.equal(registry.enable('missing').code, ACTIVITY_REGISTRY_CODES.notFound)
+})
+
+test('activity-registry B4：健康探测（healthy/degraded/error/无 adapter）', async () => {
+  const registry = createActivityRegistry({ now: () => 1000 })
+  let probe = 'degraded'
+  registry.register(
+    makeActivityManifest({
+      id: 'mood',
+      events: ['mood.changed'],
+      tasks: [{ kind: 'mood.refresh', goal: '刷新心情' }],
+      tools: ['mood.refresh'],
+      permissions: [],
+    }),
+    {
+      health: () => ({ status: probe }),
+    },
+  )
+  registry.register(
+    makeActivityManifest({
+      id: 'plain',
+      events: ['plain.started'],
+      tasks: [{ kind: 'plain.run', goal: '跑' }],
+      tools: [],
+      permissions: [],
+    }),
+  )
+
+  assert.equal((await registry.refreshHealth('mood')).activity.health, 'stopped', '未启用时 stopped')
+  registry.enable('mood')
+  assert.equal((await registry.refreshHealth('mood')).activity.health, 'degraded')
+  assert.equal(registry.canSchedule('mood'), true, 'degraded 仍可调度')
+  probe = 'error'
+  assert.equal((await registry.refreshHealth('mood')).activity.health, 'error')
+  assert.equal(registry.canSchedule('mood'), false, 'error 不可调度')
+
+  registry.enable('plain')
+  assert.equal((await registry.refreshHealth('plain')).activity.health, 'healthy', '无 adapter.health → 启用即 healthy')
+  const all = await registry.refreshAll()
+  assert.equal(all.ok, true)
+  assert.equal(all.results.length, 2)
+
+  // health 抛错 → error + onError
+  const errors = []
+  const throwing = createActivityRegistry({ now: () => 1000, onError: (info) => errors.push(info) })
+  throwing.register(
+    makeActivityManifest({
+      id: 'boom',
+      events: ['boom.started'],
+      tasks: [{ kind: 'boom.run', goal: '炸' }],
+      tools: [],
+      permissions: [],
+    }),
+    {
+      health: () => {
+        throw new Error('probe failed')
+      },
+    },
+  )
+  throwing.enable('boom')
+  const probed = await throwing.refreshHealth('boom')
+  assert.equal(probed.ok, false)
+  assert.equal(throwing.healthOf('boom'), 'error')
+  assert.equal(errors[0].scope, 'adapter')
+})
+
+test('activity-registry B4：禁用后不可调度；权限只查询不执行', () => {
+  const registry = createActivityRegistry({ now: () => 1000 })
+  registry.register(makeActivityManifest(), { start() {}, stop() {} })
+  assert.equal(registry.canSchedule('reading'), false)
+  registry.enable('reading')
+  assert.equal(registry.canSchedule('reading'), true)
+
+  const allowed = registry.checkPermission('reading', 'fs.read:~/Books/a.md')
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.allowed, true)
+  assert.equal(allowed.reason, 'granted')
+  const denied = registry.checkPermission('reading', 'fs.write:~/Books/a.md')
+  assert.equal(denied.allowed, false)
+  assert.equal(denied.reason, 'not-granted')
+  const invalid = registry.checkPermission('reading', 'nope')
+  assert.equal(invalid.allowed, false)
+  assert.equal(invalid.reason, 'invalid-permission')
+  assert.equal(registry.checkPermission('missing', 'model').code, ACTIVITY_REGISTRY_CODES.notFound)
+  // 查询不改变启停状态（不执行权限判定）
+  assert.equal(registry.isEnabled('reading'), true)
+
+  registry.disable('reading')
+  assert.equal(registry.canSchedule('reading'), false, '禁用后不可调度')
+  assert.equal(registry.checkPermission('reading', 'fs.read:~/Books').allowed, true, '禁用不影响权限查询')
+})
+
+test('activity-registry B4：异步 adapter（start/health 的 Promise）与 flush', async () => {
+  const registry = createActivityRegistry({ now: () => 1000 })
+  registry.register(
+    makeActivityManifest({
+      id: 'async-ok',
+      events: ['async.ok'],
+      tasks: [{ kind: 'async.ok', goal: '异步成功' }],
+      tools: [],
+      permissions: [],
+    }),
+    {
+      start: () => Promise.resolve(),
+      stop: () => Promise.resolve(),
+      health: () => Promise.resolve('healthy'),
+    },
+  )
+  assert.equal(registry.enable('async-ok').ok, true)
+  await registry.flush()
+  assert.equal(registry.healthOf('async-ok'), 'healthy')
+  assert.equal((await registry.refreshHealth('async-ok')).activity.health, 'healthy')
+
+  registry.register(
+    makeActivityManifest({
+      id: 'async-fail',
+      events: ['async.fail'],
+      tasks: [{ kind: 'async.fail', goal: '异步失败' }],
+      tools: [],
+      permissions: [],
+    }),
+    {
+      start: () => Promise.reject(new Error('async start failed')),
+    },
+  )
+  assert.equal(registry.enable('async-fail').ok, true, '异步启动先乐观置 enabled')
+  await registry.flush()
+  assert.equal(registry.isEnabled('async-fail'), false, '异步失败后回滚 enabled')
+  assert.equal(registry.healthOf('async-fail'), 'error')
+})
+
+test('activity-registry B4：注销活动（启用中先 stop）与重新注册', () => {
+  const calls = []
+  const events = []
+  const registry = createActivityRegistry({ now: () => 1000, onEvent: (event) => events.push(event.type) })
+  registry.register(makeActivityManifest(), {
+    start: () => calls.push('start'),
+    stop: () => calls.push('stop'),
+  })
+  registry.enable('reading')
+  const removed = registry.unregister('reading')
+  assert.equal(removed.ok, true)
+  assert.equal(removed.activity.enabled, false)
+  assert.deepEqual(calls, ['start', 'stop'], '注销前先停用')
+  assert.equal(registry.has('reading'), false)
+  assert.equal(registry.unregister('reading').code, ACTIVITY_REGISTRY_CODES.notFound)
+  assert.ok(events.includes('activity.unregistered'))
+  // 重新注册同一 id 允许
+  assert.equal(registry.register(makeActivityManifest()).ok, true)
+  assert.equal(registry.snapshot().total, 1)
+})
+
+test('activity-registry B4：事件回调抛错隔离与 snapshot 指标', () => {
+  const registry = createActivityRegistry({
+    now: () => 1000,
+    onEvent: () => {
+      throw new Error('listener boom')
+    },
+  })
+  assert.equal(registry.register(makeActivityManifest()).ok, true, 'onEvent 抛错不影响注册')
+  assert.equal(registry.enable('reading').ok, true)
+  const snapshot = registry.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.total, 1)
+  assert.equal(snapshot.enabled, 1)
+  assert.equal(snapshot.byHealth.healthy, 1)
+  assert.equal(snapshot.maxActivities > 0, true)
+  assert.equal(typeof snapshot.metrics.registered, 'number')
+  assert.equal(typeof snapshot.metrics.startCalls, 'number')
+  assert.equal(snapshot.activities.length, 1)
+  assert.equal(snapshot.recentEvents.length <= 10, true)
 })
