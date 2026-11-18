@@ -7,6 +7,17 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { summarizeModelBudget, summarizeModelGate } from '../lib/composition/health.mjs'
 import {
+  ACTIVITY_MANIFEST_ERROR_CODES,
+  ACTIVITY_PERMISSIONS,
+  checkActivityPermission,
+  describeActivityPermissions,
+  isActivityPermission,
+  listActivityPermissions,
+  PERMISSION_REASONS,
+  parseActivityPermission,
+  validateActivityManifest,
+} from '../lib/core/activity-manifest.mjs'
+import {
   canTransition,
   createTaskSupervisor,
   TASK_ALLOWED_TRANSITIONS,
@@ -790,4 +801,231 @@ test('task-supervisor A2：事件回调异常不影响监管，非法迁移有�
   const invalid = sup.transition(task.task.id, 'nope')
   assert.equal(invalid.code, TASK_ERROR_CODES.invalidArgument)
   assert.equal(rejected.length, 2)
+})
+
+// ---------------------------------------------------------------------------
+// Gate A3：Activity manifest 契约与权限校验（默认拒绝）
+// ---------------------------------------------------------------------------
+
+function validManifest(overrides) {
+  return {
+    id: 'reading',
+    version: '1.0.0',
+    name: '读书',
+    events: ['reading.started', 'reading.highlight', 'reading.finished'],
+    tasks: [{ kind: 'reading.read', goal: '读一章并留下笔记', priority: 30, success: '章节完成 + 笔记' }],
+    tools: ['book.open', 'book.page', 'book.highlight', 'book.note'],
+    permissions: ['fs.read:~/Books', 'model', 'tool:book.open'],
+    resources: { model: true, foreground: false, maxMinutes: 60 },
+    ...(overrides ?? {}),
+  }
+}
+
+test('activity-manifest A3：合法 manifest 通过并归一化默认值', () => {
+  const result = validateActivityManifest(validManifest())
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.errors, [])
+  const manifest = result.manifest
+  assert.equal(manifest.id, 'reading')
+  assert.equal(manifest.version, '1.0.0')
+  assert.equal(manifest.name, '读书')
+  assert.equal(manifest.schemaVersion, 1)
+  assert.deepEqual(manifest.events, ['reading.started', 'reading.highlight', 'reading.finished'])
+  assert.deepEqual(manifest.tasks, [
+    { kind: 'reading.read', goal: '读一章并留下笔记', priority: 30, success: '章节完成 + 笔记' },
+  ])
+  assert.deepEqual(manifest.permissions, [
+    { permission: 'fs.read', scope: '~/Books', raw: 'fs.read:~/Books' },
+    { permission: 'model', scope: null, raw: 'model' },
+    { permission: 'tool', scope: 'book.open', raw: 'tool:book.open' },
+  ])
+  assert.deepEqual(manifest.resources, { model: true, foreground: false, maxMinutes: 60 })
+  assert.equal(manifest.world, null)
+
+  // 默认值：resources 省略字段、name 省略、world 省略
+  const minimal = validateActivityManifest({
+    id: 'mood',
+    version: '0.1.0',
+    events: ['mood.changed'],
+    tasks: [{ kind: 'mood.refresh', goal: '刷新心情' }],
+    tools: ['mood.refresh'],
+    permissions: [],
+    resources: {},
+  })
+  assert.equal(minimal.ok, true)
+  assert.equal(minimal.manifest.name, 'mood')
+  assert.deepEqual(minimal.manifest.resources, { model: false, foreground: false, maxMinutes: 60 })
+  assert.deepEqual(minimal.manifest.permissions, [], '无权限 = 默认拒绝')
+
+  // world 可选字段
+  const withWorld = validateActivityManifest(
+    validManifest({ world: { entry: './world.mjs', isolate: 'process', health: 'reading.health' } }),
+  )
+  assert.equal(withWorld.ok, true)
+  assert.deepEqual(withWorld.manifest.world, { entry: './world.mjs', isolate: 'process', health: 'reading.health' })
+})
+
+test('activity-manifest A3：缺字段与类型错误被拒绝（一次收集全部）', () => {
+  const empty = validateActivityManifest({})
+  assert.equal(empty.ok, false)
+  assert.equal(empty.manifest, null)
+  const missingFields = empty.errors.filter((item) => item.code === ACTIVITY_MANIFEST_ERROR_CODES.missingField)
+  assert.deepEqual(
+    missingFields.map((item) => item.path),
+    ['id', 'version', 'events', 'tasks', 'tools', 'permissions', 'resources'],
+  )
+
+  assert.equal(validateActivityManifest(null).errors[0].code, ACTIVITY_MANIFEST_ERROR_CODES.invalidType)
+  const wrongTypes = validateActivityManifest({
+    id: 'reading',
+    version: '1.0.0',
+    events: 'reading.started',
+    tasks: {},
+    tools: 'book.open',
+    permissions: 'fs.read',
+    resources: [],
+  })
+  assert.equal(wrongTypes.ok, false)
+  const paths = wrongTypes.errors.map((item) => item.path)
+  for (const path of ['events', 'tasks', 'tools', 'permissions', 'resources']) {
+    assert.ok(paths.includes(path), `应报告 ${path} 类型错误`)
+  }
+})
+
+test('activity-manifest A3：id/version/events/tools/tasks 校验与数量上限', () => {
+  const badId = validateActivityManifest(validManifest({ id: 'Reading' }))
+  assert.equal(badId.ok, false)
+  assert.equal(badId.errors[0].path, 'id')
+  assert.equal(validateActivityManifest(validManifest({ version: 'v1' })).errors[0].path, 'version')
+  assert.equal(validateActivityManifest(validManifest({ name: '' })).errors[0].path, 'name')
+
+  const badEvent = validateActivityManifest(validManifest({ events: ['reading.started', 'noDot', 'reading.started'] }))
+  assert.equal(badEvent.ok, false)
+  const eventErrors = badEvent.errors.map((item) => item.code)
+  assert.ok(eventErrors.includes(ACTIVITY_MANIFEST_ERROR_CODES.invalidValue))
+  assert.ok(eventErrors.includes(ACTIVITY_MANIFEST_ERROR_CODES.duplicateEntry))
+
+  const badTool = validateActivityManifest(validManifest({ tools: ['Book.Open'] }))
+  assert.equal(badTool.ok, false)
+  assert.equal(badTool.errors[0].path, 'tools[0]')
+
+  const badTask = validateActivityManifest(
+    validManifest({
+      tasks: [
+        { kind: 'reading.read', goal: '' },
+        { kind: 'reading.read', goal: '重复 kind' },
+      ],
+    }),
+  )
+  assert.equal(badTask.ok, false)
+  const taskPaths = badTask.errors.map((item) => item.path)
+  assert.ok(taskPaths.includes('tasks[0].goal'))
+  assert.ok(taskPaths.includes('tasks[1].kind'))
+
+  const tooMany = validateActivityManifest(
+    validManifest({ events: Array.from({ length: 65 }, (_, index) => `reading.e${index}`) }),
+  )
+  assert.equal(tooMany.ok, false)
+  assert.ok(tooMany.errors.some((item) => item.code === ACTIVITY_MANIFEST_ERROR_CODES.tooManyEntries))
+})
+
+test('activity-manifest A3：越权/非法权限被拒绝，合法 scope 被归一化', () => {
+  assert.deepEqual(ACTIVITY_PERMISSIONS, ['fs.read', 'fs.write', 'net', 'model', 'tool'])
+  assert.equal(isActivityPermission('fs.read:~/Books'), true)
+  assert.equal(isActivityPermission('fs.read:'), false)
+  assert.equal(isActivityPermission('fs.delete'), false)
+  assert.equal(isActivityPermission('root'), false)
+  assert.equal(isActivityPermission(42), false)
+
+  const unknown = validateActivityManifest(validManifest({ permissions: ['fs.read:~/Books', 'fs.delete', 'root'] }))
+  assert.equal(unknown.ok, false)
+  const codes = unknown.errors.map((item) => item.code)
+  assert.ok(codes.includes(ACTIVITY_MANIFEST_ERROR_CODES.unknownPermission))
+  assert.ok(unknown.errors.some((item) => item.path === 'permissions[1]'))
+  assert.ok(unknown.errors.some((item) => item.path === 'permissions[2]'))
+
+  const emptyScope = validateActivityManifest(validManifest({ permissions: ['fs.write:'] }))
+  assert.equal(emptyScope.ok, false)
+  assert.equal(emptyScope.errors[0].code, ACTIVITY_MANIFEST_ERROR_CODES.invalidPermission)
+
+  const control = validateActivityManifest(validManifest({ permissions: ['fs.read:~/Bad\u0007Path'] }))
+  assert.equal(control.ok, false)
+  assert.equal(control.errors[0].code, ACTIVITY_MANIFEST_ERROR_CODES.invalidPermission)
+
+  const duplicate = validateActivityManifest(validManifest({ permissions: ['model', 'model'] }))
+  assert.equal(duplicate.ok, false)
+  assert.equal(duplicate.errors[0].code, ACTIVITY_MANIFEST_ERROR_CODES.duplicateEntry)
+
+  const parsed = parseActivityPermission('  fs.write:~/Notes/  ')
+  assert.equal(parsed.ok, true)
+  assert.deepEqual(parsed.permission, { permission: 'fs.write', scope: '~/Notes/', raw: 'fs.write:~/Notes/' })
+})
+
+test('activity-manifest A3：checkActivityPermission 默认拒绝 + scope 匹配', () => {
+  // 默认拒绝：无 manifest / 空权限 / 未声明权限 / 非法请求
+  assert.deepEqual(checkActivityPermission(null, 'fs.read'), {
+    allowed: false,
+    reason: PERMISSION_REASONS.noManifest,
+    permission: 'fs.read',
+    scope: null,
+  })
+  const empty = validateActivityManifest(validManifest({ permissions: [] })).manifest
+  assert.equal(checkActivityPermission(empty, 'model').reason, PERMISSION_REASONS.notGranted)
+  assert.equal(checkActivityPermission(validManifest(), 'nope').reason, PERMISSION_REASONS.invalidPermission)
+  assert.equal(checkActivityPermission(validManifest(), 'fs.write').reason, PERMISSION_REASONS.notGranted)
+
+  const manifest = validateActivityManifest(validManifest()).manifest
+  // fs.* 路径前缀
+  assert.equal(checkActivityPermission(manifest, 'fs.read:~/Books').allowed, true)
+  assert.equal(checkActivityPermission(manifest, 'fs.read:~/Books/a.md').allowed, true)
+  assert.equal(checkActivityPermission(manifest, 'fs.read:~/Books/2026/b.md').allowed, true)
+  assert.equal(checkActivityPermission(manifest, 'fs.read:~/Other').allowed, false)
+  assert.equal(checkActivityPermission(manifest, 'fs.read:~/Bookshelf').allowed, false, '前缀必须按路径边界')
+  assert.equal(checkActivityPermission(manifest, 'fs.read').reason, PERMISSION_REASONS.scopeRequired)
+  assert.equal(checkActivityPermission(manifest, 'fs.write:~/Books/a.md').allowed, false)
+
+  // 非 fs 权限：未带 scope 的授权覆盖整个权限；带 scope 要求精确
+  assert.equal(checkActivityPermission(manifest, 'model').allowed, true)
+  assert.equal(checkActivityPermission(manifest, 'tool:book.open').allowed, true)
+  assert.equal(checkActivityPermission(manifest, 'tool:book.page').allowed, false)
+  assert.equal(checkActivityPermission(manifest, 'tool:book.open').reason, PERMISSION_REASONS.granted)
+
+  // 原始（未校验）manifest 也可判定；非法条目按未授权
+  const raw = { permissions: ['model', 'fs.read:~/Books', 'bogus', 42] }
+  assert.equal(checkActivityPermission(raw, 'model').allowed, true)
+  assert.equal(checkActivityPermission(raw, 'fs.read:~/Books/x').allowed, true)
+  assert.equal(checkActivityPermission(raw, 'net').allowed, false)
+
+  // UI/文档摘要
+  assert.deepEqual(
+    listActivityPermissions(manifest).map((item) => item.raw),
+    ['fs.read:~/Books', 'model', 'tool:book.open'],
+  )
+  const described = describeActivityPermissions(manifest)
+  assert.equal(described[0].label, '读取本机文件')
+  assert.equal(described[1].label, '调用模型')
+})
+
+test('activity-manifest A3：resources/world 校验与未知字段容忍', () => {
+  const badResources = validateActivityManifest(
+    validManifest({ resources: { model: 'yes', foreground: 1, maxMinutes: 0 } }),
+  )
+  assert.equal(badResources.ok, false)
+  const paths = badResources.errors.map((item) => item.path)
+  assert.ok(paths.includes('resources.model'))
+  assert.ok(paths.includes('resources.foreground'))
+  assert.ok(paths.includes('resources.maxMinutes'))
+
+  const tooLong = validateActivityManifest(validManifest({ resources: { maxMinutes: 24 * 60 + 1 } }))
+  assert.equal(tooLong.ok, false)
+  assert.equal(tooLong.errors[0].path, 'resources.maxMinutes')
+
+  const badWorld = validateActivityManifest(validManifest({ world: { isolate: 'vm' } }))
+  assert.equal(badWorld.ok, false)
+  assert.equal(badWorld.errors[0].path, 'world.isolate')
+
+  // 未知顶层字段容忍（向前兼容），不影响校验结果
+  const forward = validateActivityManifest(validManifest({ futureField: { a: 1 } }))
+  assert.equal(forward.ok, true)
+  assert.equal(forward.manifest.futureField, undefined)
 })
