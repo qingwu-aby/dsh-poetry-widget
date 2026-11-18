@@ -67,6 +67,14 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - I4 journal/methods 写入桥：默认旧路径，`memoryWrite` 开启后旁路写 Memory Gateway。
 - 当前测试 880/880。
 
+## 3.5 闭环批次 J2–J4（代码完成，待重启验收）
+
+- J2：full 时 chat-service 走 `hubRuntime.runChatTurn`，旧 chatBridge 路径停用；可 `DSH_POETRY_CHAT_TAKEOVER=0` 回退；
+- J3：Minecraft 任务队列 + `/minecraft-tasks.json` claim/receipt；full 的 minecraft task.create 入队等待 bot；
+- J4：`DSH_POETRY_HUB_PERSIST` 默认开启，TaskBoard/EventBus 重启恢复；显式 0/false 可关；
+- bot 端已加 `DSH_MC_HOST_TASKS=1` 轮询（bot-play.mjs + start-bot.sh）；需 DSH 重启加载 J3 路由后生效；
+- 当前测试 893/893，check 绿。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
