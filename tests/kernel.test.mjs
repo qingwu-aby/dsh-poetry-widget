@@ -142,6 +142,15 @@ import {
   validateEventEnvelope,
 } from '../lib/core/event-schema.mjs'
 import {
+  createDefaultRouterRules,
+  createEventTaskRouter,
+  DEFAULT_ROUTER_EXCLUDED_PREFIXES,
+  DEFAULT_ROUTER_RATE_PER_MINUTE,
+  DEFAULT_ROUTER_RULE_CAPACITY,
+  EVENT_TASK_ROUTER_VERSION,
+  resolveRouterFeatureFlag,
+} from '../lib/core/event-task-router.mjs'
+import {
   createFeedbackLedger,
   FEEDBACK_LEDGER_CODES,
   FEEDBACK_LEDGER_DEFAULTS,
@@ -6410,12 +6419,19 @@ function makeHubRuntimeFixture(flag) {
 }
 
 test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > settings）', () => {
-  assert.deepEqual(resolveHubFeatureFlag({}), { enabled: false, shadow: true, memoryWrite: false, persist: true })
+  assert.deepEqual(resolveHubFeatureFlag({}), {
+    enabled: false,
+    shadow: true,
+    memoryWrite: false,
+    persist: true,
+    router: false,
+  })
   assert.deepEqual(resolveHubFeatureFlag({ env: {} }), {
     enabled: false,
     shadow: true,
     memoryWrite: false,
     persist: true,
+    router: false,
   })
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).shadow, true)
   assert.equal(resolveHubFeatureFlag({ env: { DSH_POETRY_HUB: 'shadow' } }).enabled, true)
@@ -6427,6 +6443,7 @@ test('hub-runtime E1：feature flag 解析（默认 off/shadow；显式 > env > 
     shadow: false,
     memoryWrite: false,
     persist: true,
+    router: false,
   })
   // 显式覆盖 env/settings
   const explicit = resolveHubFeatureFlag({ featureFlag: { enabled: true, shadow: true }, env: { DSH_POETRY_HUB: '1' } })
@@ -12353,4 +12370,239 @@ test('hub-routes N1：task.create/execute 权限拦截（默认拒绝 fs.read，
   runtime.dispose()
   noGuardRuntime.dispose()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate J1：Event→Task 路由（规则/去重/限流/dry-run/默认规则）
+// ---------------------------------------------------------------------------
+
+function makeJ1RouterFixture(options = {}) {
+  let clock = 1000
+  const bus = createEventBus({ now: () => clock })
+  const board = createTaskBoard({ now: () => clock })
+  const router = createEventTaskRouter({
+    eventBus: bus,
+    board,
+    dryRun: options.dryRun === true,
+    ratePerMinute: options.ratePerMinute,
+    ruleCapacity: options.ruleCapacity,
+    rules: options.rules,
+    now: () => clock,
+  })
+  assert.equal(router.attach().ok, true)
+  return {
+    bus,
+    board,
+    router,
+    tick: (ms) => {
+      clock += ms
+    },
+    get clock() {
+      return clock
+    },
+  }
+}
+
+function j1PlainEvent(overrides = {}) {
+  const spec = overrides !== null && typeof overrides === 'object' ? overrides : {}
+  return {
+    id: 'evt-' + Math.random().toString(36).slice(2, 8),
+    activity: spec.activity ?? 'minecraft',
+    type: spec.type ?? 'minecraft.tool_receipt',
+    subject: spec.subject ?? 'world:1',
+    topics: spec.topics ?? [],
+    payload: spec.payload ?? { ok: false, detail: '被墙挡住' },
+    at: spec.at ?? 1000,
+  }
+}
+
+function j1Event(overrides = {}) {
+  const spec = overrides !== null && typeof overrides === 'object' ? overrides : {}
+  const created = createEventEnvelope(
+    {
+      activity: spec.activity ?? 'minecraft',
+      type: spec.type ?? 'minecraft.tool_receipt',
+      version: 1,
+      at: spec.at ?? 1000,
+      subject: spec.subject ?? 'world:1',
+      topics: spec.topics ?? [],
+      payload: spec.payload ?? { ok: false, detail: '被墙挡住' },
+    },
+    { now: () => 1000, prefix: 'evt' },
+  )
+  return created.event
+}
+
+test('event-router J1：默认规则命中/未命中（chat 不触发）', async () => {
+  assert.equal(EVENT_TASK_ROUTER_VERSION, 1)
+  assert.equal(DEFAULT_ROUTER_RATE_PER_MINUTE, 60)
+  assert.equal(DEFAULT_ROUTER_RULE_CAPACITY, 200)
+  assert.deepEqual(DEFAULT_ROUTER_EXCLUDED_PREFIXES, ['chat.'])
+  const rules = createDefaultRouterRules()
+  assert.deepEqual(
+    rules.map((rule) => rule.id),
+    ['minecraft-receipt-failed-inquire', 'video-topic-to-study', 'reading-finished-to-note'],
+  )
+  const fixture = makeJ1RouterFixture()
+  fixture.router.handleEvent(j1PlainEvent())
+  const tasks = fixture.board.list()
+  assert.equal(tasks.length, 1)
+  assert.equal(tasks[0].activity, 'minecraft')
+  assert.equal(tasks[0].kind, 'minecraft.inquire')
+  assert.equal(tasks[0].payload.tool, 'mc_inquire')
+  assert.equal(['queued', 'waiting'].includes(tasks[0].status), true, '只创建任务（queued/waiting），不执行 adapter')
+  // 成功回执不触发
+  fixture.router.handleEvent(j1PlainEvent({ id: 'evt-ok', payload: { ok: true } }))
+  assert.equal(fixture.board.list().length, 1)
+  // video.topic → study.research
+  fixture.router.handleEvent(
+    j1PlainEvent({ id: 'evt-video', activity: 'video', type: 'video.topic', payload: { topic: '瑞利散射' } }),
+  )
+  const studyTask = fixture.board.list().find((task) => task.kind === 'study.research')
+  assert.ok(studyTask !== undefined)
+  assert.equal(studyTask.payload.query, '瑞利散射')
+  // reading.finished → study.note
+  fixture.router.handleEvent(
+    j1PlainEvent({ id: 'evt-read', activity: 'reading', type: 'reading.finished', payload: { title: '一本书' } }),
+  )
+  assert.equal(
+    fixture.board.list().some((task) => task.kind === 'study.note'),
+    true,
+  )
+  // chat.received 排除
+  const before = fixture.board.list().length
+  fixture.router.handleEvent(
+    j1PlainEvent({ id: 'evt-chat', activity: 'chat', type: 'chat.received', payload: { text: '你好' } }),
+  )
+  assert.equal(fixture.board.list().length, before, 'chat 不触发')
+  assert.equal(fixture.router.snapshot().metrics.excluded >= 1, true)
+  assert.equal(fixture.router.snapshot().metrics.created >= 3, true)
+})
+
+test('event-router J1：去重/限流/单规则容量/dry-run', async () => {
+  // 去重（同 event id）
+  const dedupe = makeJ1RouterFixture()
+  const event = j1PlainEvent({ id: 'evt-dup' })
+  dedupe.router.handleEvent(event)
+  dedupe.router.handleEvent(event)
+  await dedupe.bus.flush()
+  assert.equal(dedupe.board.list().length, 1, '同 event 只建一个任务')
+  assert.equal(dedupe.router.snapshot().metrics.duplicates >= 1, true)
+  // 限流（每分钟 2）
+  const limited = makeJ1RouterFixture({ ratePerMinute: 2 })
+  for (let index = 0; index < 4; index += 1) limited.router.handleEvent(j1PlainEvent({ id: 'evt-rate-' + index }))
+  assert.equal(limited.board.list().length, 2, '超过限流不再创建')
+  assert.equal(limited.router.snapshot().metrics.skipped >= 2, true)
+  // 单规则容量
+  const capped = makeJ1RouterFixture({ ruleCapacity: 1 })
+  for (let index = 0; index < 3; index += 1) capped.router.handleEvent(j1PlainEvent({ id: 'evt-cap-' + index }))
+  assert.equal(capped.board.list().length, 1, '单规则容量上限')
+  assert.equal(capped.router.snapshot().metrics.skipped >= 2, true)
+  // dry-run
+  const dry = makeJ1RouterFixture({ dryRun: true })
+  dry.router.handleEvent(j1PlainEvent({ id: 'evt-dry' }))
+  assert.equal(dry.board.list().length, 0, 'dry-run 不建任务')
+  assert.equal(dry.router.snapshot().metrics.wouldCreate >= 1, true)
+  assert.equal(
+    dry.router.snapshot().recent.some((entry) => entry.action === 'would-create'),
+    true,
+  )
+})
+
+test('event-router J1：自定义规则匹配/禁用/失败隔离', async () => {
+  const customRules = [
+    {
+      id: 'custom-video',
+      enabled: true,
+      match: { activity: 'video', type: 'video.*', topics: ['学习'], payloadOk: (event) => event.payload.ok === true },
+      task: { activity: 'study', kind: 'study.research', priority: 10, payload: { query: '固定查询' } },
+    },
+    { id: 'disabled', enabled: false, match: { type: '*' }, task: { activity: 'study', kind: 'study.note' } },
+  ]
+  const fixture = makeJ1RouterFixture({ rules: customRules })
+  fixture.router.handleEvent(
+    j1PlainEvent({ id: 'evt-match', activity: 'video', type: 'video.opened', topics: ['学习'], payload: { ok: true } }),
+  )
+  fixture.router.handleEvent(
+    j1PlainEvent({
+      id: 'evt-topic-miss',
+      activity: 'video',
+      type: 'video.opened',
+      topics: ['其他'],
+      payload: { ok: true },
+    }),
+  )
+  fixture.router.handleEvent(
+    j1PlainEvent({
+      id: 'evt-payload-miss',
+      activity: 'video',
+      type: 'video.opened',
+      topics: ['学习'],
+      payload: { ok: false },
+    }),
+  )
+  assert.equal(fixture.board.list().length, 1, '只有匹配规则命中')
+  assert.equal(fixture.board.list()[0].payload.query, '固定查询')
+  // 失败隔离：board.create 抛错 → 记录 error 且不崩
+  const bus2 = createEventBus({ now: () => 1000 })
+  let calls = 0
+  const flakyBoard = {
+    create: () => {
+      calls += 1
+      if (calls === 1) throw new Error('board boom')
+      return { ok: true, duplicate: false, task: { id: 'tb-x' } }
+    },
+  }
+  const router2 = createEventTaskRouter({ eventBus: bus2, board: flakyBoard, rules: customRules, now: () => 1000 })
+  router2.attach()
+  router2.handleEvent(
+    j1PlainEvent({ id: 'evt-fail', activity: 'video', type: 'video.opened', topics: ['学习'], payload: { ok: true } }),
+  )
+  router2.handleEvent(
+    j1PlainEvent({
+      id: 'evt-fail-2',
+      activity: 'video',
+      type: 'video.opened',
+      topics: ['学习'],
+      payload: { ok: true },
+    }),
+  )
+  assert.equal(router2.snapshot().metrics.errors >= 1, true)
+  assert.equal(router2.snapshot().metrics.created >= 1, true, '后续事件仍可处理')
+})
+
+test('hub-runtime J1：router flag 默认 off；开启后事件→任务，chat 不双触发', async () => {
+  assert.equal(resolveRouterFeatureFlag({}), false)
+  assert.equal(resolveRouterFeatureFlag({ env: { DSH_POETRY_HUB_ROUTER: '1' } }), true)
+  assert.equal(resolveRouterFeatureFlag({ env: { DSH_POETRY_HUB_ROUTER: '0' } }), false)
+  assert.equal(resolveRouterFeatureFlag({ settings: { hub: { router: true } } }), true)
+  assert.equal(resolveRouterFeatureFlag({ featureFlag: { router: true } }), true)
+  // 默认 off：不创建 router，事件不生成任务
+  const off = createHubRuntime({ logger: { warn() {} }, featureFlag: { enabled: true, shadow: true }, now: () => 1000 })
+  off.start()
+  assert.equal(off.snapshot().router, null)
+  off.getInstances().eventBus.append(j1Event({ id: 'evt-off' }))
+  await off.getInstances().eventBus.flush()
+  assert.equal(off.getInstances().taskBoard.list().length, 0, 'flag off 零行为变化')
+  off.dispose()
+  // 开启 router
+  const on = createHubRuntime({
+    logger: { warn() {} },
+    env: { DSH_POETRY_HUB_ROUTER: '1' },
+    featureFlag: { enabled: true, shadow: true },
+    now: () => 1000,
+  })
+  on.start()
+  assert.ok(on.snapshot().router !== null)
+  assert.equal(on.snapshot().router.attached, true)
+  on.getInstances().eventBus.append(j1Event({ id: 'evt-on', payload: { ok: false, detail: '卡住了' } }))
+  on.getInstances().eventBus.append(
+    j1Event({ id: 'evt-chat', activity: 'chat', type: 'chat.received', payload: { text: '你好' } }),
+  )
+  await on.getInstances().eventBus.flush()
+  const tasks = on.getInstances().taskBoard.list()
+  assert.equal(tasks.length, 1, 'router 只生成非 chat 任务')
+  assert.equal(tasks[0].kind, 'minecraft.inquire')
+  assert.equal(on.snapshot().router.metrics.created, 1)
+  on.dispose()
 })
