@@ -236,6 +236,15 @@ export function createWhaleSettingsPage(React, h) {
   const [trainingError, setTrainingError] = React.useState('')
   const [trainingBusy, setTrainingBusy] = React.useState('')
   const [pendingTrainingAction, setPendingTrainingAction] = React.useState('')
+  // Gate K5：记忆质量/导出 + Activity 权限授权。
+  const [memoryAdmin, setMemoryAdmin] = React.useState(null)
+  const [memoryAdminError, setMemoryAdminError] = React.useState('')
+  const [memoryAdminBusy, setMemoryAdminBusy] = React.useState('')
+  const [memoryExport, setMemoryExport] = React.useState(null)
+  const [activityGrants, setActivityGrants] = React.useState(null)
+  const [grantScope, setGrantScope] = React.useState('')
+  const [grantsError, setGrantsError] = React.useState('')
+  const [grantsBusy, setGrantsBusy] = React.useState('')
   // Gate N3：成本策略（限额/软告警；保存后实时生效）。
   const [costPolicy, setCostPolicy] = React.useState(null)
   const [costDraft, setCostDraft] = React.useState(() => costDraftFrom(null))
@@ -261,6 +270,26 @@ export function createWhaleSettingsPage(React, h) {
       .then((data) => { setHub(data); setHubError('') })
       .catch((error) => setHubError('读取 Hub 状态失败：' + error.message))
   }, [])
+  const refreshMemoryAdmin = React.useCallback(() => {
+    apiRequest('/memory-admin.json')
+      .then((data) => {
+        setMemoryAdmin(data)
+        setMemoryAdminError('')
+      })
+      .catch((error) => setMemoryAdminError('读取记忆质量失败：' + error.message))
+  }, [])
+  const refreshActivityGrants = React.useCallback(() => {
+    apiRequest('/activity-grants.json')
+      .then((data) => {
+        setActivityGrants(data)
+        const readingGrant = (data && Array.isArray(data.grants) ? data.grants : []).find(
+          (entry) => entry.activityId === 'reading' && entry.permission === 'fs.read',
+        )
+        setGrantScope(readingGrant && readingGrant.scope ? readingGrant.scope : '')
+        setGrantsError('')
+      })
+      .catch((error) => setGrantsError('读取权限失败：' + error.message))
+  }, [])
   const refreshCostPolicy = React.useCallback(() => {
     apiRequest('/cost-policy.json')
       .then((data) => {
@@ -275,7 +304,7 @@ export function createWhaleSettingsPage(React, h) {
       .then((data) => { setTraining(data); setTrainingDraft(trainingDraftFrom(data)); setTrainingError('') })
       .catch((error) => setTrainingError('读取训练状态失败：' + error.message))
   }, [])
-  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining(); refreshCostPolicy() }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy])
+  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining(); refreshCostPolicy(); refreshMemoryAdmin(); refreshActivityGrants() }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants])
 
   function save(patch, key) {
     setBusy(key)
@@ -342,6 +371,67 @@ export function createWhaleSettingsPage(React, h) {
   }
   function setTrainingField(field, value) {
     setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }))
+  }
+  function memoryAdminAction(action) {
+    setMemoryAdminBusy(action)
+    setMemoryAdminError('')
+    apiRequest('/memory-admin.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setMemoryAdminError('记忆操作失败：' + (data.message || data.code || '被拒绝'))
+          return
+        }
+        if (action === 'privacy.export') setMemoryExport(data)
+        else setMemoryAdmin((current) => Object.assign({}, current || {}, { quality: data, sample: data && data.summary ? data.summary.total : undefined }))
+        setMessage(action === 'privacy.export' ? '记忆导出已生成（未落盘）' : '记忆质量分析完成')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setMemoryAdminError('记忆操作失败：' + error.message))
+      .finally(() => setMemoryAdminBusy(''))
+  }
+  function saveActivityGrant() {
+    setGrantsBusy('save')
+    setGrantsError('')
+    apiRequest('/activity-grants.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ grant: { activityId: 'reading', permission: 'fs.read', scope: String(grantScope || '').trim() || null } }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setGrantsError('保存授权失败：' + (data.message || data.error || '被拒绝'))
+          return
+        }
+        setActivityGrants(data)
+        setMessage('reading fs.read 已授权')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setGrantsError('保存授权失败：' + error.message))
+      .finally(() => setGrantsBusy(''))
+  }
+  function resetActivityGrants() {
+    setGrantsBusy('reset')
+    setGrantsError('')
+    apiRequest('/activity-grants.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reset: true }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setGrantsError('清空授权失败：' + (data.message || data.error || '被拒绝'))
+          return
+        }
+        refreshActivityGrants()
+        setMessage('Activity 授权已清空')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setGrantsError('清空授权失败：' + error.message))
+      .finally(() => setGrantsBusy(''))
   }
   function setCostField(field, value) {
     setCostDraft((draft) => Object.assign({}, draft, { [field]: value }))
@@ -669,6 +759,48 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '', onClick: refreshHub }, '刷新 Hub'),
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.pauseAll') }, hubBusy === 'hub.pauseAll' ? '暂停中…' : '暂停全部'),
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.resumeAll') }, hubBusy === 'hub.resumeAll' ? '恢复中…' : '恢复全部'),
+        )),
+    ),
+    h('div', { style: styles.card },
+      h('div', { style: styles.title }, '记忆与权限'),
+      memoryAdminError ? h('div', { style: styles.error }, memoryAdminError) : null,
+      grantsError ? h('div', { style: styles.error }, grantsError) : null,
+      h('div', { style: styles.hint },
+        memoryAdmin && memoryAdmin.available === false
+          ? '记忆管理不可用（Hub 未接入）'
+          : '质量摘要来自 Hub 记忆样本（只读）；导出为脱敏 JSON，默认不落盘。'),
+      row('记忆质量', '样本 / 去重 / 冲突统计',
+        h('span', { style: styles.hint },
+          memoryAdmin && memoryAdmin.quality && memoryAdmin.quality.summary
+            ? '样本 ' + String(memoryAdmin.sample ?? '—') + ' · total=' + String(memoryAdmin.quality.summary.total) +
+              ' merge=' + String(memoryAdmin.quality.summary.merge) + ' archive=' + String(memoryAdmin.quality.summary.archive) +
+              ' drop=' + String(memoryAdmin.quality.summary.drop)
+            : '—')),
+      row('操作', '分析只读；导出脱敏 JSON（默认不写文件）',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('button', { type: 'button', style: styles.button, disabled: memoryAdminBusy !== '', onClick: () => memoryAdminAction('quality.analyze') }, memoryAdminBusy === 'quality.analyze' ? '分析中…' : '分析记忆'),
+          h('button', { type: 'button', style: styles.button, disabled: memoryAdminBusy !== '', onClick: () => memoryAdminAction('privacy.export') }, memoryAdminBusy === 'privacy.export' ? '导出中…' : '导出记忆'),
+        )),
+      memoryExport
+        ? h('div', { style: styles.hint }, '导出：' + String(memoryExport.entries ?? '?') + ' 条 / ' + String(memoryExport.sizeBytes ?? '?') + ' bytes（未落盘）')
+        : null,
+      h('div', { style: styles.hint }, '权限：tool/model 默认可用；fs.*/net 必须显式授权（scope 前缀匹配）。'),
+      activityGrants && Array.isArray(activityGrants.known)
+        ? activityGrants.known.map((activity) => h('div', { style: styles.hint, key: 'grant-known-' + activity.id },
+          '· ' + activity.id + '：' + (activity.permissions && activity.permissions.length > 0 ? activity.permissions.join('、') : '无声明')))
+        : null,
+      row('reading fs.read 授权', 'booksDir 前缀（授权后 reading 任务可读本地书）',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('input', {
+            type: 'text',
+            style: styles.input,
+            'aria-label': 'reading fs.read scope',
+            value: grantScope,
+            placeholder: '~/Documents/little-whale-books',
+            onChange: (event) => setGrantScope(event.target.value),
+          }),
+          h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), disabled: grantsBusy !== '', onClick: saveActivityGrant }, grantsBusy === 'save' ? '保存中…' : '保存授权'),
+          h('button', { type: 'button', style: styles.button, disabled: grantsBusy !== '', onClick: resetActivityGrants }, grantsBusy === 'reset' ? '清空中…' : '清空授权'),
         )),
     ),
     h('div', { style: styles.card },

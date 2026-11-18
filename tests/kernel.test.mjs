@@ -18,6 +18,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import {
+  ACTIVITY_GRANT_PERMISSIONS,
+  ACTIVITY_GRANTS_DEFAULT_KNOWN,
+  ACTIVITY_GRANTS_ROUTE,
+  createActivityGrantsHandler,
+  registerActivityGrantsRoute,
+} from '../lib/composition/activity-grants-routes.mjs'
 import { createChatHttpService, createChatTurnRunner } from '../lib/composition/chat-service.mjs'
 import {
   COST_POLICY_ROUTE,
@@ -13462,5 +13469,233 @@ test('hub-routes L7：video provider 可覆盖 + 错误隔离', async () => {
   assert.equal(broken.receipt.facts.code, 'VIDEO_OPEN_FAILED')
   runtime.dispose()
   brokenRuntime.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate K5：Activity 授权 API（activity-grants.json）
+// ---------------------------------------------------------------------------
+
+function makeK5GrantsFixture() {
+  const dir = tmpDir('k5-grants')
+  const file = path.join(dir, 'activity-grants.json')
+  const guard = createActivityPermissionGuard({ file, now: () => 5000, logger: { warn() {} } })
+  const known = [
+    { id: 'reading', permissions: ['fs.read', 'tool'] },
+    { id: 'minecraft', permissions: ['tool'] },
+  ]
+  const hubRuntime = {
+    getAdapters: () => known.map((item) => item.id),
+    getAdapter: (id) => {
+      const found = known.find((item) => item.id === id)
+      return found === undefined ? null : { manifest: { id: found.id, permissions: found.permissions } }
+    },
+  }
+  const handler = createActivityGrantsHandler({
+    guard,
+    getHubRuntime: () => hubRuntime,
+    tokenFile: '',
+    fence: { check: () => null },
+    logger: { warn() {} },
+  })
+  return { dir, file, guard, handler }
+}
+
+test('activity-grants K5：GET 列表/默认策略 + 鉴权 + 无 guard 降级', async () => {
+  const fixture = makeK5GrantsFixture()
+  assert.deepEqual(ACTIVITY_GRANT_PERMISSIONS, ['tool', 'model', 'fs.read', 'fs.write', 'net'])
+  assert.equal(ACTIVITY_GRANTS_DEFAULT_KNOWN.length >= 4, true)
+  const getRes = hubFakeRes()
+  await fixture.handler(hubFakeReq('GET', undefined, { url: ACTIVITY_GRANTS_ROUTE }), getRes)
+  const body = getRes.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.available, true)
+  assert.deepEqual(body.grants, [])
+  assert.equal(
+    body.known.some((item) => item.id === 'reading' && item.permissions.includes('fs.read')),
+    true,
+  )
+  assert.deepEqual(body.defaultPolicy.requiresGrant, ['fs.read', 'fs.write', 'net'])
+  // 无鉴权（token 未配置 + fence 拒绝）
+  const deniedHandler = createActivityGrantsHandler({
+    guard: fixture.guard,
+    tokenFile: '',
+    fence: { check: () => 'blocked' },
+  })
+  const denied = hubFakeRes()
+  await deniedHandler(hubFakeReq('GET', undefined, { url: ACTIVITY_GRANTS_ROUTE }), denied)
+  assert.equal(denied.statusCode, 403)
+  // 无 guard 降级
+  const bare = createActivityGrantsHandler({ guard: null, tokenFile: '', fence: { check: () => null } })
+  const bareRes = hubFakeRes()
+  await bare(hubFakeReq('GET'), bareRes)
+  assert.equal(bareRes.json().available, false)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('activity-grants K5：PUT 校验/授权写入/撤销/清空', async () => {
+  const fixture = makeK5GrantsFixture()
+  // 非法 activityId / permission
+  const badId = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('PUT', { grant: { activityId: 'X', permission: 'fs.read' } }, { url: ACTIVITY_GRANTS_ROUTE }),
+    badId,
+  )
+  assert.equal(badId.statusCode, 400)
+  const badPermission = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq('PUT', { grant: { activityId: 'reading', permission: 'root' } }, { url: ACTIVITY_GRANTS_ROUTE }),
+    badPermission,
+  )
+  assert.equal(badPermission.statusCode, 400)
+  // 授权 reading fs.read /books
+  const granted = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'PUT',
+      { grant: { activityId: 'reading', permission: 'fs.read', scope: '/books' } },
+      { url: ACTIVITY_GRANTS_ROUTE },
+    ),
+    granted,
+  )
+  const grantedBody = granted.json()
+  assert.equal(grantedBody.ok, true)
+  assert.equal(
+    grantedBody.grants.some(
+      (entry) => entry.activityId === 'reading' && entry.permission === 'fs.read' && entry.scope === '/books',
+    ),
+    true,
+  )
+  assert.equal(
+    fixture.guard.check({
+      activityId: 'reading',
+      manifest: { id: 'reading', permissions: ['fs.read'] },
+      permission: 'fs.read',
+      scope: '/books/a.txt',
+    }).allowed,
+    true,
+  )
+  // 撤销
+  const revoked = hubFakeRes()
+  await fixture.handler(
+    hubFakeReq(
+      'PUT',
+      { revoke: { activityId: 'reading', permission: 'fs.read', scope: '/books' } },
+      { url: ACTIVITY_GRANTS_ROUTE },
+    ),
+    revoked,
+  )
+  assert.equal(revoked.json().grants.length, 0)
+  // 再次授权后 reset
+  await fixture.handler(
+    hubFakeReq(
+      'PUT',
+      { grant: { activityId: 'reading', permission: 'fs.read', scope: '/books' } },
+      { url: ACTIVITY_GRANTS_ROUTE },
+    ),
+    hubFakeRes(),
+  )
+  const reset = hubFakeRes()
+  await fixture.handler(hubFakeReq('PUT', { reset: true }, { url: ACTIVITY_GRANTS_ROUTE }), reset)
+  assert.equal(reset.json().reset, true)
+  assert.equal(reset.json().grants.length, 0)
+  assert.equal(
+    fixture.guard.check({
+      activityId: 'reading',
+      manifest: { id: 'reading', permissions: ['fs.read'] },
+      permission: 'fs.read',
+      scope: '/books/a.txt',
+    }).allowed,
+    false,
+  )
+  // 路由注册
+  const routes = []
+  const disposers = []
+  registerActivityGrantsRoute({
+    webServer: {
+      register: (route) => {
+        routes.push(route)
+        return () => {}
+      },
+    },
+    disposers,
+    guard: fixture.guard,
+    tokenFile: '',
+    fence: null,
+  })
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, ACTIVITY_GRANTS_ROUTE)
+  assert.equal(disposers.length, 1)
+  rmSync(fixture.dir, { recursive: true, force: true })
+})
+
+test('activity-grants K5：授权后 reading 任务不再被 HUB_PERMISSION_DENIED 拦截', async () => {
+  const dir = tmpDir('k5-reading')
+  const booksDir = path.join(dir, 'books')
+  mkdirSync(booksDir, { recursive: true })
+  const bookPath = path.join(booksDir, 'book.txt')
+  writeFileSync(bookPath, '第一章。\n\n第二章。'.repeat(20))
+  const guard = createActivityPermissionGuard({
+    file: path.join(dir, 'activity-grants.json'),
+    now: () => 5000,
+    logger: { warn() {} },
+  })
+  const adapterCalls = []
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: createRealActivityAdapters({ booksDir, now: () => 5000 }),
+    permissionGuard: guard,
+    now: () => 5000,
+  })
+  runtime.start()
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const handler = createHubHandler({ tokenFile, fence: { check: () => null }, hubRuntime: runtime })
+  const grantsHandler = createActivityGrantsHandler({
+    guard,
+    getHubRuntime: () => runtime,
+    tokenFile,
+    fence: { check: () => 'blocked' },
+    logger: { warn() {} },
+  })
+  async function createReading(key) {
+    const res = hubFakeRes()
+    await handler(
+      hubFakeReq(
+        'POST',
+        {
+          action: 'task.create',
+          kind: 'reading.read',
+          activity: 'reading',
+          payload: { path: bookPath },
+          idempotencyKey: key,
+        },
+        { url: HUB_ROUTE },
+      ),
+      res,
+    )
+    return res.json()
+  }
+  const denied = await createReading('k5-denied')
+  assert.equal(denied.ok, false)
+  assert.equal(denied.code, 'HUB_PERMISSION_DENIED')
+  // 授权 booksDir
+  const grantRes = hubFakeRes()
+  await grantsHandler(
+    hubFakeReq(
+      'PUT',
+      { token: 'secret-token', grant: { activityId: 'reading', permission: 'fs.read', scope: booksDir } },
+      { url: ACTIVITY_GRANTS_ROUTE },
+    ),
+    grantRes,
+  )
+  assert.equal(grantRes.json().ok, true)
+  const allowed = await createReading('k5-allowed')
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.success, true)
+  assert.equal(allowed.receipt.facts.title, 'book')
+  assert.equal(adapterCalls.length, 0)
+  runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
 })

@@ -29787,6 +29787,14 @@
       const [trainingError, setTrainingError] = React.useState("");
       const [trainingBusy, setTrainingBusy] = React.useState("");
       const [pendingTrainingAction, setPendingTrainingAction] = React.useState("");
+      const [memoryAdmin, setMemoryAdmin] = React.useState(null);
+      const [memoryAdminError, setMemoryAdminError] = React.useState("");
+      const [memoryAdminBusy, setMemoryAdminBusy] = React.useState("");
+      const [memoryExport, setMemoryExport] = React.useState(null);
+      const [activityGrants, setActivityGrants] = React.useState(null);
+      const [grantScope, setGrantScope] = React.useState("");
+      const [grantsError, setGrantsError] = React.useState("");
+      const [grantsBusy, setGrantsBusy] = React.useState("");
       const [costPolicy, setCostPolicy] = React.useState(null);
       const [costDraft, setCostDraft] = React.useState(() => costDraftFrom(null));
       const [costError, setCostError] = React.useState("");
@@ -29814,6 +29822,22 @@
           setHubError("");
         }).catch((error) => setHubError("\u8BFB\u53D6 Hub \u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
       }, []);
+      const refreshMemoryAdmin = React.useCallback(() => {
+        apiRequest("/memory-admin.json").then((data) => {
+          setMemoryAdmin(data);
+          setMemoryAdminError("");
+        }).catch((error) => setMemoryAdminError("\u8BFB\u53D6\u8BB0\u5FC6\u8D28\u91CF\u5931\u8D25\uFF1A" + error.message));
+      }, []);
+      const refreshActivityGrants = React.useCallback(() => {
+        apiRequest("/activity-grants.json").then((data) => {
+          setActivityGrants(data);
+          const readingGrant = (data && Array.isArray(data.grants) ? data.grants : []).find(
+            (entry) => entry.activityId === "reading" && entry.permission === "fs.read"
+          );
+          setGrantScope(readingGrant && readingGrant.scope ? readingGrant.scope : "");
+          setGrantsError("");
+        }).catch((error) => setGrantsError("\u8BFB\u53D6\u6743\u9650\u5931\u8D25\uFF1A" + error.message));
+      }, []);
       const refreshCostPolicy = React.useCallback(() => {
         apiRequest("/cost-policy.json").then((data) => {
           setCostPolicy(data);
@@ -29834,7 +29858,9 @@
         refreshHub();
         refreshTraining();
         refreshCostPolicy();
-      }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy]);
+        refreshMemoryAdmin();
+        refreshActivityGrants();
+      }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants]);
       function save(patch, key) {
         setBusy(key);
         request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
@@ -29894,6 +29920,58 @@
       }
       function setTrainingField(field, value) {
         setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }));
+      }
+      function memoryAdminAction(action) {
+        setMemoryAdminBusy(action);
+        setMemoryAdminError("");
+        apiRequest("/memory-admin.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setMemoryAdminError("\u8BB0\u5FC6\u64CD\u4F5C\u5931\u8D25\uFF1A" + (data.message || data.code || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          if (action === "privacy.export") setMemoryExport(data);
+          else setMemoryAdmin((current) => Object.assign({}, current || {}, { quality: data, sample: data && data.summary ? data.summary.total : void 0 }));
+          setMessage(action === "privacy.export" ? "\u8BB0\u5FC6\u5BFC\u51FA\u5DF2\u751F\u6210\uFF08\u672A\u843D\u76D8\uFF09" : "\u8BB0\u5FC6\u8D28\u91CF\u5206\u6790\u5B8C\u6210");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setMemoryAdminError("\u8BB0\u5FC6\u64CD\u4F5C\u5931\u8D25\uFF1A" + error.message)).finally(() => setMemoryAdminBusy(""));
+      }
+      function saveActivityGrant() {
+        setGrantsBusy("save");
+        setGrantsError("");
+        apiRequest("/activity-grants.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant: { activityId: "reading", permission: "fs.read", scope: String(grantScope || "").trim() || null } })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setGrantsError("\u4FDD\u5B58\u6388\u6743\u5931\u8D25\uFF1A" + (data.message || data.error || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          setActivityGrants(data);
+          setMessage("reading fs.read \u5DF2\u6388\u6743");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setGrantsError("\u4FDD\u5B58\u6388\u6743\u5931\u8D25\uFF1A" + error.message)).finally(() => setGrantsBusy(""));
+      }
+      function resetActivityGrants() {
+        setGrantsBusy("reset");
+        setGrantsError("");
+        apiRequest("/activity-grants.json", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setGrantsError("\u6E05\u7A7A\u6388\u6743\u5931\u8D25\uFF1A" + (data.message || data.error || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          refreshActivityGrants();
+          setMessage("Activity \u6388\u6743\u5DF2\u6E05\u7A7A");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setGrantsError("\u6E05\u7A7A\u6388\u6743\u5931\u8D25\uFF1A" + error.message)).finally(() => setGrantsBusy(""));
       }
       function setCostField(field, value) {
         setCostDraft((draft) => Object.assign({}, draft, { [field]: value }));
@@ -30255,6 +30333,62 @@
               h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "", onClick: refreshHub }, "\u5237\u65B0 Hub"),
               h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.pauseAll") }, hubBusy === "hub.pauseAll" ? "\u6682\u505C\u4E2D\u2026" : "\u6682\u505C\u5168\u90E8"),
               h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.resumeAll") }, hubBusy === "hub.resumeAll" ? "\u6062\u590D\u4E2D\u2026" : "\u6062\u590D\u5168\u90E8")
+            )
+          )
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "\u8BB0\u5FC6\u4E0E\u6743\u9650"),
+          memoryAdminError ? h3("div", { style: styles.error }, memoryAdminError) : null,
+          grantsError ? h3("div", { style: styles.error }, grantsError) : null,
+          h3(
+            "div",
+            { style: styles.hint },
+            memoryAdmin && memoryAdmin.available === false ? "\u8BB0\u5FC6\u7BA1\u7406\u4E0D\u53EF\u7528\uFF08Hub \u672A\u63A5\u5165\uFF09" : "\u8D28\u91CF\u6458\u8981\u6765\u81EA Hub \u8BB0\u5FC6\u6837\u672C\uFF08\u53EA\u8BFB\uFF09\uFF1B\u5BFC\u51FA\u4E3A\u8131\u654F JSON\uFF0C\u9ED8\u8BA4\u4E0D\u843D\u76D8\u3002"
+          ),
+          row(
+            "\u8BB0\u5FC6\u8D28\u91CF",
+            "\u6837\u672C / \u53BB\u91CD / \u51B2\u7A81\u7EDF\u8BA1",
+            h3(
+              "span",
+              { style: styles.hint },
+              memoryAdmin && memoryAdmin.quality && memoryAdmin.quality.summary ? "\u6837\u672C " + String(memoryAdmin.sample ?? "\u2014") + " \xB7 total=" + String(memoryAdmin.quality.summary.total) + " merge=" + String(memoryAdmin.quality.summary.merge) + " archive=" + String(memoryAdmin.quality.summary.archive) + " drop=" + String(memoryAdmin.quality.summary.drop) : "\u2014"
+            )
+          ),
+          row(
+            "\u64CD\u4F5C",
+            "\u5206\u6790\u53EA\u8BFB\uFF1B\u5BFC\u51FA\u8131\u654F JSON\uFF08\u9ED8\u8BA4\u4E0D\u5199\u6587\u4EF6\uFF09",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: styles.button, disabled: memoryAdminBusy !== "", onClick: () => memoryAdminAction("quality.analyze") }, memoryAdminBusy === "quality.analyze" ? "\u5206\u6790\u4E2D\u2026" : "\u5206\u6790\u8BB0\u5FC6"),
+              h3("button", { type: "button", style: styles.button, disabled: memoryAdminBusy !== "", onClick: () => memoryAdminAction("privacy.export") }, memoryAdminBusy === "privacy.export" ? "\u5BFC\u51FA\u4E2D\u2026" : "\u5BFC\u51FA\u8BB0\u5FC6")
+            )
+          ),
+          memoryExport ? h3("div", { style: styles.hint }, "\u5BFC\u51FA\uFF1A" + String(memoryExport.entries ?? "?") + " \u6761 / " + String(memoryExport.sizeBytes ?? "?") + " bytes\uFF08\u672A\u843D\u76D8\uFF09") : null,
+          h3("div", { style: styles.hint }, "\u6743\u9650\uFF1Atool/model \u9ED8\u8BA4\u53EF\u7528\uFF1Bfs.*/net \u5FC5\u987B\u663E\u5F0F\u6388\u6743\uFF08scope \u524D\u7F00\u5339\u914D\uFF09\u3002"),
+          activityGrants && Array.isArray(activityGrants.known) ? activityGrants.known.map((activity) => h3(
+            "div",
+            { style: styles.hint, key: "grant-known-" + activity.id },
+            "\xB7 " + activity.id + "\uFF1A" + (activity.permissions && activity.permissions.length > 0 ? activity.permissions.join("\u3001") : "\u65E0\u58F0\u660E")
+          )) : null,
+          row(
+            "reading fs.read \u6388\u6743",
+            "booksDir \u524D\u7F00\uFF08\u6388\u6743\u540E reading \u4EFB\u52A1\u53EF\u8BFB\u672C\u5730\u4E66\uFF09",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("input", {
+                type: "text",
+                style: styles.input,
+                "aria-label": "reading fs.read scope",
+                value: grantScope,
+                placeholder: "~/Documents/little-whale-books",
+                onChange: (event) => setGrantScope(event.target.value)
+              }),
+              h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: grantsBusy !== "", onClick: saveActivityGrant }, grantsBusy === "save" ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u6388\u6743"),
+              h3("button", { type: "button", style: styles.button, disabled: grantsBusy !== "", onClick: resetActivityGrants }, grantsBusy === "reset" ? "\u6E05\u7A7A\u4E2D\u2026" : "\u6E05\u7A7A\u6388\u6743")
             )
           )
         ),

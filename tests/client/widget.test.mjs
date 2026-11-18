@@ -7499,3 +7499,126 @@ test('Gate N3 设置页：保存被拒绝/读取失败只提示不崩', async ()
   assert.match(textOf(failingTree), /Minecraft/, '读取失败不影响其它区域')
   failing.client.react._cleanup()
 })
+
+/* ------------------------------------------------------------------ */
+/* Gate K5：设置页「记忆与权限」区 + grants API                        */
+/* ------------------------------------------------------------------ */
+
+const K5_MEMORY_ROUTE = '/api/dsh-poetry/memory-admin.json'
+const K5_GRANTS_ROUTE = '/api/dsh-poetry/activity-grants.json'
+
+function k5Routes(posts, options = {}) {
+  const base = h1Routes()
+  base[K5_MEMORY_ROUTE] = (init) => {
+    if ((init.method || 'GET') === 'POST') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      posts.push({ route: 'memory', body })
+      if (options.memoryFail) return { status: 200, body: { ok: false, code: 'HUB_UNAVAILABLE', message: 'Hub 未接入' } }
+      if (body.action === 'privacy.export') return { status: 200, body: { ok: true, executed: false, saved: false, entries: 3, sizeBytes: 1234, manifest: {} } }
+      return { status: 200, body: { ok: true, executed: false, summary: { total: 3, keep: 2, merge: 1, archive: 0, drop: 0 } } }
+    }
+    if (options.memoryGetFail) return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+    return { status: 200, body: { ok: true, available: true, sample: 3, quality: { summary: { total: 3, keep: 2, merge: 1, archive: 0, drop: 0 } }, actions: ['quality.analyze', 'privacy.export', 'privacy.delete.plan'] } }
+  }
+  base[K5_GRANTS_ROUTE] = (init) => {
+    if ((init.method || 'GET') === 'PUT') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      posts.push({ route: 'grants', body })
+      if (options.grantsFail) return { status: 400, body: { ok: false, error: 'invalid_argument', message: '非法授权' } }
+      if (body.reset === true) return { status: 200, body: { ok: true, reset: true, grants: [], known: [{ id: 'reading', permissions: ['fs.read', 'tool'] }], permissions: ['tool', 'model', 'fs.read', 'fs.write', 'net'] } }
+      return { status: 200, body: { ok: true, grants: [{ activityId: 'reading', permission: 'fs.read', scope: body.grant ? body.grant.scope : null }], known: [{ id: 'reading', permissions: ['fs.read', 'tool'] }], permissions: ['tool', 'model', 'fs.read', 'fs.write', 'net'] } }
+    }
+    if (options.grantsGetFail) return { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        available: true,
+        grants: [],
+        known: [{ id: 'reading', permissions: ['fs.read', 'tool'] }, { id: 'minecraft', permissions: ['tool'] }],
+        permissions: ['tool', 'model', 'fs.read', 'fs.write', 'net'],
+        defaultPolicy: { requiresGrant: ['fs.read', 'fs.write', 'net'] },
+      },
+    }
+  }
+  return base
+}
+
+test('Gate K5 设置页：记忆与权限区渲染（质量/导出/授权）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(k5Routes(posts))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /记忆与权限/)
+  assert.match(text, /分析记忆/)
+  assert.match(text, /导出记忆/)
+  assert.match(text, /样本 3/)
+  assert.match(text, /reading：fs\.read、tool/)
+  assert.ok(h1FindByAria(tree, 'reading fs.read scope'))
+  assert.ok(h1FindButton(tree, '保存授权'))
+  assert.ok(h1FindButton(tree, '清空授权'))
+  // 原有区域不回归
+  assert.match(text, /成本（模型调用闸门）/)
+  assert.match(text, /训练（旁路）/)
+  assert.match(text, /Minecraft/)
+  harness.client.react._cleanup()
+})
+
+test('Gate K5 设置页：分析/导出记忆 POST body 与结果展示', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(k5Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  h1FindButton(tree, '分析记忆').props.onClick()
+  await flushTasks(3)
+  assert.deepEqual(posts.find((item) => item.route === 'memory' && item.body.action === 'quality.analyze'), { route: 'memory', body: { action: 'quality.analyze' } })
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /记忆质量分析完成/)
+  h1FindButton(tree, '导出记忆').props.onClick()
+  await flushTasks(3)
+  assert.deepEqual(posts.find((item) => item.route === 'memory' && item.body.action === 'privacy.export'), { route: 'memory', body: { action: 'privacy.export' } })
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /导出：3 条 \/ 1234 bytes/)
+  harness.client.react._cleanup()
+})
+
+test('Gate K5 设置页：reading fs.read 授权保存/清空 PUT body', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(k5Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  h1FindByAria(tree, 'reading fs.read scope').props.onChange({ target: { value: '/books' } })
+  tree = rerender(react, harness.Page, {})
+  h1FindButton(tree, '保存授权').props.onClick()
+  await flushTasks(3)
+  const grant = posts.find((item) => item.route === 'grants' && item.body.grant)
+  assert.ok(grant !== undefined)
+  assert.deepEqual(grant.body.grant, { activityId: 'reading', permission: 'fs.read', scope: '/books' })
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /reading fs\.read 已授权/)
+  h1FindButton(tree, '清空授权').props.onClick()
+  await flushTasks(3)
+  assert.deepEqual(posts.find((item) => item.route === 'grants' && item.body.reset === true), { route: 'grants', body: { reset: true } })
+  harness.client.react._cleanup()
+})
+
+test('Gate K5 设置页：授权失败/读取失败只提示不崩', async () => {
+  const posts = []
+  const denied = makeSettingsPageHarness(k5Routes(posts, { grantsFail: true }))
+  let tree = await h1Render(denied)
+  const react = denied.client.react
+  h1FindByAria(tree, 'reading fs.read scope').props.onChange({ target: { value: '/books' } })
+  tree = rerender(react, denied.Page, {})
+  h1FindButton(tree, '保存授权').props.onClick()
+  await flushTasks(3)
+  tree = rerender(react, denied.Page, {})
+  assert.match(textOf(tree), /保存授权失败：/)
+  denied.client.react._cleanup()
+
+  const failing = makeSettingsPageHarness(k5Routes([], { memoryGetFail: true, grantsGetFail: true }))
+  const failingTree = await h1Render(failing)
+  assert.match(textOf(failingTree), /读取记忆质量失败：forbidden/)
+  assert.match(textOf(failingTree), /读取权限失败：forbidden/)
+  assert.match(textOf(failingTree), /Minecraft/, '失败不影响其它区域')
+  failing.client.react._cleanup()
+})
