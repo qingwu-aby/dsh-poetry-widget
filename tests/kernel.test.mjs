@@ -61,6 +61,15 @@ import {
   validateEventEnvelope,
 } from '../lib/core/event-schema.mjs'
 import {
+  createFeedbackLedger,
+  FEEDBACK_LEDGER_CODES,
+  FEEDBACK_LEDGER_DEFAULTS,
+  FEEDBACK_LEDGER_VERSION,
+  FEEDBACK_OUTCOMES,
+  FEEDBACK_RECEIPT_KINDS,
+  validateReceipt,
+} from '../lib/core/feedback-ledger.mjs'
+import {
   createHubControlApi,
   HUB_CONTROL_ACTIVITY_HEALTH,
   HUB_CONTROL_CODES,
@@ -3950,4 +3959,315 @@ test('memory-gateway C1：getEntry / listConflicts / snapshot 指标', async () 
   assert.equal(snapshot.providers.length, 2)
   assert.equal(snapshot.limits.supersedeMargin, 0.2)
   assert.equal(snapshot.recentConflicts.length, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Gate C2：Feedback Ledger（lib/core/feedback-ledger.mjs）——假设/实验/回执/结论/方法候选
+// ---------------------------------------------------------------------------
+
+function feedbackReceipt(overrides = {}) {
+  return { kind: 'tool', at: 1000, ref: 'run-1', ok: true, ...overrides }
+}
+
+function feedbackInput(overrides = {}) {
+  return {
+    taskId: 'tb-1',
+    hypothesis: '先看日志再改代码',
+    experiment: '对失败任务先读日志',
+    receipt: feedbackReceipt(),
+    outcome: 'success',
+    evidence: ['日志显示 401', '改 token 后成功'],
+    ...overrides,
+  }
+}
+
+test('feedback-ledger C2：成功/失败/不确定记录与查询', () => {
+  let clock = 1000
+  const ledger = createFeedbackLedger({ now: () => clock })
+  const success = ledger.record(feedbackInput())
+  assert.equal(success.ok, true)
+  assert.equal(success.record.outcome, 'success')
+  assert.equal(success.record.id, 'fb-1')
+  clock += 10
+  const failure = ledger.record(
+    feedbackInput({
+      taskId: 'tb-2',
+      experiment: '直接改代码',
+      outcome: 'failure',
+      receipt: feedbackReceipt({ ref: 'run-2', ok: false }),
+    }),
+  )
+  assert.equal(failure.ok, true)
+  clock += 10
+  const inconclusive = ledger.record(
+    feedbackInput({
+      taskId: 'tb-3',
+      experiment: '问用户',
+      outcome: 'inconclusive',
+      receipt: feedbackReceipt({ ref: 'run-3' }),
+    }),
+  )
+  assert.equal(inconclusive.ok, true)
+
+  const snapshot = ledger.snapshot()
+  assert.equal(snapshot.records, 3)
+  assert.deepEqual(snapshot.byOutcome, { success: 1, failure: 1, inconclusive: 1 })
+  assert.equal(snapshot.metrics.failures, 1, '失败记录保留')
+  assert.equal(snapshot.version, FEEDBACK_LEDGER_VERSION)
+  assert.equal(ledger.list({ outcome: 'failure' })[0].taskId, 'tb-2')
+  assert.equal(ledger.list({ taskId: 'tb-3' }).length, 1)
+  assert.equal(ledger.list({ limit: 1 }).length, 1)
+  assert.equal(ledger.get(success.record.id).outcome, 'success')
+  assert.equal(ledger.get('missing'), null)
+  assert.ok(FEEDBACK_OUTCOMES.includes('inconclusive'))
+  assert.ok(FEEDBACK_RECEIPT_KINDS.includes('tool'))
+})
+
+test('feedback-ledger C2：receipt 缺失/不可验证被拒绝', () => {
+  const ledger = createFeedbackLedger({ now: () => 1000 })
+  const missing = ledger.record(feedbackInput({ receipt: undefined }))
+  assert.equal(missing.code, FEEDBACK_LEDGER_CODES.invalidReceipt)
+  const badKind = ledger.record(feedbackInput({ receipt: feedbackReceipt({ kind: 'nope' }) }))
+  assert.equal(badKind.code, FEEDBACK_LEDGER_CODES.invalidReceipt)
+  const badAt = ledger.record(feedbackInput({ receipt: feedbackReceipt({ at: 0 }) }))
+  assert.equal(badAt.code, FEEDBACK_LEDGER_CODES.invalidReceipt)
+  const noRef = ledger.record(feedbackInput({ receipt: { kind: 'tool', at: 1000, ok: true } }))
+  assert.equal(noRef.code, FEEDBACK_LEDGER_CODES.invalidReceipt)
+  const badOk = ledger.record(feedbackInput({ receipt: feedbackReceipt({ ok: 'yes' }) }))
+  assert.equal(badOk.code, FEEDBACK_LEDGER_CODES.invalidReceipt)
+  assert.equal(ledger.snapshot().metrics.invalid, 5)
+
+  const valid = validateReceipt(feedbackReceipt({ detail: 'ok' }))
+  assert.equal(valid.ok, true)
+  assert.equal(valid.receipt.ref, 'run-1')
+  assert.equal(validateReceipt('string').ok, false)
+})
+
+test('feedback-ledger C2：非法输入与 evidence 归一化', () => {
+  const ledger = createFeedbackLedger({ now: () => 1000 })
+  assert.equal(ledger.record(null).code, FEEDBACK_LEDGER_CODES.invalidRecord)
+  assert.equal(ledger.record(feedbackInput({ taskId: '' })).code, FEEDBACK_LEDGER_CODES.invalidRecord)
+  assert.equal(ledger.record(feedbackInput({ hypothesis: ' ' })).code, FEEDBACK_LEDGER_CODES.invalidRecord)
+  assert.equal(ledger.record(feedbackInput({ experiment: '' })).code, FEEDBACK_LEDGER_CODES.invalidRecord)
+  assert.equal(ledger.record(feedbackInput({ outcome: 'maybe' })).code, FEEDBACK_LEDGER_CODES.invalidOutcome)
+  assert.equal(ledger.record(feedbackInput({ evidence: 'not-array' })).code, FEEDBACK_LEDGER_CODES.invalidRecord)
+  // evidence：字符串/对象混合归一化，空文本丢弃
+  const recorded = ledger.record(
+    feedbackInput({
+      evidence: ['日志显示 401', { text: '改 token 后成功', source: 'tool', at: 1000 }, { text: '   ' }, 42],
+    }),
+  )
+  assert.equal(recorded.ok, true)
+  assert.equal(recorded.record.evidence.length, 2)
+  assert.equal(recorded.record.evidence[1].source, 'tool')
+  // 超长 evidence 截断到上限
+  const many = ledger.record(
+    feedbackInput({
+      hypothesis: '很多证据',
+      experiment: '批量',
+      evidence: Array.from({ length: 20 }, (_, i) => '证据' + i),
+    }),
+  )
+  assert.equal(many.ok, true)
+  assert.ok(many.record.evidence.length <= FEEDBACK_LEDGER_DEFAULTS.maxEvidenceItems)
+})
+
+test('feedback-ledger C2：重复实验合并与冲突不丢', () => {
+  let clock = 1000
+  const ledger = createFeedbackLedger({ now: () => clock })
+  const first = ledger.record(feedbackInput())
+  clock += 10
+  const duplicate = ledger.record(feedbackInput({ taskId: 'tb-2', evidence: ['日志显示 401', '新增证据'] }))
+  assert.equal(duplicate.ok, true)
+  assert.equal(duplicate.duplicate, true)
+  assert.equal(duplicate.merged, true)
+  assert.equal(duplicate.record.id, first.record.id)
+  assert.equal(duplicate.record.evidence.length, 3, '证据并集')
+  assert.equal(duplicate.record.receipts.length, 2, '回执合并')
+  assert.equal(duplicate.record.outcomeHistory.length, 2)
+  assert.equal(ledger.snapshot().records, 1)
+  assert.equal(ledger.snapshot().metrics.duplicates, 1)
+
+  // 同实验不同结论 → 冲突合并（outcome 更新为最新，历史保留）
+  clock += 10
+  const conflict = ledger.record(
+    feedbackInput({ outcome: 'failure', receipt: feedbackReceipt({ ref: 'run-9', ok: false }) }),
+  )
+  assert.equal(conflict.conflict, true)
+  assert.equal(conflict.record.outcome, 'failure')
+  assert.equal(conflict.record.outcomeHistory.length, 3)
+  assert.equal(ledger.snapshot().metrics.conflicts, 1)
+  assert.equal(ledger.snapshot().byOutcome.failure, 1)
+})
+
+test('feedback-ledger C2：同 hypothesis 多次实验统计成功率', () => {
+  const clock = 1000
+  const ledger = createFeedbackLedger({ now: () => clock })
+  const base = { taskId: 'tb-1', hypothesis: '先看日志再改代码', evidence: ['e1', 'e2'] }
+  ledger.record({ ...base, experiment: '实验一', receipt: feedbackReceipt({ ref: 'r1' }), outcome: 'success' })
+  ledger.record({ ...base, experiment: '实验二', receipt: feedbackReceipt({ ref: 'r2' }), outcome: 'success' })
+  ledger.record({ ...base, experiment: '实验三', receipt: feedbackReceipt({ ref: 'r3' }), outcome: 'failure' })
+  ledger.record({ ...base, experiment: '实验四', receipt: feedbackReceipt({ ref: 'r4' }), outcome: 'inconclusive' })
+  const stats = ledger.statsForHypothesis('先看日志再改代码')
+  assert.equal(stats.experiments, 4)
+  assert.equal(stats.success, 2)
+  assert.equal(stats.failure, 1)
+  assert.equal(stats.inconclusive, 1)
+  assert.equal(stats.successRate, 0.5)
+  assert.equal(stats.evidenceCount, 8)
+  assert.equal(ledger.list({ hypothesis: '先看日志再改代码' }).length, 4)
+})
+
+test('feedback-ledger C2：方法候选条件（仅 success + 证据/次数/成功率达标）', () => {
+  let clock = 1000
+  const ledger = createFeedbackLedger({ now: () => clock })
+  const base = { taskId: 'tb-1', hypothesis: '先看日志再改代码', evidence: ['e1', 'e2'] }
+  const single = ledger.record({
+    ...base,
+    experiment: '实验一',
+    receipt: feedbackReceipt({ ref: 'r1' }),
+    outcome: 'success',
+  })
+  // 只有 1 次实验 → 不足（默认 minExperiments=2）
+  const tooFew = ledger.promoteToMethod({ recordId: single.record.id })
+  assert.equal(tooFew.code, FEEDBACK_LEDGER_CODES.insufficientEvidence)
+  assert.equal(tooFew.experiments, 1)
+  clock += 10
+  ledger.record({ ...base, experiment: '实验二', receipt: feedbackReceipt({ ref: 'r2' }), outcome: 'success' })
+  const candidate = ledger.promoteToMethod({ recordId: single.record.id })
+  assert.equal(candidate.ok, true)
+  assert.equal(candidate.candidate.kind, 'method')
+  assert.equal(candidate.candidate.successRate, 1)
+  assert.equal(candidate.candidate.sourceRecordId, single.record.id)
+  assert.equal(candidate.candidate.memoryEntry.category, 'method')
+  assert.equal(candidate.candidate.memoryEntry.source.kind, 'feedback')
+  assert.equal(candidate.candidate.memoryEntry.confidence, 1)
+  assert.equal(ledger.snapshot().promoted, 1)
+  // 通过 hypothesis 查找成功记录也能升级（已 promoted 仍可返回候选）
+  assert.equal(ledger.promoteToMethod({ hypothesis: '先看日志再改代码' }).ok, true)
+  assert.equal(ledger.promoteToMethod({}).code, FEEDBACK_LEDGER_CODES.invalidArgument)
+  assert.equal(ledger.promoteToMethod({ recordId: 'missing' }).code, FEEDBACK_LEDGER_CODES.notFound)
+
+  // failure / inconclusive 不能升级
+  const failure = ledger.record({
+    ...base,
+    hypothesis: '坏方法',
+    experiment: '实验F',
+    receipt: feedbackReceipt({ ref: 'r3' }),
+    outcome: 'failure',
+  })
+  assert.equal(ledger.promoteToMethod({ recordId: failure.record.id }).code, FEEDBACK_LEDGER_CODES.insufficientEvidence)
+  const inconclusive = ledger.record({
+    ...base,
+    hypothesis: '不确定方法',
+    experiment: '实验I',
+    receipt: feedbackReceipt({ ref: 'r4' }),
+    outcome: 'inconclusive',
+  })
+  assert.equal(
+    ledger.promoteToMethod({ recordId: inconclusive.record.id }).code,
+    FEEDBACK_LEDGER_CODES.insufficientEvidence,
+  )
+
+  // 成功率不足（2 success / 2 failure = 0.5 < 0.6）
+  const mixed = createFeedbackLedger({ now: () => clock })
+  const mbase = { taskId: 'tb-9', hypothesis: '混合结果', evidence: ['e1', 'e2'] }
+  const mixedSuccess = mixed.record({
+    ...mbase,
+    experiment: 's1',
+    receipt: feedbackReceipt({ ref: 'm1' }),
+    outcome: 'success',
+  })
+  mixed.record({ ...mbase, experiment: 's2', receipt: feedbackReceipt({ ref: 'm2' }), outcome: 'success' })
+  mixed.record({ ...mbase, experiment: 'f1', receipt: feedbackReceipt({ ref: 'm3' }), outcome: 'failure' })
+  mixed.record({ ...mbase, experiment: 'f2', receipt: feedbackReceipt({ ref: 'm4' }), outcome: 'failure' })
+  const lowRate = mixed.promoteToMethod({ recordId: mixedSuccess.record.id })
+  assert.equal(lowRate.code, FEEDBACK_LEDGER_CODES.insufficientEvidence)
+  assert.equal(lowRate.successRate, 0.5)
+
+  // 证据不足（默认 minEvidence=2）
+  const thin = createFeedbackLedger({ now: () => clock })
+  const t1 = thin.record({
+    taskId: 'tb-8',
+    hypothesis: '证据少',
+    experiment: 'a',
+    receipt: feedbackReceipt({ ref: 't1' }),
+    outcome: 'success',
+    evidence: ['唯一证据'],
+  })
+  thin.record({
+    taskId: 'tb-8',
+    hypothesis: '证据少',
+    experiment: 'b',
+    receipt: feedbackReceipt({ ref: 't2' }),
+    outcome: 'success',
+    evidence: ['另一证据'],
+  })
+  assert.equal(thin.promoteToMethod({ recordId: t1.record.id }).evidenceCount, 1)
+})
+
+test('feedback-ledger C2：自定义阈值可放宽方法候选条件', () => {
+  const ledger = createFeedbackLedger({
+    now: () => 1000,
+    minEvidenceForMethod: 1,
+    minExperimentsForMethod: 1,
+    minSuccessRateForMethod: 0,
+  })
+  const recorded = ledger.record(feedbackInput({ evidence: ['一个证据'] }))
+  const candidate = ledger.promoteToMethod({ recordId: recorded.record.id })
+  assert.equal(candidate.ok, true)
+  assert.equal(candidate.candidate.memoryEntry.text.includes('方法：'), true)
+  assert.equal(ledger.snapshot().thresholds.minEvidenceForMethod, 1)
+})
+
+test('feedback-ledger C2：失败不丢失（容量淘汰优先保留失败）', () => {
+  let clock = 1000
+  const ledger = createFeedbackLedger({ now: () => clock, maxRecords: 2 })
+  const failure = ledger.record(
+    feedbackInput({
+      hypothesis: '失败保留',
+      experiment: 'f',
+      outcome: 'failure',
+      receipt: feedbackReceipt({ ref: 'f1', ok: false }),
+    }),
+  )
+  clock += 10
+  ledger.record(
+    feedbackInput({
+      hypothesis: '不确定淘汰',
+      experiment: 'i',
+      outcome: 'inconclusive',
+      receipt: feedbackReceipt({ ref: 'i1' }),
+    }),
+  )
+  clock += 10
+  ledger.record(
+    feedbackInput({
+      hypothesis: '成功记录',
+      experiment: 's',
+      outcome: 'success',
+      receipt: feedbackReceipt({ ref: 's1' }),
+    }),
+  )
+  const snapshot = ledger.snapshot()
+  assert.equal(snapshot.records, 2)
+  assert.equal(snapshot.metrics.pruned, 1)
+  assert.ok(ledger.get(failure.record.id) !== null, '失败记录优先保留')
+  assert.equal(ledger.list({ outcome: 'inconclusive' }).length, 0, '非失败旧记录先被淘汰')
+})
+
+test('feedback-ledger C2：snapshot 字段与 recent', () => {
+  const ledger = createFeedbackLedger({ now: () => 1000 })
+  ledger.record(feedbackInput())
+  const snapshot = ledger.snapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.version, FEEDBACK_LEDGER_VERSION)
+  assert.equal(snapshot.records, 1)
+  assert.equal(snapshot.hypotheses, 1)
+  assert.equal(snapshot.conflicts, 0)
+  assert.equal(snapshot.promoted, 0)
+  assert.equal(snapshot.recent.length, 1)
+  assert.equal(typeof snapshot.metrics.records, 'number')
+  assert.equal(snapshot.thresholds.minSuccessRateForMethod, 0.6)
+  assert.equal(FEEDBACK_LEDGER_DEFAULTS.maxRecords > 0, true)
 })
