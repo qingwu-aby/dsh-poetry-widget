@@ -191,6 +191,18 @@ import {
   similarity,
 } from '../lib/core/memory-quality.mjs'
 import {
+  assertMemoryWriteCoverage,
+  getMemoryWrite,
+  listMemoryWrites,
+  MEMORY_WRITE_PHASE_LABELS,
+  MEMORY_WRITE_PHASES,
+  MEMORY_WRITE_REGISTRY,
+  MEMORY_WRITE_REGISTRY_VERSION,
+  memoryWriteAuditSnapshot,
+  REQUIRED_MEMORY_WRITE_IDS,
+  validateMemoryWriteRegistry,
+} from '../lib/core/memory-write-registry.mjs'
+import {
   createMinecraftActivity,
   getMinecraftManifest,
   MINECRAFT_ACTIVITY_CODES,
@@ -10370,4 +10382,85 @@ test('hub-runtime K1：文件 provider 写失败隔离（Hub/旧路径不崩）'
   assert.equal(runtime.snapshot().ok, true, 'Hub 不崩')
   runtime.dispose()
   rmSync(dir, { recursive: true, force: true })
+})
+
+// ---------------------------------------------------------------------------
+// Gate K2：长期记忆写入审计登记表（memory-write-registry）
+// ---------------------------------------------------------------------------
+
+test('memory-write-registry K2：登记表合法、关键写入点覆盖、E0/E1/E2 分类', () => {
+  assert.equal(MEMORY_WRITE_REGISTRY_VERSION, 1)
+  const validated = validateMemoryWriteRegistry()
+  assert.equal(validated.ok, true, JSON.stringify(validated.errors))
+  assert.equal(validated.total, MEMORY_WRITE_REGISTRY.length)
+  assert.deepEqual(validated.byPhase, { E0: 0, E1: 3, E2: 17 })
+  assert.deepEqual(REQUIRED_MEMORY_WRITE_IDS, ['journal', 'game-memory', 'methods'])
+  const coverage = assertMemoryWriteCoverage()
+  assert.equal(coverage.ok, true)
+  assert.deepEqual(coverage.missing, [])
+  assert.equal(getMemoryWrite('journal').phase, 'E1')
+  assert.equal(getMemoryWrite('game-memory').dualWrite, true)
+  assert.equal(getMemoryWrite('methods').gateway, true)
+  assert.equal(getMemoryWrite('relationship').phase, 'E2')
+  assert.equal(getMemoryWrite('relationship').priority, 1)
+  assert.equal(getMemoryWrite('relationship').risk, 'high')
+  assert.equal(getMemoryWrite('nope'), null)
+  assert.deepEqual(
+    listMemoryWrites({ phase: 'E1' })
+      .map((entry) => entry.id)
+      .sort(),
+    ['game-memory', 'journal', 'methods'],
+  )
+  assert.equal(listMemoryWrites({ dualWrite: true }).length, 3)
+  assert.equal(listMemoryWrites({ owner: 'play' }).length, 2)
+  assert.deepEqual(MEMORY_WRITE_PHASES, { E0: 'gateway', E1: 'dual-write', E2: 'direct' })
+  assert.equal(MEMORY_WRITE_PHASE_LABELS.E1, '双写桥')
+  const snapshot = memoryWriteAuditSnapshot()
+  assert.equal(snapshot.ok, true)
+  assert.equal(snapshot.total, MEMORY_WRITE_REGISTRY.length)
+  assert.equal(snapshot.dualWrite.length, 3)
+  assert.equal(snapshot.directWrite.length, 17)
+  assert.equal(snapshot.coverage, true)
+})
+
+test('memory-write-registry K2：校验能拒绝坏登记（重复/阶段不一致/缺字段）', () => {
+  const base = {
+    id: 'x',
+    owner: 'memory',
+    module: 'lib/domain/memory/memory-journal.mjs',
+    storage: 'x.json',
+    writeFn: 'append',
+    callers: ['a'],
+    phase: 'E2',
+    gateway: false,
+    dualWrite: false,
+    priority: 2,
+    risk: 'medium',
+    notes: '',
+  }
+  assert.equal(validateMemoryWriteRegistry([base]).ok, true)
+  assert.equal(validateMemoryWriteRegistry([base, { ...base }]).ok, false, '重复 id')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, phase: 'E1', dualWrite: false }]).ok, false, 'E1 必须双写')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, phase: 'E2', dualWrite: true }]).ok, false, 'E2 不能双写')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, phase: 'E9' }]).ok, false, '非法阶段')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, owner: '' }]).ok, false, '缺 owner')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, priority: 9 }]).ok, false, 'priority 越界')
+  assert.equal(validateMemoryWriteRegistry([{ ...base, risk: 'huge' }]).ok, false, '非法 risk')
+  const missing = assertMemoryWriteCoverage(['journal', 'nope'], [base])
+  assert.equal(missing.ok, false)
+  assert.deepEqual(missing.missing, ['journal', 'nope'])
+})
+
+test('memory-write-registry K2：登记模块真实存在，审计文档覆盖关键项', () => {
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  for (const entry of MEMORY_WRITE_REGISTRY) {
+    assert.equal(existsSync(path.join(ROOT, entry.module)), true, '登记模块存在：' + entry.module)
+    assert.ok(typeof entry.storage === 'string' && entry.storage.length > 0)
+    assert.ok(typeof entry.writeFn === 'string' && entry.writeFn.length > 0)
+  }
+  const doc = readFileSync(path.join(ROOT, 'docs/memory-write-audit.md'), 'utf8')
+  for (const id of REQUIRED_MEMORY_WRITE_IDS) assert.ok(doc.includes('| ' + id + ' |'), '审计文档包含 ' + id)
+  assert.match(doc, /E0 已接 Gateway/)
+  assert.match(doc, /E1 双写桥/)
+  assert.match(doc, /E2 未接（直写）/)
 })
