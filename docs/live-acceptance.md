@@ -98,6 +98,13 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - Study：`task.create study.research` 真实 searchWeb 返回 4 条来源、success、feedback；
 - 训练 dataset：`available=true`、7752 条（journal/game-memory/methods）。
 
+## 3.9 M2/M3 训练（代码/演练完成）
+
+- M2：evaluator 读取 self-train report/history；本机 report 复评 0.6 通过；training status 将 `evaluatorAvailable=true`（需重启生效）；
+- M3：`scripts/training-drill.mjs` 默认 dry-run；实际运行需 `--confirm` + `DSH_POETRY_TRAIN_DRILL=1`；
+- dry-run 输出：dataset available=true entries≈7785，report passed=true score=0.6，enabled=false；
+- 未执行真实训练（会改线上语言层，需先备份 adapters-live）。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
