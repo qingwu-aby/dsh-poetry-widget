@@ -29669,6 +29669,36 @@
       memoryProviders: Array.isArray(memory.providers) ? memory.providers : []
     };
   }
+  var TRAINING_ACTION_LABELS = { run: "\u8FD0\u884C", cancel: "\u53D6\u6D88", promote: "\u4E0A\u7EBF", rollback: "\u56DE\u6EDA" };
+  function trainingDraftFrom(data) {
+    const config = data && data.config && data.config.config ? data.config.config : {};
+    const dataset = config.dataset && typeof config.dataset === "object" ? config.dataset : {};
+    const hyper = config.hyperparams && typeof config.hyperparams === "object" ? config.hyperparams : {};
+    const evaluation = config.eval && typeof config.eval === "object" ? config.eval : {};
+    return {
+      enabled: config.enabled === true,
+      intervalDays: Number.isFinite(Number(config.intervalDays)) ? Number(config.intervalDays) : 7,
+      minEntries: Number.isFinite(Number(dataset.minEntries)) ? Number(dataset.minEntries) : 200,
+      rank: Number.isFinite(Number(hyper.rank)) ? Number(hyper.rank) : 8,
+      steps: Number.isFinite(Number(hyper.steps)) ? Number(hyper.steps) : 300,
+      lr: Number.isFinite(Number(hyper.lr)) ? Number(hyper.lr) : 1e-4,
+      minScore: Number.isFinite(Number(evaluation.minScore)) ? Number(evaluation.minScore) : 0.6
+    };
+  }
+  function trainingPayload(draft) {
+    const int = (value, fallback, min) => Math.max(min, Math.floor(Number(value) || fallback));
+    return {
+      enabled: draft.enabled === true,
+      intervalDays: int(draft.intervalDays, 7, 1),
+      dataset: { minEntries: int(draft.minEntries, 200, 1) },
+      hyperparams: {
+        rank: int(draft.rank, 8, 1),
+        steps: int(draft.steps, 300, 1),
+        lr: Math.min(1, Math.max(1e-6, Number(draft.lr) || 1e-4))
+      },
+      eval: { minScore: Math.min(1, Math.max(0, Number(draft.minScore) || 0)) }
+    };
+  }
   var styles = {
     page: { padding: "18px 22px", maxWidth: 760, color: "var(--dsw-alias-label-primary, #1f2329)", fontSize: 13 },
     card: { border: "1px solid var(--dsw-alias-border-l2, #e5e6eb)", borderRadius: 10, padding: "14px 16px", marginBottom: 12, background: "var(--dsw-alias-bg-base-platform, #fff)" },
@@ -29695,6 +29725,11 @@
       const [hub, setHub] = React.useState(null);
       const [hubError, setHubError] = React.useState("");
       const [hubBusy, setHubBusy] = React.useState("");
+      const [training, setTraining] = React.useState(null);
+      const [trainingDraft, setTrainingDraft] = React.useState(() => trainingDraftFrom(null));
+      const [trainingError, setTrainingError] = React.useState("");
+      const [trainingBusy, setTrainingBusy] = React.useState("");
+      const [pendingTrainingAction, setPendingTrainingAction] = React.useState("");
       const refresh = React.useCallback(() => {
         request("/settings.json").then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {
         });
@@ -29714,11 +29749,19 @@
           setHubError("");
         }).catch((error) => setHubError("\u8BFB\u53D6 Hub \u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
       }, []);
+      const refreshTraining = React.useCallback(() => {
+        apiRequest("/training.json").then((data) => {
+          setTraining(data);
+          setTrainingDraft(trainingDraftFrom(data));
+          setTrainingError("");
+        }).catch((error) => setTrainingError("\u8BFB\u53D6\u8BAD\u7EC3\u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
+      }, []);
       React.useEffect(() => {
         refresh();
         refreshPolicy();
         refreshHub();
-      }, [refresh, refreshPolicy, refreshHub]);
+        refreshTraining();
+      }, [refresh, refreshPolicy, refreshHub, refreshTraining]);
       function save(patch, key) {
         setBusy(key);
         request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
@@ -29776,6 +29819,46 @@
           setTimeout(() => setMessage(""), 1800);
         }).catch((error) => setPolicyError("\u91CD\u7F6E\u5931\u8D25\uFF1A" + error.message)).finally(() => setBusy(""));
       }
+      function setTrainingField(field, value) {
+        setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }));
+      }
+      function saveTraining() {
+        setTrainingBusy("training-save");
+        setTrainingError("");
+        apiRequest("/training.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "config", config: trainingPayload(trainingDraft) })
+        }).then((data) => {
+          setTraining(data);
+          setTrainingDraft(trainingDraftFrom(data));
+          setMessage("\u8BAD\u7EC3\u914D\u7F6E\u5DF2\u4FDD\u5B58");
+          setTimeout(() => setMessage(""), 1800);
+        }).catch((error) => setTrainingError("\u4FDD\u5B58\u8BAD\u7EC3\u914D\u7F6E\u5931\u8D25\uFF1A" + error.message)).finally(() => setTrainingBusy(""));
+      }
+      function requestTrainingAction(action) {
+        setPendingTrainingAction(action);
+        setTrainingError("");
+      }
+      function confirmTrainingAction() {
+        const action = pendingTrainingAction;
+        if (!action) return;
+        setTrainingBusy(action);
+        setPendingTrainingAction("");
+        apiRequest("/training.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, confirm: true })
+        }).then((data) => {
+          if (data && data.ok === false) {
+            setTrainingError((TRAINING_ACTION_LABELS[action] || action) + "\u5931\u8D25\uFF1A" + (data.message || data.code || "\u88AB\u62D2\u7EDD"));
+            return;
+          }
+          setMessage((TRAINING_ACTION_LABELS[action] || action) + "\u5DF2\u63D0\u4EA4");
+          setTimeout(() => setMessage(""), 1800);
+          refreshTraining();
+        }).catch((error) => setTrainingError((TRAINING_ACTION_LABELS[action] || action) + "\u5931\u8D25\uFF1A" + error.message)).finally(() => setTrainingBusy(""));
+      }
       function hubAction(action) {
         setHubBusy(action);
         setHubError("");
@@ -29831,6 +29914,20 @@
         const effort = entry.reasoningEffort ? "(" + entry.reasoningEffort + ")" : "";
         return "\u751F\u6548\uFF1A" + entry.provider + "/" + entry.model + effort + " \u2190 " + (entry.source || "default-chain");
       };
+      const trainingStatus = training && training.status ? training.status : null;
+      const trainingPlan = training && training.plan ? training.plan : null;
+      const trainingConfig = training && training.config && training.config.config ? training.config.config : null;
+      const trainingEnabled = Boolean(trainingConfig && trainingConfig.enabled);
+      const runnerAvailable = Boolean(trainingStatus && trainingStatus.runnerAvailable);
+      const trainingPhase = trainingStatus && typeof trainingStatus.phase === "string" ? trainingStatus.phase : "idle";
+      const trainingBlocked = trainingPlan && typeof trainingPlan.blockedReason === "string" ? trainingPlan.blockedReason : "";
+      const trainingNumber = (ariaLabel, value, onChange, extra) => h3("input", Object.assign({
+        type: "number",
+        style: styles.input,
+        "aria-label": ariaLabel,
+        value,
+        onChange: (event) => onChange(Number(event.target.value))
+      }, extra || {}));
       const policyField = (ariaLabel, value, onChange, extra) => h3("input", Object.assign({
         type: "text",
         style: styles.input,
@@ -29933,6 +30030,108 @@
               h3("button", { type: "button", style: styles.button, disabled: hubBusy !== "" || !hubInfo.available, onClick: () => hubAction("hub.resumeAll") }, hubBusy === "hub.resumeAll" ? "\u6062\u590D\u4E2D\u2026" : "\u6062\u590D\u5168\u90E8")
             )
           )
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "\u8BAD\u7EC3\uFF08\u65C1\u8DEF\uFF09"),
+          trainingError ? h3("div", { style: styles.error }, trainingError) : null,
+          h3(
+            "div",
+            { style: styles.hint },
+            !training ? "\u6B63\u5728\u8BFB\u53D6\u8BAD\u7EC3\u72B6\u6001\u2026" : trainingEnabled ? "\u5DF2\u5F00\u542F\uFF08enabled=true\uFF09\uFF1B\u8FD0\u884C\u4ECD\u9700\u4E8C\u6B21\u786E\u8BA4" + (runnerAvailable ? "" : " \xB7 runner \u672A\u6CE8\u5165\uFF1A\u8FD0\u884C\u4F1A\u88AB\u62D2\u7EDD\uFF0C\u4E0D\u4F1A\u542F\u52A8\u771F\u5B9E\u8BAD\u7EC3") : "\u9ED8\u8BA4\u5173\u95ED\uFF08enabled=false\uFF09\uFF1A\u4E0D\u4F1A\u81EA\u52A8\u8BAD\u7EC3\uFF1B\u5148\u4FDD\u5B58\u5F00\u542F\u518D\u624B\u52A8\u8FD0\u884C"
+          ),
+          trainingStatus && !runnerAvailable ? h3("div", { style: styles.error }, "runner \u672A\u6CE8\u5165\uFF1A\u8FD0\u884C\u4F1A\u88AB\u62D2\u7EDD\uFF08\u4E0D\u4F1A\u542F\u52A8\u771F\u5B9E\u8BAD\u7EC3\uFF09") : null,
+          trainingStatus ? h3(
+            "div",
+            { style: styles.hint },
+            "\u9636\u6BB5\uFF1A" + trainingPhase + " \xB7 runner\uFF1A" + (runnerAvailable ? "\u5DF2\u6CE8\u5165" : "\u672A\u6CE8\u5165") + (trainingBlocked ? " \xB7 \u963B\u585E\u539F\u56E0\uFF1A" + trainingBlocked : "") + (trainingStatus.current ? " \xB7 \u5F53\u524D adapter\uFF1A" + trainingStatus.current : "")
+          ) : null,
+          row(
+            "\u5F00\u542F\u8BAD\u7EC3",
+            "\u9ED8\u8BA4\u5173\u95ED\uFF1B\u5F00\u542F\u540E\u4ECD\u9700\u624B\u52A8\u8FD0\u884C + \u4E8C\u6B21\u786E\u8BA4",
+            h3(
+              "label",
+              { style: { display: "flex", alignItems: "center", gap: 6, cursor: "pointer" } },
+              h3("input", {
+                type: "checkbox",
+                "aria-label": "\u8BAD\u7EC3 enabled",
+                checked: trainingDraft.enabled === true,
+                disabled: trainingBusy !== "",
+                onChange: (event) => setTrainingField("enabled", event.target.checked)
+              }),
+              trainingDraft.enabled ? "\u5DF2\u5F00\u542F" : "\u5173\u95ED"
+            )
+          ),
+          row(
+            "\u95F4\u9694\u5929\u6570",
+            "\u4E24\u6B21\u8BAD\u7EC3\u4E4B\u95F4\u7684\u6700\u5C0F\u95F4\u9694\uFF081\u201390 \u5929\uFF09",
+            trainingNumber("\u8BAD\u7EC3 intervalDays", trainingDraft.intervalDays, (value) => setTrainingField("intervalDays", value), { min: 1, max: 90 })
+          ),
+          row(
+            "\u6570\u636E\u96C6\u6700\u5C11\u6761\u6570",
+            "\u4E0D\u8DB3\u65F6 plan \u4F1A\u6807\u8BB0 insufficient-data",
+            trainingNumber("\u8BAD\u7EC3 dataset.minEntries", trainingDraft.minEntries, (value) => setTrainingField("minEntries", value), { min: 1 })
+          ),
+          row(
+            "LoRA rank",
+            "\u8D85\u53C2 rank\uFF081\u2013128\uFF09",
+            trainingNumber("\u8BAD\u7EC3 hyperparams.rank", trainingDraft.rank, (value) => setTrainingField("rank", value), { min: 1, max: 128 })
+          ),
+          row(
+            "\u8BAD\u7EC3\u6B65\u6570",
+            "steps\uFF081\u2013100000\uFF09",
+            trainingNumber("\u8BAD\u7EC3 hyperparams.steps", trainingDraft.steps, (value) => setTrainingField("steps", value), { min: 1 })
+          ),
+          row(
+            "\u5B66\u4E60\u7387 lr",
+            "lr\uFF080\u20131\uFF09",
+            trainingNumber("\u8BAD\u7EC3 hyperparams.lr", trainingDraft.lr, (value) => setTrainingField("lr", value), { min: 0, max: 1, step: 1e-5 })
+          ),
+          row(
+            "\u8BC4\u4F30\u6700\u4F4E\u5206",
+            "eval.minScore\uFF080\u20131\uFF09\uFF1Bcandidate \u5FC5\u987B \u2265 \u8BE5\u5206\u624D\u80FD\u4E0A\u7EBF",
+            trainingNumber("\u8BAD\u7EC3 eval.minScore", trainingDraft.minScore, (value) => setTrainingField("minScore", value), { min: 0, max: 1, step: 0.01 })
+          ),
+          row(
+            "\u914D\u7F6E",
+            "\u4FDD\u5B58\u53EA\u5199\u8BAD\u7EC3\u914D\u7F6E\uFF0C\u4E0D\u542F\u52A8\u8BAD\u7EC3",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: trainingBusy !== "", onClick: saveTraining }, trainingBusy === "training-save" ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58\u8BAD\u7EC3\u914D\u7F6E"),
+              h3("button", { type: "button", style: styles.button, disabled: trainingBusy !== "", onClick: refreshTraining }, "\u5237\u65B0\u8BAD\u7EC3\u72B6\u6001")
+            )
+          ),
+          row(
+            "\u64CD\u4F5C",
+            "\u5168\u90E8\u9700\u8981\u4E8C\u6B21\u786E\u8BA4\uFF1B\u9ED8\u8BA4\u5173\u95ED/\u65E0 runner \u65F6\u8FD0\u884C\u4F1A\u88AB\u62D2\u7EDD",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+              h3("button", {
+                type: "button",
+                style: styles.button,
+                disabled: trainingBusy !== "" || !trainingEnabled || !runnerAvailable,
+                onClick: () => requestTrainingAction("run")
+              }, trainingBusy === "run" ? "\u8FD0\u884C\u4E2D\u2026" : "\u8FD0\u884C"),
+              h3("button", { type: "button", style: styles.button, disabled: trainingBusy !== "" || trainingPhase !== "running", onClick: () => requestTrainingAction("cancel") }, "\u53D6\u6D88"),
+              h3("button", { type: "button", style: styles.button, disabled: trainingBusy !== "", onClick: () => requestTrainingAction("promote") }, "\u4E0A\u7EBF"),
+              h3("button", { type: "button", style: styles.button, disabled: trainingBusy !== "", onClick: () => requestTrainingAction("rollback") }, "\u56DE\u6EDA")
+            )
+          ),
+          pendingTrainingAction ? h3(
+            "div",
+            { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 8 } },
+            h3("span", { style: { fontSize: 12, color: "#d92d20" } }, "\u786E\u8BA4\u6267\u884C\u300C" + (TRAINING_ACTION_LABELS[pendingTrainingAction] || pendingTrainingAction) + "\u300D\uFF1F"),
+            h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), "aria-label": "\u786E\u8BA4\u8BAD\u7EC3\u64CD\u4F5C", onClick: confirmTrainingAction }, "\u786E\u8BA4\u6267\u884C"),
+            h3("button", { type: "button", style: styles.button, onClick: () => setPendingTrainingAction("") }, "\u653E\u5F03")
+          ) : null,
+          trainingStatus && trainingStatus.candidate ? h3(
+            "div",
+            { style: styles.hint },
+            "\u5019\u9009\uFF1A" + trainingStatus.candidate.id + " \xB7 score=" + String(trainingStatus.candidate.score ?? "n/a") + " \xB7 " + (trainingStatus.candidate.passed ? "\u8BC4\u4F30\u901A\u8FC7" : "\u8BC4\u4F30\u672A\u901A\u8FC7\uFF08\u4E0D\u53EF\u4E0A\u7EBF\uFF09")
+          ) : null
         ),
         h3(
           "div",

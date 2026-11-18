@@ -10,10 +10,14 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
 import vm from 'node:vm'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createTrainingConfigStore } from '../../lib/domain/life/training-config.mjs'
+import { createTrainingService } from '../../lib/domain/life/training-service.mjs'
+import { createTrainingHandler, TRAINING_ROUTE } from '../../lib/composition/training-routes.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const CLIENT_PATH = path.join(ROOT, 'client.js')
@@ -6862,4 +6866,275 @@ test('Gate H1 设置页：缺少新 API 时仍能渲染（旧后端兼容）', a
   assert.match(text, /Minecraft/)
   assert.doesNotMatch(text, /读取模型策略失败/)
   harness.client.react._cleanup()
+})
+
+/* ------------------------------------------------------------------ */
+/* Gate H4：设置页「训练（旁路）」区 + 训练配置 API                     */
+/* ------------------------------------------------------------------ */
+
+const H4_TRAINING_ROUTE = '/api/dsh-poetry/training.json'
+
+function h4TrainingPayload(overrides = {}) {
+  const enabled = overrides.enabled === true
+  const runnerAvailable = overrides.runnerAvailable === true
+  const phase = overrides.phase || 'idle'
+  return {
+    ok: true,
+    available: true,
+    status: {
+      ok: true,
+      enabled,
+      phase,
+      running: phase === 'running',
+      runnerAvailable,
+      evaluatorAvailable: false,
+      current: 'adapters-live',
+      candidate: overrides.candidate || null,
+      dataset: { available: false, entries: null, sources: null },
+      auditCount: 0,
+    },
+    plan: { ok: true, enabled, ready: enabled && runnerAvailable, blockedReason: enabled ? (runnerAvailable ? '' : 'runner-unavailable') : 'disabled', requiresConfirmation: true, plan: { steps: [] } },
+    config: {
+      file: '/tmp/.dsh-poetry/training-config.json',
+      exists: true,
+      updatedAt: 5000,
+      errors: [],
+      config: {
+        enabled,
+        intervalDays: 7,
+        dataset: { sources: [], minEntries: 200 },
+        hyperparams: { rank: 8, steps: 300, lr: 0.0001 },
+        eval: { minScore: 0.6 },
+        adapter: { current: 'adapters-live', candidate: null, previous: null },
+      },
+    },
+    actions: ['status', 'plan', 'config', 'run', 'cancel', 'promote', 'rollback'],
+  }
+}
+
+function h4Routes(posts, options = {}) {
+  const base = h1Routes()
+  base[H4_TRAINING_ROUTE] = (init) => {
+    if ((init.method || 'GET') === 'POST') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      posts.push(body)
+      if (body.action === 'run') {
+        return { status: 200, body: { ok: false, code: 'TRAINING_DISABLED', message: '训练默认关闭' } }
+      }
+      if (body.action === 'config') {
+        const payload = h4TrainingPayload(options)
+        payload.config.config = Object.assign({}, payload.config.config, body.config || {})
+        return { status: 200, body: { ok: true, status: payload.status, plan: payload.plan, config: payload.config } }
+      }
+      return { status: 200, body: { ok: true, action: body.action } }
+    }
+    return { status: 200, body: options.fail ? { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } : h4TrainingPayload(options) }
+  }
+  if (options.fail) base[H4_TRAINING_ROUTE] = { status: 403, body: { ok: false, error: { code: 'FORBIDDEN', message: 'forbidden' } } }
+  return base
+}
+
+test('Gate H4 设置页：训练区渲染（默认关闭 + runner 未注入提示）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(h4Routes(posts))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /训练（旁路）/, '训练区存在')
+  assert.match(text, /默认关闭（enabled=false）/, '默认关闭提示')
+  assert.match(text, /runner 未注入/, 'runner 未注入提示')
+  assert.match(text, /阶段：idle/, '显示阶段')
+  assert.match(text, /阻塞原因：disabled/, '显示 plan 阻塞原因')
+  assert.match(text, /开启训练/)
+  assert.match(text, /保存训练配置/)
+  assert.match(text, /间隔天数/)
+  assert.match(text, /LoRA rank/)
+  assert.match(text, /评估最低分/)
+  assert.match(text, /当前 adapter：adapters-live/)
+  const runButton = h1FindButton(tree, '运行')
+  assert.ok(runButton, '运行按钮存在')
+  assert.equal(runButton.props.disabled, true, '默认关闭/无 runner 时运行按钮禁用')
+  // 原有区域不回归
+  assert.match(text, /模型与推理/)
+  assert.match(text, /Hub/)
+  assert.match(text, /Minecraft/)
+  harness.client.react._cleanup()
+})
+
+test('Gate H4 设置页：编辑并保存训练配置（POST action=config）', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(h4Routes(posts))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  const interval = h1FindByAria(tree, '训练 intervalDays')
+  interval.props.onChange({ target: { value: '3' } })
+  tree = rerender(react, harness.Page, {})
+  const rank = h1FindByAria(tree, '训练 hyperparams.rank')
+  rank.props.onChange({ target: { value: '16' } })
+  tree = rerender(react, harness.Page, {})
+  const minScore = h1FindByAria(tree, '训练 eval.minScore')
+  minScore.props.onChange({ target: { value: '0.8' } })
+  tree = rerender(react, harness.Page, {})
+  const save = h1FindButton(tree, '保存训练配置')
+  assert.ok(save)
+  save.props.onClick()
+  await flushTasks(3)
+  const post = posts.find((body) => body.action === 'config')
+  assert.ok(post, '必须 POST action=config')
+  assert.equal(post.config.intervalDays, 3)
+  assert.equal(post.config.hyperparams.rank, 16)
+  assert.equal(post.config.eval.minScore, 0.8)
+  assert.equal(post.config.enabled, false, '未勾选时保存仍为关闭')
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /训练配置已保存/)
+  harness.client.react._cleanup()
+})
+
+test('Gate H4 设置页：运行需二次确认，被拒绝不显示假成功', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(h4Routes(posts, { enabled: true, runnerAvailable: true }))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  const runButton = h1FindButton(tree, '运行')
+  assert.equal(runButton.props.disabled, false, 'enabled+runner 时运行可用')
+  runButton.props.onClick()
+  tree = rerender(react, harness.Page, {})
+  assert.equal(posts.length, 0, '第一次点击不直接发请求（二次确认）')
+  assert.match(textOf(tree), /确认执行「运行」？/)
+  const confirm = h1FindByAria(tree, '确认训练操作')
+  assert.ok(confirm)
+  confirm.props.onClick()
+  await flushTasks(3)
+  const post = posts.find((body) => body.action === 'run')
+  assert.ok(post, '确认后 POST action=run')
+  assert.equal(post.confirm, true, '必须带 confirm:true')
+  tree = rerender(react, harness.Page, {})
+  assert.match(textOf(tree), /运行失败：训练默认关闭/, '被拒绝显示错误而非假成功')
+  harness.client.react._cleanup()
+})
+
+test('Gate H4 设置页：取消/上线/回滚同样二次确认', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(h4Routes(posts, { enabled: true, runnerAvailable: true, phase: 'running' }))
+  let tree = await h1Render(harness)
+  const react = harness.client.react
+  for (const label of ['取消', '上线', '回滚']) {
+    const button = h1FindButton(tree, label)
+    assert.ok(button, label + '按钮存在')
+    const before = posts.length
+    button.props.onClick()
+    tree = rerender(react, harness.Page, {})
+    assert.equal(posts.length, before, label + '第一次点击不发请求')
+    assert.match(textOf(tree), /确认执行「/)
+    const confirm = h1FindByAria(tree, '确认训练操作')
+    confirm.props.onClick()
+    await flushTasks(3)
+    const expected = label === '取消' ? 'cancel' : label === '上线' ? 'promote' : 'rollback'
+    const post = posts.find((body) => body.action === expected)
+    assert.ok(post, '确认后 POST action=' + expected)
+    assert.equal(post.confirm, true)
+    tree = rerender(react, harness.Page, {})
+  }
+  harness.client.react._cleanup()
+})
+
+test('Gate H4 设置页：读取训练状态失败只提示不崩', async () => {
+  const posts = []
+  const harness = makeSettingsPageHarness(h4Routes(posts, { fail: true }))
+  const tree = await h1Render(harness)
+  const text = textOf(tree)
+  assert.match(text, /读取训练状态失败：forbidden/)
+  assert.match(text, /Minecraft/, '失败不影响其它设置区')
+  assert.match(text, /保存训练配置/)
+  harness.client.react._cleanup()
+})
+
+/* ---------------- 训练配置 API（config action）---------------- */
+
+function h4Req(method, body) {
+  const payload = body === undefined ? '' : JSON.stringify(body)
+  return {
+    method,
+    url: TRAINING_ROUTE,
+    async *[Symbol.asyncIterator]() {
+      if (payload.length > 0) yield Buffer.from(payload)
+    },
+  }
+}
+
+function h4Res() {
+  return {
+    statusCode: 0,
+    body: '',
+    writeHead(status) {
+      this.statusCode = status
+      return this
+    },
+    end(body) {
+      this.body = String(body)
+    },
+    json() {
+      return JSON.parse(this.body)
+    },
+  }
+}
+
+function h4RouteFixture() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'h4-training-'))
+  const store = createTrainingConfigStore({ file: path.join(dir, 'training-config.json'), now: () => 5000 })
+  const service = createTrainingService({ configStore: store, now: () => 5000, logger: { warn() {} } })
+  const handler = createTrainingHandler({ service, tokenFile: '', fence: { check: () => null }, logger: { warn() {} } })
+  return { dir, store, service, handler }
+}
+
+test('Gate H4 训练 API：POST config 写入白名单字段并返回状态', async () => {
+  const { dir, store, handler } = h4RouteFixture()
+  const getRes = h4Res()
+  await handler(h4Req('GET'), getRes)
+  assert.equal(getRes.json().config.config.enabled, false, '默认关闭')
+  const res = h4Res()
+  await handler(h4Req('POST', {
+    action: 'config',
+    config: {
+      enabled: true,
+      intervalDays: 3,
+      dataset: { minEntries: 50 },
+      hyperparams: { rank: 16, steps: 500, lr: 0.0002 },
+      eval: { minScore: 0.8 },
+    },
+  }), res)
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.status.enabled, true)
+  const stored = store.read().config
+  assert.equal(stored.enabled, true)
+  assert.equal(stored.intervalDays, 3)
+  assert.equal(stored.dataset.minEntries, 50)
+  assert.equal(stored.hyperparams.rank, 16)
+  assert.equal(stored.hyperparams.steps, 500)
+  assert.equal(stored.eval.minScore, 0.8)
+  const after = h4Res()
+  await handler(h4Req('GET'), after)
+  assert.equal(after.json().config.config.enabled, true, 'GET 反映写入结果')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('Gate H4 训练 API：config 校验（敏感字段/非法值拒绝，不写盘）', async () => {
+  const { dir, store, handler } = h4RouteFixture()
+  const sensitive = h4Res()
+  await handler(h4Req('POST', { action: 'config', config: { adapter: { current: 'evil' } } }), sensitive)
+  assert.equal(sensitive.statusCode, 400)
+  assert.equal(sensitive.json().error, 'invalid_config')
+  assert.ok(sensitive.json().errors.some((item) => item.path === 'adapter'))
+  const invalidValue = h4Res()
+  await handler(h4Req('POST', { action: 'config', config: { intervalDays: 0 } }), invalidValue)
+  assert.equal(invalidValue.statusCode, 400)
+  assert.equal(store.read().config.enabled, false, '校验失败不写盘')
+  assert.equal(store.read().config.intervalDays, 7)
+  // fence 拒绝
+  const denied = createTrainingHandler({ service: null, tokenFile: '', fence: { check: () => 'blocked' } })
+  const deniedRes = h4Res()
+  await denied(h4Req('POST', { action: 'config', config: { enabled: true } }), deniedRes)
+  assert.equal(deniedRes.statusCode, 403)
+  rmSync(dir, { recursive: true, force: true })
 })

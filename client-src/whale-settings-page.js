@@ -100,6 +100,39 @@ function hubSummary(hub) {
   }
 }
 
+const TRAINING_ACTION_LABELS = { run: '运行', cancel: '取消', promote: '上线', rollback: '回滚' }
+
+function trainingDraftFrom(data) {
+  const config = data && data.config && data.config.config ? data.config.config : {}
+  const dataset = config.dataset && typeof config.dataset === 'object' ? config.dataset : {}
+  const hyper = config.hyperparams && typeof config.hyperparams === 'object' ? config.hyperparams : {}
+  const evaluation = config.eval && typeof config.eval === 'object' ? config.eval : {}
+  return {
+    enabled: config.enabled === true,
+    intervalDays: Number.isFinite(Number(config.intervalDays)) ? Number(config.intervalDays) : 7,
+    minEntries: Number.isFinite(Number(dataset.minEntries)) ? Number(dataset.minEntries) : 200,
+    rank: Number.isFinite(Number(hyper.rank)) ? Number(hyper.rank) : 8,
+    steps: Number.isFinite(Number(hyper.steps)) ? Number(hyper.steps) : 300,
+    lr: Number.isFinite(Number(hyper.lr)) ? Number(hyper.lr) : 0.0001,
+    minScore: Number.isFinite(Number(evaluation.minScore)) ? Number(evaluation.minScore) : 0.6,
+  }
+}
+
+function trainingPayload(draft) {
+  const int = (value, fallback, min) => Math.max(min, Math.floor(Number(value) || fallback))
+  return {
+    enabled: draft.enabled === true,
+    intervalDays: int(draft.intervalDays, 7, 1),
+    dataset: { minEntries: int(draft.minEntries, 200, 1) },
+    hyperparams: {
+      rank: int(draft.rank, 8, 1),
+      steps: int(draft.steps, 300, 1),
+      lr: Math.min(1, Math.max(0.000001, Number(draft.lr) || 0.0001)),
+    },
+    eval: { minScore: Math.min(1, Math.max(0, Number(draft.minScore) || 0)) },
+  }
+}
+
 const styles = {
   page: { padding: '18px 22px', maxWidth: 760, color: 'var(--dsw-alias-label-primary, #1f2329)', fontSize: 13 },
   card: { border: '1px solid var(--dsw-alias-border-l2, #e5e6eb)', borderRadius: 10, padding: '14px 16px', marginBottom: 12, background: 'var(--dsw-alias-bg-base-platform, #fff)' },
@@ -128,6 +161,12 @@ export function createWhaleSettingsPage(React, h) {
   const [hub, setHub] = React.useState(null)
   const [hubError, setHubError] = React.useState('')
   const [hubBusy, setHubBusy] = React.useState('')
+  // Gate H4：训练旁路（默认关闭；runner 未注入时明确提示，不显示假成功）。
+  const [training, setTraining] = React.useState(null)
+  const [trainingDraft, setTrainingDraft] = React.useState(() => trainingDraftFrom(null))
+  const [trainingError, setTrainingError] = React.useState('')
+  const [trainingBusy, setTrainingBusy] = React.useState('')
+  const [pendingTrainingAction, setPendingTrainingAction] = React.useState('')
 
   const refresh = React.useCallback(() => {
     request('/settings.json').then((data) => setSettings(normalizeSettings(data.settings))).catch(() => {})
@@ -143,7 +182,12 @@ export function createWhaleSettingsPage(React, h) {
       .then((data) => { setHub(data); setHubError('') })
       .catch((error) => setHubError('读取 Hub 状态失败：' + error.message))
   }, [])
-  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub() }, [refresh, refreshPolicy, refreshHub])
+  const refreshTraining = React.useCallback(() => {
+    apiRequest('/training.json')
+      .then((data) => { setTraining(data); setTrainingDraft(trainingDraftFrom(data)); setTrainingError('') })
+      .catch((error) => setTrainingError('读取训练状态失败：' + error.message))
+  }, [])
+  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining() }, [refresh, refreshPolicy, refreshHub, refreshTraining])
 
   function save(patch, key) {
     setBusy(key)
@@ -208,6 +252,52 @@ export function createWhaleSettingsPage(React, h) {
       .catch((error) => setPolicyError('重置失败：' + error.message))
       .finally(() => setBusy(''))
   }
+  function setTrainingField(field, value) {
+    setTrainingDraft((draft) => Object.assign({}, draft, { [field]: value }))
+  }
+  function saveTraining() {
+    setTrainingBusy('training-save')
+    setTrainingError('')
+    apiRequest('/training.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'config', config: trainingPayload(trainingDraft) }),
+    })
+      .then((data) => {
+        setTraining(data)
+        setTrainingDraft(trainingDraftFrom(data))
+        setMessage('训练配置已保存')
+        setTimeout(() => setMessage(''), 1800)
+      })
+      .catch((error) => setTrainingError('保存训练配置失败：' + error.message))
+      .finally(() => setTrainingBusy(''))
+  }
+  function requestTrainingAction(action) {
+    setPendingTrainingAction(action)
+    setTrainingError('')
+  }
+  function confirmTrainingAction() {
+    const action = pendingTrainingAction
+    if (!action) return
+    setTrainingBusy(action)
+    setPendingTrainingAction('')
+    apiRequest('/training.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, confirm: true }),
+    })
+      .then((data) => {
+        if (data && data.ok === false) {
+          setTrainingError((TRAINING_ACTION_LABELS[action] || action) + '失败：' + (data.message || data.code || '被拒绝'))
+          return
+        }
+        setMessage((TRAINING_ACTION_LABELS[action] || action) + '已提交')
+        setTimeout(() => setMessage(''), 1800)
+        refreshTraining()
+      })
+      .catch((error) => setTrainingError((TRAINING_ACTION_LABELS[action] || action) + '失败：' + error.message))
+      .finally(() => setTrainingBusy(''))
+  }
   function hubAction(action) {
     setHubBusy(action)
     setHubError('')
@@ -260,6 +350,20 @@ export function createWhaleSettingsPage(React, h) {
     const effort = entry.reasoningEffort ? '(' + entry.reasoningEffort + ')' : ''
     return '生效：' + entry.provider + '/' + entry.model + effort + ' ← ' + (entry.source || 'default-chain')
   }
+  const trainingStatus = training && training.status ? training.status : null
+  const trainingPlan = training && training.plan ? training.plan : null
+  const trainingConfig = training && training.config && training.config.config ? training.config.config : null
+  const trainingEnabled = Boolean(trainingConfig && trainingConfig.enabled)
+  const runnerAvailable = Boolean(trainingStatus && trainingStatus.runnerAvailable)
+  const trainingPhase = trainingStatus && typeof trainingStatus.phase === 'string' ? trainingStatus.phase : 'idle'
+  const trainingBlocked = trainingPlan && typeof trainingPlan.blockedReason === 'string' ? trainingPlan.blockedReason : ''
+  const trainingNumber = (ariaLabel, value, onChange, extra) => h('input', Object.assign({
+    type: 'number',
+    style: styles.input,
+    'aria-label': ariaLabel,
+    value,
+    onChange: (event) => onChange(Number(event.target.value)),
+  }, extra || {}))
   const policyField = (ariaLabel, value, onChange, extra) => h('input', Object.assign({
     type: 'text',
     style: styles.input,
@@ -336,6 +440,76 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.pauseAll') }, hubBusy === 'hub.pauseAll' ? '暂停中…' : '暂停全部'),
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.resumeAll') }, hubBusy === 'hub.resumeAll' ? '恢复中…' : '恢复全部'),
         )),
+    ),
+    h('div', { style: styles.card },
+      h('div', { style: styles.title }, '训练（旁路）'),
+      trainingError ? h('div', { style: styles.error }, trainingError) : null,
+      h('div', { style: styles.hint },
+        !training
+          ? '正在读取训练状态…'
+          : trainingEnabled
+            ? '已开启（enabled=true）；运行仍需二次确认' + (runnerAvailable ? '' : ' · runner 未注入：运行会被拒绝，不会启动真实训练')
+            : '默认关闭（enabled=false）：不会自动训练；先保存开启再手动运行'),
+      trainingStatus && !runnerAvailable
+        ? h('div', { style: styles.error }, 'runner 未注入：运行会被拒绝（不会启动真实训练）')
+        : null,
+      trainingStatus
+        ? h('div', { style: styles.hint },
+          '阶段：' + trainingPhase + ' · runner：' + (runnerAvailable ? '已注入' : '未注入') +
+          (trainingBlocked ? ' · 阻塞原因：' + trainingBlocked : '') +
+          (trainingStatus.current ? ' · 当前 adapter：' + trainingStatus.current : ''))
+        : null,
+      row('开启训练', '默认关闭；开启后仍需手动运行 + 二次确认',
+        h('label', { style: { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' } },
+          h('input', {
+            type: 'checkbox',
+            'aria-label': '训练 enabled',
+            checked: trainingDraft.enabled === true,
+            disabled: trainingBusy !== '',
+            onChange: (event) => setTrainingField('enabled', event.target.checked),
+          }),
+          trainingDraft.enabled ? '已开启' : '关闭')),
+      row('间隔天数', '两次训练之间的最小间隔（1–90 天）',
+        trainingNumber('训练 intervalDays', trainingDraft.intervalDays, (value) => setTrainingField('intervalDays', value), { min: 1, max: 90 })),
+      row('数据集最少条数', '不足时 plan 会标记 insufficient-data',
+        trainingNumber('训练 dataset.minEntries', trainingDraft.minEntries, (value) => setTrainingField('minEntries', value), { min: 1 })),
+      row('LoRA rank', '超参 rank（1–128）',
+        trainingNumber('训练 hyperparams.rank', trainingDraft.rank, (value) => setTrainingField('rank', value), { min: 1, max: 128 })),
+      row('训练步数', 'steps（1–100000）',
+        trainingNumber('训练 hyperparams.steps', trainingDraft.steps, (value) => setTrainingField('steps', value), { min: 1 })),
+      row('学习率 lr', 'lr（0–1）',
+        trainingNumber('训练 hyperparams.lr', trainingDraft.lr, (value) => setTrainingField('lr', value), { min: 0, max: 1, step: 0.00001 })),
+      row('评估最低分', 'eval.minScore（0–1）；candidate 必须 ≥ 该分才能上线',
+        trainingNumber('训练 eval.minScore', trainingDraft.minScore, (value) => setTrainingField('minScore', value), { min: 0, max: 1, step: 0.01 })),
+      row('配置', '保存只写训练配置，不启动训练',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), disabled: trainingBusy !== '', onClick: saveTraining }, trainingBusy === 'training-save' ? '保存中…' : '保存训练配置'),
+          h('button', { type: 'button', style: styles.button, disabled: trainingBusy !== '', onClick: refreshTraining }, '刷新训练状态'),
+        )),
+      row('操作', '全部需要二次确认；默认关闭/无 runner 时运行会被拒绝',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+          h('button', {
+            type: 'button',
+            style: styles.button,
+            disabled: trainingBusy !== '' || !trainingEnabled || !runnerAvailable,
+            onClick: () => requestTrainingAction('run'),
+          }, trainingBusy === 'run' ? '运行中…' : '运行'),
+          h('button', { type: 'button', style: styles.button, disabled: trainingBusy !== '' || trainingPhase !== 'running', onClick: () => requestTrainingAction('cancel') }, '取消'),
+          h('button', { type: 'button', style: styles.button, disabled: trainingBusy !== '', onClick: () => requestTrainingAction('promote') }, '上线'),
+          h('button', { type: 'button', style: styles.button, disabled: trainingBusy !== '', onClick: () => requestTrainingAction('rollback') }, '回滚'),
+        )),
+      pendingTrainingAction
+        ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 } },
+          h('span', { style: { fontSize: 12, color: '#d92d20' } }, '确认执行「' + (TRAINING_ACTION_LABELS[pendingTrainingAction] || pendingTrainingAction) + '」？'),
+          h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), 'aria-label': '确认训练操作', onClick: confirmTrainingAction }, '确认执行'),
+          h('button', { type: 'button', style: styles.button, onClick: () => setPendingTrainingAction('') }, '放弃'),
+        )
+        : null,
+      trainingStatus && trainingStatus.candidate
+        ? h('div', { style: styles.hint },
+          '候选：' + trainingStatus.candidate.id + ' · score=' + String(trainingStatus.candidate.score ?? 'n/a') +
+          ' · ' + (trainingStatus.candidate.passed ? '评估通过' : '评估未通过（不可上线）'))
+        : null,
     ),
     h('div', { style: styles.card },
       h('div', { style: styles.title }, 'Minecraft'),
