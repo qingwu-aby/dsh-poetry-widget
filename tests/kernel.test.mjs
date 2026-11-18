@@ -37,6 +37,16 @@ import {
   setActiveHubRuntime,
 } from '../lib/composition/hub-runtime.mjs'
 import {
+  createMinecraftTaskQueue,
+  MINECRAFT_TASK_QUEUE_CODES,
+  MINECRAFT_TASK_QUEUE_VERSION,
+} from '../lib/composition/minecraft-task-queue.mjs'
+import {
+  createMinecraftTaskHandler,
+  MINECRAFT_TASK_ACTIONS,
+  MINECRAFT_TASKS_ROUTE,
+} from '../lib/composition/minecraft-task-routes.mjs'
+import {
   createModelPolicyHandler,
   MODEL_POLICY_ALLOWED_FIELDS,
   MODEL_POLICY_ROUTE,
@@ -9728,4 +9738,274 @@ test('chat J2：runner 边界（非 full/空消息/未注入）', async () => {
   offRuntime.dispose()
   bare.dispose()
   full.dispose()
+})
+
+// ---------------------------------------------------------------------------
+// Gate J3：Minecraft 任务队列（claim/lease/receipt，Hub 驱动 bot）
+// ---------------------------------------------------------------------------
+
+test('minecraft-queue J3：create/claim 优先级/租约/完成/幂等/容量', () => {
+  const clock = 1000
+  const queue = createMinecraftTaskQueue({ now: () => clock, leaseMs: 5000, maxTasks: 2 })
+  assert.equal(queue.snapshot().version, MINECRAFT_TASK_QUEUE_VERSION)
+  assert.equal(queue.create({ taskId: 't-low', tool: 'mc_say', arguments: { text: 'a' }, priority: 1 }).ok, true)
+  assert.equal(queue.create({ taskId: 't-high', tool: 'mc_move_to', arguments: { x: 1, z: 2 }, priority: 9 }).ok, true)
+  assert.equal(
+    queue.create({ taskId: 't-extra', tool: 'mc_wait' }).code,
+    MINECRAFT_TASK_QUEUE_CODES.queueFull,
+    '容量上限',
+  )
+  assert.equal(queue.create({ taskId: 't-low', tool: 'mc_say' }).duplicate, true, '同 taskId 幂等')
+  assert.equal(queue.create({ tool: 'mc_say' }).code, MINECRAFT_TASK_QUEUE_CODES.invalid)
+  const claimed = queue.claim({ owner: 'bot-1', leaseMs: 5000 })
+  assert.equal(claimed.ok, true)
+  assert.equal(claimed.task.taskId, 't-high', '高优先级先出')
+  assert.equal(claimed.task.status, 'running')
+  assert.equal(claimed.task.owner, 'bot-1')
+  assert.equal(claimed.task.leaseUntil, 6000)
+  const done = queue.complete('t-high', { ok: true, detail: '到达', facts: { position: '1,2,3' } })
+  assert.equal(done.ok, true)
+  assert.equal(done.task.status, 'done')
+  assert.equal(done.task.receipt.ok, true)
+  assert.equal(queue.complete('t-high', { ok: true }).already, true, '重复回执幂等')
+  const failed = queue.fail('t-low', { message: '打不开门' })
+  assert.equal(failed.task.status, 'failed')
+  assert.equal(queue.get('t-extra'), null)
+  assert.deepEqual(queue.snapshot().counts, { queued: 0, running: 0, done: 1, failed: 1, cancelled: 0 })
+  assert.equal(queue.snapshot().metrics.claimed, 1)
+})
+
+test('minecraft-queue J3：租约过期回收 + 最大尝试后失败 + onExpired 回调', () => {
+  let clock = 1000
+  const expired = []
+  const queue = createMinecraftTaskQueue({
+    now: () => clock,
+    leaseMs: 1000,
+    maxAttempts: 2,
+    onExpired: (task) => expired.push(task),
+  })
+  queue.create({ taskId: 't-timeout', tool: 'mc_wait', arguments: { seconds: 3 } })
+  const first = queue.claim({ owner: 'bot' })
+  assert.equal(first.task.attempts, 1)
+  clock = 1500
+  assert.equal(queue.claim({ owner: 'bot' }).task, null, '租约未过期不重复认领')
+  clock = 3000
+  const second = queue.claim({ owner: 'bot' })
+  assert.equal(second.task.taskId, 't-timeout')
+  assert.equal(second.task.attempts, 2)
+  clock = 5000
+  const third = queue.claim({ owner: 'bot' })
+  assert.equal(third.task, null, '超过最大尝试后不再认领')
+  assert.equal(queue.get('t-timeout').status, 'failed')
+  assert.equal(queue.get('t-timeout').error.code, 'MINECRAFT_TASK_TIMEOUT')
+  assert.equal(expired.length, 1, '超时失败触发 onExpired（供 host 失败任务板任务）')
+  assert.equal(queue.snapshot().metrics.expired, 2)
+})
+
+test('minecraft-task-routes J3：鉴权/action/claim/receipt/status', async () => {
+  const dir = tmpDir('j3-routes')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const clock = 1000
+  const queue = createMinecraftTaskQueue({ now: () => clock, leaseMs: 5000 })
+  const handler = createMinecraftTaskHandler({
+    queue,
+    tokenFile,
+    fence: { check: () => 'blocked' },
+    logger: { warn() {} },
+  })
+  const denied = hubFakeRes()
+  await handler(hubFakeReq('POST', { token: 'bad', action: 'status' }, { url: MINECRAFT_TASKS_ROUTE }), denied)
+  assert.equal(denied.statusCode, 403)
+  const getRes = hubFakeRes()
+  await handler(hubFakeReq('GET', undefined, { url: MINECRAFT_TASKS_ROUTE }), getRes)
+  assert.equal(getRes.statusCode, 405)
+  const unknown = hubFakeRes()
+  await handler(hubFakeReq('POST', { token: 'secret-token', action: 'nope' }, { url: MINECRAFT_TASKS_ROUTE }), unknown)
+  assert.equal(unknown.statusCode, 400)
+  assert.deepEqual(unknown.json().actions, MINECRAFT_TASK_ACTIONS.slice())
+  // 入队 + claim
+  queue.create({ taskId: 'tb-mc-1', tool: 'mc_say', arguments: { text: 'hi' }, priority: 5 })
+  const claimRes = hubFakeRes()
+  await handler(
+    hubFakeReq(
+      'POST',
+      { token: 'secret-token', action: 'claim', owner: 'bot-test', leaseMs: 5000 },
+      { url: MINECRAFT_TASKS_ROUTE },
+    ),
+    claimRes,
+  )
+  const claim = claimRes.json()
+  assert.equal(claim.ok, true)
+  assert.equal(claim.task.taskId, 'tb-mc-1')
+  assert.equal(claim.task.tool, 'mc_say')
+  assert.equal(claim.task.owner, 'bot-test')
+  // receipt
+  const receiptRes = hubFakeRes()
+  await handler(
+    hubFakeReq(
+      'POST',
+      {
+        token: 'secret-token',
+        action: 'receipt',
+        taskId: 'tb-mc-1',
+        ok: true,
+        detail: '说了 hi',
+        facts: { position: '1,2,3' },
+      },
+      { url: MINECRAFT_TASKS_ROUTE },
+    ),
+    receiptRes,
+  )
+  const receipt = receiptRes.json()
+  assert.equal(receipt.ok, true)
+  assert.equal(receipt.task.status, 'done')
+  assert.equal(receipt.task.receipt.detail, '说了 hi')
+  assert.equal(queue.get('tb-mc-1').status, 'done')
+  // status
+  const statusRes = hubFakeRes()
+  await handler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'status' }, { url: MINECRAFT_TASKS_ROUTE }),
+    statusRes,
+  )
+  assert.equal(statusRes.json().counts.done, 1)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes J3：full 的 minecraft 任务入队并保持 waiting，receipt 闭环（adapter 0 次）', async () => {
+  const dir = tmpDir('j3-hub')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const adapterCalls = []
+  let runtime = null
+  runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: false },
+    activityManifests: [
+      {
+        manifest: MINECRAFT_MANIFEST_RAW,
+        execute: async (task) => {
+          adapterCalls.push(task)
+          return { ok: true, receipt: { ok: true, at: 1000, detail: '不该执行' } }
+        },
+      },
+    ],
+    now: () => 1000,
+  })
+  runtime.start()
+  const queue = createMinecraftTaskQueue({ now: () => 1000 })
+  const hubHandler = createHubHandler({
+    tokenFile,
+    fence: { check: () => null },
+    hubRuntime: runtime,
+    minecraftQueue: queue,
+  })
+  const res = hubFakeRes()
+  await hubHandler(
+    hubFakeReq(
+      'POST',
+      {
+        action: 'task.create',
+        kind: 'minecraft.build',
+        activity: 'minecraft',
+        payload: { tool: 'mc_say', arguments: { text: 'hi' } },
+        idempotencyKey: 'j3-mc-1',
+      },
+      { url: HUB_ROUTE },
+    ),
+    res,
+  )
+  const body = res.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.queued, true, 'full minecraft 任务入队')
+  assert.equal(body.executed, false)
+  assert.equal(adapterCalls.length, 0, '不立即执行 adapter')
+  const board = runtime.getInstances().taskBoard
+  const task = board.get(body.task.id)
+  assert.equal(task.status, 'waiting', '任务板保持 waiting')
+  assert.equal(queue.get(task.id).tool, 'mc_say')
+  // bot claim + receipt 闭环
+  const mcHandler = createMinecraftTaskHandler({
+    queue,
+    tokenFile,
+    fence: { check: () => 'blocked' },
+    getHubRuntime: () => runtime,
+    logger: { warn() {} },
+  })
+  const claimRes = hubFakeRes()
+  await mcHandler(
+    hubFakeReq('POST', { token: 'secret-token', action: 'claim', owner: 'bot' }, { url: MINECRAFT_TASKS_ROUTE }),
+    claimRes,
+  )
+  assert.equal(claimRes.json().task.taskId, task.id)
+  const receiptRes = hubFakeRes()
+  await mcHandler(
+    hubFakeReq(
+      'POST',
+      {
+        token: 'secret-token',
+        action: 'receipt',
+        taskId: task.id,
+        ok: true,
+        detail: '完成',
+        facts: { position: '1,2,3' },
+      },
+      { url: MINECRAFT_TASKS_ROUTE },
+    ),
+    receiptRes,
+  )
+  assert.equal(receiptRes.json().hub.taskId, task.id)
+  assert.equal(board.get(task.id).status, 'done', '任务板由 receipt 完成')
+  const ledger = runtime.getInstances().feedbackLedger.snapshot()
+  assert.ok(ledger.records >= 1, 'feedback 账本写入')
+  assert.equal(adapterCalls.length, 0)
+  // GET 快照含 minecraftTasks
+  const getRes = hubFakeRes()
+  await hubHandler(hubFakeReq('GET', undefined, { url: HUB_ROUTE }), getRes)
+  assert.equal(getRes.json().minecraftTasks.counts.done, 1)
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('hub-routes J3：off/shadow 的 minecraft 任务仍走原 adapter 路径（行为不变）', async () => {
+  const dir = tmpDir('j3-shadow')
+  const tokenFile = path.join(dir, 'chat-token')
+  writeFileSync(tokenFile, 'secret-token')
+  const adapterCalls = []
+  const runtime = createHubRuntime({
+    logger: { warn() {} },
+    featureFlag: { enabled: true, shadow: true },
+    activityManifests: [
+      {
+        manifest: MINECRAFT_MANIFEST_RAW,
+        execute: async (task) => {
+          adapterCalls.push(task)
+          return { ok: true, receipt: { ok: true, at: 1000, detail: 'shadow 执行' } }
+        },
+      },
+    ],
+    now: () => 1000,
+  })
+  runtime.start()
+  const queue = createMinecraftTaskQueue({ now: () => 1000 })
+  const hubHandler = createHubHandler({
+    tokenFile,
+    fence: { check: () => null },
+    hubRuntime: runtime,
+    minecraftQueue: queue,
+  })
+  const res = hubFakeRes()
+  await hubHandler(
+    hubFakeReq(
+      'POST',
+      { action: 'task.create', kind: 'minecraft.build', activity: 'minecraft', payload: { tool: 'mc_say' } },
+      { url: HUB_ROUTE },
+    ),
+    res,
+  )
+  assert.equal(res.json().ok, false, 'shadow 不执行真实任务（HUB_FULL_REQUIRED）')
+  assert.equal(adapterCalls.length, 0)
+  assert.equal(queue.snapshot().total, 0, 'shadow 不入队')
+  runtime.dispose()
+  rmSync(dir, { recursive: true, force: true })
 })
