@@ -639,10 +639,11 @@ test('model-policy M51：候选顺序/关闭开关/显式覆盖/去重/探测', 
   const explicit = makeCandidatePolicy({
     env: { DSH_POETRY_MODEL_PROVIDER: 'custom-p', DSH_POETRY_MODEL: 'custom-m', DSH_POETRY_REASONING_MOOD: 'max' },
   })
-  assert.deepEqual(explicit.resolveCandidates('mood'), [
-    { provider: 'custom-p', model: 'custom-m', reasoningEffort: 'max' },
-  ])
-  assert.equal(explicit.resolveCandidates('selfTalk').length, 1, '显式覆盖所有 role 都是单候选')
+  const explicitMood = explicit.resolveCandidates('mood')
+  assert.equal(explicitMood.length, 2)
+  assert.deepEqual(explicitMood[0], { provider: 'custom-p', model: 'custom-m', reasoningEffort: 'max' })
+  assert.equal(explicitMood[1].provider, 'deepseek-account', '显式覆盖后仍带默认账号兜底')
+  assert.equal(explicit.resolveCandidates('selfTalk').length, 2, '显式覆盖所有 role 都带兜底')
 
   // 关闭开关 → 直接回落 selection
   assert.deepEqual(
@@ -1306,15 +1307,14 @@ test('model-policy M54：候选顺序 dsh-opencode-go → deepseek-account（原
       ['deepseek-account'],
     )
   }
-  // 显式覆盖 → 单候选
-  assert.deepEqual(
-    createModelPolicy({
-      env: { DSH_POETRY_MODEL_PROVIDER: 'custom-p', DSH_POETRY_MODEL: 'custom-m' },
-      getSelection: allProviders,
-      getProviders: allProviders,
-    }).resolveCandidates('mood'),
-    [{ provider: 'custom-p', model: 'custom-m', reasoningEffort: 'low' }],
-  )
+  // 显式覆盖 → 主候选 + 默认账号兜底
+  const explicitEnv = createModelPolicy({
+    env: { DSH_POETRY_MODEL_PROVIDER: 'custom-p', DSH_POETRY_MODEL: 'custom-m' },
+    getSelection: allProviders,
+    getProviders: allProviders,
+  }).resolveCandidates('mood')
+  assert.deepEqual(explicitEnv[0], { provider: 'custom-p', model: 'custom-m', reasoningEffort: 'low' })
+  assert.equal(explicitEnv[1].provider, 'deepseek-account')
   // 去重：selection 与 dsh 相同
   const deduped = createModelPolicy({
     env: {},

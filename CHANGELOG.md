@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.27.0 模型降级**：显式/角色/env 模型覆盖自动追加 `deepseek-account/deepseek-flash` 兜底；opencode-go 限额/空响应时自动切换默认账号。
 - **v0.26.0 DeepSeek 搜索 Key 设置**：设置页新增「DeepSeek 搜索」区；key 存 `$DSH_HOME/.dsh-poetry/deepseek-api-key`（0600），API 只回显状态/后四位；resolveDeepSeekApiKey 支持 env → 文件。
 - **v0.25.6**：DeepSeek 账号下 game-learn/inquire live 通过，sourceCount=4；无新空响应。
 - **v0.25.5**：`resolveCandidateMaxTokens(0, floor)` 也应用 maxTokensFloor，修复 DeepSeek 不封顶调用的空响应。

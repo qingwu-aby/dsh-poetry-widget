@@ -82,3 +82,17 @@ console.log(data.choices?.[0]?.message?.content)
 - `game-world inquire`「洞窟找不到出口」：成功，返回原因/假设/实验/下一步。
 - 模型策略：deepseek-account/deepseek-flash，drive 角色正常。
 - 未出现新的 EMPTY_RESPONSE（旧记录来自修复前）。
+
+
+## 7. OpenCode Go 限额后的降级
+
+模型策略现在对**显式覆盖**（设置页/store/env）自动追加默认账号兜底：
+
+```text
+主候选（如 dsh-opencode-go / deepseek-v4.1-flash）
+→ deepseek-account / deepseek-flash
+```
+
+- 主候选额度用完/空响应/生成失败且未产出文本时，`callModelForRole` 会继续尝试兜底；
+- 兜底候选带 `maxTokensFloor=4096`，避免 DeepSeek thinking 空响应；
+- 如果主候选本身就是 `deepseek-account`，不会重复追加。
