@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -483,6 +484,16 @@ import {
   RELEASE_REQUIRED_PACKED,
   runReleaseCheck,
 } from '../scripts/release-check.mjs'
+import {
+  formatSoakReport,
+  parseSoakArgs,
+  readSoakState,
+  runRoundWithScripts,
+  runSoak,
+  SOAK_DEFAULT_DURATION_MS,
+  SOAK_DEFAULT_INTERVAL_MS,
+  SOAK_VERSION,
+} from '../scripts/soak-24h.mjs'
 import {
   createStateBackup,
   formatBackupStamp,
@@ -14212,4 +14223,226 @@ test('memory-eval K4：污染检测策略可配置（控制字符/超长/注入/
   ])
   assert.equal(dup.metrics.repetitionRate > 0.5, true)
   assert.equal(dup.issues.includes('abnormal-repetition'), true)
+})
+
+// ---------------------------------------------------------------------------
+// Gate O3：24h soak 运行器（注入时钟短测，不跑 24h）
+// ---------------------------------------------------------------------------
+
+function makeO3Clock(start = 1000000) {
+  let clock = start
+  return {
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms
+    },
+    advance: (ms) => {
+      clock += ms
+    },
+    get clock() {
+      return clock
+    },
+  }
+}
+
+test('soak O3：参数解析/默认值/非法参数', () => {
+  assert.equal(SOAK_VERSION, 1)
+  assert.equal(SOAK_DEFAULT_DURATION_MS, 24 * 60 * 60 * 1000)
+  assert.equal(SOAK_DEFAULT_INTERVAL_MS, 5 * 60 * 1000)
+  const defaults = parseSoakArgs([])
+  assert.equal(defaults.ok, true)
+  assert.equal(defaults.durationMs, SOAK_DEFAULT_DURATION_MS)
+  assert.equal(defaults.intervalMs, SOAK_DEFAULT_INTERVAL_MS)
+  assert.equal(defaults.out.includes('soak-24h.jsonl'), true)
+  const custom = parseSoakArgs([
+    '--duration-ms',
+    '2000',
+    '--interval-ms',
+    '1000',
+    '--out',
+    '/tmp/x.jsonl',
+    '--json',
+    '--once',
+    '--resume',
+  ])
+  assert.equal(custom.ok, true)
+  assert.equal(custom.durationMs, 2000)
+  assert.equal(custom.intervalMs, 1000)
+  assert.equal(custom.out, '/tmp/x.jsonl')
+  assert.equal(custom.json, true)
+  assert.equal(custom.once, true)
+  assert.equal(custom.resume, true)
+  assert.equal(parseSoakArgs(['--duration-ms', '0']).ok, false)
+  assert.equal(parseSoakArgs(['--interval-ms', 'bad']).ok, false)
+  assert.equal(parseSoakArgs(['--out']).ok, false)
+  assert.equal(parseSoakArgs(['--bogus']).ok, false)
+})
+
+test('soak O3：短 duration 跑 2 轮并写 JSONL 报告', async () => {
+  const dir = tmpDir('o3-soak')
+  const outFile = path.join(dir, 'soak.jsonl')
+  const clock = makeO3Clock()
+  const calls = []
+  const report = await runSoak({
+    durationMs: 2000,
+    intervalMs: 1000,
+    outFile,
+    now: clock.now,
+    sleep: clock.sleep,
+    runRound: ({ round }) => {
+      calls.push(round)
+      return { ok: true, metrics: { round, loadOk: true, faultOk: true }, errors: [] }
+    },
+  })
+  assert.equal(report.ok, true)
+  assert.equal(report.rounds, 2)
+  assert.equal(report.failures, 0)
+  assert.equal(report.completed, true)
+  assert.equal(report.stopped, false)
+  assert.deepEqual(calls, [1, 2])
+  assert.equal(report.records.length, 2)
+  const lines = readFileSync(outFile, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  assert.equal(lines.length, 3, '2 轮 + summary')
+  assert.deepEqual(
+    lines.slice(0, 2).map((line) => line.round),
+    [1, 2],
+  )
+  assert.equal(lines[0].metrics.round, 1)
+  assert.equal(lines[0].ok, true)
+  assert.equal(lines[2].type, 'summary')
+  assert.equal(lines[2].rounds, 2)
+  assert.equal(lines[2].failures, 0)
+  assert.equal(lines[2].completed, true)
+  assert.equal(typeof lines[0].ts, 'number')
+  assert.equal(JSON.parse(JSON.stringify(report)).ok, true)
+  assert.match(formatSoakReport(report).join('\n'), /rounds=2/)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('soak O3：单轮失败继续并累计；--once；Ctrl-C 优雅摘要', async () => {
+  const dir = tmpDir('o3-soak-fail')
+  const outFile = path.join(dir, 'fail.jsonl')
+  const clock = makeO3Clock()
+  let round = 0
+  const report = await runSoak({
+    durationMs: 2000,
+    intervalMs: 1000,
+    outFile,
+    now: clock.now,
+    sleep: clock.sleep,
+    runRound: () => {
+      round += 1
+      if (round === 2) throw new Error('round boom')
+      return { ok: true, metrics: {}, errors: [] }
+    },
+  })
+  assert.equal(report.ok, false)
+  assert.equal(report.rounds, 2)
+  assert.equal(report.failures, 1)
+  assert.equal(
+    report.errors.some((error) => /round 2/.test(error)),
+    true,
+  )
+  const records = readFileSync(outFile, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  assert.equal(records[1].ok, false)
+  assert.match(records[1].errors[0], /round boom/)
+  // --once：只跑一轮
+  const onceFile = path.join(dir, 'once.jsonl')
+  const onceClock = makeO3Clock()
+  const onceReport = await runSoak({
+    durationMs: 2000,
+    intervalMs: 1000,
+    outFile: onceFile,
+    once: true,
+    now: onceClock.now,
+    sleep: onceClock.sleep,
+    runRound: () => ({ ok: true, metrics: {}, errors: [] }),
+  })
+  assert.equal(onceReport.rounds, 1)
+  assert.equal(onceReport.completed, true)
+  assert.equal(onceReport.records.length, 1)
+  // Ctrl-C：stopRequested 在第二轮前变 true → 优雅停止并写 summary
+  const stopFile = path.join(dir, 'stop.jsonl')
+  const stopClock = makeO3Clock()
+  let stop = false
+  const stopReport = await runSoak({
+    durationMs: 5000,
+    intervalMs: 1000,
+    outFile: stopFile,
+    now: stopClock.now,
+    sleep: async (ms) => {
+      stopClock.advance(ms)
+      stop = true
+    },
+    stopRequested: () => stop,
+    runRound: () => ({ ok: true, metrics: {}, errors: [] }),
+  })
+  assert.equal(stopReport.rounds, 1)
+  assert.equal(stopReport.stopped, true)
+  assert.equal(stopReport.completed, false)
+  const stopLines = readFileSync(stopFile, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  assert.equal(stopLines[stopLines.length - 1].type, 'summary')
+  assert.equal(stopLines[stopLines.length - 1].stopped, true)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('soak O3：--resume 从既有 JSONL 继续；readSoakState 容错', async () => {
+  const dir = tmpDir('o3-soak-resume')
+  const outFile = path.join(dir, 'resume.jsonl')
+  const clock = makeO3Clock(2000000)
+  const first = await runSoak({
+    durationMs: 1000,
+    intervalMs: 1000,
+    outFile,
+    once: true,
+    now: clock.now,
+    sleep: clock.sleep,
+    runRound: () => ({ ok: true, metrics: { first: true }, errors: [] }),
+  })
+  assert.equal(first.rounds, 1)
+  const state = readSoakState(outFile)
+  assert.equal(state.rounds, 1)
+  assert.equal(state.startedAt, 2000000)
+  // 时间推进 1s，resume 后总 duration 2000 → 再跑 1 轮
+  clock.advance(1000)
+  const second = await runSoak({
+    durationMs: 2000,
+    intervalMs: 1000,
+    outFile,
+    resume: true,
+    now: clock.now,
+    sleep: clock.sleep,
+    runRound: () => ({ ok: true, metrics: { second: true }, errors: [] }),
+  })
+  assert.equal(second.rounds, 2)
+  assert.equal(second.failures, 0)
+  assert.equal(second.completed, true)
+  const records = readFileSync(outFile, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  assert.equal(records.filter((line) => line.type !== 'summary').length, 2)
+  assert.equal(records.filter((line) => line.type === 'summary').length, 2)
+  // 坏行容错
+  appendFileSync(outFile, 'not json\n')
+  const tolerant = readSoakState(outFile)
+  assert.equal(tolerant.rounds, 2)
+  assert.equal(readSoakState(path.join(dir, 'missing.jsonl')).rounds, 0)
+  // 默认单轮实现（fake spawn）：load/fault 都 ok
+  const fakeSpawn = () => ({ status: 0, stdout: JSON.stringify({ ok: true, scenarios: [{ id: 'a' }] }) })
+  const roundResult = runRoundWithScripts({ cwd: dir, spawn: fakeSpawn })
+  assert.equal(roundResult.ok, true)
+  assert.equal(roundResult.metrics.loadOk, true)
+  assert.equal(roundResult.metrics.loadScenarios, 1)
+  assert.equal(roundResult.metrics.faultOk, true)
+  rmSync(dir, { recursive: true, force: true })
 })
