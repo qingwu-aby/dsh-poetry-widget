@@ -14446,3 +14446,52 @@ test('soak O3：--resume 从既有 JSONL 继续；readSoakState 容错', async (
   assert.equal(roundResult.metrics.faultOk, true)
   rmSync(dir, { recursive: true, force: true })
 })
+
+test('guide-loop：B站视频→字幕→总结→主题中枢，按 topic 复用', async () => {
+  const { createTopicHub } = await import('../lib/core/topic-hub.mjs')
+  const { createGuideLoop } = await import('../lib/core/guide-loop.mjs')
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'guide-hub-'))
+  const hub = createTopicHub({ file: path.join(dir, 'guides.json'), now: () => 1000 })
+  let searches = 0
+  const loop = createGuideLoop({
+    topicHub: hub,
+    now: () => 1000,
+    searchVideos: async () => {
+      searches += 1
+      return [{ bvid: 'BV1test', title: '洞窟脱困' }]
+    },
+    fetchSubtitle: async () =>
+      '先插火把，再挖阶梯向上，遇到水就沿水找出口；记得每走几步放一个火把，别垂直挖脚下，遇到岩浆绕开。',
+    summarize: async () => ({ method: '插火把挖阶梯', steps: ['插火把', '挖阶梯', '沿水找出口'] }),
+  })
+  const first = await loop.lookup({ topic: 'Minecraft 洞窟脱困', question: '怎么出去？', activity: 'minecraft' })
+  assert.equal(first.ok, true)
+  assert.equal(first.cached, false)
+  assert.equal(first.guide.bvid, 'BV1test')
+  assert.equal(first.guide.method, '插火把挖阶梯')
+  assert.equal(hub.query('minecraft 洞窟脱困').ok, true)
+  const second = await loop.lookup({ topic: 'Minecraft 洞窟脱困', activity: 'study' })
+  assert.equal(second.ok, true)
+  assert.equal(second.cached, true)
+  assert.equal(searches, 1, '同一主题第二次不再搜索')
+  rmSync(dir, { recursive: true, force: true })
+})
+
+test('guide-loop：没有字幕/总结器失败时不伪造攻略', async () => {
+  const { createGuideLoop } = await import('../lib/core/guide-loop.mjs')
+  const noSub = createGuideLoop({
+    searchVideos: async () => [{ bvid: 'BV1x', title: 'x' }],
+    fetchSubtitle: async () => '',
+  })
+  const r1 = await noSub.lookup({ topic: 'T' })
+  assert.equal(r1.ok, false)
+  assert.equal(r1.error, 'no_subtitle')
+  const noSummary = createGuideLoop({
+    searchVideos: async () => [{ bvid: 'BV1x', title: 'x' }],
+    fetchSubtitle: async () =>
+      '这是一段足够长的字幕内容，用来让总结器有机会工作，但总结器返回空；再补一些字确保超过字幕阈值，避免测试因为长度不足误判。',
+  })
+  const r2 = await noSummary.lookup({ topic: 'T2' })
+  assert.equal(r2.ok, false)
+  assert.equal(r2.error, 'summary_unavailable')
+})
