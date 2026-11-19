@@ -119,3 +119,14 @@ console.log(data.choices?.[0]?.message?.content)
 - 全部角色改 `high` 后 `game-world observe` 成功（约 16s）
 - `game-learn` 成功，返回脱困步骤；
 - 失败时仍会降级到 `deepseek-account/deepseek-flash`。
+
+
+## 10. 卡住后的强制脱困（v0.30）
+
+之前卡住会先查资料，但查完如果模型继续 `mc_wait`，位置不变，还是卡。
+
+bot 现在：
+- 卡住查完立刻做一个保守的小位移（`mc_move_to` +2 格）；
+- 位移失败 → `mc_mine stone` 挖开身边；
+- 如果模型仍选 `mc_wait/mc_say/mc_follow/mc_explore` 且 1.2 格内没动，强制 `mc_mine`；
+- B站攻略 30 分钟最多触发一次，避免一次卡住反复调攻略。
