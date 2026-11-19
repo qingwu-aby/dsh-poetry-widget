@@ -110,3 +110,10 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
 - 首轮：`round=1 ok=true loadOk=true faultOk=true faultScenarios=9`
 - 报告：`~/.dsh/.dsh-poetry/soak-24h.jsonl`
 - 24h 结束后检查 summary；中途机器休眠/会话结束可能中断，需 resume。
+
+
+## 12. 24h soak 运行中（2026-11-19 13:30）
+
+- 已跑 2 轮，round1/2 均 ok，fault 9/9；
+- 每轮间隔约 5 分钟；预计 289 轮满 24h；
+- 完成后检查 `~/.dsh/.dsh-poetry/soak-24h.jsonl` 最后 summary。
