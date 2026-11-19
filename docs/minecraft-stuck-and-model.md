@@ -43,7 +43,11 @@ DeepSeek 官方 Chat Completions API（参考官方文档）：
 - 重启 DSH 后 World 的 stuck 提示才会加载（宿主需重启）。
 
 
-## 4. 官方 API 直连示例（备用）
+## 4. 学习/调研的模型角色
+
+DeepSeek 账号下 `thinking` 角色在实测中返回空响应；`game-learning` 与 `minecraft-inquiry` 已改用 `drive` 角色（同一模型，已验证 world 决策可用），保证脱困调研能真正调用模型。
+
+## 5. 官方 API 直连示例（备用）
 
 如果以后要绕过 DSH provider 直连官方 API，可用 `fetch`：
 

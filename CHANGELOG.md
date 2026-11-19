@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.25.4**：learning/inquiry 改用 drive 角色，绕过 DeepSeek 账号 thinking 空响应；984 tests。
 - **v0.25.3**：bot 卡住时自动先 mc_inquire；文档更新。
 - **v0.25.2 DeepSeek 预算下限**：store 显式选 deepseek-account 时候选 maxTokensFloor=4096，修复 selfTalk/mood/consolidate 因 thinking 吃光预算的 EMPTY_RESPONSE；bot 卡住时自动先 mc_inquire。
 - **v0.25.1 文档补充**：官方 DeepSeek fetch 示例；bot 的 recentPositions 声明修复，stuck 检测已加载。
