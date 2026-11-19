@@ -74,3 +74,13 @@ POST /api/dsh-poetry/guide.json
 - 字幕没有时跳过该视频；
 - 总结器只依据字幕内容，不确定写“没提到”；
 - 主题 hub 是本地文件，不联网同步。
+
+
+## 直连 B站 MCP（v0.31）
+
+宿主 tool scope 不稳定时，guide 直接启动 `~/.dsh/bili-duty` 的 Python MCP：
+
+- `bili_search`（中文关键词优先，`Minecraft` 自动换 `我的世界`）
+- `bili_subtitle`
+
+`available` 为 true 时优先直连；否则回退宿主 tools 桥。字幕为空会跳过该视频，最多试 3 个。
