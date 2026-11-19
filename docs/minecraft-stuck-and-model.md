@@ -96,3 +96,10 @@ console.log(data.choices?.[0]?.message?.content)
 - 主候选额度用完/空响应/生成失败且未产出文本时，`callModelForRole` 会继续尝试兜底；
 - 兜底候选带 `maxTokensFloor=4096`，避免 DeepSeek thinking 空响应；
 - 如果主候选本身就是 `deepseek-account`，不会重复追加。
+
+
+## 8. Live 验证（2026-11-19，Key 设置后）
+
+- `GET /api/dsh-poetry/search-key.json`：`configured=true`、`source=file`、`last4=2b9f`（不回显完整 key）；
+- `game-learn`「Minecraft 洞窟脱困方法」：成功 5.0s，`sourceCount=4`，模型策略仍为 `deepseek-account/deepseek-flash`；
+- 说明设置页保存 key → 私有文件 → 重启加载链路已通。
