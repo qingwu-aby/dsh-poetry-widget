@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.31.1**：B站 MCP 源补上 summarize，总结失败时退回字幕摘录，不再 `summary_unavailable`。
 - **v0.31.0 B站直连**：guide 直接启动 bili-duty Python MCP，解决宿主 tool scope 导致的 no_videos；中文查询优先，字幕为空跳过。
 - **v0.30.1 遵守游戏规则**：移除卡住后的强制位移/强制挖掘；移动只走 mc_move_to 的 pathfinder 物理寻路，prompt 禁止 stuck 时选 mc_wait。
 - **v0.30.0 人的生活 + 强制脱困**：self-being 记录上厕所/洗漱，自处 prompt 明确人的一天；bot 卡住后强制小位移/挖掘，避免 wait 循环。

@@ -14477,7 +14477,7 @@ test('guide-loop：B站视频→字幕→总结→主题中枢，按 topic 复�
   rmSync(dir, { recursive: true, force: true })
 })
 
-test('guide-loop：没有字幕/总结器失败时不伪造攻略', async () => {
+test('guide-loop：没有字幕不伪造；总结器失败时退回字幕摘录', async () => {
   const { createGuideLoop } = await import('../lib/core/guide-loop.mjs')
   const noSub = createGuideLoop({
     searchVideos: async () => [{ bvid: 'BV1x', title: 'x' }],
@@ -14492,6 +14492,7 @@ test('guide-loop：没有字幕/总结器失败时不伪造攻略', async () => 
       '这是一段足够长的字幕内容，用来让总结器有机会工作，但总结器返回空；再补一些字确保超过字幕阈值，避免测试因为长度不足误判。',
   })
   const r2 = await noSummary.lookup({ topic: 'T2' })
-  assert.equal(r2.ok, false)
-  assert.equal(r2.error, 'summary_unavailable')
+  assert.equal(r2.ok, true)
+  assert.equal(typeof r2.guide.method, 'string')
+  assert.ok(r2.guide.method.length > 0)
 })

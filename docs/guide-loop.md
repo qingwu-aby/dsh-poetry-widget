@@ -83,4 +83,4 @@ POST /api/dsh-poetry/guide.json
 - `bili_search`（中文关键词优先，`Minecraft` 自动换 `我的世界`）
 - `bili_subtitle`
 
-`available` 为 true 时优先直连；否则回退宿主 tools 桥。字幕为空会跳过该视频，最多试 3 个。
+`available` 为 true 时优先直连；否则回退宿主 tools 桥。字幕为空会跳过该视频，最多试 3 个；模型总结失败时退回字幕摘录（明确标记“不是模型总结”）。
