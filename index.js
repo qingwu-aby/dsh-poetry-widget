@@ -36,7 +36,7 @@ function readSettings(boot) {
 
 export async function apply(ctx) {
   const boot = createBootstrap(ctx)
-  boot.host.inject(['webServer', 'connection', 'schedule', 'sessionController'], (hostCtx) => {
+  boot.host.inject(['tools', 'webServer', 'connection', 'schedule', 'sessionController'], (hostCtx) => {
     startPluginRuntime({
       ...boot,
       hostCtx,

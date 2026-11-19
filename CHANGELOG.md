@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.28.1**：插件 host inject 加入 `tools`，让 guide 回路能调用 dsh-bili-scroll 的 bili_search/bili_subtitle。
 - **v0.28.0 跨场景攻略回路**：新增 topic hub、guide loop、B站 `bili_search`/`bili_subtitle` 桥接、`mc_guide` 与通用 `/guide.json`；Minecraft 卡住时自动查文字→看 B站攻略；同一 topic 跨 Activity 关联。
 - **v0.27.1**：DeepSeek 搜索 key 设置链路 live 验证（source=file, last4），game-learn sourceCount=4。
 - **v0.27.0 模型降级**：显式/角色/env 模型覆盖自动追加 `deepseek-account/deepseek-flash` 兜底；opencode-go 限额/空响应时自动切换默认账号。
