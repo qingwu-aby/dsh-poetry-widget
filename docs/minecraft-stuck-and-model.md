@@ -103,3 +103,19 @@ console.log(data.choices?.[0]?.message?.content)
 - `GET /api/dsh-poetry/search-key.json`：`configured=true`、`source=file`、`last4=2b9f`（不回显完整 key）；
 - `game-learn`「Minecraft 洞窟脱困方法」：成功 5.0s，`sourceCount=4`，模型策略仍为 `deepseek-account/deepseek-flash`；
 - 说明设置页保存 key → 私有文件 → 重启加载链路已通。
+
+
+## 9. OpenCode Go Hy4 flash Free（2026-11-19）
+
+已切到限时免费的 `hy4-flash-free`：
+
+```json
+{"provider":"dsh-opencode-go","model":"hy4-flash-free",
+ "roles":{"drive":{"reasoningEffort":"high"}, "...":"..."}}
+```
+
+实测：
+- `reasoningEffort: low` → `UNSUPPORTED_REASONING_EFFORT`；
+- 全部角色改 `high` 后 `game-world observe` 成功（约 16s）
+- `game-learn` 成功，返回脱困步骤；
+- 失败时仍会降级到 `deepseek-account/deepseek-flash`。
