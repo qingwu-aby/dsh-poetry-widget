@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.25.3**：bot 卡住时自动先 mc_inquire；文档更新。
 - **v0.25.2 DeepSeek 预算下限**：store 显式选 deepseek-account 时候选 maxTokensFloor=4096，修复 selfTalk/mood/consolidate 因 thinking 吃光预算的 EMPTY_RESPONSE；bot 卡住时自动先 mc_inquire。
 - **v0.25.1 文档补充**：官方 DeepSeek fetch 示例；bot 的 recentPositions 声明修复，stuck 检测已加载。
 - **v0.25.0 洞窟脱困与模型迁移**：bot 检测 stuck（连续位置不变）；World prompt 要求先 mc_inquire/mc_learn 再尝试挖/垫/走；模型策略切到 `deepseek-account / deepseek-flash`；文档 docs/minecraft-stuck-and-model.md。

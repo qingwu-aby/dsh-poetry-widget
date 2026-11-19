@@ -5,7 +5,7 @@
 Bot 侧（`~/dsh-workspace/minecraft-bot/bot-play.mjs`）：
 
 - `observation()` 记录最近 4 次位置；若连续 4 次四舍五入位置相同，标记 `stuck: true`、`stuckForMs`；
-- 观察里带 `stuck`，World 能看到她“卡住了”。
+- 观察里带 `stuck`；卡住时 bot 会先自动执行一次 `mc_inquire`（10 分钟冷却），再让模型行动。
 
 World 侧（`lib/domain/play/minecraft-world.mjs`）：
 
