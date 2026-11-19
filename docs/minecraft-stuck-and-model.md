@@ -74,3 +74,11 @@ console.log(data.choices?.[0]?.message?.content)
 - 直连需要单独管理 API key，不要把 key 写进日志/记忆。
 
 参考：[DeepSeek Chat Completions API](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)
+
+
+## 6. Live 验证（2026-11-19）
+
+- `game-learn`「Minecraft 洞窟脱困方法」：成功 5.7s，sourceCount=4，返回火把标记/阶梯/沿水流找出口。
+- `game-world inquire`「洞窟找不到出口」：成功，返回原因/假设/实验/下一步。
+- 模型策略：deepseek-account/deepseek-flash，drive 角色正常。
+- 未出现新的 EMPTY_RESPONSE（旧记录来自修复前）。
