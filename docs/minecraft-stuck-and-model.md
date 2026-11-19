@@ -111,7 +111,7 @@ console.log(data.choices?.[0]?.message?.content)
 
 ```json
 {"provider":"dsh-opencode-go","model":"hy4-flash-free",
- "roles":{"drive":{"reasoningEffort":"high"}, "...":"..."}}
+ "roles":{"...":{"reasoningEffort":"off"}}}
 ```
 
 实测：

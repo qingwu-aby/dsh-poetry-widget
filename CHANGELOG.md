@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.29.1 Hy4 effort**：13 角色改用 `reasoningEffort=off`（low 不支持；off 实测可用），保留 DeepSeek 兜底。
 - **v0.29.0 Hy4 flash Free**：模型切到 `dsh-opencode-go/hy4-flash-free`（13 角色 effort=high；low 不支持）；保留 DeepSeek 账号兜底。
 - **v0.28.1**：插件 host inject 加入 `tools`，让 guide 回路能调用 dsh-bili-scroll 的 bili_search/bili_subtitle。
 - **v0.28.0 跨场景攻略回路**：新增 topic hub、guide loop、B站 `bili_search`/`bili_subtitle` 桥接、`mc_guide` 与通用 `/guide.json`；Minecraft 卡住时自动查文字→看 B站攻略；同一 topic 跨 Activity 关联。
