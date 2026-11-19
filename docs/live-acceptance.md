@@ -112,6 +112,17 @@ HEAD：`834c36b`（重启后复验；含 shadow live 验证）
 - O1 browser-skill 未连接；O2 需重启 DSH 后验证最新 reading 授权/video/cost/memory-admin 路由；O3 仅短时 soak；O4 为 mock 性能基线；
 - 真实训练未执行（按要求）。
 
+## 3.11 O2 最终 live 验收（2026-11-19）
+
+最新宿主（port 64890）已加载最新代码：
+
+- reading 相对路径 `shadow-smoke.md` → 自动解析 booksDir，任务 `tb-8` success，`第 1/1 页`；
+- video 相对路径 `smoke.mp4` → open success（title smoke）；
+- study 真实搜索 → 4 条来源 success；
+- Hub full、activities chat/minecraft/reading/study/video 已注册。
+
+O1：browser-skill 已连接并打开 Agent Window，但 DSH 页面显示“authentication required; reopen the URL printed by dsh web.”，没有 auth token，无法进入设置页；需要用户提供带 token 的 DSH URL 或在其浏览器标签中操作。
+
 ## 4. 未验证
 
 - 浏览器扩展未连接（browser-skill 报 no browser connected），无法截图/点击验证设置页「模型与推理/Hub/训练」的实际渲染；
