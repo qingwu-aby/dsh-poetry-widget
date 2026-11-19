@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.24.1 O3 24h soak 启动**：后台 job 开始 24h 循环，首轮 ok。
 - **v0.24.0 O2 最终 live**：reading 相对路径、video 本地、study 搜索均 live 通过；browser 已连接但 DSH 页面缺 auth token，O1 待用户提供带 token URL。
 - **v0.23.0 O3 soak 运行器**：24h soak 可恢复/分段报告；短测 3 轮通过；980+ tests。
 - **v0.22.2 O4 真实 provider 冒烟**：3 次 world observe 真实调用 4.8–6.5s；980 tests。

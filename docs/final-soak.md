@@ -101,3 +101,12 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
 - 3 轮完成，failures=0，errors=0；
 - 每轮 load+fault（fault 9/9）；
 - 24h 实跑尚未开始；使用 `docs/soak-runbook.md` 启动。
+
+
+## 11. 真实 24h soak 已启动（2026-11-19 13:24）
+
+- 命令：`node scripts/soak-24h.mjs --duration-ms 86400000 --interval-ms 300000 --out ~/.dsh/.dsh-poetry/soak-24h.jsonl`
+- 后台 job：`bash-1772f2a1d00b48e3`
+- 首轮：`round=1 ok=true loadOk=true faultOk=true faultScenarios=9`
+- 报告：`~/.dsh/.dsh-poetry/soak-24h.jsonl`
+- 24h 结束后检查 summary；中途机器休眠/会话结束可能中断，需 resume。
