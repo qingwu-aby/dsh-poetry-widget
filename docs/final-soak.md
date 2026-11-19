@@ -92,3 +92,12 @@ produced=5000, processed=450, dropped=4500（有界丢弃，符合设计）, pea
 | 3 | 200 | 4.87s |
 
 均返回合法 `mc_explore` 决策；真实 provider p95 需更多样本/长时间采样，本次仅作冒烟。
+
+
+## 10. O3 soak 运行器短测（2026-11-19）
+
+`node scripts/soak-24h.mjs --duration-ms 10000 --interval-ms 3000 --out /tmp/o3-short.jsonl --json`：
+
+- 3 轮完成，failures=0，errors=0；
+- 每轮 load+fault（fault 9/9）；
+- 24h 实跑尚未开始；使用 `docs/soak-runbook.md` 启动。

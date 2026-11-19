@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.23.0 O3 soak 运行器**：24h soak 可恢复/分段报告；短测 3 轮通过；980+ tests。
 - **v0.22.2 O4 真实 provider 冒烟**：3 次 world observe 真实调用 4.8–6.5s；980 tests。
 - **v0.22.1 扩展 soak**：10 轮 load/fault 全通过；980 tests。
 - **v0.22.0 K4/O 收口**：记忆污染回归评估；3 轮 soak/fault 通过；980 tests。O1/O2/O3(24h) 仍待浏览器/重启/长时间运行。
