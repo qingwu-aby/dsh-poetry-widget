@@ -51,6 +51,10 @@ test('World prompt：列出工具、观察、记忆与安全边界', () => {
   assert.match(prompt, /Yuan_JY/)
   assert.match(prompt, /先砍树/)
   assert.match(prompt, /不要攻击玩家/)
+  const stuckPrompt = buildWorldPrompt({ position: '1,2,3', health: 20, food: 18, stuck: true }, {})
+  assert.match(stuckPrompt, /mc_inquire/)
+  assert.match(stuckPrompt, /mc_learn/)
+  assert.match(stuckPrompt, /卡在原地或洞窟/)
 })
 
 test('World 会话：打断与权限', async () => {

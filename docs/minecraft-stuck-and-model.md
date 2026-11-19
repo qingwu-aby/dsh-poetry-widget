@@ -1,0 +1,41 @@
+# Minecraft 洞窟脱困与 DeepSeek 账号模型
+
+## 1. 卡洞窟自救
+
+Bot 侧（`~/dsh-workspace/minecraft-bot/bot-play.mjs`）：
+
+- `observation()` 记录最近 4 次位置；若连续 4 次四舍五入位置相同，标记 `stuck: true`、`stuckForMs`；
+- 观察里带 `stuck`，World 能看到她“卡住了”。
+
+World 侧（`lib/domain/play/minecraft-world.mjs`）：
+
+- `buildWorldPrompt` 在 `stuck` 时明确提示：
+  > 不要重复刚才失败的动作；先用 `mc_inquire` 查脱困方法，或用 `mc_learn` 学习，再尝试 `mc_mine` 向上/向前挖、`mc_place` 垫脚或 `mc_move_to` 找出口，并把有效方法记下来。
+- 这是“让她自己查/学”，不写死固定脱困路线；她可以用现有工具组合尝试。
+
+## 2. DeepSeek 账号模型
+
+DeepSeek 官方 Chat Completions API（参考官方文档）：
+
+- `POST https://api.deepseek.com/chat/completions`
+- Header：`Authorization: Bearer <DEEPSEEK_API_KEY>`、`Content-Type: application/json`
+- Body：`{"model":"deepseek-flash","messages":[...],"stream":false,...}`
+- 官方当前模型 ID：`deepseek-flash`、`deepseek-v4-pro`
+- 文档：https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/
+
+本插件不新增直连 fetch；DSH 宿主已内置 `deepseek-account` provider（OAuth 账号凭据，`~/.dsh/.credentials.yaml` 中的 `deepseek-account-platform/default`），直接复用即可。
+
+已通过模型策略 API 切换：
+
+```json
+// ~/.dsh/.dsh-poetry/model-policy.json
+{"provider":"deepseek-account","model":"deepseek-flash","roles":{},"tokenLimit":0}
+```
+
+效果：所有角色默认走 `deepseek-account / deepseek-flash`；仍可在设置页/API 按角色覆盖。
+
+## 3. 验证
+
+- `GET /api/dsh-poetry/model-policy.json` 的 `effective` 显示 `source: store`；
+- `game-world` observe 返回正常决策（实测 1.66s）；
+- 重启 DSH 后 World 的 stuck 提示才会加载（宿主需重启）。
