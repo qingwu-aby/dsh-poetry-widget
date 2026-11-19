@@ -45,7 +45,8 @@ test('游戏记忆：prompt 只输出存在的分类，且带分类标签', () =
 
 test('token 上限配置：0 = 不封顶，数字才限制', async () => {
   const { resolveCandidateMaxTokens } = await import('../../lib/kernel/model-policy.mjs')
-  assert.equal(resolveCandidateMaxTokens(0, { maxTokensFloor: 2200 }), 0)
+  assert.equal(resolveCandidateMaxTokens(0, { maxTokensFloor: 2200 }), 2200)
+  assert.equal(resolveCandidateMaxTokens(0, {}), 0)
   assert.equal(resolveCandidateMaxTokens(3000, { maxTokensFloor: 2200 }), 3000)
   const { normalizeSettings } = await import('../../lib/kernel/settings-store.mjs')
   assert.equal(normalizeSettings(null).modelTokenLimit, 0)
