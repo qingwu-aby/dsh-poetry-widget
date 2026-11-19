@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.25.1 文档补充**：官方 DeepSeek fetch 示例；bot 的 recentPositions 声明修复，stuck 检测已加载。
 - **v0.25.0 洞窟脱困与模型迁移**：bot 检测 stuck（连续位置不变）；World prompt 要求先 mc_inquire/mc_learn 再尝试挖/垫/走；模型策略切到 `deepseek-account / deepseek-flash`；文档 docs/minecraft-stuck-and-model.md。
 - **v0.24.1 O3 24h soak 启动**：后台 job 开始 24h 循环，首轮 ok。
 - **v0.24.0 O2 最终 live**：reading 相对路径、video 本地、study 搜索均 live 通过；browser 已连接但 DSH 页面缺 auth token，O1 待用户提供带 token URL。

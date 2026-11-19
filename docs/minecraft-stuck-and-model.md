@@ -39,3 +39,32 @@ DeepSeek 官方 Chat Completions API（参考官方文档）：
 - `GET /api/dsh-poetry/model-policy.json` 的 `effective` 显示 `source: store`；
 - `game-world` observe 返回正常决策（实测 1.66s）；
 - 重启 DSH 后 World 的 stuck 提示才会加载（宿主需重启）。
+
+
+## 4. 官方 API 直连示例（备用）
+
+如果以后要绕过 DSH provider 直连官方 API，可用 `fetch`：
+
+```js
+const res = await fetch('https://api.deepseek.com/chat/completions', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+  },
+  body: JSON.stringify({
+    model: 'deepseek-flash',
+    messages: [{ role: 'user', content: '你好' }],
+    stream: false,
+  }),
+})
+const data = await res.json()
+console.log(data.choices?.[0]?.message?.content)
+```
+
+注意：
+- 官方模型 ID 当前是 `deepseek-flash` / `deepseek-v4-pro`；
+- DSH 的 `deepseek-account` provider 使用账号 OAuth 凭据，不需要 `DEEPSEEK_API_KEY`，优先用它；
+- 直连需要单独管理 API key，不要把 key 写进日志/记忆。
+
+参考：[DeepSeek Chat Completions API](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/)
