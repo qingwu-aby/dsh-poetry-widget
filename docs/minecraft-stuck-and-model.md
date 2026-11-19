@@ -25,7 +25,9 @@ DeepSeek 官方 Chat Completions API（参考官方文档）：
 
 本插件不新增直连 fetch；DSH 宿主已内置 `deepseek-account` provider（OAuth 账号凭据，`~/.dsh/.credentials.yaml` 中的 `deepseek-account-platform/default`），直接复用即可。
 
-已通过模型策略 API 切换：
+已通过模型策略 API 切换；DeepSeek flash 常开 thinking，插件为 store 显式选择附加 **maxTokensFloor=4096**，避免低预算角色（selfTalk/mood/consolidate）被推理吃光返回空文本。
+
+
 
 ```json
 // ~/.dsh/.dsh-poetry/model-policy.json
