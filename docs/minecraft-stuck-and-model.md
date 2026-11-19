@@ -121,12 +121,12 @@ console.log(data.choices?.[0]?.message?.content)
 - 失败时仍会降级到 `deepseek-account/deepseek-flash`。
 
 
-## 10. 卡住后的强制脱困（v0.30）
+## 10. 卡住处理：遵守游戏规则（v0.30.1）
 
-之前卡住会先查资料，但查完如果模型继续 `mc_wait`，位置不变，还是卡。
+移动必须由游戏内动作完成，不使用宿主强制位移/传送。
 
-bot 现在：
-- 卡住查完立刻做一个保守的小位移（`mc_move_to` +2 格）；
-- 位移失败 → `mc_mine stone` 挖开身边；
-- 如果模型仍选 `mc_wait/mc_say/mc_follow/mc_explore` 且 1.2 格内没动，强制 `mc_mine`；
-- B站攻略 30 分钟最多触发一次，避免一次卡住反复调攻略。
+- `mc_move_to` 走 Minecraft 的 pathfinder 物理寻路；
+- `mc_mine`、`mc_place` 是正常游戏动作；
+- 卡住时 bot 只负责查资料（`mc_inquire`/`mc_guide`）并把 `stuck` 写进观察；
+- prompt 明确要求：卡住时不要选 `mc_wait`，由她自己选游戏内动作脱困；
+- 宿主不会替她瞬移/强制移动。

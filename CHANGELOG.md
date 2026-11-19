@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.30.1 遵守游戏规则**：移除卡住后的强制位移/强制挖掘；移动只走 mc_move_to 的 pathfinder 物理寻路，prompt 禁止 stuck 时选 mc_wait。
 - **v0.30.0 人的生活 + 强制脱困**：self-being 记录上厕所/洗漱，自处 prompt 明确人的一天；bot 卡住后强制小位移/挖掘，避免 wait 循环。
 - **v0.29.1 Hy4 effort**：13 角色改用 `reasoningEffort=off`（low 不支持；off 实测可用），保留 DeepSeek 兜底。
 - **v0.29.0 Hy4 flash Free**：模型切到 `dsh-opencode-go/hy4-flash-free`（13 角色 effort=high；low 不支持）；保留 DeepSeek 账号兜底。
