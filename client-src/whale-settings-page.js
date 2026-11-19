@@ -236,6 +236,11 @@ export function createWhaleSettingsPage(React, h) {
   const [trainingError, setTrainingError] = React.useState('')
   const [trainingBusy, setTrainingBusy] = React.useState('')
   const [pendingTrainingAction, setPendingTrainingAction] = React.useState('')
+  // DeepSeek 搜索 API Key（只显示状态/后四位；保存后需重启）。
+  const [searchKey, setSearchKey] = React.useState(null)
+  const [searchKeyInput, setSearchKeyInput] = React.useState('')
+  const [searchKeyError, setSearchKeyError] = React.useState('')
+  const [searchKeyBusy, setSearchKeyBusy] = React.useState('')
   // Gate K5：记忆质量/导出 + Activity 权限授权。
   const [memoryAdmin, setMemoryAdmin] = React.useState(null)
   const [memoryAdminError, setMemoryAdminError] = React.useState('')
@@ -269,6 +274,11 @@ export function createWhaleSettingsPage(React, h) {
     apiRequest('/hub.json')
       .then((data) => { setHub(data); setHubError('') })
       .catch((error) => setHubError('读取 Hub 状态失败：' + error.message))
+  }, [])
+  const refreshSearchKey = React.useCallback(() => {
+    apiRequest('/search-key.json')
+      .then((data) => { setSearchKey(data); setSearchKeyError('') })
+      .catch((error) => setSearchKeyError('读取 DeepSeek 搜索状态失败：' + error.message))
   }, [])
   const refreshMemoryAdmin = React.useCallback(() => {
     apiRequest('/memory-admin.json')
@@ -304,7 +314,7 @@ export function createWhaleSettingsPage(React, h) {
       .then((data) => { setTraining(data); setTrainingDraft(trainingDraftFrom(data)); setTrainingError('') })
       .catch((error) => setTrainingError('读取训练状态失败：' + error.message))
   }, [])
-  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining(); refreshCostPolicy(); refreshMemoryAdmin(); refreshActivityGrants() }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants])
+  React.useEffect(() => { refresh(); refreshPolicy(); refreshHub(); refreshTraining(); refreshCostPolicy(); refreshMemoryAdmin(); refreshActivityGrants(); refreshSearchKey() }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants, refreshSearchKey])
 
   function save(patch, key) {
     setBusy(key)
@@ -622,6 +632,25 @@ export function createWhaleSettingsPage(React, h) {
     onChange,
   }, extra || {}))
 
+  function saveSearchKey() {
+    const key = searchKeyInput.trim()
+    if (!key) { setSearchKeyError('请先填写 DeepSeek API key'); return }
+    setSearchKeyBusy('save')
+    setSearchKeyError('')
+    apiRequest('/search-key.json', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
+      .then((data) => { setSearchKey(data); setSearchKeyInput(''); setMessage('已保存搜索 key，重启 DSH 后生效'); setTimeout(() => setMessage(''), 2200) })
+      .catch((error) => setSearchKeyError('保存失败：' + error.message))
+      .finally(() => setSearchKeyBusy(''))
+  }
+  function clearSearchKey() {
+    setSearchKeyBusy('clear')
+    setSearchKeyError('')
+    apiRequest('/search-key.json', { method: 'DELETE' })
+      .then((data) => { setSearchKey(data); setMessage('已清除搜索 key，重启 DSH 后生效'); setTimeout(() => setMessage(''), 2200) })
+      .catch((error) => setSearchKeyError('清除失败：' + error.message))
+      .finally(() => setSearchKeyBusy(''))
+  }
+
   return h('div', { style: styles.page },
     h('div', { style: styles.card },
       h('div', { style: styles.title }, '小鲸鱼'),
@@ -632,6 +661,27 @@ export function createWhaleSettingsPage(React, h) {
       row('自言自语', '每隔一两分钟可能说一句', checkbox('spontaneousPoem')),
       row('镜像浮层', '左下角第二只鲸鱼', checkbox('twinOverlay')),
       row('镜像主体', '独立状态与信件；改动后重启 DSH 生效', checkbox('twinSystem')),
+    ),
+    h('div', { style: styles.card },
+      h('div', { style: styles.title }, 'DeepSeek 搜索'),
+      h('div', { style: styles.hint }, '配置 DeepSeek 官方搜索/Fetch API key。只存本地私有文件（0600），保存后需重启 DSH 才生效。'),
+      searchKeyError ? h('div', { style: styles.error }, searchKeyError) : null,
+      row('状态', '已配置时只显示后四位', h('b', null,
+        searchKey && searchKey.configured ? '已配置 · …' + (searchKey.last4 || '') + '（' + (searchKey.source || '') + '）' : '未配置')),
+      row('API Key', 'sk-...；不会回显完整 key',
+        h('input', {
+          type: 'password',
+          style: styles.input,
+          'aria-label': 'DeepSeek API Key',
+          placeholder: searchKey && searchKey.configured ? '输入新 key 覆盖' : 'sk-...',
+          value: searchKeyInput,
+          onChange: (event) => setSearchKeyInput(event.target.value),
+        })),
+      row('操作', '保存/清除后重启 DSH 生效',
+        h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+          h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), disabled: searchKeyBusy !== '', onClick: saveSearchKey }, searchKeyBusy === 'save' ? '保存中…' : '保存 key'),
+          h('button', { type: 'button', style: styles.button, disabled: searchKeyBusy !== '', onClick: clearSearchKey }, searchKeyBusy === 'clear' ? '清除中…' : '清除 key'),
+        )),
     ),
     h('div', { style: styles.card },
       h('div', { style: styles.title }, '模型与推理'),

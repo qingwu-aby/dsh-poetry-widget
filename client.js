@@ -29787,6 +29787,10 @@
       const [trainingError, setTrainingError] = React.useState("");
       const [trainingBusy, setTrainingBusy] = React.useState("");
       const [pendingTrainingAction, setPendingTrainingAction] = React.useState("");
+      const [searchKey, setSearchKey] = React.useState(null);
+      const [searchKeyInput, setSearchKeyInput] = React.useState("");
+      const [searchKeyError, setSearchKeyError] = React.useState("");
+      const [searchKeyBusy, setSearchKeyBusy] = React.useState("");
       const [memoryAdmin, setMemoryAdmin] = React.useState(null);
       const [memoryAdminError, setMemoryAdminError] = React.useState("");
       const [memoryAdminBusy, setMemoryAdminBusy] = React.useState("");
@@ -29821,6 +29825,12 @@
           setHub(data);
           setHubError("");
         }).catch((error) => setHubError("\u8BFB\u53D6 Hub \u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
+      }, []);
+      const refreshSearchKey = React.useCallback(() => {
+        apiRequest("/search-key.json").then((data) => {
+          setSearchKey(data);
+          setSearchKeyError("");
+        }).catch((error) => setSearchKeyError("\u8BFB\u53D6 DeepSeek \u641C\u7D22\u72B6\u6001\u5931\u8D25\uFF1A" + error.message));
       }, []);
       const refreshMemoryAdmin = React.useCallback(() => {
         apiRequest("/memory-admin.json").then((data) => {
@@ -29860,7 +29870,8 @@
         refreshCostPolicy();
         refreshMemoryAdmin();
         refreshActivityGrants();
-      }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants]);
+        refreshSearchKey();
+      }, [refresh, refreshPolicy, refreshHub, refreshTraining, refreshCostPolicy, refreshMemoryAdmin, refreshActivityGrants, refreshSearchKey]);
       function save(patch, key) {
         setBusy(key);
         request("/settings.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settingsPatch(patch)) }).then((data) => {
@@ -30149,6 +30160,30 @@
         value: value || "",
         onChange
       }, extra || {}));
+      function saveSearchKey() {
+        const key = searchKeyInput.trim();
+        if (!key) {
+          setSearchKeyError("\u8BF7\u5148\u586B\u5199 DeepSeek API key");
+          return;
+        }
+        setSearchKeyBusy("save");
+        setSearchKeyError("");
+        apiRequest("/search-key.json", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) }).then((data) => {
+          setSearchKey(data);
+          setSearchKeyInput("");
+          setMessage("\u5DF2\u4FDD\u5B58\u641C\u7D22 key\uFF0C\u91CD\u542F DSH \u540E\u751F\u6548");
+          setTimeout(() => setMessage(""), 2200);
+        }).catch((error) => setSearchKeyError("\u4FDD\u5B58\u5931\u8D25\uFF1A" + error.message)).finally(() => setSearchKeyBusy(""));
+      }
+      function clearSearchKey() {
+        setSearchKeyBusy("clear");
+        setSearchKeyError("");
+        apiRequest("/search-key.json", { method: "DELETE" }).then((data) => {
+          setSearchKey(data);
+          setMessage("\u5DF2\u6E05\u9664\u641C\u7D22 key\uFF0C\u91CD\u542F DSH \u540E\u751F\u6548");
+          setTimeout(() => setMessage(""), 2200);
+        }).catch((error) => setSearchKeyError("\u6E05\u9664\u5931\u8D25\uFF1A" + error.message)).finally(() => setSearchKeyBusy(""));
+      }
       return h3(
         "div",
         { style: styles.page },
@@ -30163,6 +30198,40 @@
           row("\u81EA\u8A00\u81EA\u8BED", "\u6BCF\u9694\u4E00\u4E24\u5206\u949F\u53EF\u80FD\u8BF4\u4E00\u53E5", checkbox("spontaneousPoem")),
           row("\u955C\u50CF\u6D6E\u5C42", "\u5DE6\u4E0B\u89D2\u7B2C\u4E8C\u53EA\u9CB8\u9C7C", checkbox("twinOverlay")),
           row("\u955C\u50CF\u4E3B\u4F53", "\u72EC\u7ACB\u72B6\u6001\u4E0E\u4FE1\u4EF6\uFF1B\u6539\u52A8\u540E\u91CD\u542F DSH \u751F\u6548", checkbox("twinSystem"))
+        ),
+        h3(
+          "div",
+          { style: styles.card },
+          h3("div", { style: styles.title }, "DeepSeek \u641C\u7D22"),
+          h3("div", { style: styles.hint }, "\u914D\u7F6E DeepSeek \u5B98\u65B9\u641C\u7D22/Fetch API key\u3002\u53EA\u5B58\u672C\u5730\u79C1\u6709\u6587\u4EF6\uFF080600\uFF09\uFF0C\u4FDD\u5B58\u540E\u9700\u91CD\u542F DSH \u624D\u751F\u6548\u3002"),
+          searchKeyError ? h3("div", { style: styles.error }, searchKeyError) : null,
+          row("\u72B6\u6001", "\u5DF2\u914D\u7F6E\u65F6\u53EA\u663E\u793A\u540E\u56DB\u4F4D", h3(
+            "b",
+            null,
+            searchKey && searchKey.configured ? "\u5DF2\u914D\u7F6E \xB7 \u2026" + (searchKey.last4 || "") + "\uFF08" + (searchKey.source || "") + "\uFF09" : "\u672A\u914D\u7F6E"
+          )),
+          row(
+            "API Key",
+            "sk-...\uFF1B\u4E0D\u4F1A\u56DE\u663E\u5B8C\u6574 key",
+            h3("input", {
+              type: "password",
+              style: styles.input,
+              "aria-label": "DeepSeek API Key",
+              placeholder: searchKey && searchKey.configured ? "\u8F93\u5165\u65B0 key \u8986\u76D6" : "sk-...",
+              value: searchKeyInput,
+              onChange: (event) => setSearchKeyInput(event.target.value)
+            })
+          ),
+          row(
+            "\u64CD\u4F5C",
+            "\u4FDD\u5B58/\u6E05\u9664\u540E\u91CD\u542F DSH \u751F\u6548",
+            h3(
+              "div",
+              { style: { display: "flex", gap: 8, alignItems: "center" } },
+              h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: searchKeyBusy !== "", onClick: saveSearchKey }, searchKeyBusy === "save" ? "\u4FDD\u5B58\u4E2D\u2026" : "\u4FDD\u5B58 key"),
+              h3("button", { type: "button", style: styles.button, disabled: searchKeyBusy !== "", onClick: clearSearchKey }, searchKeyBusy === "clear" ? "\u6E05\u9664\u4E2D\u2026" : "\u6E05\u9664 key")
+            )
+          )
         ),
         h3(
           "div",
