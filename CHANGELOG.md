@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.32.0 先调研再动手**：World prompt 要求大项目先列技能/材料/风险、查资料再动手；`mc_plan` 带 goal 时先 guide 调研，蓝图 prompt 带上资料。
 - **v0.31.1**：B站 MCP 源补上 summarize，总结失败时退回字幕摘录，不再 `summary_unavailable`。
 - **v0.31.0 B站直连**：guide 直接启动 bili-duty Python MCP，解决宿主 tool scope 导致的 no_videos；中文查询优先，字幕为空跳过。
 - **v0.30.1 遵守游戏规则**：移除卡住后的强制位移/强制挖掘；移动只走 mc_move_to 的 pathfinder 物理寻路，prompt 禁止 stuck 时选 mc_wait。
