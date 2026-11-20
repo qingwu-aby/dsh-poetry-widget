@@ -1464,3 +1464,15 @@ test('model-policy M54：dsh 失败（未产出文本）→ deepseek；原生 op
   assert.equal(talkLlm.calls[1].maxTokens, 320)
   assert.deepEqual(talkResult.model, { provider: 'deepseek-account', model: 'deepseek-flash' })
 })
+
+test('model-policy：DeepSeek 主候选失败时反向兜底 Hy4 free', () => {
+  const policy = createModelPolicy({
+    env: { DSH_POETRY_MODEL_PROVIDER: 'deepseek-account', DSH_POETRY_MODEL: 'deepseek-flash' },
+    getSelection: () => null,
+  })
+  const candidates = policy.resolveCandidates('drive')
+  assert.equal(candidates[0].provider, 'deepseek-account')
+  assert.equal(candidates[1].provider, 'dsh-opencode-go')
+  assert.equal(candidates[1].model, 'hy4-flash-free')
+  assert.equal(candidates[1].reasoningEffort, 'off')
+})

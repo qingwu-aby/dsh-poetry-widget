@@ -130,3 +130,11 @@ console.log(data.choices?.[0]?.message?.content)
 - 卡住时 bot 只负责查资料（`mc_inquire`/`mc_guide`）并把 `stuck` 写进观察；
 - prompt 明确要求：卡住时不要选 `mc_wait`，由她自己选游戏内动作脱困；
 - 宿主不会替她瞬移/强制移动。
+
+
+## 11. 双向模型兜底（v0.33）
+
+- 主候选 `deepseek-account/*` 失败/空响应 → 自动尝试 `dsh-opencode-go/hy4-flash-free`（effort=off）；
+- 主候选 Hy4 失败 → 自动尝试 `deepseek-account/deepseek-flash`；
+- 自定义 provider 仍兜底 deepseek；
+- 候选不重复。
