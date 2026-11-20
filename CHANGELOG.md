@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.32.1 引导软化**：调研改为可选（mc_plan 需 research=true 才查 guide）；prompt 允许先查或先试；自处允许试错并复盘，避免把学习变成硬流程。
 - **v0.32.0 先调研再动手**：World prompt 要求大项目先列技能/材料/风险、查资料再动手；`mc_plan` 带 goal 时先 guide 调研，蓝图 prompt 带上资料。
 - **v0.31.1**：B站 MCP 源补上 summarize，总结失败时退回字幕摘录，不再 `summary_unavailable`。
 - **v0.31.0 B站直连**：guide 直接启动 bili-duty Python MCP，解决宿主 tool scope 导致的 no_videos；中文查询优先，字幕为空跳过。
