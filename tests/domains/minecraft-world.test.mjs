@@ -128,8 +128,9 @@ test('建造计划解析：相对坐标边界、方块白名单、最少块数',
 
 test('minecraft-world：大项目先调研，蓝图 prompt 带上资料', () => {
   const prompt = buildWorldPrompt({ position: '1,2,3' }, {})
-  assert.match(prompt, /做不做功课由你决定/)
-  assert.match(prompt, /先 mc_guide\/mc_learn 查/)
+  assert.match(prompt, /长期路线/)
+  assert.match(prompt, /自我检查/)
+  assert.match(prompt, /不知道就先 mc_guide 或 mc_learn 查/)
   const blueprint = buildBlueprintPrompt({ research: '先做木镐，再挖石头，避免垂直下挖' })
   assert.match(blueprint, /你刚查到的资料/)
   assert.match(blueprint, /先做木镐/)
