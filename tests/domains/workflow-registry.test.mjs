@@ -62,3 +62,15 @@ test('workflow：waiting/resume 状态可恢复', () => {
   assert.equal(registry.finishRun('wait_flow', { ok: true }).workflow.lastStatus, 'success')
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test('workflow：priority 与 rollback 保留', () => {
+  const v = validateWorkflow({
+    name: 'steady_flow',
+    priority: 7,
+    steps: [{ activity: 'study', tool: 'study.ask' }],
+    rollback: [{ activity: 'study', tool: 'note', arguments: { text: 'undo' } }],
+  })
+  assert.equal(v.ok, true)
+  assert.equal(v.workflow.priority, 7)
+  assert.equal(v.workflow.rollback.length, 1)
+})

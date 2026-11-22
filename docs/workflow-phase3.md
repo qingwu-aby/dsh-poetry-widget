@@ -63,11 +63,18 @@ POST /api/dsh-poetry/workflows.json
 - 运行超时自动失败；
 - workflow 级预算/状态可查询。
 
+## 稳态能力已补
+
+- 事件触发：订阅 Hub EventBus，`trigger.type=event` 自动运行；
+- 优先级：workflow `priority`，事件触发按优先级降序；
+- 回滚：workflow `rollback` 步骤，失败时逆序执行；
+- 自动 resume/cancel/超时。
+
 ## 仍未完成
 
-- 事件触发 workflow（interval/manual 已有，event 仅定义）；
-- 多 workflow 并发优先级；
-- Minecraft pending 的强制回滚。
+- 多 workflow 严格并发上限（当前事件触发顺序执行）；
+- Minecraft pending 的补偿事务/强制回滚；
+- workflow 级心跳续租。
 
 ## 运行预算（实测/估算）
 

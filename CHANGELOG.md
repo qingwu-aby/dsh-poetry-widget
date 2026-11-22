@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.46.0 稳态能力**：workflow 接 EventBus 事件触发、priority、rollback；失败逆序补偿；保留自动 resume/cancel。
 - **v0.45.0 Phase 3C 自动恢复/取消**：workflow 每 5s 自动 resume，支持 cancel、超时失败；Minecraft pending 回填继续。
 - **v0.44.2 Phase 3C 基础**：workflow runState/游标/pendingTaskId，POST resume 回填 Minecraft 任务并继续。
 - **v0.44.1 Phase 3B**：workflow run 接入 Reading/Study/Video adapter 与 Minecraft 任务队列；预算累计/失败停止。
