@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.49.0**：mc_plan 按背包真实方块过滤蓝图；材料不足时返回 insufficient_available_blocks，减少 mc_build 的 missing_item 失败。
 - **v0.48.0 mc_find**：在附近搜索树/水/动物/方块，返回坐标与距离；prompt 要求找不到资源先 find，别随机 explore。
 - **v0.47.0 工具选择**：World prompt 增加按需工具顺序/最近动作历史/连续失败换工具约束，减少 plan→build→place 循环。
 - **v0.46.1 并发/补偿**：workflow maxConcurrent 1–8；step/workflow rollback；pending 失败也补偿。

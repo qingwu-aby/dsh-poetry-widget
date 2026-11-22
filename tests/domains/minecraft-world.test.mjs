@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { buildBlueprintPrompt, buildWorldPrompt, createMinecraftWorld, parseQueuedCommands, parseWorldCommand } from '../../lib/domain/play/minecraft-world.mjs'
+import { buildBlueprintPrompt, buildWorldPrompt, createMinecraftWorld, filterBlueprintByMaterials, parseQueuedCommands, parseWorldCommand } from '../../lib/domain/play/minecraft-world.mjs'
 import { registerGameRoute } from '../../lib/composition/interactive-routes.mjs'
 import { createGameMemoryWorkspace } from '../../lib/domain/play/game-memory-workspace.mjs'
 
@@ -189,4 +189,12 @@ test('minecraft-world：mc_find 可解析', () => {
   assert.equal(cmd.tool, 'mc_find')
   assert.equal(cmd.arguments.target, 'oak_log')
   assert.equal(cmd.arguments.maxDistance, 48)
+})
+
+test('minecraft-world：蓝图只保留背包已有材料', () => {
+  const plan = { name: 'x', blocks: [{ dx: 0, dy: 0, dz: 0, block: 'oak_planks' }, { dx: 1, dy: 0, dz: 0, block: 'diamond_block' }] }
+  const filtered = filterBlueprintByMaterials(plan, ['oak_planks'])
+  assert.equal(filtered.blocks.length, 1)
+  assert.equal(filtered.blocks[0].block, 'oak_planks')
+  assert.equal(filtered.filtered, true)
 })

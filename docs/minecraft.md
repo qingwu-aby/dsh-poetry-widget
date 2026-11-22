@@ -69,3 +69,12 @@
 - bot 出生/每次决策向 `/api/dsh-poetry/game-focus.json` 报 `active=true`，2 分钟无刷新自动过期；
 - 游戏/建造进行中，GUI 聊天**不再并行调用聊天模型**：返回一句「我在游戏里，手上正忙着，等会儿回你。」并把消息放进 `deferred` 队列；
 - 这样她同一时刻只有一个专注，不会“聊天一个她、游戏一个她”。
+
+
+## 建造材料约束
+
+`mc_plan` 会把背包里真实存在的方块列进 prompt，并在生成后过滤掉不存在的方块：
+
+- 计划只能用背包已有材料；
+- 过滤后少于 6 块 → 返回 `insufficient_available_blocks`；
+- 不再让 `mc_build` 因 `missing_item` 大面积失败。
