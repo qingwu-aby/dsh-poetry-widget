@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.47.0 工具选择**：World prompt 增加按需工具顺序/最近动作历史/连续失败换工具约束，减少 plan→build→place 循环。
 - **v0.46.1 并发/补偿**：workflow maxConcurrent 1–8；step/workflow rollback；pending 失败也补偿。
 - **v0.46.0 稳态能力**：workflow 接 EventBus 事件触发、priority、rollback；失败逆序补偿；保留自动 resume/cancel。
 - **v0.45.0 Phase 3C 自动恢复/取消**：workflow 每 5s 自动 resume，支持 cancel、超时失败；Minecraft pending 回填继续。

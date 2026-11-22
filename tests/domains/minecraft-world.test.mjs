@@ -176,3 +176,10 @@ test('minecraft-world：自动机工具可解析', () => {
   assert.equal(cmd.arguments.name, 'auto_eat')
   assert.equal(cmd.arguments.steps.length, 1)
 })
+
+test('minecraft-world：工具选择指南与重复动作约束', () => {
+  const prompt = buildWorldPrompt({ position: '1,2,3' }, { recentCommands: [{ tool: 'mc_plan', ok: false }, { tool: 'mc_build', ok: false }] })
+  assert.match(prompt, /工具选择顺序/)
+  assert.match(prompt, /不要连续三次调用同一个失败动作/)
+  assert.match(prompt, /最近动作：mc_plan\(失败\) → mc_build\(失败\)/)
+})
