@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.44.1 Phase 3B**：workflow run 接入 Reading/Study/Video adapter 与 Minecraft 任务队列；预算累计/失败停止。
 - **v0.44.0 Phase 3A**：工作流定义/预算账本/API 与测试；不执行步骤，先保证状态与预算正确。
 - **v0.43.0 自动化 Phase 1+2**：事件触发（death/player_join/item_pickup/dawn）、动态宏/代码步骤由宿主展开、单次超时与事件去重。
 - **v0.42.1**：自动机 night 每日只触发一次、maxRuns 默认 20、run_once 修复忙碌锁。

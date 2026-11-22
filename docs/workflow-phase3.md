@@ -42,10 +42,18 @@ POST /api/dsh-poetry/workflows.json
 {"token":"...","action":"enable|disable|delete","name":"..."}
 ```
 
-## Phase 3B/3C 尚未接
+## Phase 3B 已接
 
-- 3B：Reading/Study/Video 真实 dispatch、Minecraft 任务队列；
-- 3C：租约/心跳/断点续跑/事件触发/优先级。
+- Reading/Study/Video：通过 Hub Activity adapter 执行；
+- Minecraft：写入 `minecraft-task-queue`，由 bot 领取执行；
+- workflow 运行按步骤累计耗时/token，失败停止；
+- Minecraft 步骤返回 `pending`，不在 workflow 内同步等待。
+
+## Phase 3C 尚未接
+
+- 租约/心跳/断点续跑；
+- workflow 级事件触发/优先级；
+- Minecraft pending 步骤的完成回填。
 
 ## 运行预算（实测/估算）
 
