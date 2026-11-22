@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.38.1**：修复 World 未注入 toolRegistry 导致 `define_tool/define_code` 返回 registry_unavailable。
 - **v0.38.0 生存原语 + 自扩展工具**：新增 craft/eat/attack/collect/equip；`mc_define_tool` 声明式宏；`mc_define_code` 受限代码（只返回步骤、100ms 超时、禁止文件/网络/进程）。
 - **v0.37.0 动作队列**：模型可一次返回 2–6 步 `queue`，bot 连续执行并在失败时停下；减少每步都等模型的空档。
 - **v0.36.1**：bot 决策间隔默认 22s→4s（`MC_BRAIN_INTERVAL_MS=4000`），缩短每个动作后的空档。
