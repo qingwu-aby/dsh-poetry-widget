@@ -70,11 +70,21 @@ POST /api/dsh-poetry/workflows.json
 - 回滚：workflow `rollback` 步骤，失败时逆序执行；
 - 自动 resume/cancel/超时。
 
+## 并发与补偿
+
+- 并发上限：默认 1（`maxConcurrent` 1–8），事件触发按 priority 排序，超出跳过；
+- 补偿：
+  - step 级 `rollback`；
+  - workflow 级 `rollback`；
+  - 失败/超时/预算耗尽逆序执行；
+  - Minecraft pending 失败也走补偿；
+  - 补偿失败会记录 `compensationFailed`。
+
 ## 仍未完成
 
-- 多 workflow 严格并发上限（当前事件触发顺序执行）；
-- Minecraft pending 的补偿事务/强制回滚；
-- workflow 级心跳续租。
+- workflow 级心跳续租；
+- 补偿失败的人工确认/重试策略；
+- 事件触发的持久化队列（当前订阅后内存投递）。
 
 ## 运行预算（实测/估算）
 

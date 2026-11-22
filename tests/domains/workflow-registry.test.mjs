@@ -73,4 +73,6 @@ test('workflow：priority 与 rollback 保留', () => {
   assert.equal(v.ok, true)
   assert.equal(v.workflow.priority, 7)
   assert.equal(v.workflow.rollback.length, 1)
+  const perStep = validateWorkflow({ name: 'step_undo', steps: [{ activity: 'study', tool: 'study.ask', rollback: [{ activity: 'study', tool: 'note' }] }] })
+  assert.equal(perStep.workflow.steps[0].rollback.length, 1)
 })
