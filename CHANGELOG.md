@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.39.0 交互原语**：新增 mc_use/mc_smelt/mc_sleep/mc_inventory；补右键、熔炉、床、背包查询，提升真实生存闭环。
 - **v0.38.1**：修复 World 未注入 toolRegistry 导致 `define_tool/define_code` 返回 registry_unavailable。
 - **v0.38.0 生存原语 + 自扩展工具**：新增 craft/eat/attack/collect/equip；`mc_define_tool` 声明式宏；`mc_define_code` 受限代码（只返回步骤、100ms 超时、禁止文件/网络/进程）。
 - **v0.37.0 动作队列**：模型可一次返回 2–6 步 `queue`，bot 连续执行并在失败时停下；减少每步都等模型的空档。

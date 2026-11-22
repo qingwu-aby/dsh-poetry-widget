@@ -9,6 +9,10 @@
 - `mc_attack`：攻击附近动物/敌对生物
 - `mc_collect`：捡掉落物
 - `mc_equip`：把工具拿到手上
+- `mc_use`：右键使用方块/实体（门、箱子、熔炉、床、羊）
+- `mc_smelt`：用熔炉烧炼/烹饪
+- `mc_sleep`：睡床跳过夜晚
+- `mc_inventory`：读取完整背包与手持
 
 这些动作没有在 prompt 里写“你现在缺什么”，她需要自己从 `mc_learn`/`mc_guide` 的攻略里判断。
 

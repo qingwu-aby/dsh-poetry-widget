@@ -153,3 +153,10 @@ test('minecraft-world：可解析 2–6 步动作队列，非法步骤丢弃', (
   assert.deepEqual(queue.map((item) => item.tool), ['mc_mine', 'mc_place'])
   assert.equal(parseQueuedCommands('not json').length, 0)
 })
+
+test('minecraft-world：使用/熔炼/睡觉/背包工具可解析', () => {
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_use', arguments: { target: 'furnace' } })).arguments.target, 'furnace')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_smelt', arguments: { item: 'beef', count: 2 } })).arguments.count, 2)
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_sleep', arguments: {} })).tool, 'mc_sleep')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_inventory', arguments: {} })).tool, 'mc_inventory')
+})
