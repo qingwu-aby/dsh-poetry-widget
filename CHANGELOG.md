@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.36.1**：bot 决策间隔默认 22s→4s（`MC_BRAIN_INTERVAL_MS=4000`），缩短每个动作后的空档。
 - **v0.36.0 带记忆转世**：新增 `scripts/new-world.mjs`，保留方法/调研/愿景，归档旧世界坐标/玩家/建筑/计划；默认 dry-run，`--apply` 才执行。
 - **v0.35.0 宽泛求证**：mc_learn/inquire/复盘统一走 webAccess（DeepSeek/SearXNG/DDG/Bing/Wikipedia）；结果带 sources；mc_plan 记录 verified/sources，未求证会回执提醒。
 - **v0.34.0 学习自检**：World prompt 增加长期路线（先活下来→安家→漂亮房子）和动作前自我检查“不会就查/学，会就直接做”；保留可选调研，不硬性替她查。

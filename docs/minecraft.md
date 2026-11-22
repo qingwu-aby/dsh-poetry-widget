@@ -5,7 +5,7 @@
 ```
 26.1 离线服务器 127.0.0.1:25566（launchd 常驻）
   ├─ 小鲸鱼 bot：mineflayer 26.1，直连服务器
-  │    └─ 每 ~22s：观察 → POST /api/dsh-poetry/game-decide.json → 她的模型返回 JSON 动作 → 执行
+  │    └─ 每 ~4s：观察 → POST /api/dsh-poetry/game-world.json → 她的模型返回 JSON 动作 → 执行（`MC_BRAIN_INTERVAL_MS` 可调，默认 4000）
   └─ ViaProxy 127.0.0.1:25568（launchd 常驻）：把 26.3 客户端翻译进 26.1 服务器
 ```
 
