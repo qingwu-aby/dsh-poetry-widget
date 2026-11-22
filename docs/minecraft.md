@@ -7,7 +7,7 @@
   ├─ 小鲸鱼 bot：mineflayer 26.1，直连服务器
   │    └─ 每 ~4s：观察 → POST /api/dsh-poetry/game-world.json → 她的模型返回 JSON 动作 → 执行（`MC_BRAIN_INTERVAL_MS` 可调，默认 4000）
 
-工具选择指南：背包不明→inventory；缺工具→craft；饿→eat；夜→sleep；盖房→plan/build；长期重复→automate；不会→learn/guide/inquire。连续三次同一失败动作会被提示换工具。
+工具选择指南：找不到树/水/动物→find；背包不明→inventory；缺工具→craft；饿→eat；夜→sleep；盖房→plan/build；长期重复→automate；不会→learn/guide/inquire。连续三次同一失败动作会被提示换工具。
   └─ ViaProxy 127.0.0.1:25568（launchd 常驻）：把 26.3 客户端翻译进 26.1 服务器
 ```
 

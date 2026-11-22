@@ -183,3 +183,10 @@ test('minecraft-world：工具选择指南与重复动作约束', () => {
   assert.match(prompt, /不要连续三次调用同一个失败动作/)
   assert.match(prompt, /最近动作：mc_plan\(失败\) → mc_build\(失败\)/)
 })
+
+test('minecraft-world：mc_find 可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_find', arguments: { target: 'oak_log', maxDistance: 48 } }))
+  assert.equal(cmd.tool, 'mc_find')
+  assert.equal(cmd.arguments.target, 'oak_log')
+  assert.equal(cmd.arguments.maxDistance, 48)
+})
