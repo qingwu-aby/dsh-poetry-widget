@@ -49,11 +49,19 @@ POST /api/dsh-poetry/workflows.json
 - workflow 运行按步骤累计耗时/token，失败停止；
 - Minecraft 步骤返回 `pending`，不在 workflow 内同步等待。
 
-## Phase 3C 尚未接
+## Phase 3C 已接（基础）
 
-- 租约/心跳/断点续跑；
+- `runState`（runId/cursor/pendingTaskId/results）；
+- Minecraft 步骤 `pending` 后保存游标；
+- `POST action:"resume"` 检查队列任务，完成后回填并继续；
+- 失败任务会结束 workflow 并记录错误。
+
+## Phase 3C 未完成
+
+- 自动轮询 resume（当前需手动调用）；
+- 心跳/租约续期；
 - workflow 级事件触发/优先级；
-- Minecraft pending 步骤的完成回填。
+- 取消/回滚。
 
 ## 运行预算（实测/估算）
 

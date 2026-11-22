@@ -50,3 +50,15 @@ test('workflow：非法名称/触发器/空步骤拒绝', () => {
   assert.equal(validateWorkflow({ name: 'ok', trigger: { type: 'event' }, steps: [{ activity: 'study', tool: 'x' }] }).ok, false)
   assert.equal(validateWorkflow({ name: 'ok', steps: [] }).ok, false)
 })
+
+test('workflow：waiting/resume 状态可恢复', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-workflow-wait-'))
+  const registry = createWorkflowRegistry({ file: path.join(dir, 'workflows.json'), now: () => 10 })
+  const v = validateWorkflow({ name: 'wait_flow', steps: [{ activity: 'minecraft', tool: 'mc_mine' }] })
+  registry.upsert(v)
+  assert.equal(registry.beginRun('wait_flow').ok, true)
+  assert.equal(registry.setWaiting('wait_flow', { cursor: 1, pendingTaskId: 'tb-1' }).workflow.lastStatus, 'waiting')
+  assert.equal(registry.resume('wait_flow').workflow.runState.status, 'running')
+  assert.equal(registry.finishRun('wait_flow', { ok: true }).workflow.lastStatus, 'success')
+  fs.rmSync(dir, { recursive: true, force: true })
+})
