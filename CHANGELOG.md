@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.35.0 宽泛求证**：mc_learn/inquire/复盘统一走 webAccess（DeepSeek/SearXNG/DDG/Bing/Wikipedia）；结果带 sources；mc_plan 记录 verified/sources，未求证会回执提醒。
 - **v0.34.0 学习自检**：World prompt 增加长期路线（先活下来→安家→漂亮房子）和动作前自我检查“不会就查/学，会就直接做”；保留可选调研，不硬性替她查。
 - **v0.33.0 双向模型兜底**：DeepSeek 主候选失败自动尝试 Hy4 free，Hy4 失败回 DeepSeek；避免 `drive` 空响应时没有备用模型。
 - **v0.32.1 引导软化**：调研改为可选（mc_plan 需 research=true 才查 guide）；prompt 允许先查或先试；自处允许试错并复盘，避免把学习变成硬流程。

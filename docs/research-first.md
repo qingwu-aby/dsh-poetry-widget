@@ -61,3 +61,16 @@
 
 强制先调研会把学习变成合规动作，削弱试错、好奇和自主选题。
 更合适的引导是：给工具、给选项、给复盘，让她自己决定先查还是先试。
+
+
+## 搜索范围与来源（v0.35）
+
+- `mc_learn` / `mc_inquire` / 实践复盘统一走 `webAccess.search`：
+  - DeepSeek Search（有 key）
+  - SearXNG（可选）
+  - DuckDuckGo / Bing
+  - Wikipedia
+- 返回结果会带 `sources`（title/url）；`mc_plan` 记录 `verified` 与 `sources`：
+  - `verified=true`：计划前调研过；
+  - `verified=false`：凭经验设计，prompt 会提醒“不要重复同一个做法”。
+- 不强制每次查；但如果计划未求证，来源状态会回执给模型。
