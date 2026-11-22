@@ -169,3 +169,10 @@ test('minecraft-world：资源不足时蓝图缩小，并写入生存优先级',
   assert.match(blueprint, /至多 8 块/)
   assert.match(blueprint, /资源情况/)
 })
+
+test('minecraft-world：自动机工具可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_automate', arguments: { action: 'create', name: 'auto_eat', trigger: { type: 'hunger' }, steps: [{ tool: 'mc_eat', arguments: {} }], stopWhen: { foodGte: 20 } } }))
+  assert.equal(cmd.tool, 'mc_automate')
+  assert.equal(cmd.arguments.name, 'auto_eat')
+  assert.equal(cmd.arguments.steps.length, 1)
+})
