@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { buildBlueprintPrompt, buildWorldPrompt, createMinecraftWorld, parseWorldCommand } from '../../lib/domain/play/minecraft-world.mjs'
+import { buildBlueprintPrompt, buildWorldPrompt, createMinecraftWorld, parseQueuedCommands, parseWorldCommand } from '../../lib/domain/play/minecraft-world.mjs'
 import { registerGameRoute } from '../../lib/composition/interactive-routes.mjs'
 import { createGameMemoryWorkspace } from '../../lib/domain/play/game-memory-workspace.mjs'
 
@@ -137,4 +137,19 @@ test('minecraft-world：大项目先调研，蓝图 prompt 带上资料', () => 
   assert.match(blueprint, /资料没提到的不要假装知道/)
   const noResearch = buildBlueprintPrompt({})
   assert.match(noResearch, /没有资料也可以设计/)
+})
+
+test('minecraft-world：可解析 2–6 步动作队列，非法步骤丢弃', () => {
+  const text = JSON.stringify({
+    tool: 'mc_move_to', arguments: { x: 1, z: 2 },
+    queue: [
+      { tool: 'mc_mine', arguments: { block: 'dirt' } },
+      { tool: 'mc_bad', arguments: {} },
+      { tool: 'mc_place', arguments: { block: 'dirt' } },
+    ],
+  })
+  const queue = parseQueuedCommands(text)
+  assert.equal(queue.length, 2)
+  assert.deepEqual(queue.map((item) => item.tool), ['mc_mine', 'mc_place'])
+  assert.equal(parseQueuedCommands('not json').length, 0)
 })
