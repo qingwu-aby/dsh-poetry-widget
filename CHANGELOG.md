@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.42.1**：自动机 night 每日只触发一次、maxRuns 默认 20、run_once 修复忙碌锁。
 - **v0.42.0 完整自动机**：mc_automate 支持 hunger/health/night/inventory_full/interval/always 触发、步骤、停止条件、次数/冷却、启停/删除/立即执行与持久化；禁止递归。
 - **v0.41.0 资源优先级**：生存未稳定时不做大房子/自动化；mc_plan 按背包材料自动缩小计划并记录 resourceBudget。
 - **v0.40.0 能力扩展收口**：新增 plant/fish/trade/use_container 原语；抽通用 Activity 工具注册表；新增能力提案（pending，不自动执行）。

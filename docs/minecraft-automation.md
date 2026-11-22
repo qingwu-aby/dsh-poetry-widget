@@ -35,4 +35,7 @@
 - 无文件/网络/进程；
 - 定义持久化到 `~/.dsh/.dsh-poetry/minecraft-automations.json`（0600）；
 - 最多 50 个自动机；
+- `maxRuns` 默认 20，显式传 0 才是无限；
+- `night` 每个自然日只触发一次；
+- `run_once` 可在忙碌的 World tick 中手动执行，不会互相锁死。
 - 每次运行写事件回执。
