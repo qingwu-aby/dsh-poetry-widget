@@ -160,3 +160,12 @@ test('minecraft-world：使用/熔炼/睡觉/背包工具可解析', () => {
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_sleep', arguments: {} })).tool, 'mc_sleep')
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_inventory', arguments: {} })).tool, 'mc_inventory')
 })
+
+test('minecraft-world：资源不足时蓝图缩小，并写入生存优先级', () => {
+  const prompt = buildWorldPrompt({ position: '1,2,3' }, {})
+  assert.match(prompt, /生存优先级/)
+  assert.match(prompt, /资源匮乏时选低消耗/)
+  const blueprint = buildBlueprintPrompt({ inventory: ['dirt×3'], maxBlocks: 8, resourceHint: '背包里大约 3 个可放材料' })
+  assert.match(blueprint, /至多 8 块/)
+  assert.match(blueprint, /资源情况/)
+})
