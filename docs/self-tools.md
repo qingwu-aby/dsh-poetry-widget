@@ -13,6 +13,7 @@
 - `mc_smelt`：用熔炉烧炼/烹饪
 - `mc_sleep`：睡床跳过夜晚
 - `mc_inventory`：读取完整背包与手持
+- `mc_plant` / `mc_fish` / `mc_trade` / `mc_use_container`：农业、钓鱼、交易、容器
 
 这些动作没有在 prompt 里写“你现在缺什么”，她需要自己从 `mc_learn`/`mc_guide` 的攻略里判断。
 
@@ -62,3 +63,21 @@ return obs.food < 20
 - 代码存在同一个 `minecraft-tools.json`。
 
 它不是 DSH 插件级工具注册，只是“安全宏/步骤生成器”，不会执行任意代码。
+
+
+## 能力提案
+
+发现“原语都不够用”时，她可以调用：
+
+```json
+{"tool":"mc_request_capability","arguments":{"capability":"mc_ride_horse","reason":"想骑乘移动","evidence":"当前只有普通走路"}}
+```
+
+系统只写入 `~/.dsh/.dsh-poetry/capability-proposals.json`，状态为 `pending`：
+
+- 不会自动执行代码；
+- 不会自动装插件；
+- 不会越过权限；
+- 由开发者/用户审核后再补原语。
+
+这就是“发现能力缺口 → 记录 → 审核 → 补能力”的闭环。

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.40.0 能力扩展收口**：新增 plant/fish/trade/use_container 原语；抽通用 Activity 工具注册表；新增能力提案（pending，不自动执行）。
 - **v0.39.0 交互原语**：新增 mc_use/mc_smelt/mc_sleep/mc_inventory；补右键、熔炉、床、背包查询，提升真实生存闭环。
 - **v0.38.1**：修复 World 未注入 toolRegistry 导致 `define_tool/define_code` 返回 registry_unavailable。
 - **v0.38.0 生存原语 + 自扩展工具**：新增 craft/eat/attack/collect/equip；`mc_define_tool` 声明式宏；`mc_define_code` 受限代码（只返回步骤、100ms 超时、禁止文件/网络/进程）。
