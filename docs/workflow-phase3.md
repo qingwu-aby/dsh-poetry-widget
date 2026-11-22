@@ -56,12 +56,18 @@ POST /api/dsh-poetry/workflows.json
 - `POST action:"resume"` 检查队列任务，完成后回填并继续；
 - 失败任务会结束 workflow 并记录错误。
 
-## Phase 3C 未完成
+## Phase 3C 已补
 
-- 自动轮询 resume（当前需手动调用）；
-- 心跳/租约续期；
-- workflow 级事件触发/优先级；
-- 取消/回滚。
+- 每 5 秒自动 resume waiting workflow；
+- `POST action:"cancel"` 取消 waiting/运行中的 workflow，并取消对应 Minecraft 队列任务；
+- 运行超时自动失败；
+- workflow 级预算/状态可查询。
+
+## 仍未完成
+
+- 事件触发 workflow（interval/manual 已有，event 仅定义）；
+- 多 workflow 并发优先级；
+- Minecraft pending 的强制回滚。
 
 ## 运行预算（实测/估算）
 
