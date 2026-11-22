@@ -19,15 +19,26 @@
 - `night`：游戏时间 13000–23000
 - `inventory_full`：空槽 ≤1
 - `interval`：每 `everyMs`
+- `death`：死亡事件
+- `player_join`：其他玩家加入
+- `item_pickup`：捡到掉落物
+- `dawn`：每天第一次天亮
 - `always`
 
 ## 步骤
 
 - 1–12 步；
-- 只能使用已有原语；
+- 可以使用已有原语；
+- 也可以引用她注册的宏/受限代码工具（由宿主展开成原语步骤，bot 不执行代码）；
 - 禁止 `mc_automate` 递归；
 - 失败默认停止，`continueOnError:true` 可继续；
 - 支持 `stopWhen`：`foodGte`、`healthGte`、`dayTime`、`any`。
+
+## 长任务
+
+- `schedule.timeoutMs` 限制单次运行时长（默认 60s）；
+- 超时会记录 `timeout` 并结束当前轮；
+- 自动机本身由触发器/冷却/次数控制重复。
 
 ## 安全
 
