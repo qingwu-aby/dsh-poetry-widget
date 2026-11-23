@@ -141,7 +141,9 @@
 
 ### P1：红石基础（重点）
 
-已补第一批：`mc_activate` / `mc_inspect` / `mc_store` / `mc_take`。
+已补：`mc_activate` / `mc_inspect` / `mc_store` / `mc_take`；方向性放置 `mc_place.facing`。
+
+P2 已补：`mc_bonemeal` / `mc_compost`；容器存取复用 P1。
 
 继续补“能放、能接、能触发”的原语：
 

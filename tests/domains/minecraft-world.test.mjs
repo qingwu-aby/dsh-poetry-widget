@@ -219,3 +219,14 @@ test('minecraft-world：红石/容器原语可解析', () => {
   const take = parseWorldCommand(JSON.stringify({ tool: 'mc_take', arguments: { item: 'redstone', count: 4 } }))
   assert.equal(take.tool, 'mc_take')
 })
+
+test('minecraft-world：mc_place 支持 facing', () => {
+  const place = parseWorldCommand(JSON.stringify({ tool: 'mc_place', arguments: { block: 'observer', facing: 'north' } }))
+  assert.equal(place.tool, 'mc_place')
+  assert.equal(place.arguments.facing, 'north')
+})
+
+test('minecraft-world：P2 农业原语可解析', () => {
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_bonemeal', arguments: {} })).tool, 'mc_bonemeal')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_compost', arguments: {} })).tool, 'mc_compost')
+})
