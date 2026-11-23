@@ -109,3 +109,14 @@ Prompt 会显示“你从经验里学到的：mc_find 成功率 80%（4/5）”�
 - 用户可在设置页查看/新建/标记已实现/驳回；
 - 通过时如果申请里带有可组合步骤，会自动注册成宏工具（仍只使用现有原语）；
 - 真正的底层原语（如 `mc_water`）仍需宿主实现，不会自动生成代码。
+
+
+## 预置原语目录
+
+`lib/domain/play/capability-catalog.mjs` 预置宿主已实现的底层原语：
+
+- `mc_water`
+- `mc_feed_animal`
+
+审批通过后由 `approvedCatalogNames` 开放给 World prompt；未审批时模型看不到。  
+没有步骤的底层原语走目录开放；带 steps 的申请自动注册宏。
