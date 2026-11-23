@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.92.0 漏斗收集通过**：hopper→chest 实测 wheat×1；与 observer→piston 合并待整链。
 - **v0.91.0 observer→piston 联动**：方块变化触发 piston extended:true，执行器链路通过。
 - **v0.90.0 observer 联动通过**：方块变化→observer→lamp lit:true。
 - **v0.89.0 矿车放置试验**：新增 mc_minecart；物品生成矿车失败，已有矿车骑乘仍可用。

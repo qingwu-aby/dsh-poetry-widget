@@ -551,3 +551,16 @@ inspect piston → extended:true
 
 观察者触发执行器的链路成立。  
 下一步接漏斗/箱子，做完整自动农场。
+
+
+## hopper → chest 收集通过（2026-11-23）
+
+```text
+setblock chest 104,99,100
+setblock hopper[facing=down] 104,100,100
+summon item wheat 104,102,100
+→ mc_use_container(chest) → 容器里有 1 种物品 [wheat×1]
+```
+
+漏斗把掉落物送进箱子，收集端成立。  
+与 observer→piston 联动合起来，只差把两者接成完整农场。
