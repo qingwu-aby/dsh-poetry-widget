@@ -265,3 +265,9 @@ test('minecraft-world：本地配方查询可解析', () => {
   assert.equal(cmd.tool, 'mc_recipe')
   assert.equal(cmd.arguments.item, 'minecart')
 })
+
+test('minecraft-world：建设场景属于自主探索', () => {
+  const prompt = buildWorldPrompt({ position: '0,0,0' })
+  assert.match(prompt, /没有固定剧本/)
+  assert.match(prompt, /mc_recipe 查本地配方/)
+})
