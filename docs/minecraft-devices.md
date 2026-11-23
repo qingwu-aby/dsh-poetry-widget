@@ -434,3 +434,16 @@ lever(108) → oak_door(107)  open:true, powered:true
 
 `mc_activate` 新增 `at` 精确坐标，解决了多个同名拉杆无法区分的问题。  
 P1 红石装置（灯/活塞/门）在夹具下全部成立。
+
+
+## 精确放置失败回退（2026-11-23）
+
+`mc_place at` 精确路径被服务端拒绝时，自动尝试附近位置：
+
+```text
+精确放置失败，改试附近位置：...
+OBSERVER support OK 放了 dirt 到 101 100 100
+OBSERVER observer OK 放了 observer 到 99 100 100
+```
+
+结果：原语不再直接失败，但**实际坐标会变**，调用方必须使用回执里的 `facts.at`，不能假设还是请求的 `at`。
