@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.69.2 船复验**：placeEntity 与 activateItem 均未能生成船；记录为当前版本限制。
 - **v0.69.1 P3/P4 复验**：throw/shoot/block 真实通过；boat 仍有 mineflayer placeEntity 序列化兼容问题。
 - **v0.69.0 P3 验收**：独立创造世界 15/16；mc_block/mc_shoot 真实命中，throw 待补目标。
 - **v0.68.3 朝向复验**：forceLook=ignore 仍不能稳定控制 observer 朝向；保留读回-纠正策略。

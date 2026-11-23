@@ -201,3 +201,20 @@ mc_boat FAIL Failed to place entity
 - P3 近战/远程/投掷已真实执行；
 - `mc_boat` 的 mineflayer 放置实体协议仍有兼容问题，需要单独修；
 - 旧方块/水导致 observer 支撑测试再次互相干扰，干净世界需唯一坐标和分区域。
+
+
+## 船聚焦复验（2026-11-23）
+
+独立创造世界，水方块已放置：
+
+```text
+mc_boat → 船没有出现
+mc_ride → 附近没有可骑乘目标
+```
+
+尝试过：
+
+- `bot.placeEntity` → protodef block_place 序列化错误
+- `bot.activateItem` 看向水面 → 船实体未出现
+
+结论：当前 mineflayer/服务端版本下 `mc_boat` 不可用；需要查实体放置协议或改为其他交通原语。
