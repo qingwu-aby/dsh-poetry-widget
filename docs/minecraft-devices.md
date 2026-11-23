@@ -447,3 +447,14 @@ OBSERVER observer OK 放了 observer 到 99 100 100
 ```
 
 结果：原语不再直接失败，但**实际坐标会变**，调用方必须使用回执里的 `facts.at`，不能假设还是请求的 `at`。
+
+
+## 近战攻击通过（2026-11-23）
+
+夜间石台召唤 zombie：
+
+```text
+ATTACK OK 攻击了 zombie
+```
+
+修复：`mc_attack` 之前只识别 `type=mob/animal`，漏掉新版 mineflayer 的 `hostile`；现在纳入 `hostile`，指定 target 时也按名字匹配。
