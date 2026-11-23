@@ -45,3 +45,11 @@ summary({ scope, context, limit })
 - chat：hasPeer
 
 Workflow 的非 Minecraft 步骤已经用这些特征记录到对应 `activity:*` scope。
+
+
+## Prompt 注入
+
+- Minecraft：World prompt 显示工具成功率；
+- Reading：手动阅读 prompt 显示 reading scope 经验；
+- Study：自学 prompt 显示 study scope 经验；
+- Video：摘要由 provider 产生，暂未注入（下一层）。
