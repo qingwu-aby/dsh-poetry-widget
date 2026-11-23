@@ -29758,6 +29758,9 @@
   }
   var styles = {
     page: { padding: "18px 22px", maxWidth: 760, color: "var(--dsw-alias-label-primary, #1f2329)", fontSize: 13 },
+    tabBar: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14, borderBottom: "1px solid var(--dsw-alias-border-l2, #e5e6eb)", paddingBottom: 10 },
+    tab: { border: "1px solid transparent", background: "transparent", color: "inherit", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 12, opacity: 0.72 },
+    tabActive: { background: "var(--dsw-alias-bg-base-platform, #fff)", borderColor: "var(--dsw-alias-border-l2, #d0d3d9)", opacity: 1, fontWeight: 600 },
     card: { border: "1px solid var(--dsw-alias-border-l2, #e5e6eb)", borderRadius: 10, padding: "14px 16px", marginBottom: 12, background: "var(--dsw-alias-bg-base-platform, #fff)" },
     title: { fontSize: 15, fontWeight: 600, marginBottom: 10 },
     row: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px dashed var(--dsw-alias-border-l2, #eef0f2)" },
@@ -29773,6 +29776,8 @@
   function createWhaleSettingsPage(React, h3) {
     return function WhaleSettingsPage() {
       const [settings, setSettings] = React.useState(null);
+      const [settingsTab, setSettingsTab] = React.useState("basic");
+      const cardStyle = (tab) => settingsTab === tab ? styles.card : Object.assign({}, styles.card, { display: "none" });
       const [mc, setMc] = React.useState(null);
       const [busy, setBusy] = React.useState("");
       const [message, setMessage] = React.useState("");
@@ -30184,12 +30189,27 @@
           setTimeout(() => setMessage(""), 2200);
         }).catch((error) => setSearchKeyError("\u6E05\u9664\u5931\u8D25\uFF1A" + error.message)).finally(() => setSearchKeyBusy(""));
       }
+      const tabs = [
+        ["basic", "\u57FA\u7840"],
+        ["model", "\u6A21\u578B"],
+        ["hub", "Hub"],
+        ["memory", "\u8BB0\u5FC6\u4E0E\u6743\u9650"],
+        ["ops", "\u6210\u672C\u4E0E\u8BAD\u7EC3"],
+        ["game", "Minecraft"]
+      ];
       return h3(
         "div",
         { style: styles.page },
+        h3("div", { style: styles.tabBar }, tabs.map(([id, label]) => h3("button", {
+          type: "button",
+          key: "settings-tab-" + id,
+          style: Object.assign({}, styles.tab, settingsTab === id ? styles.tabActive : null),
+          "aria-pressed": settingsTab === id,
+          onClick: () => setSettingsTab(id)
+        }, label))),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("basic") },
           h3("div", { style: styles.title }, "\u5C0F\u9CB8\u9C7C"),
           row("\u5927\u5C0F", "\u6302\u4EF6\u7F29\u653E 60%\u2013160%", h3("input", { type: "range", min: 60, max: 160, step: 5, value: Math.round(settings.scale * 100), onChange: (event) => save({ scale: Number(event.target.value) / 100 }, "scale") })),
           row("\u9690\u85CF\u6302\u4EF6", "\u9690\u85CF\u540E\u4ECD\u53EF\u901A\u8FC7\u53CC\u51FB\u7A7A\u767D\u5904\u6062\u590D", checkbox("hidden")),
@@ -30201,7 +30221,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("basic") },
           h3("div", { style: styles.title }, "DeepSeek \u641C\u7D22"),
           h3("div", { style: styles.hint }, "\u914D\u7F6E DeepSeek \u5B98\u65B9\u641C\u7D22/Fetch API key\u3002\u53EA\u5B58\u672C\u5730\u79C1\u6709\u6587\u4EF6\uFF080600\uFF09\uFF0C\u4FDD\u5B58\u540E\u9700\u91CD\u542F DSH \u624D\u751F\u6548\u3002"),
           searchKeyError ? h3("div", { style: styles.error }, searchKeyError) : null,
@@ -30235,7 +30255,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("model") },
           h3("div", { style: styles.title }, "\u6A21\u578B\u4E0E\u63A8\u7406"),
           h3("div", { style: styles.hint }, "\u624B\u52A8\u8986\u76D6\u6A21\u578B/\u63A8\u7406\u5F3A\u5EA6\uFF1B\u7559\u7A7A = \u8DDF\u968F\u9ED8\u8BA4\uFF08\u4FDD\u5B58\u540E\u7ACB\u5373\u751F\u6548\uFF09\u3002"),
           policyError ? h3("div", { style: styles.error }, policyError) : null,
@@ -30293,7 +30313,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("hub") },
           h3("div", { style: styles.title }, "Hub"),
           hubError ? h3("div", { style: styles.error }, hubError) : null,
           hubInfo.available ? h3("div", { style: styles.hint }, "\u6A21\u5F0F\uFF1A" + hubInfo.mode + (hubInfo.assembled ? " \xB7 \u5DF2\u88C5\u914D" : " \xB7 \u672A\u88C5\u914D")) : h3("div", { style: styles.hint }, hub ? "Hub \u672A\u63A5\u5165\uFF08\u9ED8\u8BA4 off\uFF1B\u53EF\u7528\u73AF\u5883\u53D8\u91CF/\u8BBE\u7F6E\u5F00\u542F shadow\uFF09" : "\u6B63\u5728\u8BFB\u53D6 Hub \u72B6\u6001\u2026"),
@@ -30407,7 +30427,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("memory") },
           h3("div", { style: styles.title }, "\u8BB0\u5FC6\u4E0E\u6743\u9650"),
           memoryAdminError ? h3("div", { style: styles.error }, memoryAdminError) : null,
           grantsError ? h3("div", { style: styles.error }, grantsError) : null,
@@ -30463,7 +30483,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("ops") },
           h3("div", { style: styles.title }, "\u6210\u672C\uFF08\u6A21\u578B\u8C03\u7528\u95F8\u95E8\uFF09"),
           costError ? h3("div", { style: styles.error }, costError) : null,
           h3(
@@ -30521,7 +30541,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("ops") },
           h3("div", { style: styles.title }, "\u8BAD\u7EC3\uFF08\u65C1\u8DEF\uFF09"),
           trainingError ? h3("div", { style: styles.error }, trainingError) : null,
           h3(
@@ -30623,7 +30643,7 @@
         ),
         h3(
           "div",
-          { style: styles.card },
+          { style: cardStyle("game") },
           h3("div", { style: styles.title }, "Minecraft"),
           row(
             "\u670D\u52A1",

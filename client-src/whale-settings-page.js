@@ -204,6 +204,9 @@ function trainingPayload(draft) {
 
 const styles = {
   page: { padding: '18px 22px', maxWidth: 760, color: 'var(--dsw-alias-label-primary, #1f2329)', fontSize: 13 },
+  tabBar: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, borderBottom: '1px solid var(--dsw-alias-border-l2, #e5e6eb)', paddingBottom: 10 },
+  tab: { border: '1px solid transparent', background: 'transparent', color: 'inherit', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12, opacity: 0.72 },
+  tabActive: { background: 'var(--dsw-alias-bg-base-platform, #fff)', borderColor: 'var(--dsw-alias-border-l2, #d0d3d9)', opacity: 1, fontWeight: 600 },
   card: { border: '1px solid var(--dsw-alias-border-l2, #e5e6eb)', borderRadius: 10, padding: '14px 16px', marginBottom: 12, background: 'var(--dsw-alias-bg-base-platform, #fff)' },
   title: { fontSize: 15, fontWeight: 600, marginBottom: 10 },
   row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '7px 0', borderBottom: '1px dashed var(--dsw-alias-border-l2, #eef0f2)' },
@@ -220,6 +223,8 @@ const styles = {
 export function createWhaleSettingsPage(React, h) {
   return function WhaleSettingsPage() {
   const [settings, setSettings] = React.useState(null)
+  const [settingsTab, setSettingsTab] = React.useState('basic')
+  const cardStyle = (tab) => settingsTab === tab ? styles.card : Object.assign({}, styles.card, { display: 'none' })
   const [mc, setMc] = React.useState(null)
   const [busy, setBusy] = React.useState('')
   const [message, setMessage] = React.useState('')
@@ -651,8 +656,19 @@ export function createWhaleSettingsPage(React, h) {
       .finally(() => setSearchKeyBusy(''))
   }
 
+  const tabs = [
+    ['basic', '基础'], ['model', '模型'], ['hub', 'Hub'],
+    ['memory', '记忆与权限'], ['ops', '成本与训练'], ['game', 'Minecraft'],
+  ]
   return h('div', { style: styles.page },
-    h('div', { style: styles.card },
+    h('div', { style: styles.tabBar }, tabs.map(([id, label]) => h('button', {
+      type: 'button',
+      key: 'settings-tab-' + id,
+      style: Object.assign({}, styles.tab, settingsTab === id ? styles.tabActive : null),
+      'aria-pressed': settingsTab === id,
+      onClick: () => setSettingsTab(id),
+    }, label))),
+    h('div', { style: cardStyle('basic') },
       h('div', { style: styles.title }, '小鲸鱼'),
       row('大小', '挂件缩放 60%–160%', h('input', { type: 'range', min: 60, max: 160, step: 5, value: Math.round(settings.scale * 100), onChange: (event) => save({ scale: Number(event.target.value) / 100 }, 'scale') })),
       row('隐藏挂件', '隐藏后仍可通过双击空白处恢复', checkbox('hidden')),
@@ -662,7 +678,7 @@ export function createWhaleSettingsPage(React, h) {
       row('镜像浮层', '左下角第二只鲸鱼', checkbox('twinOverlay')),
       row('镜像主体', '独立状态与信件；改动后重启 DSH 生效', checkbox('twinSystem')),
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('basic') },
       h('div', { style: styles.title }, 'DeepSeek 搜索'),
       h('div', { style: styles.hint }, '配置 DeepSeek 官方搜索/Fetch API key。只存本地私有文件（0600），保存后需重启 DSH 才生效。'),
       searchKeyError ? h('div', { style: styles.error }, searchKeyError) : null,
@@ -683,7 +699,7 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: searchKeyBusy !== '', onClick: clearSearchKey }, searchKeyBusy === 'clear' ? '清除中…' : '清除 key'),
         )),
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('model') },
       h('div', { style: styles.title }, '模型与推理'),
       h('div', { style: styles.hint }, '手动覆盖模型/推理强度；留空 = 跟随默认（保存后立即生效）。'),
       policyError ? h('div', { style: styles.error }, policyError) : null,
@@ -719,7 +735,7 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: busy !== '', onClick: resetPolicy }, busy === 'policy-reset' ? '重置中…' : '重置模型策略'),
         )),
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('hub') },
       h('div', { style: styles.title }, 'Hub'),
       hubError ? h('div', { style: styles.error }, hubError) : null,
       hubInfo.available
@@ -811,7 +827,7 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: hubBusy !== '' || !hubInfo.available, onClick: () => hubAction('hub.resumeAll') }, hubBusy === 'hub.resumeAll' ? '恢复中…' : '恢复全部'),
         )),
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('memory') },
       h('div', { style: styles.title }, '记忆与权限'),
       memoryAdminError ? h('div', { style: styles.error }, memoryAdminError) : null,
       grantsError ? h('div', { style: styles.error }, grantsError) : null,
@@ -853,7 +869,7 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: styles.button, disabled: grantsBusy !== '', onClick: resetActivityGrants }, grantsBusy === 'reset' ? '清空中…' : '清空授权'),
         )),
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('ops') },
       h('div', { style: styles.title }, '成本（模型调用闸门）'),
       costError ? h('div', { style: styles.error }, costError) : null,
       h('div', { style: styles.hint },
@@ -887,7 +903,7 @@ export function createWhaleSettingsPage(React, h) {
         ? h('div', { style: styles.hint }, '上次更新：' + new Date(costPolicy.updatedAt).toLocaleString())
         : null,
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('ops') },
       h('div', { style: styles.title }, '训练（旁路）'),
       trainingError ? h('div', { style: styles.error }, trainingError) : null,
       h('div', { style: styles.hint },
@@ -957,7 +973,7 @@ export function createWhaleSettingsPage(React, h) {
           ' · ' + (trainingStatus.candidate.passed ? '评估通过' : '评估未通过（不可上线）'))
         : null,
     ),
-    h('div', { style: styles.card },
+    h('div', { style: cardStyle('game') },
       h('div', { style: styles.title }, 'Minecraft'),
       row('服务', running ? '服务器运行中 · 她在里面自己玩' : world ? '服务器未运行' : '状态未知',
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },

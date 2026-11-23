@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.56.0 设置页 Tab**：基础/模型/Hub/记忆与权限/成本与训练/Minecraft 分 Tab，减少纵向长度。
 - **v0.55.1**：经验只读查询（workflows.json?experience=...）；global 经验并入提示；合并 experience-service 控制模块数。
 - **v0.55.0 Video 摘要层**：video.summary 可接模型整理，读取 video 经验并生成摘要/主题；失败回退 provider 原文。
 - **v0.54.0 经验探索**：Chat prompt 注入工具经验；无经验/低样本时提示尝试不同工具。
