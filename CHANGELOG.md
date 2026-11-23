@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.72.0 红石回路通过**：lever→lamp 实测 lit:false→true；记录 lamp 精确放置限制。
 - **v0.71.3 红石灯复验**：lever 通过；redstone_lamp 仍被服务端拒绝，装置未成立。
 - **v0.71.2 红石回路复验**：lever 放置/激活通过；redstone_lamp 放置被服务端拒绝，回路未成立。
 - **v0.71.1 放置重试**：mc_place at 三次重试+读回，修复 still air 误判；石台实测通过。

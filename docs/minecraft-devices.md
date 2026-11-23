@@ -310,3 +310,19 @@ place_lamp FAIL Server refused ... (105,100,100): block is still air
 
 不是坐标被占，也不是 lever 邻接；`redstone_lamp` 在石台上仍无法由 bot 放置。  
 下一步需要单独查该物品的放置包/服务端限制，不能把 lever 成功当成红石装置成功。
+
+
+## 红石回路通过（2026-11-23）
+
+石台上：
+
+```text
+place_lamp (generic) OK 101,100,100
+place_lever (at) OK 102,100,100
+inspect_before → lit:false
+activate lever
+inspect_after → lit:true
+```
+
+结论：lever → redstone_lamp 的最小红石回路真实成立。  
+关键：`redstone_lamp` 用普通 `mc_place` 能放，但 `mc_place at` 的精确路径仍可能被服务端拒绝；装置搭建优先用普通 place + inspect 读回坐标。
