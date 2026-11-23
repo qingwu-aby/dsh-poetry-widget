@@ -241,3 +241,9 @@ test('minecraft-world：P4 交通原语可解析', () => {
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_boat', arguments: {} })).tool, 'mc_boat')
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_ride', arguments: { target: 'horse' } })).tool, 'mc_ride')
 })
+
+test('minecraft-world：mc_place 精确坐标', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_place', arguments: { block: 'observer', facing: 'east', at: '10,64,20' } }))
+  assert.equal(cmd.arguments.at, '10,64,20')
+  assert.equal(cmd.arguments.facing, 'east')
+})

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.66.0 装置验收基础**：mc_place.at 精确坐标、回执 properties；新增红石/防御/交通验收清单。
 - **v0.65.0 P4 交通批**：mc_boat/mc_ride；方向性放置覆盖门梯栅栏，装饰复用 place。
 - **v0.64.0 P3 战斗批**：mc_shoot/mc_block/mc_throw；战斗提示与测试。
 - **v0.63.0 P1/P2 批**：mc_place.facing 方向性放置；mc_bonemeal/mc_compost；容器存取复用。
