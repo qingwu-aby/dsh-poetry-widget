@@ -297,3 +297,16 @@ inspect_after air
 ```
 
 结论：拉杆放置/激活正常；`redstone_lamp` 精确放置被服务端拒绝，红石回路还未成立。需要查 lamp 放置面/服务端放置限制，不能把 lever 成功当成装置成功。
+
+
+## 红石灯聚焦复验（2026-11-23）
+
+把 lever/lamp 移到新坐标（104/105）后：
+
+```text
+place_lever OK
+place_lamp FAIL Server refused ... (105,100,100): block is still air
+```
+
+不是坐标被占，也不是 lever 邻接；`redstone_lamp` 在石台上仍无法由 bot 放置。  
+下一步需要单独查该物品的放置包/服务端限制，不能把 lever 成功当成红石装置成功。
