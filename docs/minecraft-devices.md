@@ -156,7 +156,7 @@ place_support → place_observer (facing=north) → inspect
 {"powered": false, "facing": "east"}
 ```
 
-结论：mineflayer 高层 `look/placeBlock` 不能稳定控制 observer 精确朝向；装置搭建需要：
+结论：即使改用 `_placeBlockWithOptions(forceLook:'ignore')` 保留 yaw，observer 仍读回 `facing=east`；mineflayer 高层放置无法稳定控制精确朝向。装置搭建需要：
 
 - 用 `mc_inspect` 读回实际 `facing`；
 - 必要时旋转/重放，直到朝向正确；

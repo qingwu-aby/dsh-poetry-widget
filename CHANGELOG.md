@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.68.3 朝向复验**：forceLook=ignore 仍不能稳定控制 observer 朝向；保留读回-纠正策略。
 - **v0.68.2 支撑面复验**：13/13 基础项通过；记录 observer 精确朝向仍不可靠，需 inspect 读回。
 - **v0.68.1 干净世界复验**：11/12；确认定向放置需要侧向支撑，存储/拉杆闭环稳定。
 - **v0.68.0 独立创造验证**：verify-server 端口 25567；12/12 原语验收（inspect/equip/place/activate/store/take），不碰生存世界。
