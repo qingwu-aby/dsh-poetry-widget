@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.79.0 服务器夹具验收**：RCON 构造装置，bot 只验证操作/读回；6/6 通过（observer 朝向、lamp 开关、minecart 骑乘）。
 - **v0.78.0 验收矩阵**：汇总 P1–P4 通过/失败项；明确 boat/朝向/复杂装置未完成。
 - **v0.77.0 P2 动物闭环**：feed/shear/milk 3/3 真实通过。
 - **v0.76.0 活塞执行器通过**：lever→piston 实测 extended:false→true；P1 红石执行器闭环。

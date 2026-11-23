@@ -399,3 +399,24 @@ mc_milk        OK 挤了牛奶
 ```
 
 P2 动物工具 3/3 真实通过。
+
+
+## 服务器夹具验收（2026-11-23）
+
+用 RCON 构造装置几何，bot 只做操作 + 读回：
+
+```text
+setblock observer[facing=north]
+setblock redstone_lamp + lever
+summon minecart
+
+FIXTURE inspect_observer OK → facing:north
+FIXTURE inspect_piston   OK → facing:up, extended:false
+FIXTURE inspect_lamp_before OK → lit:false
+FIXTURE activate lever OK
+FIXTURE inspect_lamp_after  OK → lit:true
+FIXTURE ride minecart OK
+```
+
+6/6。  
+这条路线把“bot 放置协议不稳定”与“原语操作能力验证”解耦：装置几何由服务端夹具负责，bot 只验证开关、读回、骑乘。
