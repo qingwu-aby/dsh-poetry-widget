@@ -95,3 +95,29 @@ mc_craft crafting_table
 ```
 
 所以遇到 `must be holding an item to place` 时，先显式 `mc_equip`，不要把装备和放置压在同一步里赌时序。
+
+
+## 独立创造验证世界
+
+已建 `minecraft-bot/verify-server`：
+
+- 独立端口 `25567`，RCON `25576`
+- 创造模式、和平、超平坦
+- 不碰当前生存世界
+
+2026-11-23 验证结果：
+
+```text
+inspect / equip / place / activate / inspect / place / inspect
+/ place / store / take
+```
+
+`VERIFY DONE 12/12`，覆盖：
+
+- `mc_inspect` 方块属性
+- `mc_equip` + `mc_place`
+- `mc_activate` 拉杆
+- `mc_store` / `mc_take` 箱子
+- `mc_place` 定向分支（observer 使用定向路径）
+
+注意：重复运行会在同一片区域留下旧方块，`findBlock` 可能找到旧目标；正式验收应在**干净世界/唯一坐标**下做。

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.68.0 独立创造验证**：verify-server 端口 25567；12/12 原语验收（inspect/equip/place/activate/store/take），不碰生存世界。
 - **v0.67.2 放置时序**：实测 equip→place 成功；记录先装备再放置的稳定流程。
 - **v0.67.1 存储实测**：容器类型扩展；workflow 实测 craft/place/store/take 全链路成功。
 - **v0.67.0 装置验收实测**：workflow→queue→bot 执行 mc_inspect 成功；修复 host 任务被自主循环饿死。
