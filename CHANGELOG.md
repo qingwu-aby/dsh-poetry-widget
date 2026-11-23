@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.77.0 P2 动物闭环**：feed/shear/milk 3/3 真实通过。
 - **v0.76.0 活塞执行器通过**：lever→piston 实测 extended:false→true；P1 红石执行器闭环。
 - **v0.75.0 P2 农业闭环通过**：plant/bonemeal/harvest/compost 4/4；harvest 近距离直接 dig。
 - **v0.74.0 P2 农业验收**：bonemeal/compost 通过；plant 场景占用、harvest 寻路超时待复验。

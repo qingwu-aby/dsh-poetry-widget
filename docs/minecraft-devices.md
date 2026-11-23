@@ -386,3 +386,16 @@ inspect_after → facing:up extended:true
 
 `lever → piston` 红石执行器真实成立。  
 P1 现在有：拉杆、红石灯、自动门、活塞。
+
+
+## P2 动物闭环通过（2026-11-23）
+
+石台召唤 cow/sheep，给予小麦/剪刀/桶：
+
+```text
+mc_feed_animal OK 喂了 cow
+mc_shear       OK 剪了羊毛
+mc_milk        OK 挤了牛奶
+```
+
+P2 动物工具 3/3 真实通过。
