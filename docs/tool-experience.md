@@ -60,3 +60,12 @@ Workflow 的非 Minecraft 步骤已经用这些特征记录到对应 `activity:*
 - Chat prompt 注入 `activity:chat` 经验；
 - 没有经验时提示“可以试不同做法”；
 - 样本少于 3 次时提示“可以偶尔换工具”，避免过早固化。
+
+
+## Video 摘要层
+
+`video.summary` 支持可选的 `summarize` 整理函数：
+
+- provider 给出原始摘要/字幕；
+- 模型层按 `activity:video` 经验整理成 3–5 句摘要 + 主题；
+- 整理失败时保留 provider 原文，不让任务失败。

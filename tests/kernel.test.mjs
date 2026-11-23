@@ -14496,3 +14496,23 @@ test('guide-loop：没有字幕不伪造；总结器失败时退回字幕摘录'
   assert.equal(typeof r2.guide.method, 'string')
   assert.ok(r2.guide.method.length > 0)
 })
+
+test('video.summary：整理层可替换 provider 摘要', async () => {
+  const video = createVideoActivity({
+    provider: {
+      async open() {
+        return { id: 'bv-2', title: '视频二' }
+      },
+      async summary() {
+        return { summary: '原始摘要', topics: [] }
+      },
+    },
+    summarize: async ({ source }) => ({ summary: '整理后：' + source, topics: ['主题'] }),
+    now: () => 1000,
+  })
+  await video.activity.execute({ payload: { tool: 'video.open', arguments: { url: 'https://example/v/2' } } })
+  const result = await video.activity.execute({ payload: { tool: 'video.summary', arguments: {} } })
+  assert.equal(result.ok, true)
+  assert.equal(result.facts.summary, '整理后：原始摘要')
+  assert.deepEqual(result.facts.topics, ['主题'])
+})
