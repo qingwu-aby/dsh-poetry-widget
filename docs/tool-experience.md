@@ -33,3 +33,15 @@ summary({ scope, context, limit })
 - Minecraft：World 回执；
 - Workflow：非 Minecraft 步骤回执；
 - 其他 Activity 可复用自己的 `contextProvider`。
+
+
+## Activity 情境
+
+`lib/core/tool-experience-service.mjs` 提供：
+
+- reading：hasPath/hasPage/hasNote
+- study：hasQuestion/hasQuery/hasNote/noSources
+- video：hasUrl/hasPath/noSubtitle
+- chat：hasPeer
+
+Workflow 的非 Minecraft 步骤已经用这些特征记录到对应 `activity:*` scope。
