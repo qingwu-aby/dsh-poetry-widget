@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.70.1**：mc_inspect 支持 at 精确坐标，便于装置验收定位。
 - **v0.70.0 P4 矿车验收**：mc_ride 真实骑上 minecart；船生成仍受协议限制。
 - **v0.69.2 船复验**：placeEntity 与 activateItem 均未能生成船；记录为当前版本限制。
 - **v0.69.1 P3/P4 复验**：throw/shoot/block 真实通过；boat 仍有 mineflayer placeEntity 序列化兼容问题。
