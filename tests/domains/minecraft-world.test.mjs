@@ -247,3 +247,9 @@ test('minecraft-world：mc_place 精确坐标', () => {
   assert.equal(cmd.arguments.at, '10,64,20')
   assert.equal(cmd.arguments.facing, 'east')
 })
+
+test('minecraft-world：红石/农场情境提示', () => {
+  const prompt = buildWorldPrompt({ position: '0,0,0', inventory: 'redstone', nearbyBlocks: 'farmland' })
+  assert.match(prompt, /红石相关物品/)
+  assert.match(prompt, /mc_autofarm/)
+})

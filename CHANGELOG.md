@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.96.0 矿车驾驶/情境回注**：ride→drive 移动 1.2 格；prompt 根据红石/农田给情境提示。
 - **v0.95.0 装饰通过/载具探针**：装饰 8/8；确认 boat 不被 mineflayer 跟踪，minecart 可骑。
 - **v0.94.0 自建门/活塞通过**：door/piston + lever 自建并触发；红石自建链路成立。
 - **v0.93.0 自动农场整链通过**：observer→piston→melon→hopper→chest，melon_slice×4 入箱。
