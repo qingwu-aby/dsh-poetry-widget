@@ -628,3 +628,22 @@ summon minecart → {"name":"minecart","type":"other"}
 - minecart 可被 mineflayer 跟踪并骑乘；
 - boat 实体在当前 mineflayer/版本里根本不在 entity 列表，所以 ride 找不到；
 - 自建矿车/船仍卡在物品生成实体协议。
+
+
+## 自建矿车通过（2026-11-23）
+
+参考 [Minecraft Wiki: Crafting/Transportation](https://minecraft.wiki/w/Crafting/Transportation)：
+
+- 矿车 = 5 铁锭
+- 铁轨 = 6 铁锭 + 1 木棍
+- 船 = 5 木板 + 1 木铲
+
+实测：
+
+```text
+rail 102,100,100
+mc_minecart → OK 放下矿车并上车
+```
+
+关键修复：矿车改用 `bot.placeEntity(rail, up)`，不再只靠 `activateItem`。  
+矿车实体可跟踪（type=other），之后 `mc_ride` / `mc_drive` 都可用。
