@@ -371,3 +371,18 @@ mc_compost  OK 把 dirt 放进堆肥桶
 
 `mc_harvest` 改为 4.5 格内直接 `bot.dig`，不再依赖寻路到边缘作物。  
 P2 农业闭环（种→催→收→堆肥）已真实成立。
+
+
+## 活塞执行器通过（2026-11-23）
+
+石台测试：
+
+```text
+place_piston OK 101,100,100 facing:up extended:false
+place_lever OK 102,100,100
+activate lever
+inspect_after → facing:up extended:true
+```
+
+`lever → piston` 红石执行器真实成立。  
+P1 现在有：拉杆、红石灯、自动门、活塞。
