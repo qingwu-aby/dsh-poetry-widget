@@ -78,3 +78,15 @@
 - 计划只能用背包已有材料；
 - 过滤后少于 6 块 → 返回 `insufficient_available_blocks`；
 - 不再让 `mc_build` 因 `missing_item` 大面积失败。
+
+
+## 工具经验层
+
+每次回执按情境记录工具成败：
+
+```json
+{"context":"empty+night","tool":"mc_find","success":3,"failure":1}
+```
+
+Prompt 会显示“你从经验里学到的：mc_find 成功率 80%（4/5）”。  
+失败/成功会累计，90 天未用衰减；只影响提示排序，不硬性禁用工具。
