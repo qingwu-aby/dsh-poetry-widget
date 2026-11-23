@@ -205,3 +205,27 @@ P4 已补：`mc_boat` / `mc_ride`；门/楼梯/栅栏用 `mc_place.facing`，装
 ```text
 食物/床/铁 → 红石原语 → 红石农场 → 农业完整闭环 → 战斗 → 建造
 ```
+
+
+## 验收矩阵（2026-11-23，独立创造世界）
+
+| 项 | 状态 |
+|---|---|
+| mc_place / mc_equip / 精确放置重试 | 通过 |
+| mc_activate 拉杆 | 通过 |
+| mc_store / mc_take 容器 | 通过 |
+| lever → redstone_lamp | 通过（lit:false→true） |
+| lever → oak_door | 通过（open:false→true） |
+| lever → piston | 通过（extended:false→true） |
+| mc_plant / bonemeal / harvest / compost | 通过 |
+| mc_feed_animal / shear / milk | 通过 |
+| mc_block / mc_throw / mc_shoot | 通过 |
+| mc_ride(minecart) | 通过 |
+| mc_place at + redstone_lamp | 失败（精确路径被服务端拒绝） |
+| observer 精确朝向 | 失败（请求 north，实际 east） |
+| mc_boat 生成 | 失败（placeEntity/activateItem 均不生成船） |
+| 自动农场（观察者+活塞） | 未验收 |
+| 刷怪塔 / 装饰 | 未验收 |
+
+结论：P1/P2 主体、P3 基础战斗、P4 骑乘已验收；红石精确朝向、船生成、复杂装置和装饰仍未完成。  
+所有验证都在独立创造世界完成，生存世界未参与。
