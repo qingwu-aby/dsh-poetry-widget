@@ -218,3 +218,15 @@ mc_ride → 附近没有可骑乘目标
 - `bot.activateItem` 看向水面 → 船实体未出现
 
 结论：当前 mineflayer/服务端版本下 `mc_boat` 不可用；需要查实体放置协议或改为其他交通原语。
+
+
+## 矿车骑乘验收（2026-11-23）
+
+独立创造世界召唤 minecart：
+
+```text
+mc_ride(target=minecart) → RIDE OK 骑上 minecart
+```
+
+结论：`mc_ride` 对已存在的载具可用；`mc_boat` 的“生成载具”仍受 mineflayer 放置协议限制。  
+P4 交通至少已有矿车骑乘闭环。
