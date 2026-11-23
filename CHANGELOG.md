@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.51.0 通用工具经验**：抽 `tool-experience`，按 activity scope 隔离；Minecraft/Workflow 回执接入，支持跨场景经验。
 - **v0.50.0 工具经验层**：按情境记录工具成功/失败，Prompt 展示高成功率映射，支持 90 天衰减；不硬性禁用工具。
 - **v0.49.0**：mc_plan 按背包真实方块过滤蓝图；材料不足时返回 insufficient_available_blocks，减少 mc_build 的 missing_item 失败。
 - **v0.48.0 mc_find**：在附近搜索树/水/动物/方块，返回坐标与距离；prompt 要求找不到资源先 find，别随机 explore。

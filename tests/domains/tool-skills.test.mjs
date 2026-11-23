@@ -11,7 +11,7 @@ test('tool-skills：情境特征与 key 稳定', () => {
   assert.equal(context.hungry, true)
   assert.equal(context.night, true)
   assert.equal(context.stuck, true)
-  assert.equal(contextKey(context), 'empty+hungry+night+stuck')
+  assert.equal(contextKey(context), 'empty:true+hungry:true+night:true+stuck:true')
 })
 
 test('tool-skills：成功/失败累计并按成功率排序，持久化', () => {
