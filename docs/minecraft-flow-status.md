@@ -23,7 +23,7 @@
 
 | 流程 | 卡点 |
 |---|---|
-| bot 自建精确红石装置 | `mc_place at` 服务端 ack 不稳定，回退后坐标改变 |
+| bot 自建红石装置 | 已通过：lamp+lever 自建，实际 at 驱动电路 lit:true；精确 at 仍非必需 |
 | observer 精确朝向 | 请求 north，实际 east |
 | 红石全自动农场 | observer+piston 未形成可重复验收 |
 | boat 生成 | placeEntity 序列化错误；activateItem 不生成实体 |

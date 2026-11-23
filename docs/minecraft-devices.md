@@ -492,3 +492,16 @@ inspect_chest OK 容器里有 1 种物品
 - 清怪 → 掉落 → 拾取 → 入箱 → 读回链路可用；
 - `mc_collect` 偶发“附近没有掉落物”，与掉落物位置/时机有关，需多轮或扩大搜索；
 - `mc_store` 已支持跨 16 格找容器并寻路。
+
+
+## bot 自建红石回路通过（2026-11-23）
+
+```text
+SELFBUILD lamp OK 101,100,100
+SELFBUILD lever OK 102,100,100
+SELFBUILD activate OK
+SELFBUILD inspect_lamp OK → lit:true
+```
+
+流程：普通 `mc_place` 放灯 → 用回执 `facts.at` 算相邻坐标放拉杆 → activate → inspect。  
+不依赖 `mc_place at` 精确成功，装置仍可自建。
