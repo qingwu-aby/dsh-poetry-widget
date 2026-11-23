@@ -163,3 +163,17 @@ place_support → place_observer (facing=north) → inspect
 - 不能只信“请求了 facing=north”。
 
 这属于验证结果，不是静默失败。
+
+
+## P3 战斗验收（独立创造世界）
+
+2026-11-23：
+
+```text
+mc_block → 举盾格挡 0.6 秒
+mc_shoot → 向 zombie 射击
+mc_throw → 附近没有可投掷目标（目标已被射杀）
+```
+
+`VERIFY DONE 15/16`。  
+`mc_shoot` / `mc_block` 已真实执行；`mc_throw` 需要单独补一个存活目标再测。
