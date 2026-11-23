@@ -177,3 +177,27 @@ mc_throw → 附近没有可投掷目标（目标已被射杀）
 
 `VERIFY DONE 15/16`。  
 `mc_shoot` / `mc_block` 已真实执行；`mc_throw` 需要单独补一个存活目标再测。
+
+
+## P3/P4 复验（2026-11-23）
+
+独立创造世界：
+
+```text
+mc_block  OK 举盾
+mc_throw  OK 投掷 snowball
+mc_shoot  OK 向 zombie 射击
+```
+
+P4：
+
+```text
+mc_boat FAIL Failed to place entity
+（protodef 序列化 block_place location 时 reading 'x'）
+```
+
+结论：
+
+- P3 近战/远程/投掷已真实执行；
+- `mc_boat` 的 mineflayer 放置实体协议仍有兼容问题，需要单独修；
+- 旧方块/水导致 observer 支撑测试再次互相干扰，干净世界需唯一坐标和分区域。
