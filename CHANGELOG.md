@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.74.0 P2 农业验收**：bonemeal/compost 通过；plant 场景占用、harvest 寻路超时待复验。
 - **v0.73.0 自动门通过**：lever→oak_door 实测 open:false→true，powered:true。
 - **v0.72.0 红石回路通过**：lever→lamp 实测 lit:false→true；记录 lamp 精确放置限制。
 - **v0.71.3 红石灯复验**：lever 通过；redstone_lamp 仍被服务端拒绝，装置未成立。

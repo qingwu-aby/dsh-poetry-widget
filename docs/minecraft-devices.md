@@ -342,3 +342,17 @@ inspect_after → open:true, powered:true
 
 `lever → oak_door` 自动门回路真实成立。  
 门朝向读回为 east，但开关逻辑正常。
+
+
+## P2 农业工具验收（2026-11-23）
+
+石台种下成熟小麦 + 堆肥桶：
+
+```text
+mc_bonemeal OK 用了骨粉催熟 wheat
+mc_compost  OK 把 dirt 放进了堆肥桶
+mc_plant    FAIL 种植位置被占用（已有小麦）
+mc_harvest  FAIL 收割失败：寻路超时
+```
+
+结论：`bonemeal` / `compost` 已真实执行；`plant` 的失败是测试场景占用，`harvest` 是寻路到边缘作物超时，需要单独复验。
