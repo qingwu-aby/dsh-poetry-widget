@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.64.0 P3 战斗批**：mc_shoot/mc_block/mc_throw；战斗提示与测试。
 - **v0.63.0 P1/P2 批**：mc_place.facing 方向性放置；mc_bonemeal/mc_compost；容器存取复用。
 - **v0.62.0 P1 红石基础批**：mc_activate/mc_inspect/mc_store/mc_take，支持开关、方块状态、容器存取。
 - **v0.61.0 原语目录扩展 + Tab 样式**：新增 mc_shear/mc_milk；设置页 Tab 对齐刷B站的分段控件（layer token、flex、阴影）。

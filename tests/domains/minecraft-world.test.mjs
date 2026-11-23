@@ -230,3 +230,9 @@ test('minecraft-world：P2 农业原语可解析', () => {
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_bonemeal', arguments: {} })).tool, 'mc_bonemeal')
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_compost', arguments: {} })).tool, 'mc_compost')
 })
+
+test('minecraft-world：P3 战斗原语可解析', () => {
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_shoot', arguments: { target: 'zombie' } })).tool, 'mc_shoot')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_block', arguments: {} })).tool, 'mc_block')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_throw', arguments: { target: 'skeleton' } })).tool, 'mc_throw')
+})
