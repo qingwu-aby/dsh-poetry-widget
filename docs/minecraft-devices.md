@@ -536,3 +536,18 @@ LINK lamp OK → lit:true
 
 说明方块变化 → observer → lamp 的触发链路真实成立。  
 下一步把 lamp 换成活塞/漏斗，验证执行器与收集联动。
+
+
+## observer → piston 联动通过（2026-11-23）
+
+```text
+observer[facing=north] 101,100,100
+piston 101,100,101
+bot 放 dirt 101,100,99
+
+trigger OK
+inspect piston → extended:true
+```
+
+观察者触发执行器的链路成立。  
+下一步接漏斗/箱子，做完整自动农场。
