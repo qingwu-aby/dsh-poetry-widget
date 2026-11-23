@@ -326,3 +326,19 @@ inspect_after → lit:true
 
 结论：lever → redstone_lamp 的最小红石回路真实成立。  
 关键：`redstone_lamp` 用普通 `mc_place` 能放，但 `mc_place at` 的精确路径仍可能被服务端拒绝；装置搭建优先用普通 place + inspect 读回坐标。
+
+
+## 自动门通过（2026-11-23）
+
+石台测试：
+
+```text
+place_door OK 101,100,100
+place_lever OK 102,100,100
+inspect_before → open:false, powered:false
+activate lever
+inspect_after → open:true, powered:true
+```
+
+`lever → oak_door` 自动门回路真实成立。  
+门朝向读回为 east，但开关逻辑正常。
