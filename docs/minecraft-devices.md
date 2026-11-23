@@ -564,3 +564,33 @@ summon item wheat 104,102,100
 
 漏斗把掉落物送进箱子，收集端成立。  
 与 observer→piston 联动合起来，只差把两者接成完整农场。
+
+
+## 自动农场整链通过（2026-11-23）
+
+夹具坐标：
+
+```text
+支持块 100,100,99
+观察者 100,101,100[facing=north]
+活塞   100,101,101[facing=south]
+西瓜   100,101,102
+漏斗   100,100,102[facing=down]
+箱子   100,99,102
+```
+
+bot 在触发点放 dirt：
+
+```text
+FULLFARM trigger OK
+FULLFARM chest OK → [{melon_slice, count:4}]
+```
+
+完整链路：
+
+```text
+方块变化 → observer → piston 破坏西瓜
+→ 掉落 → hopper → chest
+```
+
+自动农场整链跑通。

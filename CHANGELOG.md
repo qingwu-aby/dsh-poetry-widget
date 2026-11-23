@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.93.0 自动农场整链通过**：observer→piston→melon→hopper→chest，melon_slice×4 入箱。
 - **v0.92.0 漏斗收集通过**：hopper→chest 实测 wheat×1；与 observer→piston 合并待整链。
 - **v0.91.0 observer→piston 联动**：方块变化触发 piston extended:true，执行器链路通过。
 - **v0.90.0 observer 联动通过**：方块变化→observer→lamp lit:true。
