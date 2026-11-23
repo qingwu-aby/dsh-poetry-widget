@@ -253,3 +253,9 @@ test('minecraft-world：红石/农场情境提示', () => {
   assert.match(prompt, /红石相关物品/)
   assert.match(prompt, /mc_autofarm/)
 })
+
+test('minecraft-world：交通情境提示', () => {
+  const prompt = buildWorldPrompt({ position: '0,0,0', inventory: 'minecart', nearbyBlocks: 'rail' })
+  assert.match(prompt, /矿车=5铁锭/)
+  assert.match(prompt, /mc_drive/)
+})

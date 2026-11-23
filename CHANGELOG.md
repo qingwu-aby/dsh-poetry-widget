@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.98.0 交通情境提示**：prompt 根据矿车/铁轨给出配方与 minecart→ride→drive；boat 标记为可能不可用。
 - **v0.97.0 自建矿车通过**：placeEntity(rail) 生成矿车并上车；补充运输配方参考。
 - **v0.96.0 矿车驾驶/情境回注**：ride→drive 移动 1.2 格；prompt 根据红石/农田给情境提示。
 - **v0.95.0 装饰通过/载具探针**：装饰 8/8；确认 boat 不被 mineflayer 跟踪，minecart 可骑。
