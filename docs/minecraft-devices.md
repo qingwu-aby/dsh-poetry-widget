@@ -604,3 +604,27 @@ piston 99,100,100 → lever 100,100,100 → extended:true
 ```
 
 bot 用实际 `facts.at` 计算相邻坐标，不依赖精确 `mc_place at`；红石装置自建链路成立。
+
+
+## 装饰模式 + 载具实体探针（2026-11-23）
+
+装饰：
+
+```text
+4 块 oak_planks 2x2 图案
+DECOR 8/8（4 次放置 + 4 次读回）
+```
+
+载具实体：
+
+```text
+summon boat → 实体列表里没有 boat
+summon minecart → {"name":"minecart","type":"other"}
+```
+
+结论：
+
+- 装饰用 `mc_place` 组合已可验收；
+- minecart 可被 mineflayer 跟踪并骑乘；
+- boat 实体在当前 mineflayer/版本里根本不在 entity 列表，所以 ride 找不到；
+- 自建矿车/船仍卡在物品生成实体协议。

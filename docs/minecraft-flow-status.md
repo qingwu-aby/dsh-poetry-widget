@@ -26,7 +26,7 @@
 | bot 自建红石装置 | 已通过：lamp+lever、door+lever、piston+lever 均按实际 at 自建并触发 |
 | observer 精确朝向 | 请求 north，实际 east |
 | 红石全自动农场 | observer+piston 未形成可重复验收 |
-| boat | 生成失败；召唤后 ride 也找不到实体（mineflayer 未跟踪） |
+| boat | 召唤后实体列表里完全没有 boat；mineflayer 不跟踪该实体 |
 | 刷怪塔完整自动化 | 已通过：清怪→收集→入箱→读回（rotten_flesh×1） |
 | 矿车/轨道自建 | 只能骑已存在的 minecart，不能放轨道/矿车 |
 | 装饰性建造 | 未验收 |
