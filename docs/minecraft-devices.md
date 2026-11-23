@@ -356,3 +356,18 @@ mc_harvest  FAIL 收割失败：寻路超时
 ```
 
 结论：`bonemeal` / `compost` 已真实执行；`plant` 的失败是测试场景占用，`harvest` 是寻路到边缘作物超时，需要单独复验。
+
+
+## P2 农业闭环通过（2026-11-23）
+
+石台集中测试：
+
+```text
+mc_plant    OK 种下了 wheat_seeds
+mc_bonemeal OK 用了骨粉催熟 wheat
+mc_harvest  OK 收割了 wheat
+mc_compost  OK 把 dirt 放进堆肥桶
+```
+
+`mc_harvest` 改为 4.5 格内直接 `bot.dig`，不再依赖寻路到边缘作物。  
+P2 农业闭环（种→催→收→堆肥）已真实成立。
