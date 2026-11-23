@@ -282,3 +282,18 @@ Server refused to place ... the block is still air
 ```
 
 现在不再把服务端延迟误判为失败。
+
+
+## 红石回路验收（2026-11-23）
+
+石台测试：
+
+```text
+place_lever OK 102 100 100
+place_lamp FAIL Server refused ... still air
+inspect_before air
+activate lever OK
+inspect_after air
+```
+
+结论：拉杆放置/激活正常；`redstone_lamp` 精确放置被服务端拒绝，红石回路还未成立。需要查 lamp 放置面/服务端放置限制，不能把 lever 成功当成装置成功。

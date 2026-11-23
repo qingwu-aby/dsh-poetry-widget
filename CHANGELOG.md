@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.71.2 红石回路复验**：lever 放置/激活通过；redstone_lamp 放置被服务端拒绝，回路未成立。
 - **v0.71.1 放置重试**：mc_place at 三次重试+读回，修复 still air 误判；石台实测通过。
 - **v0.71.0 石台 P3/P4 验收**：block/throw/shoot 与 minecart ride 真实通过；table 放置面/boat 物品仍异常。
 - **v0.70.2 隔离验证平台**：用 fill+tp 建石台，消除水/旧方块污染；observer 朝向仍待解决。
