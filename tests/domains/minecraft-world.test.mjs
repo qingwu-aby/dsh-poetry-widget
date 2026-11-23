@@ -236,3 +236,8 @@ test('minecraft-world：P3 战斗原语可解析', () => {
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_block', arguments: {} })).tool, 'mc_block')
   assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_throw', arguments: { target: 'skeleton' } })).tool, 'mc_throw')
 })
+
+test('minecraft-world：P4 交通原语可解析', () => {
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_boat', arguments: {} })).tool, 'mc_boat')
+  assert.equal(parseWorldCommand(JSON.stringify({ tool: 'mc_ride', arguments: { target: 'horse' } })).tool, 'mc_ride')
+})

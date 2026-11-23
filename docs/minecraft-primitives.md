@@ -147,6 +147,8 @@ P2 已补：`mc_bonemeal` / `mc_compost`；容器存取复用 P1。
 
 P3 已补：`mc_shoot` / `mc_block` / `mc_throw`；刷怪塔仍依赖 P1 红石。
 
+P4 已补：`mc_boat` / `mc_ride`；门/楼梯/栅栏用 `mc_place.facing`，装饰复用 `mc_place`。
+
 继续补“能放、能接、能触发”的原语：
 
 - `mc_place` 支持红石粉/火把/中继器/活塞/观察者/漏斗等方向性方块
