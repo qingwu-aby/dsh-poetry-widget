@@ -140,3 +140,26 @@ inspect / equip / place / inspect / place lever / activate / inspect
 - observer 请求 `facing=north`，实际 `facing=down`：超平坦地面没有侧向支撑，定向放置需要先放一面墙/支撑方块。
 
 结论：定向放置需要真实支撑面；装置验收必须先搭支撑，再放红石元件。
+
+
+## 支撑面复验（2026-11-23）
+
+在干净创造世界的空地先放支撑方块，再放 observer：
+
+```text
+place_support → place_observer (facing=north) → inspect
+```
+
+结果 `13/13`，observer 实际属性：
+
+```json
+{"powered": false, "facing": "east"}
+```
+
+结论：mineflayer 高层 `look/placeBlock` 不能稳定控制 observer 精确朝向；装置搭建需要：
+
+- 用 `mc_inspect` 读回实际 `facing`；
+- 必要时旋转/重放，直到朝向正确；
+- 不能只信“请求了 facing=north”。
+
+这属于验证结果，不是静默失败。
