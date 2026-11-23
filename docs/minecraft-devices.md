@@ -458,3 +458,19 @@ ATTACK OK 攻击了 zombie
 ```
 
 修复：`mc_attack` 之前只识别 `type=mob/animal`，漏掉新版 mineflayer 的 `hostile`；现在纳入 `hostile`，指定 target 时也按名字匹配。
+
+
+## 自动农场/防守循环（2026-11-23）
+
+石台夹具：
+
+```text
+mc_autofarm rounds=2 → OK 收 1，补种 1
+mc_defend seconds=5  → OK 防守 5 秒，攻击 17 次
+```
+
+说明：
+
+- `mc_autofarm` 是“收成熟作物 + 补种”的动作循环，不是观察者红石农场；
+- `mc_defend` 是“持续攻击附近 hostile”的防守循环，可作为刷怪塔清怪端；
+- 观察者+活塞的全红石自动农场仍未验收。
