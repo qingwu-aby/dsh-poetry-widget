@@ -271,3 +271,9 @@ test('minecraft-world：建设场景属于自主探索', () => {
   assert.match(prompt, /没有固定剧本/)
   assert.match(prompt, /mc_recipe 查本地配方/)
 })
+
+test('minecraft-world：建设场景自主设计提示', () => {
+  const prompt = buildWorldPrompt({ position: '0,0,0' })
+  assert.match(prompt, /建设场景没有标准答案/)
+  assert.match(prompt, /mc_recipe/)
+})
