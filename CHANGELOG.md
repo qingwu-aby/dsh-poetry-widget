@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.61.0 原语目录扩展 + Tab 样式**：新增 mc_shear/mc_milk；设置页 Tab 对齐刷B站的分段控件（layer token、flex、阴影）。
 - **v0.60.0 预置原语目录**：mc_water/mc_feed_animal 审批后自动开放；未审批不进入 prompt；带步骤申请自动注册宏。
 - **v0.59.1 设置页 Tab 视觉**：改为圆角分段控件、白底激活态、阴影与横向滚动，弱化边框。
 - **v0.59.0 原语申请修复/自动注册**：修复 proposals_unavailable；只显示她提交的申请；通过时若带 steps 自动注册宏工具，底层原语仍需宿主实现。
