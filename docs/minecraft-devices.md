@@ -474,3 +474,21 @@ mc_defend seconds=5  → OK 防守 5 秒，攻击 17 次
 - `mc_autofarm` 是“收成熟作物 + 补种”的动作循环，不是观察者红石农场；
 - `mc_defend` 是“持续攻击附近 hostile”的防守循环，可作为刷怪塔清怪端；
 - 观察者+活塞的全红石自动农场仍未验收。
+
+
+## 刷怪塔收集端（2026-11-23）
+
+夹具：石台 + 箱子 + 僵尸；`mc_defend` 清怪，`/kill` 确保掉落，`mc_collect` 走拾取，`mc_store` 入箱，`mc_use_container` 读回：
+
+```text
+defend OK
+collect 曾收集 17 个掉落物
+store OK 存入 rotten_flesh×1
+inspect_chest OK 容器里有 1 种物品
+```
+
+结论：
+
+- 清怪 → 掉落 → 拾取 → 入箱 → 读回链路可用；
+- `mc_collect` 偶发“附近没有掉落物”，与掉落物位置/时机有关，需多轮或扩大搜索；
+- `mc_store` 已支持跨 16 格找容器并寻路。

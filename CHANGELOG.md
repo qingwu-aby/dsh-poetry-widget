@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.84.0 刷怪塔收集端**：collect/store/use_container 链路可用；store 跨 16 格寻路；collect 偶发漏拾取。
 - **v0.83.0 自动农场/防守循环**：mc_autofarm/mc_defend 实测通过；红石全自动农场仍待。
 - **v0.82.0 近战通过**：mc_attack 支持 hostile 类型；夜间僵尸实测攻击成功。
 - **v0.81.0 放置回退**：精确放置失败改试附近位置并回执实际 at；不再直接失败。
