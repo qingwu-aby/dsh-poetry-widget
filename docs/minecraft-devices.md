@@ -81,3 +81,17 @@ mc_craft oak_planks
 ```
 
 结论：`mc_store` / `mc_take` 的容器闭环已真实可用。
+
+
+## 放置时序（实测）
+
+先 `mc_equip` 再 `mc_place` 的 workflow 已真实通过：
+
+```text
+mc_craft crafting_table
+→ mc_equip crafting_table
+→ mc_place crafting_table  成功
+→ mc_inspect crafting_table 成功
+```
+
+所以遇到 `must be holding an item to place` 时，先显式 `mc_equip`，不要把装备和放置压在同一步里赌时序。
