@@ -259,3 +259,9 @@ test('minecraft-world：交通情境提示', () => {
   assert.match(prompt, /矿车=5铁锭/)
   assert.match(prompt, /mc_drive/)
 })
+
+test('minecraft-world：本地配方查询可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_recipe', arguments: { item: 'minecart' } }))
+  assert.equal(cmd.tool, 'mc_recipe')
+  assert.equal(cmd.arguments.item, 'minecart')
+})
