@@ -45,3 +45,13 @@
 - 失败原因（缺材料/朝向错/无支撑）
 
 否则只能算“摆过”，不算“验证过”。
+
+
+## 已实测
+
+2026-11-23：
+
+- `verify_inspect` workflow → `mc_inspect(target=grass_block)` 经任务队列由 bot 执行；
+- 回执：`block=grass_block`，`properties={snowy:false}`，`ok=true`；
+- queue `claimed=1, completed=1`；
+- 同时修复 host 任务被自主循环饿死的问题：`hostTaskQueued` 在每轮决策前优先执行。
