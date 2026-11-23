@@ -2073,7 +2073,7 @@ test('index.js：DSH_PET_MEDIA_DIR 注入 + pet-media 静态路由可用（临�
       },
     }
     await pluginApply(fakeCtx)
-    assert.equal(routes.length, 47, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + twin-state + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON + hub 控制路由 + model-policy 路由 + training 路由 + minecraft 任务路由 + memory-admin 路由 + cost-policy 路由 + activity-grants 路由 + search-key 路由 + guide 路由 + workflow 路由')
+    assert.equal(routes.length, 48, 'assets + pet-media + self + project-action + project-detail + works + works-media + manual-read + presence + twin + twin-state + chat + attention + memory + model-errors + graph + graph-view + 13 条 JSON + hub 控制路由 + model-policy 路由 + training 路由 + minecraft 任务路由 + memory-admin 路由 + cost-policy 路由 + activity-grants 路由 + search-key 路由 + guide 路由 + workflow 路由 + capability 路由')
     const petRoute = routes.find((route) => route.path === PET_MEDIA_ROUTE)
     assert.ok(petRoute, '注册了 pet-media 路由')
 

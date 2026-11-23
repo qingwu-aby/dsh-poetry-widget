@@ -18,3 +18,15 @@ test('capability-proposals：只记录、不执行，重复 pending 去重', () 
   assert.equal(fs.existsSync(file), true)
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test('capability-proposals：审核状态可更新', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-cap-'))
+  const store = createCapabilityProposals({ file: path.join(dir, 'capability-proposals.json'), now: () => 1 })
+  const created = store.propose({ capability: 'mc_water', reason: '没有浇水原语' })
+  assert.equal(created.ok, true)
+  const id = created.item.id
+  assert.equal(store.setStatus(id, 'implemented').item.status, 'implemented')
+  assert.equal(store.setStatus(id, 'rejected').item.status, 'rejected')
+  assert.equal(store.setStatus(id, 'bad').ok, false)
+  fs.rmSync(dir, { recursive: true, force: true })
+})
