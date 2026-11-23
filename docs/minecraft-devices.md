@@ -230,3 +230,22 @@ mc_ride(target=minecart) → RIDE OK 骑上 minecart
 
 结论：`mc_ride` 对已存在的载具可用；`mc_boat` 的“生成载具”仍受 mineflayer 放置协议限制。  
 P4 交通至少已有矿车骑乘闭环。
+
+
+## 隔离验证平台（2026-11-23）
+
+超平坦世界出生点附近有水域，旧方块/水会污染测试。改为：
+
+```text
+fill 95 99 95 110 99 110 stone
+tp XiaoJingyu 100 100 100
+```
+
+再在 `x=102..109, y=100` 放测试装置，结果：
+
+```text
+place_table / lever / activate / store / take 全部通过
+observer 请求 facing=north，实际 facing=east
+```
+
+结论：隔离平台解决了“目标位置不是空气/水”的污染问题；observer 精确朝向仍未解决。
