@@ -121,3 +121,22 @@ inspect / equip / place / activate / inspect / place / inspect
 - `mc_place` 定向分支（observer 使用定向路径）
 
 注意：重复运行会在同一片区域留下旧方块，`findBlock` 可能找到旧目标；正式验收应在**干净世界/唯一坐标**下做。
+
+
+## 干净创造世界复验（2026-11-23）
+
+重置 `verify-world` 后跑 12 项：
+
+```text
+inspect / equip / place / inspect / place lever / activate / inspect
+/ place observer / inspect / place chest / store / take
+```
+
+结果：`11/12`。
+
+- `mc_store` / `mc_take` 仍成功；
+- 拉杆 `powered: false → true`；
+- `mc_equip` 因 RCON 给物品晚于验证启动而失败一次（时序问题，不是工具失效）；
+- observer 请求 `facing=north`，实际 `facing=down`：超平坦地面没有侧向支撑，定向放置需要先放一面墙/支撑方块。
+
+结论：定向放置需要真实支撑面；装置验收必须先搭支撑，再放红石元件。
