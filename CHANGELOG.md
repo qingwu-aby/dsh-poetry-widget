@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.71.0 石台 P3/P4 验收**：block/throw/shoot 与 minecart ride 真实通过；table 放置面/boat 物品仍异常。
 - **v0.70.2 隔离验证平台**：用 fill+tp 建石台，消除水/旧方块污染；observer 朝向仍待解决。
 - **v0.70.1**：mc_inspect 支持 at 精确坐标，便于装置验收定位。
 - **v0.70.0 P4 矿车验收**：mc_ride 真实骑上 minecart；船生成仍受协议限制。

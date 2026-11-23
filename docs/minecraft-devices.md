@@ -249,3 +249,18 @@ observer 请求 facing=north，实际 facing=east
 ```
 
 结论：隔离平台解决了“目标位置不是空气/水”的污染问题；observer 精确朝向仍未解决。
+
+
+## 石台 P3/P4 验收（2026-11-23）
+
+清空石台上方空气后：
+
+```text
+block OK / throw OK / shoot OK
+ride OK 骑上 minecart
+place_table 被服务端拒绝（仍为空气）
+boat 缺船物品
+```
+
+`VERIFY DONE 15/18`。  
+P3 三项与矿车骑乘已真实通过；table 失败是服务端放置面/位置问题，boat 未给物品。
