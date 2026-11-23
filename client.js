@@ -29799,7 +29799,6 @@
       const [capabilities, setCapabilities] = React.useState(null);
       const [capError, setCapError] = React.useState("");
       const [capBusy, setCapBusy] = React.useState("");
-      const [capDraft, setCapDraft] = React.useState({ capability: "", reason: "", evidence: "" });
       const [memoryAdmin, setMemoryAdmin] = React.useState(null);
       const [memoryAdminError, setMemoryAdminError] = React.useState("");
       const [memoryAdminBusy, setMemoryAdminBusy] = React.useState("");
@@ -30208,19 +30207,6 @@
         ["ops", "\u6210\u672C\u4E0E\u8BAD\u7EC3"],
         ["game", "Minecraft"]
       ];
-      function submitCapability() {
-        if (!capDraft.capability.trim()) return;
-        setCapBusy("create");
-        setCapError("");
-        apiRequest("/capability-proposals.json", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "create", activityId: "minecraft", capability: capDraft.capability, reason: capDraft.reason, evidence: capDraft.evidence })
-        }).then((data) => {
-          setCapDraft({ capability: "", reason: "", evidence: "" });
-          setCapabilities((current) => ({ ok: true, items: [data.item, ...current && Array.isArray(current.items) ? current.items : []] }));
-        }).catch((error) => setCapError("\u63D0\u4EA4\u5931\u8D25\uFF1A" + error.message)).finally(() => setCapBusy(""));
-      }
       const capabilityItems = capabilities && Array.isArray(capabilities.items) ? capabilities.items : [];
       function reviewCapability(id, status) {
         setCapBusy(id + ":" + status);
@@ -30707,34 +30693,12 @@
           "div",
           { style: cardStyle("game") },
           h3("div", { style: styles.title }, "\u539F\u8BED\u7533\u8BF7"),
-          h3("div", { style: styles.hint }, "\u5979\u5728\u6E38\u620F\u91CC\u7F3A\u539F\u8BED\u65F6\u63D0\u4EA4\uFF1B\u4F60\u5BA1\u6838\u540E\u81EA\u5DF1\u5B9E\u73B0\u3002\u4E0D\u4F1A\u81EA\u52A8\u6CE8\u518C\u6216\u6267\u884C\u4EE3\u7801\u3002"),
+          h3("div", { style: styles.hint }, "\u8FD9\u91CC\u53EA\u663E\u793A\u5979\u5728\u6E38\u620F\u91CC\u81EA\u5DF1\u63D0\u4EA4\u7684\u539F\u8BED\u7533\u8BF7\u3002\u901A\u8FC7\u65F6\u5982\u679C\u5979\u9644\u5E26\u4E86\u53EF\u7EC4\u5408\u6B65\u9AA4\uFF0C\u4F1A\u81EA\u52A8\u6CE8\u518C\u6210\u5B8F\u5DE5\u5177\uFF1B\u771F\u6B63\u7684\u5E95\u5C42\u539F\u8BED\u4ECD\u9700\u8981\u5BBF\u4E3B\u5B9E\u73B0\u3002"),
           capError ? h3("div", { style: styles.error }, capError) : null,
-          row("\u539F\u8BED\u540D", "\u4F8B\u5982 mc_water / mc_feed_animal", h3("input", {
-            type: "text",
-            style: styles.input,
-            "aria-label": "\u539F\u8BED\u540D",
-            value: capDraft.capability,
-            onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { capability: event.target.value }))
-          })),
-          row("\u4E3A\u4EC0\u4E48\u9700\u8981", "\u5979\u5361\u5728\u54EA\u4E00\u6B65", h3("input", {
-            type: "text",
-            style: styles.input,
-            "aria-label": "\u539F\u8BED\u7406\u7531",
-            value: capDraft.reason,
-            onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { reason: event.target.value }))
-          })),
-          row("\u8BC1\u636E", "\u6E38\u620F\u91CC\u7684\u56DE\u6267/\u73B0\u8C61", h3("input", {
-            type: "text",
-            style: styles.input,
-            "aria-label": "\u539F\u8BED\u8BC1\u636E",
-            value: capDraft.evidence,
-            onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { evidence: event.target.value }))
-          })),
           h3(
             "div",
             { style: { display: "flex", gap: 8, alignItems: "center", marginTop: 6 } },
-            h3("button", { type: "button", style: Object.assign({}, styles.button, styles.primary), disabled: capBusy !== "" || !capDraft.capability.trim(), onClick: submitCapability }, capBusy === "create" ? "\u63D0\u4EA4\u4E2D\u2026" : "\u63D0\u4EA4\u7533\u8BF7"),
-            h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: refreshCapabilities }, "\u5237\u65B0")
+            h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: refreshCapabilities }, "\u5237\u65B0\u7533\u8BF7")
           ),
           capabilityItems.length === 0 ? h3("div", { style: styles.hint, key: "cap-empty" }, "\u8FD8\u6CA1\u6709\u539F\u8BED\u7533\u8BF7\u3002") : capabilityItems.map((item) => h3(
             "div",
@@ -30744,12 +30708,13 @@
               { style: styles.label },
               h3("b", null, item.capability || "(\u672A\u547D\u540D)"),
               h3("span", { style: styles.hint }, (item.status || "pending") + (item.reason ? " \xB7 " + safeDisplayText(item.reason, 120) : "")),
-              item.evidence ? h3("span", { style: styles.hint }, "\u8BC1\u636E\uFF1A" + safeDisplayText(item.evidence, 160)) : null
+              item.evidence ? h3("span", { style: styles.hint }, "\u8BC1\u636E\uFF1A" + safeDisplayText(item.evidence, 160)) : null,
+              Array.isArray(item.steps) && item.steps.length > 0 ? h3("span", { style: styles.hint }, "\u7533\u8BF7\u6B65\u9AA4\uFF1A" + item.steps.map((step) => step && step.tool ? step.tool : "?").join(" \u2192 ")) : null
             ),
             h3(
               "div",
               { style: { display: "flex", gap: 6, alignItems: "center" } },
-              item.status === "pending" ? h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: () => reviewCapability(item.id, "implemented") }, "\u6807\u8BB0\u5DF2\u5B9E\u73B0") : null,
+              item.status === "pending" ? h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: () => reviewCapability(item.id, "approved") }, "\u901A\u8FC7\u5E76\u6CE8\u518C") : null,
               item.status === "pending" ? h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: () => reviewCapability(item.id, "rejected") }, "\u9A73\u56DE") : null,
               item.status !== "pending" ? h3("button", { type: "button", style: styles.button, disabled: capBusy !== "", onClick: () => reviewCapability(item.id, "pending") }, "\u91CD\u5F00") : null
             )

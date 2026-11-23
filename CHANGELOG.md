@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.59.0 原语申请修复/自动注册**：修复 proposals_unavailable；只显示她提交的申请；通过时若带 steps 自动注册宏工具，底层原语仍需宿主实现。
 - **v0.58.0 原语申请入口**：Minecraft Tab 增加原语申请列表/提交/审核；capability API 支持状态更新。
 - **v0.57.0 耕地原语**：mc_till 锄地、mc_harvest 收割；mc_plant 只认 farmland；不预设种田循环。
 - **v0.56.0 设置页 Tab**：基础/模型/Hub/记忆与权限/成本与训练/Minecraft 分 Tab，减少纵向长度。

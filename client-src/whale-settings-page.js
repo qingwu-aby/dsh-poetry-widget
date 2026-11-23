@@ -249,7 +249,6 @@ export function createWhaleSettingsPage(React, h) {
   const [capabilities, setCapabilities] = React.useState(null)
   const [capError, setCapError] = React.useState('')
   const [capBusy, setCapBusy] = React.useState('')
-  const [capDraft, setCapDraft] = React.useState({ capability: '', reason: '', evidence: '' })
   // Gate K5：记忆质量/导出 + Activity 权限授权。
   const [memoryAdmin, setMemoryAdmin] = React.useState(null)
   const [memoryAdminError, setMemoryAdminError] = React.useState('')
@@ -669,19 +668,6 @@ export function createWhaleSettingsPage(React, h) {
     ['basic', '基础'], ['model', '模型'], ['hub', 'Hub'],
     ['memory', '记忆与权限'], ['ops', '成本与训练'], ['game', 'Minecraft'],
   ]
-  function submitCapability() {
-    if (!capDraft.capability.trim()) return
-    setCapBusy('create')
-    setCapError('')
-    apiRequest('/capability-proposals.json', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'create', activityId: 'minecraft', capability: capDraft.capability, reason: capDraft.reason, evidence: capDraft.evidence }),
-    })
-      .then((data) => { setCapDraft({ capability: '', reason: '', evidence: '' }); setCapabilities((current) => ({ ok: true, items: [data.item, ...(current && Array.isArray(current.items) ? current.items : [])] })) })
-      .catch((error) => setCapError('提交失败：' + error.message))
-      .finally(() => setCapBusy(''))
-  }
   const capabilityItems = capabilities && Array.isArray(capabilities.items) ? capabilities.items : []
   function reviewCapability(id, status) {
     setCapBusy(id + ':' + status)
@@ -1032,23 +1018,10 @@ export function createWhaleSettingsPage(React, h) {
     ),
     h('div', { style: cardStyle('game') },
       h('div', { style: styles.title }, '原语申请'),
-      h('div', { style: styles.hint }, '她在游戏里缺原语时提交；你审核后自己实现。不会自动注册或执行代码。'),
+      h('div', { style: styles.hint }, '这里只显示她在游戏里自己提交的原语申请。通过时如果她附带了可组合步骤，会自动注册成宏工具；真正的底层原语仍需要宿主实现。'),
       capError ? h('div', { style: styles.error }, capError) : null,
-      row('原语名', '例如 mc_water / mc_feed_animal', h('input', {
-        type: 'text', style: styles.input, 'aria-label': '原语名', value: capDraft.capability,
-        onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { capability: event.target.value })),
-      })),
-      row('为什么需要', '她卡在哪一步', h('input', {
-        type: 'text', style: styles.input, 'aria-label': '原语理由', value: capDraft.reason,
-        onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { reason: event.target.value })),
-      })),
-      row('证据', '游戏里的回执/现象', h('input', {
-        type: 'text', style: styles.input, 'aria-label': '原语证据', value: capDraft.evidence,
-        onChange: (event) => setCapDraft((draft) => Object.assign({}, draft, { evidence: event.target.value })),
-      })),
       h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 } },
-        h('button', { type: 'button', style: Object.assign({}, styles.button, styles.primary), disabled: capBusy !== '' || !capDraft.capability.trim(), onClick: submitCapability }, capBusy === 'create' ? '提交中…' : '提交申请'),
-        h('button', { type: 'button', style: styles.button, disabled: capBusy !== '', onClick: refreshCapabilities }, '刷新'),
+        h('button', { type: 'button', style: styles.button, disabled: capBusy !== '', onClick: refreshCapabilities }, '刷新申请'),
       ),
       capabilityItems.length === 0
         ? h('div', { style: styles.hint, key: 'cap-empty' }, '还没有原语申请。')
@@ -1056,10 +1029,11 @@ export function createWhaleSettingsPage(React, h) {
           h('div', { style: styles.label },
             h('b', null, item.capability || '(未命名)'),
             h('span', { style: styles.hint }, (item.status || 'pending') + (item.reason ? ' · ' + safeDisplayText(item.reason, 120) : '')),
-            item.evidence ? h('span', { style: styles.hint }, '证据：' + safeDisplayText(item.evidence, 160)) : null),
+            item.evidence ? h('span', { style: styles.hint }, '证据：' + safeDisplayText(item.evidence, 160)) : null,
+            Array.isArray(item.steps) && item.steps.length > 0 ? h('span', { style: styles.hint }, '申请步骤：' + item.steps.map((step) => step && step.tool ? step.tool : '?').join(' → ')) : null),
           h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
             item.status === 'pending'
-              ? h('button', { type: 'button', style: styles.button, disabled: capBusy !== '', onClick: () => reviewCapability(item.id, 'implemented') }, '标记已实现')
+              ? h('button', { type: 'button', style: styles.button, disabled: capBusy !== '', onClick: () => reviewCapability(item.id, 'approved') }, '通过并注册')
               : null,
             item.status === 'pending'
               ? h('button', { type: 'button', style: styles.button, disabled: capBusy !== '', onClick: () => reviewCapability(item.id, 'rejected') }, '驳回')
