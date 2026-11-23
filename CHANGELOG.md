@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.85.0 收集稳定化**：mc_collect 支持 radius，24 格/5 轮扫描，0.8 格接近。
 - **v0.84.1 流程状态审计**：新增 flow-status；修复 tool 顺序；tests 1020 全绿。
 - **v0.84.0 刷怪塔收集端**：collect/store/use_container 链路可用；store 跨 16 格寻路；collect 偶发漏拾取。
 - **v0.83.0 自动农场/防守循环**：mc_autofarm/mc_defend 实测通过；红石全自动农场仍待。
