@@ -420,3 +420,17 @@ FIXTURE ride minecart OK
 
 6/6。  
 这条路线把“bot 放置协议不稳定”与“原语操作能力验证”解耦：装置几何由服务端夹具负责，bot 只验证开关、读回、骑乘。
+
+
+## 多装置夹具 6/6（2026-11-23）
+
+RCON 一次构造三套装置，bot 用 `mc_activate at` 精确操作：
+
+```text
+lever(102) → lamp(101)      lit:true
+lever(105) → piston(104)    extended:true
+lever(108) → oak_door(107)  open:true, powered:true
+```
+
+`mc_activate` 新增 `at` 精确坐标，解决了多个同名拉杆无法区分的问题。  
+P1 红石装置（灯/活塞/门）在夹具下全部成立。
