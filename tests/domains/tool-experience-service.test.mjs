@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { skillContextForActivity, skillHintLines } from '../../lib/core/tool-experience-service.mjs'
+import { skillContextForActivity, skillHintLines } from '../../lib/core/tool-experience.mjs'
 
 test('tool-experience-service：不同 Activity 的情境特征', () => {
   assert.deepEqual(skillContextForActivity('reading', { arguments: { path: 'a.md', page: 2 } }), { hasPath: true, hasPage: true, hasNote: false })

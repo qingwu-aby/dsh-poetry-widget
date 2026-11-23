@@ -69,3 +69,14 @@ Workflow 的非 Minecraft 步骤已经用这些特征记录到对应 `activity:*
 - provider 给出原始摘要/字幕；
 - 模型层按 `activity:video` 经验整理成 3–5 句摘要 + 主题；
 - 整理失败时保留 provider 原文，不让任务失败。
+
+
+## 查看经验
+
+只读查询走 workflow API（避免新增路由/模块）：
+
+```http
+GET /api/dsh-poetry/workflows.json?token=...&experience=activity:study&context={"hasQuestion":true}
+```
+
+返回该 scope 的成功率列表。`scope=global` 可看元经验。
