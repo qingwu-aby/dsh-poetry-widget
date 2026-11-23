@@ -117,6 +117,8 @@ Prompt 会显示“你从经验里学到的：mc_find 成功率 80%（4/5）”�
 
 - `mc_water`
 - `mc_feed_animal`
+- `mc_shear`
+- `mc_milk`
 
 审批通过后由 `approvedCatalogNames` 开放给 World prompt；未审批时模型看不到。  
 没有步骤的底层原语走目录开放；带 steps 的申请自动注册宏。
