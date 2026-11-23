@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.90.0 observer 联动通过**：方块变化→observer→lamp lit:true。
 - **v0.89.0 矿车放置试验**：新增 mc_minecart；物品生成矿车失败，已有矿车骑乘仍可用。
 - **v0.88.1**：记录 boat 实体未跟踪；自动农场组件自建 8/8。
 - **v0.88.0 自动农场组件自建**：observer/piston/hopper/chest 全部自建+读回；联动待验收。

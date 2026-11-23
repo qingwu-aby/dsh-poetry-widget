@@ -519,3 +519,20 @@ inspect ×4 全部 OK
 
 结论：bot 能自建农场四件套并读回坐标；  
 观察者触发→活塞动作→漏斗收集的行为联动还没验收。
+
+
+## Observer 触发联动通过（2026-11-23）
+
+夹具：
+
+```text
+observer[facing=north] at 101,100,100
+redstone_lamp at 101,100,101
+bot 在 101,100,99 放 dirt
+
+LINK trigger OK
+LINK lamp OK → lit:true
+```
+
+说明方块变化 → observer → lamp 的触发链路真实成立。  
+下一步把 lamp 换成活塞/漏斗，验证执行器与收集联动。
