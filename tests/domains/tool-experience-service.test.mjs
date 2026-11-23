@@ -12,5 +12,5 @@ test('tool-experience-service：不同 Activity 的情境特征', () => {
 test('tool-experience-service：经验提示只读指定 scope', () => {
   const fake = { summary: ({ scope }) => scope === 'activity:study' ? [{ tool: 'study.search', success: 4, attempts: 5, rate: 0.8 }] : [] }
   assert.match(skillHintLines(fake, { activity: 'study', context: { hasQuestion: true } })[0], /study.search/)
-  assert.deepEqual(skillHintLines(fake, { activity: 'video', context: {} }), [])
+  assert.match(skillHintLines(fake, { activity: 'video', context: {} })[0], /还没有工具经验/)
 })

@@ -53,3 +53,10 @@ Workflow 的非 Minecraft 步骤已经用这些特征记录到对应 `activity:*
 - Reading：手动阅读 prompt 显示 reading scope 经验；
 - Study：自学 prompt 显示 study scope 经验；
 - Video：摘要由 provider 产生，暂未注入（下一层）。
+
+
+## Chat 与探索
+
+- Chat prompt 注入 `activity:chat` 经验；
+- 没有经验时提示“可以试不同做法”；
+- 样本少于 3 次时提示“可以偶尔换工具”，避免过早固化。

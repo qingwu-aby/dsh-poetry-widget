@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.54.0 经验探索**：Chat prompt 注入工具经验；无经验/低样本时提示尝试不同工具。
 - **v0.53.0 经验注入**：Reading/Study prompt 注入对应 scope 的工具成功率；active tool-experience provider。
 - **v0.52.0 Activity 情境**：抽出 reading/study/video/chat 的 context provider；workflow 经验记录复用统一特征。
 - **v0.51.0 通用工具经验**：抽 `tool-experience`，按 activity scope 隔离；Minecraft/Workflow 回执接入，支持跨场景经验。
