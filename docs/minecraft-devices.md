@@ -264,3 +264,21 @@ boat 缺船物品
 
 `VERIFY DONE 15/18`。  
 P3 三项与矿车骑乘已真实通过；table 失败是服务端放置面/位置问题，boat 未给物品。
+
+
+## 精确放置重试（2026-11-23）
+
+`mc_place at` 加入 3 次重试 + 放置后读回：
+
+```text
+PLACE OK 放了 crafting_table 到 102 100 100
+INSPECT OK 查看 crafting_table
+```
+
+修复了之前：
+
+```text
+Server refused to place ... the block is still air
+```
+
+现在不再把服务端延迟误判为失败。
