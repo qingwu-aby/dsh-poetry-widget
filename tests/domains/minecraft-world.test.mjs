@@ -198,3 +198,11 @@ test('minecraft-world：蓝图只保留背包已有材料', () => {
   assert.equal(filtered.blocks[0].block, 'oak_planks')
   assert.equal(filtered.filtered, true)
 })
+
+test('minecraft-world：耕地工具可解析', () => {
+  const till = parseWorldCommand(JSON.stringify({ tool: 'mc_till', arguments: { maxDistance: 4 } }))
+  assert.equal(till.tool, 'mc_till')
+  assert.equal(till.arguments.maxDistance, 4)
+  const harvest = parseWorldCommand(JSON.stringify({ tool: 'mc_harvest', arguments: {} }))
+  assert.equal(harvest.tool, 'mc_harvest')
+})

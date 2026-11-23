@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.57.0 耕地原语**：mc_till 锄地、mc_harvest 收割；mc_plant 只认 farmland；不预设种田循环。
 - **v0.56.0 设置页 Tab**：基础/模型/Hub/记忆与权限/成本与训练/Minecraft 分 Tab，减少纵向长度。
 - **v0.55.1**：经验只读查询（workflows.json?experience=...）；global 经验并入提示；合并 experience-service 控制模块数。
 - **v0.55.0 Video 摘要层**：video.summary 可接模型整理，读取 video 经验并生成摘要/主题；失败回退 provider 原文。
