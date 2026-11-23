@@ -55,3 +55,29 @@
 - 回执：`block=grass_block`，`properties={snowy:false}`，`ok=true`；
 - queue `claimed=1, completed=1`；
 - 同时修复 host 任务被自主循环饿死的问题：`hostTaskQueued` 在每轮决策前优先执行。
+
+
+## 存储实测
+
+2026-11-23：
+
+```text
+mc_craft oak_planks
+→ mc_craft crafting_table
+→ mc_place crafting_table
+→ mc_craft chest
+→ mc_place chest
+→ mc_store dirt ×1
+→ mc_take dirt ×1
+```
+
+全部经 workflow→queue→bot 执行成功；receipts 中有：
+
+```text
+合成了 chest×1
+放了 chest 到 4 64 34
+存入 dirt×1
+取出 dirt×1
+```
+
+结论：`mc_store` / `mc_take` 的容器闭环已真实可用。

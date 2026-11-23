@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.67.1 存储实测**：容器类型扩展；workflow 实测 craft/place/store/take 全链路成功。
 - **v0.67.0 装置验收实测**：workflow→queue→bot 执行 mc_inspect 成功；修复 host 任务被自主循环饿死。
 - **v0.66.0 装置验收基础**：mc_place.at 精确坐标、回执 properties；新增红石/防御/交通验收清单。
 - **v0.65.0 P4 交通批**：mc_boat/mc_ride；方向性放置覆盖门梯栅栏，装饰复用 place。
