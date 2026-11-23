@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.94.0 自建门/活塞通过**：door/piston + lever 自建并触发；红石自建链路成立。
 - **v0.93.0 自动农场整链通过**：observer→piston→melon→hopper→chest，melon_slice×4 入箱。
 - **v0.92.0 漏斗收集通过**：hopper→chest 实测 wheat×1；与 observer→piston 合并待整链。
 - **v0.91.0 observer→piston 联动**：方块变化触发 piston extended:true，执行器链路通过。

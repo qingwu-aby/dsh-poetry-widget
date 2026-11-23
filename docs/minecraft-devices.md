@@ -594,3 +594,13 @@ FULLFARM chest OK → [{melon_slice, count:4}]
 ```
 
 自动农场整链跑通。
+
+
+## 自建门/活塞通过（2026-11-23）
+
+```text
+door 101,100,100 → lever 102,100,100 → open:true
+piston 99,100,100 → lever 100,100,100 → extended:true
+```
+
+bot 用实际 `facts.at` 计算相邻坐标，不依赖精确 `mc_place at`；红石装置自建链路成立。
