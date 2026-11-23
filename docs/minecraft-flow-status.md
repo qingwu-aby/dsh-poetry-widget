@@ -14,7 +14,7 @@
 | 战斗 | attack / block / shoot / throw |
 | 防守循环 | mc_defend 5 秒 |
 | 自动收菜 | mc_autofarm 收 1 补 1 |
-| 刷怪塔收集端 | 清怪 → 掉落 → 入箱 → 读回（collect 偶发漏拾） |
+| 刷怪塔收集端 | 清怪 → 收集 → 入箱 → 读回（已复验 4/4） |
 | 矿车骑乘 | mc_ride minecart |
 
 全部在独立创造世界；生存世界未参与。
@@ -27,7 +27,7 @@
 | observer 精确朝向 | 请求 north，实际 east |
 | 红石全自动农场 | observer+piston 未形成可重复验收 |
 | boat 生成 | placeEntity 序列化错误；activateItem 不生成实体 |
-| 刷怪塔完整自动化 | collect 已改为 24 格/5 轮扫描 + 0.8 格接近，待复验 |
+| 刷怪塔完整自动化 | 已通过：清怪→收集→入箱→读回（rotten_flesh×1） |
 | 矿车/轨道自建 | 只能骑已存在的 minecart，不能放轨道/矿车 |
 | 装饰性建造 | 未验收 |
 | 生存世界集成 | 未验证，避免污染当前世界 |
