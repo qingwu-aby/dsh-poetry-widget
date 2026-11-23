@@ -206,3 +206,16 @@ test('minecraft-world：耕地工具可解析', () => {
   const harvest = parseWorldCommand(JSON.stringify({ tool: 'mc_harvest', arguments: {} }))
   assert.equal(harvest.tool, 'mc_harvest')
 })
+
+test('minecraft-world：红石/容器原语可解析', () => {
+  const activate = parseWorldCommand(JSON.stringify({ tool: 'mc_activate', arguments: { target: 'lever' } }))
+  assert.equal(activate.tool, 'mc_activate')
+  assert.equal(activate.arguments.target, 'lever')
+  const inspect = parseWorldCommand(JSON.stringify({ tool: 'mc_inspect', arguments: { target: 'observer' } }))
+  assert.equal(inspect.tool, 'mc_inspect')
+  const store = parseWorldCommand(JSON.stringify({ tool: 'mc_store', arguments: { item: 'wheat', count: 8 } }))
+  assert.equal(store.arguments.item, 'wheat')
+  assert.equal(store.arguments.count, 8)
+  const take = parseWorldCommand(JSON.stringify({ tool: 'mc_take', arguments: { item: 'redstone', count: 4 } }))
+  assert.equal(take.tool, 'mc_take')
+})
