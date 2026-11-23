@@ -505,3 +505,17 @@ SELFBUILD inspect_lamp OK → lit:true
 
 流程：普通 `mc_place` 放灯 → 用回执 `facts.at` 算相邻坐标放拉杆 → activate → inspect。  
 不依赖 `mc_place at` 精确成功，装置仍可自建。
+
+
+## 自动农场组件自建（2026-11-23）
+
+```text
+observer OK 101,100,100
+piston   OK 99,100,100
+hopper   OK 100,100,101
+chest    OK 100,100,99
+inspect ×4 全部 OK
+```
+
+结论：bot 能自建农场四件套并读回坐标；  
+观察者触发→活塞动作→漏斗收集的行为联动还没验收。

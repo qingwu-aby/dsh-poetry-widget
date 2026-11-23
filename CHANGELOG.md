@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v0.88.0 自动农场组件自建**：observer/piston/hopper/chest 全部自建+读回；联动待验收。
 - **v0.87.0 自建红石回路**：lamp+lever 自建成功，实际 at 驱动；不依赖精确 at。
 - **v0.86.0 刷怪塔收集复验**：defend→collect→store→inspect 4/4，rotten_flesh 入箱读回成功。
 - **v0.85.0 收集稳定化**：mc_collect 支持 radius，24 格/5 轮扫描，0.8 格接近。
