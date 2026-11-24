@@ -283,3 +283,11 @@ test('minecraft-world：工具有层级升级提示', () => {
   assert.match(prompt, /工具有层级/)
   assert.match(prompt, /石镐/)
 })
+
+test('minecraft-world：mc_project 可解析并保留字段', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_project', arguments: { action: 'open', title: '带屋顶的院子', milestones: ['找平地', '备料'] } }))
+  assert.equal(cmd.tool, 'mc_project')
+  assert.equal(cmd.arguments.action, 'open')
+  assert.equal(cmd.arguments.title, '带屋顶的院子')
+  assert.equal(cmd.arguments.milestones.length, 2)
+})
