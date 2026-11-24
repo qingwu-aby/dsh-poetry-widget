@@ -88,3 +88,11 @@ test('signals：背包快满时提示箱子/存储，够用时不打扰', async 
   assert.equal(storageHint({ slotsFree: 20, nearbyBlocks: [] }), '')
   assert.equal(storageHint({}), '')
 })
+
+test('signals：有生食/原矿时提示熔炉，没熔炉就提示先做', async () => {
+  const { smeltHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  assert.match(smeltHint({ inventory: ['beef×2'], nearbyBlocks: ['furnace'] }), /mc_smelt/)
+  assert.match(smeltHint({ inventory: ['raw_iron×3', 'cobblestone×12'], nearbyBlocks: [] }), /mc_craft furnace/)
+  assert.match(smeltHint({ inventory: ['beef×1'], nearbyBlocks: [] }), /先挖点圆石/)
+  assert.equal(smeltHint({ inventory: ['apple×1'] }), '')
+})
