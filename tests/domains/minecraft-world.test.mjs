@@ -297,3 +297,10 @@ test('minecraft-world：mc_flee 可解析', () => {
   assert.equal(cmd.tool, 'mc_flee')
   assert.equal(cmd.arguments.distance, 14)
 })
+
+test('minecraft-world：mc_escape 可解析，卡住提示优先自救', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_escape', arguments: {} }))
+  assert.equal(cmd.tool, 'mc_escape')
+  const prompt = buildWorldPrompt({ position: '0,0,0', stuck: true })
+  assert.match(prompt, /mc_escape/)
+})
