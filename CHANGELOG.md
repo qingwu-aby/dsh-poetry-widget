@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.7.0 Wiki 步骤提炼**：模型把 wiki 段落转成可执行步骤（失败回退原文）；prompt 提示右键使用与“怎么用”查法；抽离 fact-sanitize 控制行数。
 - **v1.6.0 Wiki 攻略优先**：新增 zh.minecraft.wiki 检索（去口水词/物品名变体/相关性排序/行动小节），mc_guide 先 wiki 后视频。
 - **v1.5.0 垂直到达**：move_to 实心目标自动重定向；垫脚上行（climbed）；挖矿够不到先垫块。
 - **v1.4.0 世界天数**：bot 上报游戏日；设置页 Minecraft 显示“第 N 天 · 白天/夜晚”。

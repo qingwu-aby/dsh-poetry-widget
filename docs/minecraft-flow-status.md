@@ -97,3 +97,11 @@ mc_mine → 挖了 oak_log
 怎么搭自动门 → 红石电路
 床 怎么睡觉  → 床 | 获取
 ```
+
+
+## Wiki 步骤提炼（2026-11-24）
+
+- `wiki-summarize.mjs`：把 wiki 段落交给模型，输出 `{method, steps, caveat}`；
+- 步骤要求写成她用 `mc_*` 工具能做的动作，最多 5 条，wiki 没写的不能补；
+- 模型失败/超时就回退原文句子，不会因此拿不到攻略；
+- prompt 增加一行：大多数物品方块都是右键（`mc_use`/`mc_place`）使用，不确定就 `mc_guide` 查「XX 怎么用」。
