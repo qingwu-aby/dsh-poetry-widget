@@ -51,3 +51,10 @@ test('signals：连续单动作会提示合并成队列', async () => {
   const queued = { commandHistory: Array.from({ length: 6 }, () => ({ tool: 'mc_mine', arguments: { block: 'dirt' }, queueCount: 2 })) }
   assert.doesNotMatch(repetitionHint(queued, 5000), /queue/)
 })
+
+test('signals：Minecraft 专用候选先关 thinking，再有兜底', async () => {
+  const { MC_FAST_CANDIDATES } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  assert.equal(MC_FAST_CANDIDATES[0].reasoningEffort, 'off')
+  assert.ok(MC_FAST_CANDIDATES.length >= 2)
+  assert.ok(MC_FAST_CANDIDATES.some((item) => item.reasoningEffort !== 'off'))
+})

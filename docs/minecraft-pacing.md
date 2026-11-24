@@ -26,3 +26,17 @@
 
 单次模型延迟（15–20 秒）不会因为 prompt 变好而消失。  
 如果 queue 用起来，理论上吞吐能到 2–3 倍；如果还是慢，只能换更快模型或砍 prompt。
+
+
+## Minecraft 专用模型候选（2026-11-24）
+
+Minecraft 的决策/计划只要快，不要求深思：
+
+```text
+1) deepseek-account/deepseek-flash, reasoningEffort=off  （关 thinking，首选）
+2) dsh-opencode-go/deepseek-v4.1-flash, low            （兜底，带 thinking）
+```
+
+只作用于 `minecraft-world` 自己的调用（decide / plan / guide 总结），其他场景仍走全局策略。
+
+实测：用 `deepseek-flash + off` 跑 `plan_build` 成功出计划，没有 UNSUPPORTED_REASONING_EFFORT。
