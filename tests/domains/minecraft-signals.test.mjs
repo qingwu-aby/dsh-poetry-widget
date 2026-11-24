@@ -77,3 +77,14 @@ test('signals：没武器时不鼓励空手打，死了会提醒先活下来', a
   assert.equal(deathHint(now - 30 * 60_000, now), '')
   assert.equal(deathHint(0, now), '')
 })
+
+test('signals：背包快满时提示箱子/存储，够用时不打扰', async () => {
+  const { storageHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const full = storageHint({ slotsFree: 3, nearbyBlocks: ['grass_block'] })
+  assert.match(full, /mc_craft chest/)
+  assert.match(full, /mc_store/)
+  const withChest = storageHint({ slotsFree: 2, nearbyBlocks: ['chest'] })
+  assert.match(withChest, /mc_store/)
+  assert.equal(storageHint({ slotsFree: 20, nearbyBlocks: [] }), '')
+  assert.equal(storageHint({}), '')
+})
