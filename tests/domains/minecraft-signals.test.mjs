@@ -96,3 +96,19 @@ test('signals：有生食/原矿时提示熔炉，没熔炉就提示先做', asy
   assert.match(smeltHint({ inventory: ['beef×1'], nearbyBlocks: [] }), /先挖点圆石/)
   assert.equal(smeltHint({ inventory: ['apple×1'] }), '')
 })
+
+test('signals：连续同一目标会提示先做完再换', async () => {
+  const { intentAnchor } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const state = { commandHistory: Array.from({ length: 4 }, () => ({ tool: 'mc_mine', reason: '先挖圆石做石镐' })) }
+  assert.match(intentAnchor(state), /先把这件事做完/)
+  assert.equal(intentAnchor({ commandHistory: [] }), '')
+  const switched = { commandHistory: [{ tool: 'mc_mine', reason: '挖石头' }, { tool: 'mc_move_to', reason: '换地方' }, { tool: 'mc_move_to', reason: '换地方' }] }
+  assert.equal(intentAnchor(switched), '')
+})
+
+test('tactics：采矿类提问给台阶挖法', async () => {
+  const { lookupTactics } = await import('../../lib/domain/play/minecraft-tactics.mjs')
+  const tactic = lookupTactics('怎么挖铁矿')
+  assert.ok(tactic.steps.some((step) => step.includes('台阶')))
+  assert.ok(tactic.steps.some((step) => step.includes('火把')))
+})
