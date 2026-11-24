@@ -129,8 +129,8 @@ test('建造计划解析：相对坐标边界、方块白名单、最少块数',
 test('minecraft-world：大项目先调研，蓝图 prompt 带上资料', () => {
   const prompt = buildWorldPrompt({ position: '1,2,3' }, {})
   assert.match(prompt, /长期路线/)
-  assert.match(prompt, /自我检查/)
-  assert.match(prompt, /不知道就先 mc_guide 或 mc_learn 查/)
+  assert.match(prompt, /自检/)
+  assert.match(prompt, /不会就先 mc_guide\/mc_learn/)
   const blueprint = buildBlueprintPrompt({ research: '先做木镐，再挖石头，避免垂直下挖' })
   assert.match(blueprint, /你刚查到的资料/)
   assert.match(blueprint, /先做木镐/)
@@ -274,6 +274,12 @@ test('minecraft-world：建设场景属于自主探索', () => {
 
 test('minecraft-world：建设场景自主设计提示', () => {
   const prompt = buildWorldPrompt({ position: '0,0,0' })
-  assert.match(prompt, /建设场景没有标准答案/)
+  assert.match(prompt, /没有固定剧本/)
   assert.match(prompt, /mc_recipe/)
+})
+
+test('minecraft-world：工具有层级升级提示', () => {
+  const prompt = buildWorldPrompt({ position: '0,0,0' })
+  assert.match(prompt, /工具有层级/)
+  assert.match(prompt, /石镐/)
 })
