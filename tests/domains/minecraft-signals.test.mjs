@@ -123,3 +123,14 @@ test('signals：生活镜像陈述缺什么，不写成命令', async () => {
   assert.equal(settled, '')
   assert.equal(livingHint({}), '')
 })
+
+test('signals：生活层级说明上下层，不下命令', async () => {
+  const { livingLayer } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const bare = livingLayer({ facilities: { bed: 0, chest: 0, furnace: 0, crafting_table: 0, torch: 0, crops: 0, door: 0 }, inventory: [], automations: 0 })
+  assert.match(bare, /第 1 层/)
+  assert.match(bare, /再往上一层/)
+  assert.match(bare, /你自己定/)
+  const settled = livingLayer({ facilities: { bed: 1, chest: 1, furnace: 1, crafting_table: 1, torch: 4, crops: 6, door: 1 }, inventory: ['bread×5'], automations: 2 })
+  assert.match(settled, /第 6 层/)
+  assert.equal(livingLayer({}), '')
+})
