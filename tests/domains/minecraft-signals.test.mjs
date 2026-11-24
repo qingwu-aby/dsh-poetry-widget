@@ -65,3 +65,15 @@ test('settings：mcThinking 默认关闭，可写回', async () => {
   assert.equal(normalizeSettings({ mcThinking: true }).mcThinking, true)
   assert.equal(settingsPatch({ mcThinking: true }).mcThinking, true)
 })
+
+test('signals：没武器时不鼓励空手打，死了会提醒先活下来', async () => {
+  const { deathHint, threatLines } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const unarmed = threatLines({ nearbyEntities: [{ name: 'zombie', type: 'hostile', distance: 3 }], health: 18, inventory: [] })
+  assert.ok(unarmed.some((line) => line.includes('没有武器') && line.includes('不要空手')))
+  const armed = threatLines({ nearbyEntities: [{ name: 'zombie', type: 'hostile', distance: 3 }], health: 18, inventory: ['stone_sword×1'] })
+  assert.ok(armed.some((line) => line.includes('mc_attack')))
+  const now = 10_000_000
+  assert.match(deathHint(now - 3 * 60_000, now), /死了一次/)
+  assert.equal(deathHint(now - 30 * 60_000, now), '')
+  assert.equal(deathHint(0, now), '')
+})
