@@ -43,3 +43,11 @@ test('signals：未知敌对生物按 type 识别，并提示先查名字', asyn
   assert.ok(lines.some((line) => line.includes('不熟悉的生物')))
   assert.ok(lines.some((line) => line.includes('cow')))
 })
+
+test('signals：连续单动作会提示合并成队列', async () => {
+  const { repetitionHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const singles = { commandHistory: Array.from({ length: 6 }, () => ({ tool: 'mc_mine', arguments: { block: 'dirt' }, queueCount: 0 })) }
+  assert.match(repetitionHint(singles, 5000), /queue/)
+  const queued = { commandHistory: Array.from({ length: 6 }, () => ({ tool: 'mc_mine', arguments: { block: 'dirt' }, queueCount: 2 })) }
+  assert.doesNotMatch(repetitionHint(queued, 5000), /queue/)
+})
