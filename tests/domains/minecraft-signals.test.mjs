@@ -22,3 +22,16 @@ test('signals：材料缺口大才提示，够用不打扰', () => {
   assert.equal(demandHint(blocks, ['oak_planks×40']), '')
   assert.equal(demandHint(Array.from({ length: 10 }, () => ({ block: 'dirt' })), []), '')
 })
+
+test('signals：附近敌对生物会进入提示，并给出保命选项', async () => {
+  const { threatLines } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const lines = threatLines({ nearbyEntities: ['zombie@10,64,20', 'cow@12,64,20'], health: 6 })
+  assert.ok(lines.some((line) => line.includes('敌对生物') && line.includes('zombie')))
+  assert.ok(lines.some((line) => line.includes('mc_attack') || line.includes('跑开')))
+  assert.ok(lines.some((line) => line.includes('附近生物')))
+})
+
+test('signals：没有威胁且血量正常时不提示', async () => {
+  const { threatLines } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  assert.deepEqual(threatLines({ nearbyEntities: [], health: 20 }), [])
+})
