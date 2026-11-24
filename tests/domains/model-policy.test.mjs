@@ -544,7 +544,8 @@ test('model-policy M49：非法 effort 不透传；policy 缺失/异常回退旧
   assert.equal(SELF_TALK_TIMEOUT_MS, 35000)
   assert.equal(SELF_GROWTH_TIMEOUT_MS, 40000)
   assert.equal(VOICE_TIMEOUT_MS, 40000)
-  assert.equal(MOOD_AI_TIMEOUT_MS, 20000, 'mood 超时保持不变')
+  // v1.10：deepseek-v4.1-flash thinking 常开，mood 20s 常被吃满；抬到 30s。
+  assert.equal(MOOD_AI_TIMEOUT_MS, 30000, 'mood 超时抬高到 30s')
 })
 
 // ---------------------------------------------------------------------------
