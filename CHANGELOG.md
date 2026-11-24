@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.18.0 mc_flee**：新增逃跑原语（远离最近威胁、多次重试、GoalInvert 兜底），接进战斗提示。
 - **v1.17.0 死亡对策**：威胁提示按是否有武器/血量给不同建议（没武器不空手打）；死亡后 15 分钟内提示先活下来。
 - **v1.16.0 Minecraft 思考开关**：设置页 Minecraft 新增“决策思考”开关（默认关=快，打开=带 thinking），只影响游戏侧。
 - **v1.15.0 Minecraft 关思考**：mc 决策/计划改用 deepseek-flash(off) 优先、v4.1-flash 兜底；其他场景策略不变；llm-call 支持按调用指定候选。

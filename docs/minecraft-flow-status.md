@@ -139,3 +139,11 @@ mc_mine → 挖了 oak_log
 - `demandHint`：建造计划某方块 ≥32 块且现有量不足一半 → 提示“手挖会很累，可批量采集或自动化；少建一点也合理”。
 
 接在 World prompt；`mc_plan` 回执带 `demandHint`，下一次决策可见。
+
+
+## 逃跑原语 mc_flee（2026-11-24）
+
+- 找最近的敌对实体（type=hostile/monster 或已知名字），朝反方向跑指定距离（默认 16，最大 32）；
+- 没拉开 60% 距离会再跑一次，仍不行用 GoalInvert 兜底；
+- 创意世界实测：`从 zombie 旁边跑开 3.0 格`（僵尸会追，距离会波动）；
+- 接进 prompt：被追/打不过用 mc_flee 先拉开距离。

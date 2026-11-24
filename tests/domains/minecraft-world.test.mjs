@@ -291,3 +291,9 @@ test('minecraft-world：mc_project 可解析并保留字段', () => {
   assert.equal(cmd.arguments.title, '带屋顶的院子')
   assert.equal(cmd.arguments.milestones.length, 2)
 })
+
+test('minecraft-world：mc_flee 可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_flee', arguments: { distance: 14 } }))
+  assert.equal(cmd.tool, 'mc_flee')
+  assert.equal(cmd.arguments.distance, 14)
+})
