@@ -30150,6 +30150,9 @@
         label
       );
       const world = mc && mc.world ? mc.world : null;
+      const worldObservation = world && world.observation && typeof world.observation === "object" ? world.observation : null;
+      const worldDay = worldObservation && Number.isFinite(Number(worldObservation.day)) ? Number(worldObservation.day) : null;
+      const worldTime = worldObservation && typeof worldObservation.timeOfDay === "string" ? worldObservation.timeOfDay : "";
       const running = Boolean(mc && mc.ports && mc.ports.server);
       const hubInfo = hubSummary(hub);
       const hubTaskRows = hubTaskList(hub);
@@ -30702,6 +30705,11 @@
               h3("button", { type: "button", style: Object.assign({}, styles.button, running ? null : styles.primary), disabled: busy !== "", onClick: () => minecraft("start", { background: true }) }, busy === "start" ? "\u542F\u52A8\u4E2D\u2026" : "\u4E00\u952E\u542F\u52A8"),
               h3("button", { type: "button", style: styles.button, disabled: busy !== "" || !running, onClick: () => minecraft("stop", { background: true }) }, busy === "stop" ? "\u505C\u6B62\u4E2D\u2026" : "\u505C\u6B62")
             )
+          ),
+          row(
+            "\u4E16\u754C\u5929\u6570",
+            "\u5979\u5728\u8FD9\u4E2A\u4E16\u754C\u8FC7\u7684\u6E38\u620F\u65E5\uFF08\u4E16\u754C\u65F6\u95F4\uFF0C\u4E0D\u662F\u73B0\u5B9E\u5929\u6570\uFF09",
+            h3("b", null, worldDay === null ? "\u2014" : "\u7B2C " + worldDay + " \u5929" + (worldTime ? " \xB7 " + worldTime : ""))
           ),
           row("\u5979", world ? `${world.lastReceipt && world.lastReceipt.facts && world.lastReceipt.facts.position || "\u4F4D\u7F6E\u672A\u77E5"} \xB7 \u6700\u8FD1 ${world.lastCommand && world.lastCommand.tool || "\u65E0\u52A8\u4F5C"}` : "\u5C1A\u672A\u8FDB\u5165\u6E38\u620F", null),
           row("\u6E38\u620F\u64CD\u4F5C\u6743\u9650", "\u63A7\u5236 = \u5141\u8BB8\u52A8\u624B\uFF1B\u53EA\u89C2\u5BDF = \u53EA\u770B", h3(

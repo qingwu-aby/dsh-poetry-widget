@@ -623,6 +623,9 @@ export function createWhaleSettingsPage(React, h) {
     label,
   )
   const world = mc && mc.world ? mc.world : null
+  const worldObservation = world && world.observation && typeof world.observation === 'object' ? world.observation : null
+  const worldDay = worldObservation && Number.isFinite(Number(worldObservation.day)) ? Number(worldObservation.day) : null
+  const worldTime = worldObservation && typeof worldObservation.timeOfDay === 'string' ? worldObservation.timeOfDay : ''
   const running = Boolean(mc && mc.ports && mc.ports.server)
   const hubInfo = hubSummary(hub)
   const hubTaskRows = hubTaskList(hub)
@@ -1030,6 +1033,8 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: Object.assign({}, styles.button, running ? null : styles.primary), disabled: busy !== '', onClick: () => minecraft('start', { background: true }) }, busy === 'start' ? '启动中…' : '一键启动'),
           h('button', { type: 'button', style: styles.button, disabled: busy !== '' || !running, onClick: () => minecraft('stop', { background: true }) }, busy === 'stop' ? '停止中…' : '停止'),
         )),
+      row('世界天数', '她在这个世界过的游戏日（世界时间，不是现实天数）',
+        h('b', null, worldDay === null ? '—' : '第 ' + worldDay + ' 天' + (worldTime ? ' · ' + worldTime : ''))),
       row('她', world ? `${(world.lastReceipt && world.lastReceipt.facts && world.lastReceipt.facts.position) || '位置未知'} · 最近 ${(world.lastCommand && world.lastCommand.tool) || '无动作'}` : '尚未进入游戏', null),
       row('游戏操作权限', '控制 = 允许动手；只观察 = 只看', h('select', {
         style: styles.select,
