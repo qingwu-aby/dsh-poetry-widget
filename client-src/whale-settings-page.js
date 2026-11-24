@@ -1033,6 +1033,7 @@ export function createWhaleSettingsPage(React, h) {
           h('button', { type: 'button', style: Object.assign({}, styles.button, running ? null : styles.primary), disabled: busy !== '', onClick: () => minecraft('start', { background: true }) }, busy === 'start' ? '启动中…' : '一键启动'),
           h('button', { type: 'button', style: styles.button, disabled: busy !== '' || !running, onClick: () => minecraft('stop', { background: true }) }, busy === 'stop' ? '停止中…' : '停止'),
         )),
+      row('Minecraft 决策思考', '关掉更快但更冲动；打开更稳但每步要多想几秒（其他场景不受影响）', checkbox('mcThinking')),
       row('世界天数', '她在这个世界过的游戏日（世界时间，不是现实天数）',
         h('b', null, worldDay === null ? '—' : '第 ' + worldDay + ' 天' + (worldTime ? ' · ' + worldTime : ''))),
       row('她', world ? `${(world.lastReceipt && world.lastReceipt.facts && world.lastReceipt.facts.position) || '位置未知'} · 最近 ${(world.lastCommand && world.lastCommand.tool) || '无动作'}` : '尚未进入游戏', null),

@@ -14981,6 +14981,7 @@
     "twinOverlay",
     "twinSystem",
     "modelTokenLimit",
+    "mcThinking",
     "lastPoemId",
     "tutorialSeen"
   ];
@@ -15004,6 +15005,7 @@
     lastPoemId: null,
     tutorialSeen: false,
     modelTokenLimit: 0,
+    mcThinking: false,
     updatedAt: 0
   });
   function hasOwn(obj, key) {
@@ -15038,6 +15040,7 @@
       lastPoemId,
       tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
       modelTokenLimit: Number.isFinite(Number(src.modelTokenLimit)) && Number(src.modelTokenLimit) >= 0 ? Math.min(2e5, Math.floor(Number(src.modelTokenLimit))) : DEFAULT_SETTINGS.modelTokenLimit,
+      mcThinking: src.mcThinking === true,
       updatedAt: num(src.updatedAt, 0)
     };
   }
@@ -30706,6 +30709,7 @@
               h3("button", { type: "button", style: styles.button, disabled: busy !== "" || !running, onClick: () => minecraft("stop", { background: true }) }, busy === "stop" ? "\u505C\u6B62\u4E2D\u2026" : "\u505C\u6B62")
             )
           ),
+          row("Minecraft \u51B3\u7B56\u601D\u8003", "\u5173\u6389\u66F4\u5FEB\u4F46\u66F4\u51B2\u52A8\uFF1B\u6253\u5F00\u66F4\u7A33\u4F46\u6BCF\u6B65\u8981\u591A\u60F3\u51E0\u79D2\uFF08\u5176\u4ED6\u573A\u666F\u4E0D\u53D7\u5F71\u54CD\uFF09", checkbox("mcThinking")),
           row(
             "\u4E16\u754C\u5929\u6570",
             "\u5979\u5728\u8FD9\u4E2A\u4E16\u754C\u8FC7\u7684\u6E38\u620F\u65E5\uFF08\u4E16\u754C\u65F6\u95F4\uFF0C\u4E0D\u662F\u73B0\u5B9E\u5929\u6570\uFF09",

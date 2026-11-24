@@ -58,3 +58,10 @@ test('signals：Minecraft 专用候选先关 thinking，再有兜底', async () 
   assert.ok(MC_FAST_CANDIDATES.length >= 2)
   assert.ok(MC_FAST_CANDIDATES.some((item) => item.reasoningEffort !== 'off'))
 })
+
+test('settings：mcThinking 默认关闭，可写回', async () => {
+  const { DEFAULT_SETTINGS, normalizeSettings, settingsPatch } = await import('../../client-src/settings-model.js')
+  assert.equal(DEFAULT_SETTINGS.mcThinking, false)
+  assert.equal(normalizeSettings({ mcThinking: true }).mcThinking, true)
+  assert.equal(settingsPatch({ mcThinking: true }).mcThinking, true)
+})
