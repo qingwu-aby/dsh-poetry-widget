@@ -112,3 +112,14 @@ test('tactics：采矿类提问给台阶挖法', async () => {
   assert.ok(tactic.steps.some((step) => step.includes('台阶')))
   assert.ok(tactic.steps.some((step) => step.includes('火把')))
 })
+
+test('signals：生活镜像陈述缺什么，不写成命令', async () => {
+  const { livingHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const bare = livingHint({ facilities: { bed: 0, chest: 0, furnace: 0, crafting_table: 1, torch: 0, crops: 0, door: 0 }, inventory: [] })
+  assert.match(bare, /没有床/)
+  assert.match(bare, /箱子/)
+  assert.doesNotMatch(bare, /你必须|马上去/)
+  const settled = livingHint({ facilities: { bed: 1, chest: 1, furnace: 1, torch: 2, crops: 3, door: 1 }, inventory: [] })
+  assert.equal(settled, '')
+  assert.equal(livingHint({}), '')
+})
