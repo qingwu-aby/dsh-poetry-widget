@@ -16,3 +16,12 @@ test('tactics：无关主题不硬套', () => {
   assert.equal(lookupTactics(''), null)
   assert.ok(tacticsTopics().includes('僵尸'))
 })
+
+test('tactics：未知生物走通用战斗流程，种田类不误触发', async () => {
+  const { genericCombatTactic } = await import('../../lib/domain/play/minecraft-tactics.mjs')
+  const generic = genericCombatTactic('bogged 怎么打')
+  assert.equal(generic.source, 'tactics')
+  assert.ok(generic.steps.some((step) => step.includes('mc_inventory')))
+  assert.ok(generic.steps.some((step) => step.includes('撤')))
+  assert.equal(genericCombatTactic('怎么种小麦'), null)
+})

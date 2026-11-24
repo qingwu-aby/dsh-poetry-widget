@@ -35,3 +35,11 @@ test('signals：没有威胁且血量正常时不提示', async () => {
   const { threatLines } = await import('../../lib/domain/play/minecraft-signals.mjs')
   assert.deepEqual(threatLines({ nearbyEntities: [], health: 20 }), [])
 })
+
+test('signals：未知敌对生物按 type 识别，并提示先查名字', async () => {
+  const { threatLines } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const lines = threatLines({ nearbyEntities: [{ name: 'bogged', type: 'hostile', distance: 4 }, { name: 'cow', type: 'animal', distance: 6 }], health: 20 })
+  assert.ok(lines.some((line) => line.includes('敌对生物') && line.includes('bogged')))
+  assert.ok(lines.some((line) => line.includes('不熟悉的生物')))
+  assert.ok(lines.some((line) => line.includes('cow')))
+})
