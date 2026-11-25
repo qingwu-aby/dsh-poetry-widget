@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.35.0 Hub 影子模式可持久**：settings 增加 hub 字段（默认 enabled+shadow），修复重启后 Hub 回落 off 导致事件流/诊断中断。
 - **v1.34.0 统一模型**：Minecraft 候选回到 dsh-opencode-go/deepseek-v4.1-flash(low)，撤销 v4-pro/off 方案。
 - **v1.33.0 原地死循环**：move_to 到达判定收紧（range+0.5），未到达如实报错；新增 stallHint 检测同一步骤原地重复并提示换方法。
 - **v1.32.0 关思考仍用 dsh-opencode-go**：候选改为 deepseek-v4-pro(off) 优先、v4.1-flash(low) 兜底；实测 v4.1-flash 不支持 off。

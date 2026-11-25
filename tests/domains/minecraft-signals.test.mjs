@@ -168,3 +168,15 @@ test('signals：同一步骤原地重复会提示换方法', async () => {
   assert.equal(stallHint(moving), '')
   assert.equal(stallHint({ commandHistory: [] }), '')
 })
+
+test('settings：hub 影子模式默认开启且能持久', async () => {
+  const { DEFAULT_SETTINGS, normalizeSettings } = await import('../../lib/kernel/settings-store.mjs')
+  assert.equal(DEFAULT_SETTINGS.hub.enabled, true)
+  assert.equal(DEFAULT_SETTINGS.hub.shadow, true)
+  const kept = normalizeSettings({ hub: { enabled: true, shadow: false } })
+  assert.deepEqual(kept.hub, { enabled: true, shadow: false })
+  const disabled = normalizeSettings({ hub: { enabled: false } })
+  assert.deepEqual(disabled.hub, { enabled: false, shadow: true })
+  const broken = normalizeSettings({ hub: 'nope' })
+  assert.deepEqual(broken.hub, { enabled: true, shadow: true })
+})
