@@ -134,3 +134,13 @@ test('signals：生活层级说明上下层，不下命令', async () => {
   assert.match(settled, /第 6 层/)
   assert.equal(livingLayer({}), '')
 })
+
+test('signals：饿了但没食物时不鼓励反复 mc_eat', async () => {
+  const { hungerHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const empty = hungerHint({ food: 10, inventory: ['oak_log×5', 'stick×3'] })
+  assert.match(empty, /只会失败/)
+  assert.match(empty, /mc_find/)
+  const hasFood = hungerHint({ food: 10, inventory: ['bread×2'] })
+  assert.match(hasFood, /mc_eat/)
+  assert.equal(hungerHint({ food: 20, inventory: [] }), '')
+})
