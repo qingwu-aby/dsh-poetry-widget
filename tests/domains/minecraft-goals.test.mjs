@@ -42,7 +42,8 @@ test('goals：有活跃项目或未到间隔就不重复立项', async () => {
   store.handle({ action: 'open', title: '已有项目' })
   const state = { observation: {}, commandHistory: [] }
   const skipped = await runGoalRoundIfDue({ state, projectStore: store, callModel: async () => { calls += 1; return { text: '{}' } } })
-  assert.equal(skipped, null)
+  assert.equal(skipped.ok, false)
+  assert.equal(skipped.reason, 'has_project')
   assert.equal(calls, 0)
 
   const empty = createMinecraftProjectStore({ file: '' })
@@ -52,8 +53,10 @@ test('goals：有活跃项目或未到间隔就不重复立项', async () => {
     now: () => 1000,
     callModel: async () => { calls += 1; return { text: '{"title":"先弄个火把","why":"太黑","first":"做 4 支火把"}' } },
   })
-  assert.equal(first.title, '先弄个火把')
+  assert.equal(first.ok, true)
+  assert.equal(first.goal.title, '先弄个火把')
   const second = await runGoalRoundIfDue({ state, projectStore: createMinecraftProjectStore({ file: '' }), now: () => 2000, callModel: async () => { calls += 1; return { text: '{}' } } })
-  assert.equal(second, null)
+  assert.equal(second.ok, false)
+  assert.equal(second.reason, 'throttled')
   assert.equal(calls, 1)
 })
