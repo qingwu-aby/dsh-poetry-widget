@@ -310,3 +310,8 @@ test('minecraft-world：mc_stair_up 可解析', () => {
   assert.equal(cmd.tool, 'mc_stair_up')
   assert.equal(cmd.arguments.steps, 10)
 })
+
+test('minecraft-world：mc_shelter 可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_shelter', arguments: {} }))
+  assert.equal(cmd.tool, 'mc_shelter')
+})
