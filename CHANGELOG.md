@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.36.0 自动课程**：按设施/材料/饥饿缺口生成最多 3 条“下一步候选”（材料够了或还差前置），有活跃项目时不打扰。
 - **v1.35.0 Hub 影子模式可持久**：settings 增加 hub 字段（默认 enabled+shadow），修复重启后 Hub 回落 off 导致事件流/诊断中断。
 - **v1.34.0 统一模型**：Minecraft 候选回到 dsh-opencode-go/deepseek-v4.1-flash(low)，撤销 v4-pro/off 方案。
 - **v1.33.0 原地死循环**：move_to 到达判定收紧（range+0.5），未到达如实报错；新增 stallHint 检测同一步骤原地重复并提示换方法。
