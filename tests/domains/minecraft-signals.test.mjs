@@ -191,3 +191,12 @@ test('signals：未完成蓝图会在 prompt 里可见', async () => {
   assert.match(done, /已经盖完/)
   assert.equal(planHint({}), '')
 })
+
+test('signals：盖好的壳子算进第 2 层，但仍提示缺门/火把', async () => {
+  const { livingHint, livingLayer } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const obs = { facilities: { bed: 0, chest: 0, furnace: 0, torch: 0, crops: 0, door: 0, crafting_table: 0, shelterShell: 1 }, inventory: ['dirt×3'], food: 20 }
+  assert.match(livingLayer(obs), /第 2 层/)
+  assert.match(livingHint(obs), /壳子还没有门和火把/)
+  const extra = { ...obs, facilities: {}, facilitiesExtra: { shelterShell: 1 } }
+  assert.match(livingLayer(extra), /第 2 层/)
+})
