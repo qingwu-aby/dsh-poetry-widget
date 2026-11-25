@@ -160,3 +160,13 @@ test('signals：关思考也走 dsh-opencode-go（v4-pro off），不回落 deep
   assert.equal(MC_FAST_CANDIDATES[0].reasoningEffort, 'off')
   assert.ok(MC_FAST_CANDIDATES.every((item) => item.provider === 'dsh-opencode-go'))
 })
+
+test('signals：同一步骤原地重复会提示换方法', async () => {
+  const { stallHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const stuck = { commandHistory: Array.from({ length: 3 }, () => ({ tool: 'mc_move_to', arguments: { x: -51, z: -20 }, positionAfter: '-51.3,69.0,-20.5' })) }
+  assert.match(stallHint(stuck), /走不通/)
+  assert.match(stallHint(stuck), /mc_escape/)
+  const moving = { commandHistory: ['1,1,1', '2,1,1', '3,1,1'].map((pos) => ({ tool: 'mc_move_to', arguments: { x: 5, z: 5 }, positionAfter: pos })) }
+  assert.equal(stallHint(moving), '')
+  assert.equal(stallHint({ commandHistory: [] }), '')
+})
