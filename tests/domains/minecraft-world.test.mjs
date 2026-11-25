@@ -304,3 +304,9 @@ test('minecraft-world：mc_escape 可解析，卡住提示优先自救', () => {
   const prompt = buildWorldPrompt({ position: '0,0,0', stuck: true })
   assert.match(prompt, /mc_escape/)
 })
+
+test('minecraft-world：mc_stair_up 可解析', () => {
+  const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_stair_up', arguments: { steps: 10 } }))
+  assert.equal(cmd.tool, 'mc_stair_up')
+  assert.equal(cmd.arguments.steps, 10)
+})
