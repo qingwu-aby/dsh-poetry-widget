@@ -180,3 +180,14 @@ test('settings：hub 影子模式默认开启且能持久', async () => {
   const broken = normalizeSettings({ hub: 'nope' })
   assert.deepEqual(broken.hub, { enabled: true, shadow: true })
 })
+
+test('signals：未完成蓝图会在 prompt 里可见', async () => {
+  const { planHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const running = planHint({ plan: { name: 'Dirt_3x3_Shelter', total: 18, nextIndex: 17, done: false } })
+  assert.match(running, /没盖完/)
+  assert.match(running, /17\/18/)
+  assert.match(running, /mc_build/)
+  const done = planHint({ plan: { name: '小棚', total: 7, nextIndex: 7, done: true } })
+  assert.match(done, /已经盖完/)
+  assert.equal(planHint({}), '')
+})
