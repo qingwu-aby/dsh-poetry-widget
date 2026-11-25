@@ -518,3 +518,31 @@ facilitiesExtra: {"shelterShell":1,"shelterName":"Dirt_3x3_Shelter","shelterDist
 facilitiesExtra: {"shelterShell":1,"shelterName":"小屋","shelterAt":"-66,63,8","shelterDistance":0.5}
 anchor: {"at":"-66,63,8","source":"spawn","distance":0.5}
 ```
+
+
+## 打猎从来没成功过（2026-11-25 夜）
+
+50 分钟里她反复：`mc_find pig` → `mc_attack` → `mc_collect`（失败）→ 再找。
+
+日志证据：
+
+```text
+mc_find → 找到 pig，距离 53.9 格
+mc_attack → 攻击了 pig        ← 一只 50 格外的猪，一下都没打到
+mc_collect → 附近没有掉落物（扫描 24 格）
+```
+
+根因：`mc_attack` 只对“最近的目标”挥一下，**从不走近，也不连续攻击**。
+所以她对 50 格外的动物永远打不死，肉和羊毛也就永远拿不到。
+
+修复：`mc_attack` 现在是完整的“打猎”：
+
+1. 目标超过 3 格外 → 先 pathGoto 走过去；
+2. 走到后连续挥砍，最多 8 下 / 6 秒，目标跑开再追；
+3. 回执说清“打了几下 / 是否击杀”。
+
+创造世界实测（10 格外的猪）：
+
+```text
+ATTACK2 OK 攻击 pig 3 下（已击杀）
+```
