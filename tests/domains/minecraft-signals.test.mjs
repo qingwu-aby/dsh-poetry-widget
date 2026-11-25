@@ -144,3 +144,12 @@ test('signals：饿了但没食物时不鼓励反复 mc_eat', async () => {
   assert.match(hasFood, /mc_eat/)
   assert.equal(hungerHint({ food: 20, inventory: [] }), '')
 })
+
+test('signals：长时间零散采集会提示可以用项目/蓝图，用过后不再提', async () => {
+  const { longTaskNudge } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const gathering = { commandHistory: Array.from({ length: 12 }, (_, i) => ({ tool: i % 2 ? 'mc_find' : 'mc_mine', arguments: { block: 'dirt' } })) }
+  assert.match(longTaskNudge(gathering, 1000), /mc_project/)
+  assert.equal(longTaskNudge(gathering, 2000), '')
+  const planned = { commandHistory: [...Array.from({ length: 11 }, () => ({ tool: 'mc_mine', arguments: { block: 'dirt' } })), { tool: 'mc_plan' }] }
+  assert.equal(longTaskNudge(planned, 5000), '')
+})
