@@ -500,3 +500,21 @@ facilitiesExtra: {"shelterShell":1,"shelterName":"Dirt_3x3_Shelter","shelterDist
 有床没睡过：躺一次 mc_sleep 才会把重生点定到这里。
 睡过：你的重生点定在床边（X）。死了会回到那里。
 ```
+
+
+## mc_shelter 也漏记（2026-11-25 夜）
+
+她 20:47–20:50 连续三次 `mc_shelter`，三次都成功（中心 -67/-66,63,8），
+但 `shelter-mark.json` 还停在旧的 -18,71,-60 → 她一直看到“家在 83 格外”，于是原地反复盖。
+
+修复：
+
+- `mc_shelter` 成功时把中心写进 `shelter-mark.json`；
+- 16 格内已有屋子 → 直接返回「不用再搭，走回去加门/火把/床」，避免重复施工。
+
+验证：
+
+```text
+facilitiesExtra: {"shelterShell":1,"shelterName":"小屋","shelterAt":"-66,63,8","shelterDistance":0.5}
+anchor: {"at":"-66,63,8","source":"spawn","distance":0.5}
+```
