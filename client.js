@@ -15006,6 +15006,7 @@
     tutorialSeen: false,
     modelTokenLimit: 0,
     mcThinking: false,
+    hub: { enabled: true, shadow: true },
     updatedAt: 0
   });
   function hasOwn(obj, key) {
@@ -15041,6 +15042,7 @@
       tutorialSeen: typeof src.tutorialSeen === "boolean" ? src.tutorialSeen : DEFAULT_SETTINGS.tutorialSeen,
       modelTokenLimit: Number.isFinite(Number(src.modelTokenLimit)) && Number(src.modelTokenLimit) >= 0 ? Math.min(2e5, Math.floor(Number(src.modelTokenLimit))) : DEFAULT_SETTINGS.modelTokenLimit,
       mcThinking: src.mcThinking === true,
+      hub: src.hub && typeof src.hub === "object" ? { enabled: src.hub.enabled !== false, shadow: src.hub.shadow !== false } : { enabled: true, shadow: true },
       updatedAt: num(src.updatedAt, 0)
     };
   }
