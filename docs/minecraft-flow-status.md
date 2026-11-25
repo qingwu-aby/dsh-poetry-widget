@@ -479,3 +479,24 @@ facilitiesExtra: {"shelterShell":1,"shelterName":"Dirt_3x3_Shelter","shelterDist
 同时发现她身边有 11 个工作台：`mc_place crafting_table` 不加判断重复放。
 
 修复：`mc_place crafting_table` 时若 8 格内已有工作台 → 直接返回「附近已经有工作台了，不用再放（省材料）」。
+
+
+## 重生锚点 = 床，而不是我标的坐标（2026-11-25 夜）
+
+用户指出：Minecraft 里“有床的地方”才是她死后回去的地方。
+之前系统把“家”记成 shelter 标记的坐标，这混淆了两件事：
+
+- **重生锚点**：由床决定（睡过才算定住），没床就是世界出生点；
+- **她盖的屋子**：只是一个地点，不等于重生点。
+
+现在的判定：
+
+- bot 记录 `respawnAnchor`：睡床成功 → 床坐标（source=bed）；每次 spawn/重生 → 当前坐标（source=spawn，即世界出生点或旧床）；
+- 观察上报 `anchor: { at, source, distance }`；
+- prompt 三态：
+
+```text
+没有床：死了会回到世界出生点（X），不是你盖的屋子；想要"死了能回家"，得先做一张床并睡一次。
+有床没睡过：躺一次 mc_sleep 才会把重生点定到这里。
+睡过：你的重生点定在床边（X）。死了会回到那里。
+```

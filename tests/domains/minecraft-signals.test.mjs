@@ -211,3 +211,15 @@ test('signals：家在哪里会被记住，远了也说得出来', async () => {
   assert.match(near, /旁边/)
   assert.equal(homeHint({}), '')
 })
+
+test('signals：重生锚点按床判定，没床就说明白', async () => {
+  const { anchorHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const noBed = anchorHint({ anchor: { at: '0,68,0', source: 'spawn', distance: 30 }, facilities: { bed: 0 } })
+  assert.match(noBed, /世界出生点/)
+  assert.match(noBed, /不是你盖的屋子/)
+  const bedUnused = anchorHint({ anchor: { at: '0,68,0', source: 'spawn' }, facilities: { bed: 1 } })
+  assert.match(bedUnused, /mc_sleep/)
+  const bedSet = anchorHint({ anchor: { at: '-18,71,-60', source: 'bed' }, facilities: { bed: 1 } })
+  assert.match(bedSet, /重生点定在床边/)
+  assert.equal(anchorHint({}), '')
+})
