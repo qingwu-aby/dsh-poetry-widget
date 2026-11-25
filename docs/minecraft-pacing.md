@@ -96,3 +96,17 @@ dsh-opencode-go/hy4-flash-free   + off → 成功
 ```
 
 开思考仍然回落到全局策略（v4.1-flash low）。两条路都不再使用 deepseek-account。
+
+
+## 统一模型（2026-11-25 晚）
+
+放弃 deepseek-v4-pro/off 方案，Minecraft 与其他场景统一：
+
+```text
+dsh-opencode-go / deepseek-v4.1-flash (low)
+maxTokensFloor 2200
+```
+
+原因：v4.1-flash 不支持 effort=off（实测 UNSUPPORTED_REASONING_EFFORT），
+而 v4-pro 虽然支持 off，但没必要为游戏单独维护第二套模型。
+设置页的“决策思考”开关暂时只表示“是否走全局策略”，两档实际是同一个模型。

@@ -52,11 +52,10 @@ test('signals：连续单动作会提示合并成队列', async () => {
   assert.doesNotMatch(repetitionHint(queued, 5000), /queue/)
 })
 
-test('signals：Minecraft 专用候选先关 thinking，再有兜底', async () => {
+test('signals：Minecraft 候选带 token 下限，避免 thinking 吃空正文', async () => {
   const { MC_FAST_CANDIDATES } = await import('../../lib/domain/play/minecraft-signals.mjs')
-  assert.equal(MC_FAST_CANDIDATES[0].reasoningEffort, 'off')
-  assert.ok(MC_FAST_CANDIDATES.length >= 2)
-  assert.ok(MC_FAST_CANDIDATES.some((item) => item.reasoningEffort !== 'off'))
+  assert.ok(MC_FAST_CANDIDATES.length >= 1)
+  assert.ok(MC_FAST_CANDIDATES.every((item) => Number(item.maxTokensFloor) >= 1000))
 })
 
 test('settings：mcThinking 默认关闭，可写回', async () => {
@@ -154,11 +153,10 @@ test('signals：长时间零散采集会提示可以用项目/蓝图，用过后
   assert.equal(longTaskNudge(planned, 5000), '')
 })
 
-test('signals：关思考也走 dsh-opencode-go（v4-pro off），不回落 deepseek-account', async () => {
+test('signals：Minecraft 统一用 dsh-opencode-go/deepseek-v4.1-flash', async () => {
   const { MC_FAST_CANDIDATES } = await import('../../lib/domain/play/minecraft-signals.mjs')
-  assert.equal(MC_FAST_CANDIDATES[0].provider, 'dsh-opencode-go')
-  assert.equal(MC_FAST_CANDIDATES[0].reasoningEffort, 'off')
   assert.ok(MC_FAST_CANDIDATES.every((item) => item.provider === 'dsh-opencode-go'))
+  assert.ok(MC_FAST_CANDIDATES.every((item) => item.model === 'deepseek-v4.1-flash'))
 })
 
 test('signals：同一步骤原地重复会提示换方法', async () => {

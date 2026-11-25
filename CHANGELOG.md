@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.34.0 统一模型**：Minecraft 候选回到 dsh-opencode-go/deepseek-v4.1-flash(low)，撤销 v4-pro/off 方案。
 - **v1.33.0 原地死循环**：move_to 到达判定收紧（range+0.5），未到达如实报错；新增 stallHint 检测同一步骤原地重复并提示换方法。
 - **v1.32.0 关思考仍用 dsh-opencode-go**：候选改为 deepseek-v4-pro(off) 优先、v4.1-flash(low) 兜底；实测 v4.1-flash 不支持 off。
 - **v1.31.0 思考开关动态生效**：mcCandidates 支持按次读取设置，切换“Minecraft 决策思考”不再需要重启 DSH。
