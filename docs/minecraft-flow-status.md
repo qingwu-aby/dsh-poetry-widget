@@ -436,3 +436,24 @@ plan.origin = -18,71,-60
 - `mc_build` 完成且计划名像庇护所（屋/棚/shelter/house/庇护）时写 `shelter-mark.json`；
 - bot 观察上报 `facilitiesExtra.shelterShell`（离标记 32 格内算）；
 - 生活层级与镜像合并这个字段：有壳子 → 第 2 层，并提示「壳子还没有门和火把」。
+
+
+## 盖章完成但被判失败 + 标记缺失（2026-11-25 夜）
+
+19:37 那次 `mc_build` 回执是 `ok:false / 施工完成 0 块`：因为最后一块按规则被跳过、placed=0，
+而她看到“失败”就会犹豫要不要继续。
+
+修复：
+
+- `builder`：只要**走到最后一块**（finished）就算成功，不再要求“每块都放上”；
+- `mc_build`：计划已盖完（nextIndex ≥ total）直接回「已经盖完了（18 块），不用再施工」，
+  不再反复重试那一块放不上的屋顶角；
+- shelter 标记改为**自愈**：观察时发现计划已完成、名字像庇护所、但标记缺失 → 自动补写。
+
+验证（实时）：
+
+```text
+facilitiesExtra: {"shelterShell":1,"shelterName":"Dirt_3x3_Shelter","shelterDistance":7.1}
+```
+
+她现在在 7.1 格外，生活层级已经能认到“有顶能挡”。
