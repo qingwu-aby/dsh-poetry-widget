@@ -200,3 +200,14 @@ test('signals：盖好的壳子算进第 2 层，但仍提示缺门/火把', asy
   const extra = { ...obs, facilities: {}, facilitiesExtra: { shelterShell: 1 } }
   assert.match(livingLayer(extra), /第 2 层/)
 })
+
+test('signals：家在哪里会被记住，远了也说得出来', async () => {
+  const { homeHint } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const far = homeHint({ facilitiesExtra: { shelterName: '小棚', shelterAt: '-18,71,-60', shelterDistance: 70 } })
+  assert.match(far, /-18,71,-60/)
+  assert.match(far, /70 格/)
+  assert.match(far, /mc_move_to/)
+  const near = homeHint({ facilitiesExtra: { shelterName: '小棚', shelterAt: '-18,71,-60', shelterDistance: 5 } })
+  assert.match(near, /旁边/)
+  assert.equal(homeHint({}), '')
+})

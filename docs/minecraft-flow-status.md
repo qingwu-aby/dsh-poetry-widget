@@ -457,3 +457,25 @@ facilitiesExtra: {"shelterShell":1,"shelterName":"Dirt_3x3_Shelter","shelterDist
 ```
 
 她现在在 7.1 格外，生活层级已经能认到“有顶能挡”。
+
+
+## 死后忘记家在哪（2026-11-25 夜）
+
+她在 -18,71,-60 盖好屋子，之后死了一次、重生到 70 格外，
+观察里 `facilitiesExtra` 直接变成 `null`（因为只在 32 格内上报），于是「家」对她等于消失了。
+
+修复：
+
+- 无论多远都上报 `shelterAt`（坐标）与 `shelterDistance`；只有 32 格内才额外标 `shelterShell`;
+- prompt 会说出来：
+
+```text
+你之前盖好的「Dirt_3x3_Shelter」在 -18,71,-60（离你现在 70 格）。
+可以走回去（mc_move_to），也可以就地重新弄一个——两边都行。
+```
+
+## 工作台刷屏
+
+同时发现她身边有 11 个工作台：`mc_place crafting_table` 不加判断重复放。
+
+修复：`mc_place crafting_table` 时若 8 格内已有工作台 → 直接返回「附近已经有工作台了，不用再放（省材料）」。
