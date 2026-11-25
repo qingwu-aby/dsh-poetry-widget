@@ -153,3 +153,10 @@ test('signals：长时间零散采集会提示可以用项目/蓝图，用过后
   const planned = { commandHistory: [...Array.from({ length: 11 }, () => ({ tool: 'mc_mine', arguments: { block: 'dirt' } })), { tool: 'mc_plan' }] }
   assert.equal(longTaskNudge(planned, 5000), '')
 })
+
+test('signals：关思考也走 dsh-opencode-go（v4-pro off），不回落 deepseek-account', async () => {
+  const { MC_FAST_CANDIDATES } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  assert.equal(MC_FAST_CANDIDATES[0].provider, 'dsh-opencode-go')
+  assert.equal(MC_FAST_CANDIDATES[0].reasoningEffort, 'off')
+  assert.ok(MC_FAST_CANDIDATES.every((item) => item.provider === 'dsh-opencode-go'))
+})

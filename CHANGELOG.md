@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.32.0 关思考仍用 dsh-opencode-go**：候选改为 deepseek-v4-pro(off) 优先、v4.1-flash(low) 兜底；实测 v4.1-flash 不支持 off。
 - **v1.31.0 思考开关动态生效**：mcCandidates 支持按次读取设置，切换“Minecraft 决策思考”不再需要重启 DSH。
 - **v1.30.0 长任务提示**：连续 ≥9 步零散采集且期间没用过 project/plan/build 时，提示可以走「写目标 → 蓝图 → 分批施工」，30 分钟冷却。
 - **v1.29.0 饥饿信号**：饿了但背包没食物时明确说“mc_eat 只会失败”，指引去打猎/找作物（此前 12 小时里空吃 512 次）。

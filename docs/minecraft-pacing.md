@@ -76,3 +76,23 @@ dirt 911、oak_log 485、stone 227、grass_block 78、birch_log 41、cobblestone
 
 - 她仍然可能一次只做一个动作（queue=0）；
 - 没有“矿洞入口”这种地标记忆。
+
+
+## 关思考也走 dsh-opencode-go（2026-11-25）
+
+实测三种组合（用 plan_build 触发真实调用）：
+
+```text
+dsh-opencode-go/deepseek-v4.1-flash + off → UNSUPPORTED_REASONING_EFFORT（该模型不支持关思考）
+dsh-opencode-go/deepseek-v4-pro  + off → 成功（支持 off）
+dsh-opencode-go/hy4-flash-free   + off → 成功
+```
+
+因此关思考的候选改成：
+
+```text
+1) dsh-opencode-go/deepseek-v4-pro, off, maxTokensFloor 1500
+2) dsh-opencode-go/deepseek-v4.1-flash, low, maxTokensFloor 2200（兜底）
+```
+
+开思考仍然回落到全局策略（v4.1-flash low）。两条路都不再使用 deepseek-account。
