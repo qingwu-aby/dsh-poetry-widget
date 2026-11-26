@@ -52,3 +52,20 @@ test('status：能说出“你以前在附近放过什么”', () => {
   assert.match(report, /chest @5,64,5（8 格）/)
   assert.match(report, /你盖过的小屋/)
 })
+
+test('selfView：优先用 bot 的 self 快照，缺字段回退旧字段', async () => {
+  const { selfView } = await import('../../lib/domain/play/minecraft-status.mjs')
+  const canonical = selfView({
+    position: '1,2,3',
+    facilities: { bed: 0 },
+    self: { at: { x: 10, y: 20, z: 30 }, shelter: { verified: true, at: '40,50,60', distance: 12 }, facilities: { bed: 1 }, landmarks: [{ name: 'chest' }] },
+  })
+  assert.equal(canonical.position, '10,20,30')
+  assert.equal(canonical.shelter.at, '40,50,60')
+  assert.equal(canonical.facilities.bed, 1)
+  assert.equal(canonical.landmarks.length, 1)
+
+  const fallback = selfView({ position: '1,2,3', facilitiesExtra: { shelterAt: '7,8,9', shelterDistance: 5 } })
+  assert.equal(fallback.position, '1,2,3')
+  assert.equal(fallback.shelter.at, '7,8,9')
+})

@@ -1226,3 +1226,69 @@ else if (payload.action === 'project' || /^(open|step|grow|shrink|close|drop|sus
 
 影响：这解释了为什么她的项目 `lastStepAt` 长期不动——
 不是她不想推进，是**推进的通道一直堵着**。
+
+
+## 结构性整改（2026-11-26 深夜）：先建会报警的测试
+
+用户判断“整个流程漏洞百出”。审计数据：
+
+```text
+mc_shelter 10 次调用 · ok 5 次 · 其中 5 次是“3 面墙却报成功”  ← 100% 假回执
+今天死亡 61 次（僵尸 42、溺水 7、蜘蛛 4、溺尸 4）
+mc_project 12 次失败（unknown_action，已修）
+mc_find oak_log 失败 19 次（所在群系没有橡木，仍反复查）
+mc_craft“需要工作台”10 次（有表却走不到/没表也不自己做）
+```
+
+按顺序做了四件事：
+
+### ④ 端到端回归（先做，因为它能抓其他三个）
+
+`minecraft-bot/e2e-regression.mjs`（插件仓 `scripts/e2e-minecraft.mjs` 存副本）：
+
+```text
+真起创意服 → 等 bot 连上 → 布置 fixture → 跑场景 → 断言回执诚实性 → 拆服
+```
+
+10 个场景全过：
+
+```text
+find_missing / craft_with_far_table / shelter_full / escalate_find_log
+escalate_craft_table / shelter_low_material / assess_bare / assess_room
+hide_too_deep / place_in_hole
+```
+
+开发过程中它自己抓到并修掉：fixture 早于连接、区块未加载导致 setblock 失败、
+验证世界被删导致启动崩溃、tp 到虚空导致重生错位。
+
+### ① 工具契约（回执不许撒谎）
+
+`lib/domain/play/minecraft-tool-contract.mjs`：
+
+```text
+mc_shelter → 必须 walls>=4 且 roof>=1（3 面墙不再算成功）
+mc_hide    → dug>0 才算
+mc_craft   → 有产物或 already
+mc_find    → 有坐标才算
+…
+World.recordReceipt 用契约兜底：ok 与契约不符时以契约为准，并在 detail 追加“（未达成，按契约记为失败）”
+```
+
+### ② 状态单一真源
+
+bot 观察里新增 `self` 快照（位置/设施/环境/地标/已验收小屋），
+宿主 `selfView()` 统一读取，`mc_status`、层级梯子、家的坐标行全部从它派生，不再各算各的。
+
+### ③ 失败升级（同一失败两次就换策略）
+
+```text
+mc_find 同树种连续找不到 → 自动换其他树种（“没有 oak_log，但附近有 birch_log（5.5 格）”）
+mc_craft 连续两次因缺工作台失败 → 自己做工作台/放出来再合成（“失败升级”）
+```
+
+e2e 验证：
+
+```text
+✓ escalate_find_log     没有 oak_log，但附近有 birch_log（5.5 格）；先用它也行
+✓ escalate_craft_table  自己把工作台放好了，合成了 wooden_pickaxe×1（失败升级）
+```
