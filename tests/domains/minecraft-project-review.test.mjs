@@ -34,7 +34,7 @@ test('review：三个选项的解析与执行', async () => {
 test('review：项目刚推进过就不复盘；复盘有冷却', async () => {
   let calls = 0
   const store = createMinecraftProjectStore({ file: '', now: () => 1000 })
-  store.handle({ action: 'open', title: '新项目' })
+  store.handle({ action: 'open', title: '新项目', milestones: ['砍三块木头'] })
   const fresh = createProjectReviewer({ projectStore: store, now: () => 2000, callModel: async () => { calls += 1; return { text: '{}' } } })
   assert.equal(await fresh({ observation: {} }), null)
   assert.equal(calls, 0)
@@ -69,4 +69,20 @@ test('review：缩小目标不会把里程碑清空', async () => {
   const project = store.get()
   assert.equal(project.stage, '缩小目标')
   assert.deepEqual(project.milestones, ['采集木头和石头'], '沿用原里程碑，不能清空')
+})
+
+test('review：没有里程碑的项目立刻算卡住（不用等 6 小时）', async () => {
+  let calls = 0
+  const store = createMinecraftProjectStore({ file: '', now: () => 1000 })
+  store.handle({ action: 'open', title: '空项目' })
+  store.handle({ action: 'step', milestones: [] })
+  const reviewer = createProjectReviewer({
+    projectStore: store,
+    now: () => 1000 + 60 * 1000,
+    callModel: async () => { calls += 1; return { text: '{"decision":"shrink","note":"没有下一步","next":"先砍三块木头"}' } },
+  })
+  const result = await reviewer({ observation: {} })
+  assert.equal(calls, 1)
+  assert.equal(result.ok, true)
+  assert.equal(store.get().milestones[0], '先砍三块木头')
 })
