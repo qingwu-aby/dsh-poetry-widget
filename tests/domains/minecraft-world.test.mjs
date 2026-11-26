@@ -315,3 +315,10 @@ test('minecraft-world：mc_shelter 可解析', () => {
   const cmd = parseWorldCommand(JSON.stringify({ tool: 'mc_shelter', arguments: {} }))
   assert.equal(cmd.tool, 'mc_shelter')
 })
+
+test('tools：mc_assess 在工具列表里，且顺序与活动快照一致', async () => {
+  const { MINECRAFT_TOOLS } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const { MINECRAFT_TOOL_NAMES } = await import('../../lib/core/minecraft-activity.mjs')
+  assert.ok(MINECRAFT_TOOL_NAMES.includes('mc_assess'))
+  assert.deepEqual(MINECRAFT_TOOLS.map((tool) => tool.name), [...MINECRAFT_TOOL_NAMES])
+})
