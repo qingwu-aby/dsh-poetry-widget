@@ -25,3 +25,12 @@ test('tactics：未知生物走通用战斗流程，种田类不误触发', asyn
   assert.ok(generic.steps.some((step) => step.includes('撤')))
   assert.equal(genericCombatTactic('怎么种小麦'), null)
 })
+
+test('tactics：找羊给出“山坡/草原、别原地重复查”的打法', async () => {
+  const { lookupTactics } = await import('../../lib/domain/play/minecraft-tactics.mjs')
+  const tactic = lookupTactics('羊在哪里')
+  assert.ok(tactic)
+  assert.match(tactic.method, /草方块/)
+  assert.ok(tactic.steps.some((step) => step.includes('山坡') || step.includes('高处')))
+  assert.ok(tactic.steps.some((step) => step.includes('mc_explore')))
+})
