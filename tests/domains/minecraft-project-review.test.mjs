@@ -53,3 +53,20 @@ test('review：prompt 只给三个选项，不给指定任务', () => {
   assert.match(prompt, /close/)
   assert.doesNotMatch(prompt, /你必须|马上/)
 })
+
+test('review：缩小目标不会把里程碑清空', async () => {
+  const { runProjectReview } = await import('../../lib/domain/play/minecraft-goals.mjs')
+  const store = createMinecraftProjectStore({ file: '', now: () => 1000 })
+  store.handle({ action: 'open', title: '庇护所', milestones: ['采集木头和石头'] })
+  const result = await runProjectReview({
+    projectStore: store,
+    observation: {},
+    hours: 8,
+    callModel: async () => ({ text: '{"decision":"shrink","note":"太大","next":""}' }),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.review.decision, 'shrink')
+  const project = store.get()
+  assert.equal(project.stage, '缩小目标')
+  assert.deepEqual(project.milestones, ['采集木头和石头'], '沿用原里程碑，不能清空')
+})
