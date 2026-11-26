@@ -1109,3 +1109,28 @@ ASSESS OK 这间屋子 100 分：9/9 项达标。算是像样的家了。
 
 意义：**“品味”变成了可检查的标准**。她盖完能自己打分，缺什么一清二楚，
 不用我们评价，也不用我们说“该加床了”。
+
+
+## 里程碑“已具备”就触发复盘（2026-11-26 晚）
+
+问题：她的项目里程碑是「挖一个 1×1×2 封闭空间」，实际上 `mc_hide` 早就挖过无数次，
+但项目 `lastStepAt` 一直停在 15:48——要等 6 小时才复盘，期间她会一直挂着这个已完成的目标。
+
+改法：**动作事实直接登记为“已具备”，不等 6 小时**。
+
+```text
+mc_hide 挖成功      → facts.milestoneEvidence = 'enclosed_space'
+mc_shelter 验收通过  → facts.milestoneEvidence = 'shelter_built'
+
+World.recordReceipt → projectStore.noteEvidence(facts)
+                    → project.evidence = { kind, note, at }
+
+prompt 里出现：
+  你已经做到的事实：你挖出了一个能躲进去的封闭空间
+  （这件事的条件已经具备；要不要登记成推进、或换个方向，由你决定）
+
+复盘触发条件放宽：project.evidence 存在 → 30 分钟冷却即可复盘（不再等 6 小时）
+复盘 prompt 也会带上这条事实，她可以选 continue / shrink / close
+```
+
+注意：**登记的是事实，不是替她推进**。要不要 `mc_project step` 或换方向，仍然是她决定。
