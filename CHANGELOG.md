@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.74.0 修复 mc_project 动作通道**：所有带 action 的项目调用此前被覆盖成 unknown_action；World 现在把项目动作作为一等动作分发，失败回执列出可用动作。
 - **v1.73.0 升级目标**：复盘新增 grow（往上加一层），prompt 带生活层级梯子；旧目标进 history 不丢。
 - **v1.72.0 证据分级**：土坑（mc_hide）与小屋（mc_shelter 验收）分开表述，土坑明确“不算房子”，提示用 mc_assess 看差距。
 - **v1.71.0 里程碑证据**：mc_hide/mc_shelter 的成功事实登记进项目，prompt 显示“你已经做到”，30 分钟内触发自我复盘。

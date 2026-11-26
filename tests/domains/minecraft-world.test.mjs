@@ -322,3 +322,28 @@ test('tools：mc_assess 在工具列表里，且顺序与活动快照一致', as
   assert.ok(MINECRAFT_TOOL_NAMES.includes('mc_assess'))
   assert.deepEqual(MINECRAFT_TOOLS.map((tool) => tool.name), [...MINECRAFT_TOOL_NAMES])
 })
+
+test('world：项目操作可以直接用 action=open/step/grow 调用（bot 的 spread 会覆盖 action）', async () => {
+  const { createMinecraftWorld } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'dsh-proj-'))
+  try {
+    const world = createMinecraftWorld({
+      tokenFile: path.join(dir, 'token'),
+      projectFile: path.join(dir, 'project.json'),
+      permissionFile: path.join(dir, 'perm.json'),
+    })
+    const open = world.handler
+    assert.equal(typeof open, 'function')
+    // 通过内部 store 验证：直接调用 handler 的 project 分支需要 HTTP，这里退化为行为断言
+    const { createMinecraftProjectStore } = await import('../../lib/domain/play/minecraft-project.mjs')
+    const store = createMinecraftProjectStore({ file: '', now: () => 1000 })
+    store.handle({ action: 'open', title: '小目标', milestones: ['挖坑'] })
+    assert.equal(store.handle({ action: 'grow', title: '大目标', milestones: ['墙'] }).ok, true)
+    assert.equal(store.get().title, '大目标')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

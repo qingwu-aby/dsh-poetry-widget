@@ -1195,3 +1195,34 @@ prompt 从「你已经做到的事实」改成「你已经具备的」：
 {"decision":"grow","note":"坑够了","next":"盖 5×5 带门窗的小屋","milestones":["四面墙","屋顶","门"]}
 → 项目：盖 5×5 带门窗的小屋 / 升级目标 / 3 条里程碑 / history 1 条
 ```
+
+
+## mc_project 一直是坏的（2026-11-26 晚，重要）
+
+现象：她的 `mc_project` 回执始终是 `项目操作失败：unknown_action`。
+
+根因：bot 发送时写的是
+
+```js
+postWorld({ action: 'project', ...args })     // args 里带 action='grow' 时会把 'project' 覆盖掉
+```
+
+结果 World 收到 `action=grow`，而 HTTP 分发只认 `action==='project'` → 落到 `unknown_action`。
+
+**也就是说：她所有“登记推进/升级/收尾”的尝试，全都失败了。**
+
+修复：World 的 HTTP 分发把项目动作作为一等动作接受：
+
+```js
+else if (payload.action === 'project' || /^(open|step|grow|shrink|close|drop|suspend|resume|evidence|show)$/.test(String(payload.action || '')))
+  send(200, projectStore.handle(payload))
+```
+
+另外失败回执现在会列出可用动作：
+
+```text
+项目操作失败：xxx。可用动作：open/step/grow/shrink/close/suspend/resume/evidence
+```
+
+影响：这解释了为什么她的项目 `lastStepAt` 长期不动——
+不是她不想推进，是**推进的通道一直堵着**。
