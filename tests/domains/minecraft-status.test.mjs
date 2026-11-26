@@ -36,3 +36,19 @@ test('status：roughText 只统计样本足够的工具', () => {
   assert.match(roughText({ mc_craft: { success: 1, failure: 9 }, mc_mine: { success: 9, failure: 1 } }), /mc_craft 成功 10%/)
   assert.equal(roughText({ mc_wait: { success: 1, failure: 0 } }), '')
 })
+
+test('status：能说出“你以前在附近放过什么”', () => {
+  const report = buildStatusReport({
+    observation: {
+      position: '1,64,1',
+      facilities: {},
+      landmarks: [
+        { name: 'chest', x: 5, y: 64, z: 5, distance: 8 },
+        { name: 'shelter', x: -20, y: 70, z: -21, distance: 40 },
+      ],
+    },
+  })
+  assert.match(report, /你以前在附近放过东西/)
+  assert.match(report, /chest @5,64,5（8 格）/)
+  assert.match(report, /你盖过的小屋/)
+})

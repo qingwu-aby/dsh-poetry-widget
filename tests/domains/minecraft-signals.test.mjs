@@ -223,3 +223,15 @@ test('signals：重生锚点按床判定，没床就说明白', async () => {
   assert.match(bedSet, /重生点定在床边/)
   assert.equal(anchorHint({}), '')
 })
+
+test('signals：homeFactLine 给出家的坐标、距离与高差（事实不是建议）', async () => {
+  const { homeFactLine } = await import('../../lib/domain/play/minecraft-signals.mjs')
+  const line = homeFactLine({
+    position: '66,83,-83',
+    facilitiesExtra: { shelterAt: '82,98,-90', shelterDistance: 22.7 },
+  })
+  assert.match(line, /你的小屋在 82,98,-90/)
+  assert.match(line, /23 格/)
+  assert.match(line, /比你高 15 格/)
+  assert.equal(homeFactLine({ position: '1,2,3' }), '')
+})

@@ -26,3 +26,19 @@ test('worldgen：组合查询优先给“在哪找”，战斗词仍走战术', 
   assert.equal(lookupCombinedKnowledge('苦力怕怎么打').source, 'tactics')
   assert.equal(lookupWorldgen('完全无关的话题'), null)
 })
+
+test('tutorials：教程沉淀能按主题命中，并优先于材料知识', async () => {
+  const { loadTutorials, lookupTutorial } = await import('../../lib/domain/play/minecraft-tutorials.mjs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const data = loadTutorials(path.join(os.homedir(), '.dsh', '.dsh-poetry', 'wiki-tutorials.json'))
+  if (data === null) return // 没跑过抓取脚本时跳过
+  const house = lookupTutorial('怎么造房子', data)
+  assert.ok(house)
+  assert.equal(house.source, 'tutorial')
+  assert.ok(house.steps.length >= 2)
+  const combined = lookupCombinedKnowledge('怎么造房子', data)
+  assert.equal(combined.source, 'tutorial')
+  const material = lookupCombinedKnowledge('钻石在哪', data)
+  assert.equal(material.source, 'worldgen')
+})
