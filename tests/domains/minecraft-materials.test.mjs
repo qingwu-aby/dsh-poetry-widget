@@ -29,3 +29,14 @@ test('materials：总表目录与路由', () => {
   assert.equal(lookupCombinedKnowledge('苦力怕怎么打').source, 'tactics')
   assert.equal(lookupCombinedKnowledge('远古残骸在哪').source, 'worldgen')
 })
+
+test('materials：按服务器 26.1 数据修正矿物分布，并覆盖新版本材料', async () => {
+  const iron = lookupMaterial('铁矿')
+  assert.ok(iron.steps.some((step) => step.includes('80~320')), '铁矿要提到山地高处')
+  const coal = lookupMaterial('煤炭')
+  assert.ok(coal.steps.some((step) => step.includes('136~319')), '煤要提到山地段')
+  for (const topic of ['重锤', '收纳袋', '合成器', '试炼钥匙', '犰狳鳞甲', '苍白橡木', '回响罗盘', '监守者']) {
+    assert.ok(lookupMaterial(topic), `缺少新版本材料：${topic}`)
+  }
+  assert.ok(materialCount() >= 125)
+})

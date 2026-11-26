@@ -13,8 +13,8 @@ test('worldgen：覆盖面够广（材料/工具等级/主要矿物/生物材料
 })
 
 test('worldgen：关键事实正确（高度/工具/替代路线）', () => {
-  assert.match(lookupWorldgen('铁矿').method, /y=72/)
-  assert.match(lookupWorldgen('钻石').method, /-64/)
+  assert.match(lookupWorldgen('铁矿').method, /-24~56/)
+  assert.match(lookupWorldgen('钻石').method, /-64~16/)
   assert.ok(lookupWorldgen('铁矿').steps.some((step) => step.includes('石镐')))
   assert.ok(lookupWorldgen('钻石').steps.some((step) => step.includes('铁镐')))
   assert.ok(lookupWorldgen('羊').steps.some((step) => step.includes('线')), '没有羊可用线合成羊毛')
