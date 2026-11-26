@@ -663,3 +663,24 @@ close：先收尾，把经验记下来
 她自己可以 `mc_project action=resume title=...` 回去；prompt 里会列出挂起的项目。
 
 所以不存在“被一个做不完的项目锁死”：要么她复盘后缩小/收尾，要么直接立新的、旧的自动挂起。
+
+
+## 断连 9 小时 & 自驱被链路拖死（2026-11-26 晨）
+
+隔夜事实：DSH 从 23:15 一直活着，但**世界最后收到她的观察是 23:40**；
+之后 9 小时没有任何决策事件，项目停在「开始」阶段，6 小时的复盘也没触发。
+
+根因：立项/复盘写在 `decideInner` 里——**没有决策轮就没有自驱**；而 bot↔DSH 链路断掉时，两边都不知道。
+
+修复一：自驱心跳脱离决策轮
+
+- `createMinecraftWatchdog`（`lib/composition/minecraft-watchdog.mjs`）每 2 分钟调用 `world.tickCurriculum()`；
+- `tickCurriculum` = selfGoal → reviewProject，内部各自有节流，重复调用无害；
+- 即使 bot 掉线，她仍会推进/复盘自己的项目。
+
+修复二：双向断连看门狗
+
+- 宿主侧：每 60 秒检查 `snapshot().observationAt`；超过 5 分钟无观察 → 告警，
+  并（10 分钟冷却）执行 `launchctl kickstart -k` 重启 bot；
+- bot 侧：连续 5 分钟没接到世界指令 → 自己退出（exit 5），launchd 拉起后重新发现 DSH 地址；
+- 环境开关：`DSH_MC_CURRICULUM=off`、`DSH_MC_WATCHDOG=off` 可分别关闭。
