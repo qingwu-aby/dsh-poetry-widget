@@ -86,3 +86,27 @@ test('review：没有里程碑的项目立刻算卡住（不用等 6 小时）',
   assert.equal(result.ok, true)
   assert.equal(store.get().milestones[0], '先砍三块木头')
 })
+
+test('review：小目标达成后可以 grow（升级到更大目标）', async () => {
+  const { parseReview, runProjectReview } = await import('../../lib/domain/play/minecraft-goals.mjs')
+  const parsed = parseReview('{"decision":"grow","note":"坑够了","next":"盖 5×5 带门窗的小屋","milestones":["四面墙","屋顶","门"]}')
+  assert.equal(parsed.decision, 'grow')
+  assert.deepEqual(parsed.milestones, ['四面墙', '屋顶', '门'])
+
+  const store = createMinecraftProjectStore({ file: '', now: () => 1000 })
+  store.handle({ action: 'open', title: '搭个能过夜的地方', milestones: ['挖个坑'] })
+  const result = await runProjectReview({
+    projectStore: store,
+    observation: {},
+    hours: 2,
+    ladder: ['你现在在第 1 层「露天地面」'],
+    callModel: async () => ({ text: '{"decision":"grow","note":"坑够了","next":"盖 5×5 带门窗的小屋","milestones":["四面墙","屋顶","门"]}' }),
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.review.decision, 'grow')
+  const project = store.get()
+  assert.equal(project.title, '盖 5×5 带门窗的小屋')
+  assert.equal(project.stage, '升级目标')
+  assert.deepEqual(project.milestones, ['四面墙', '屋顶', '门'])
+  assert.equal(project.history.length, 1, '旧目标进历史，不丢失')
+})
