@@ -1475,3 +1475,34 @@ mc_collect until=32 item=oak_log
 
 注意：这是**宿主放的示范**（用 RCON 按蓝图逐块放置，362/362 成功），不是她自己盖的。
 用途是让你能亲眼看到“蓝图 → 世界”这条链是通的，也给她以后当模仿对象。
+
+
+## 拆掉示范房子 + 决策模型切到 glm-5.3（2026-11-27 深夜）
+
+### 示范房子已拆
+
+```text
+/fill air                              → 清掉 355 块
+/fill ... minecraft:grass_block        → 地基还原成草地 187 块
+扫描确认：房体方块（石砖楼梯/木板/栅栏）全部消失
+```
+
+留着的只有地形本身。之前那栋 `starter-house` 是宿主用 RCON 凭空放的，
+材料不是她采集的——用户问清后决定拆除。
+
+### 决策模型换成 glm-5.3
+
+原来 MC 决策固定用 `MC_FAST_CANDIDATES`（deepseek-v4.1-flash），
+它会**覆盖**模型策略里的角色设置，所以在设置里改 drive 角色没用。
+
+两处改动：
+
+```text
+1) 模型策略（API 写入 ~/.dsh-poetry/model-policy.json）：
+   roles.drive → provider dsh-opencode-go, model glm-5.3, effort low
+2) plugin-runtime：mcCandidates 不再强制覆盖
+   只有 DSH_MC_FAST_CANDIDATES=1 时才用快速候选
+```
+
+于是 MC 决策现在真正走 `drive` 角色 = **glm-5.3**；
+其他角色（selfTalk/mood/growth…）仍是 deepseek-v4.1-flash。

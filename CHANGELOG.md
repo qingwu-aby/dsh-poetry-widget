@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.92.0 MC 决策可换模型**：mcCandidates 不再强制覆盖角色策略，drive 角色已切到 glm-5.3；示范建筑已拆除。
 - **v1.91.0 方案 B**：mc_find 支持 gather=true 找到即连采；mc_collect 支持 until/item 持续捡；并在世界放置 starter-house 示范建筑。
 - **v1.90.0 工具发现**：用完 mc_find/collect/mine 时回执提示一次更省力的原语；mc_status 列出未试过的省力工具。
 - **v1.89.0 工具指南重写**：prompt 里的工具指南仍教已删除的旧工具，导致 mc_gather/mc_build from/mc_task/mc_macro 一次没被用过；改为只列当前真实工具。
