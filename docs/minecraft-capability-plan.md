@@ -314,3 +314,70 @@ BP-BUILD 本轮放了 0 块，进度 0/17249（missing_item×1）；
 
 17k 块按每次 24 块 → 约 700 次施工调用；材料缺口按千计。
 所以“漂亮大建筑”的真正瓶颈不是施工接口，而是**材料供应与物流**（产业阶段）。
+
+
+## 11. 蓝图库与索引（2026-11-27 晚）
+
+用户提供了多个蓝图文件，并希望“她自己去选怎么盖”，卡住时还可以反向求助宿主找蓝图。
+
+### 蓝图库（11 张）
+
+```text
+house       starter-house 362 / sredni-dom 418 / kamienny-zamek 1282
+tower       obronna-wieza 1287
+farm        free-starter-house 3554
+redstone    yuanshi-nongchang 959
+mega        zhenshitang 5820 / jiuguan 9007 / dawn-vinery 17249
+            master-estate-stablemaster 45938 / roswaal-house 182081
+```
+
+来源记在 `blueprints/sources.json`：
+minecraft.pl（7 张自动下载）+ 用户提供（DAWN VINERY / FREE Starter House / Desktop/mc 两张）。
+
+### 索引
+
+```text
+scripts/build-blueprint-index.mjs
+→ blueprints/index.json（机器读，mc_build action=list 用）
+→ blueprints/INDEX.md（人读：类别/尺寸/方块数/主材/来源 + 她提的需求）
+```
+
+分类自动推断：redstone（红石元件占比）、transport（铁轨）、farm（作物占比）、
+tower（高宽比 ≥2）、mega（≥3000 块）、house（其余）。
+
+### 她可以反向求助
+
+```text
+mc_build action=request category=红石 need=一个自动甘蔗农场
+→ 写入 blueprints/requests.jsonl + 上报事件
+→ 宿主用 scripts/blueprint-requests.mjs 查看
+→ 用户找到对应 .schem/.litematic 丢进目录，再 --dir 导入
+```
+
+### 她可以自己查“怎么盖”
+
+新增 `minecraft-building-knowledge.mjs`（接在建造类问题的第一优先级）：
+
+```text
+「照着蓝图盖」  → 备料 → 定基 → 分层 → 封顶 → 收尾，够不到就垫脚手架
+「材料不够」    → 按主材分组，木头连片砍、石用 mc_tunnel、玻璃/砖用 mc_smelt_batch
+「放不上去」    → 站到 4 格内、脚下垫实心、别站在要放的位置上
+```
+
+### 自动下载的边界（实测）
+
+```text
+minecraft.pl     ✅ 直链 .schem
+sereyka.com      ❌ 需登录/付费（4 个下载端点全 404）
+mineschematic.com ❌ 接口要求 CAPTCHA（"CAPTCHA verification required"）
+planetminecraft   ❌ Cloudflare 403 + 登录墙
+```
+
+所以：**自动下载只对 minecraft.pl 可行**；其余靠用户手动下载 + `--dir` 批量导入。
+
+### 规模现实
+
+```text
+roswaal-house 182081 块 ÷ 24 块/次 ≈ 7587 次施工调用
+材料按十万计 —— 这是「产业 + 物流」阶段的目标，不是现在
+```
