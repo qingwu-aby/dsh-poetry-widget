@@ -52,6 +52,16 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
   },
+  gather_cruise: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      // 树离她 40 格外：必须自己走过去
+      'fill 150 100 110 150 105 110 minecraft:oak_log',
+      'fill 152 100 112 152 105 112 minecraft:oak_log',
+      'fill 154 100 108 154 105 108 minecraft:oak_log',
+      'give XiaoJingyu iron_axe 1'],
+  },
   gather_lease: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
