@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.90.0 工具发现**：用完 mc_find/collect/mine 时回执提示一次更省力的原语；mc_status 列出未试过的省力工具。
 - **v1.89.0 工具指南重写**：prompt 里的工具指南仍教已删除的旧工具，导致 mc_gather/mc_build from/mc_task/mc_macro 一次没被用过；改为只列当前真实工具。
 - **v1.88.0 目标到行动的桥**：观测带 buildProgress（进度+缺口），prompt 直接显示“正在盖什么/还缺什么”，施工自动记进她的项目。
 - **v1.87.0 采集加固**：掉落物清扫、48 格搜索+区域巡航、工具自补给；e2e 21/21。

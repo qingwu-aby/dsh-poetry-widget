@@ -375,3 +375,25 @@ test('World prompt：完工的蓝图会说“已经完工”', async () => {
   const prompt = buildWorldPrompt({ position: '1,64,1', buildProgress: { name: '小木屋', total: 362, nextIndex: 362, done: true } })
   assert.match(prompt, /《小木屋》已经完工（362 块）/)
 })
+
+test('world：用老工具后回执会提一次“更省力的做法”，第二次不再提', async () => {
+  const { createMinecraftWorld } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hint-'))
+  try {
+    const world = createMinecraftWorld({
+      tokenFile: path.join(dir, 'token'),
+      projectFile: path.join(dir, 'project.json'),
+      permissionFile: path.join(dir, 'perm.json'),
+      memoryDir: path.join(dir, 'memory'),
+    })
+    world.recordReceipt({ tool: 'mc_find', ok: true, detail: '找到 oak_log', facts: { at: '1,2,3' } })
+    assert.match(world.snapshot().lastReceipt.detail, /更省力的做法：mc_gather/)
+    world.recordReceipt({ tool: 'mc_find', ok: true, detail: '找到 oak_log', facts: { at: '1,2,3' } })
+    assert.doesNotMatch(world.snapshot().lastReceipt.detail, /更省力的做法/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
