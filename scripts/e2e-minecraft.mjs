@@ -52,6 +52,15 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
   },
+  blueprint_build: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 120 160 minecraft:air',
+      'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64', 'give XiaoJingyu stone_brick_stairs 64',
+      'give XiaoJingyu dark_oak_planks 64', 'give XiaoJingyu oak_fence 64', 'give XiaoJingyu spruce_planks 64',
+      'give XiaoJingyu stone 64', 'give XiaoJingyu spruce_log 64', 'give XiaoJingyu oak_stairs 64',
+      'give XiaoJingyu white_stained_glass 64', 'give XiaoJingyu oak_log 64', 'give XiaoJingyu oak_leaves 64'],
+  },
   haul_roundtrip: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu chest 2', 'give XiaoJingyu coal_ore 16'],
@@ -175,6 +184,7 @@ function runBot(scenario) {
       MC_HOST: '127.0.0.1', MC_PORT: String(PORT), MC_VERSION: '26.1',
       MC_VERIFY_SCENARIO: scenario, DSH_MC_HOST_TASKS: '0', MC_BRAIN_INTERVAL_MS: '600000', MC_AUTOBUILD: '0',
       MC_VERIFY_WAIT_MS: '15000',
+      MC_BUILD_ENABLED: '1',
     }
     const child = spawn(`${process.env.HOME}/.local/bin/node`, ['bot-play.mjs'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let log = ''
@@ -291,7 +301,7 @@ for (const scenario of list) {
   if (!pass) failed += 1
   rows.push({ scenario, pass, checks, detail: String(e2e.detail || '').slice(0, 70) })
   console.log(`${pass ? '✓' : '✗'} ${scenario.padEnd(22)} ${checks.map((c) => `${c.name}:${c.pass ? '✓' : '✗(' + String(c.got) + ' want ' + String(c.want) + ')'}`).join(' ')}  ${String(e2e.detail || '').slice(0, 60)}`)
-  if (!pass) console.log('   log:', log.split('\n').filter((l) => /PRIMDETAIL|E2E|回执/.test(l)).slice(-4).join(' | '))
+  if (!pass) console.log('   log:', log.split('\n').filter((l) => /BP |BP-POS|E2E|地基|施工/.test(l)).slice(-5).join(' | '))
 }
 console.log('\n=== 结果：' + rows.filter((r) => r.pass).length + '/' + rows.length + ' 通过')
 if (failed > 0) {
