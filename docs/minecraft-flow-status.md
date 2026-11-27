@@ -1394,3 +1394,27 @@ e2e 新增 `reflex_threat` 场景：纯策略自测 6 条断言（不是靠世�
 ```
 
 全量回归 15/15。
+
+
+## 原语一次没被调用过（2026-11-27 晚，重要）
+
+现象：`mc_gather` 已在工具表里、`mc_tunnel`/`mc_guard` 也已解锁（计数 36 / 11），
+但历史回执里**原语调用次数 = 0**。她的手部动作是：
+`mc_find 508`、`mc_move_to 510`、`mc_collect 92`、`mc_inventory 91` —— 全是老习惯。
+
+根因：prompt 里的「工具选择顺序」那段是旧文本，还在教她 `mc_automate`、`mc_water`、
+`mc_compost`、`mc_boat/minecart/ride/drive` 这些**已经删掉或空壳**的工具，
+而 `mc_gather`、`mc_build from=`、`mc_task`、`mc_macro`、`mc_assess`、`mc_status` 一个都没提。
+
+修复：重写那段指南（同长度，不增加行数），只列当前真实可用的工具：
+
+```text
+成批采集一种材料用 mc_gather（一次调用里自己反复找+挖+捡，累了自动存箱），
+别用 mc_find/mc_collect 一块块磨
+盖建筑先 mc_build action=list 看蓝图库，再 mc_build from=名字（会告诉你缺什么）
+长任务交给 mc_task（一次下令后台连续执行）
+重复动作 mc_macro save 存下来以后一次跑完
+查状态 mc_status，评估房子 mc_assess
+```
+
+同时保留「不要连续三次调用同一个失败动作」。
