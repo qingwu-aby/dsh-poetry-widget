@@ -59,6 +59,16 @@ const SCENARIOS = {
       'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64'],
   },
   decide_gate: { checks: 'ok=true', fixture: [] },
+  shelter_blueprint: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      'give XiaoJingyu grass_block 128', 'give XiaoJingyu oak_planks 64', 'give XiaoJingyu stone_brick_stairs 48',
+      'give XiaoJingyu dark_oak_planks 32', 'give XiaoJingyu oak_fence 32', 'give XiaoJingyu spruce_planks 32',
+      'give XiaoJingyu stone 32', 'give XiaoJingyu spruce_log 24', 'give XiaoJingyu oak_stairs 48',
+      'give XiaoJingyu white_stained_glass 32', 'give XiaoJingyu oak_log 24', 'give XiaoJingyu oak_leaves 64',
+      'give XiaoJingyu iron_axe 1', 'give XiaoJingyu dirt 64'],
+  },
   gather_cruise: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
@@ -250,7 +260,7 @@ function runBot(scenario) {
     let log = ''
     child.stdout.on('data', (d) => { log += d.toString() })
     child.stderr.on('data', (d) => { log += d.toString() })
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, ['blueprint_lease_finish','blueprint_finish','gather_lease'].includes(scenario) ? 600000 : 150000)
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, ['blueprint_lease_finish','blueprint_finish','gather_lease','shelter_blueprint'].includes(scenario) ? 600000 : 150000)
     child.on('exit', (code) => {
       clearTimeout(timer)
       let result = null
