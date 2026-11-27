@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { parseSchematicBytes, schematicToBlueprint } from '../lib/domain/play/minecraft-schematic.mjs'
+import { litematicToBlueprint, parseSchematicBytes, schematicToBlueprint } from '../lib/domain/play/minecraft-schematic.mjs'
 
 const OUT_DIR = path.join(homedir(), '.dsh', '.dsh-poetry', 'blueprints')
 const UA = 'dsh-little-whale/1.0 (schematic import)'
@@ -27,6 +27,28 @@ function findSchemLink(html, pageUrl) {
 }
 
 const args = process.argv.slice(2)
+if (args[0] === '--dir') {
+  const dir = args[1]
+  if (!dir) { console.log('用法：node scripts/import-schematic.mjs --dir <目录>'); process.exit(1) }
+  const { readdirSync } = await import('node:fs')
+  const files = readdirSync(dir).filter((f) => /\.(schem|litematic)$/i.test(f))
+  if (files.length === 0) { console.log('目录里没有 .schem / .litematic'); process.exit(2) }
+  for (const file of files) {
+    const full = path.join(dir, file)
+    const name = file.replace(/\.(schem|litematic)$/i, '')
+    try {
+      const buffer = readFileSync(full)
+      const parsed = parseSchematicBytes(buffer)
+      const blueprint = parsed && parsed.Regions ? litematicToBlueprint(parsed, name) : schematicToBlueprint(parsed, name)
+      mkdirSync(OUT_DIR, { recursive: true })
+      writeFileSync(path.join(OUT_DIR, `${blueprint.name}.json`), JSON.stringify(blueprint, null, 2) + '\n')
+      console.log(`✓ ${file} → ${blueprint.name}（${blueprint.size.x}×${blueprint.size.y}×${blueprint.size.z}，${blueprint.blocks.length} 块）`)
+    } catch (error) {
+      console.log(`✗ ${file}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  process.exit(0)
+}
 const pageMode = args[0] === '--page'
 const source = pageMode ? args[1] : args[0]
 const nameArg = pageMode ? args[2] : args[1]
@@ -54,7 +76,8 @@ if (existsSync(source)) {
 }
 
 name = name.replace(/[^\w\u4e00-\u9fa5-]/g, '').slice(0, 24) || '蓝图'
-const blueprint = schematicToBlueprint(parseSchematicBytes(bytes), name)
+const parsed = parseSchematicBytes(bytes)
+const blueprint = parsed && parsed.Regions ? litematicToBlueprint(parsed, name) : schematicToBlueprint(parsed, name)
 mkdirSync(OUT_DIR, { recursive: true })
 const file = path.join(OUT_DIR, `${name}.json`)
 writeFileSync(file, JSON.stringify(blueprint, null, 2) + '\n')

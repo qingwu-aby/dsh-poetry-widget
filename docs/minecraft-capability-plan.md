@@ -270,3 +270,47 @@ e2e 实测（创意服，分批 12 块/次）：
 ```
 
 全量回归 **16/16 通过**，单测 **1132 通过**。
+
+
+## 10. 真实 .litematic 导入 + 材料缺口报告（2026-11-27 傍晚）
+
+用户提供 `/Users/yangyuan/Desktop/DAWN VINERY.litematic`，直接导入成功：
+
+```text
+dawn-vinery   80×38×73   17249 块
+主材：dark_oak_planks×2851、stripped_spruce_log×1339、tuff×1109、spruce_stairs×930、
+     calcite×807、spruce_trapdoor×761、spruce_planks×736、stone×642
+```
+
+### 新增能力
+
+```text
+· .litematic 解析（Regions/BlockStates 位打包解包、多区域合并、负 Size 方向）
+· scripts/import-schematic.mjs --dir <目录>   批量导入
+· mc_build action=list            列出全部蓝图 + 尺寸 + 主材
+· mc_build from=<名字>            动手前报「还缺材料：dark_oak_planks 缺 2819…」
+```
+
+实测回执：
+
+```text
+BP-LIST  可盖的蓝图：dawn-vinery（80×38×73，17249 块；主材 dark_oak_planks×2851…）…
+BP-BUILD 本轮放了 0 块，进度 0/17249（missing_item×1）；
+         还缺材料：dark_oak_planks 缺 2819、stripped_spruce_log 缺 1323、tuff 缺 1101、spruce_stairs 缺 930
+```
+
+### 自动下载的可行性（实测）
+
+| 站点 | 结果 |
+|---|---|
+| minecraft.pl | ✅ 直链 `.schem`，已导入 7 张 |
+| sereyka.com | ❌ 需登录/付费，探测 4 个下载端点均 404 |
+| mineschematic.com | ❌ 需要 CAPTCHA（接口返回 `CAPTCHA verification required`） |
+| planetminecraft.com | ❌ Cloudflare 403 + 登录墙 |
+
+结论：**自动下载只对 minecraft.pl 可行**；其它站点需要手动下载到本地，再用 `--dir` 批量导入。
+
+### 规模提示
+
+17k 块按每次 24 块 → 约 700 次施工调用；材料缺口按千计。
+所以“漂亮大建筑”的真正瓶颈不是施工接口，而是**材料供应与物流**（产业阶段）。
