@@ -184,3 +184,38 @@ npm test        1129 tests / 1129 pass
 npm run check   通过（含体量、依赖、catch 规范）
 e2e-regression  11/11 通过（新增 mine_opportunistic）
 ```
+
+
+## 8. v2 补齐（2026-11-27 下午）
+
+v1 的待办全部补齐：
+
+| 待办 | 状态 | 实现 |
+|---|---|---|
+| C：解锁原语 | ✅ | `mc_tunnel`（矿道+火把+顺路收矿）、`mc_farm_loop`（收→种）、`mc_haul`（箱子间转运）、`mc_smelt_batch`（批量烧炼）、`mc_guard`（守卫） |
+| C：按解锁隐藏 | ✅ | 未达 64 次的 5 个原语**不出现在她的工具列表里**（prompt 门控，不是命令行拒绝） |
+| E：缺料检查点 | ✅ | 租约步骤失败且原因含“没有/缺/不够/需要” → 标记 `blocked` 并上报“缺材料”，不再无效重试 |
+| E：死亡续做 | ✅ | 租约落盘 `mc-lease.json`；重生时若 10 分钟内有未完成租约 → 自动续做并提示“（续做）” |
+| M：叙事每晚重写 | ✅ | 插件启动 + 每 6 小时 `rewriteNarrative`（合并项目标题、反射与租约台账摘要），**重写不追加** |
+| F：过程量指标 | ✅ | 自动化动作/手工动作分开计数 → `automationRate`、`manualShare`、`unattended`；进 `mc_status`「过程量：自动化率 X%、手工占比 Y%」 |
+
+### 工具上限调整
+
+能力原语增加后工具数 63 → 68，超过 manifest 的 `toolsMax: 64`，已调整为 **80**（`lib/core/activity-manifest.mjs`）。
+快照 `MINECRAFT_TOOLS_SNAPSHOT` 由 tools 模块自动重建，顺序与 `MINECRAFT_TOOLS` 保持一致。
+
+### 验证
+
+```text
+npm test        1129 / 1129 通过
+npm run check   通过
+e2e-regression  14 / 14 通过（新增 primitives / haul_roundtrip / smelt_roundtrip）
+```
+
+新增 e2e 覆盖：
+
+```text
+✓ primitives        mc_farm_loop:✓ mc_guard:✓ mc_tunnel:✓
+✓ haul_roundtrip    搬了 8 个 ore：coal_ore×8
+✓ smelt_roundtrip   烧出了 2 个 raw_iron 的产物
+```
