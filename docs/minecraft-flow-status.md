@@ -1315,3 +1315,29 @@ e2e 场景 `mine_opportunistic`（石头里埋煤+铁，让她挖石头）：
 ```
 
 全量回归 **11/11 通过**。
+
+
+## e2e 污染生产状态（2026-11-27 下午，重要）
+
+现象：`mc-counters.json` 里出现 `mc_guard:14`、`mc_tunnel:11`，但历史回执里**她一次都没调用过原语**。
+
+根因：e2e 回归跑的 bot 与生产 bot 共用同一个状态目录（脚本目录），
+把测试产生的计数写进了 `mc-counters.json`，污染了：
+`mc-counters.json` / `mc-macros.json` / `mc-lease.json` / `landmarks.json` / `shelter-mark.json` / `build-plan.json`。
+
+修复：
+
+1. bot 新增 `MC_STATE_DIR`：所有本地状态文件走 `stateFile(name)`，
+   生产用脚本目录，e2e 用临时目录；
+2. e2e runner 每轮创建 `mkdtemp` 临时目录并注入 `MC_STATE_DIR`，跑完删除；
+3. 被污染的生产计数已重置（备份 `mc-counters.json.polluted-bak`）。
+
+验证：
+
+```text
+e2e 全量 14/14 通过
+生产计数只包含她真实的动作（mc_find 20、mc_move_to 12、mc_mine 2…）
+无 mc_guard / mc_tunnel 等测试残留
+```
+
+顺带确认门控有效：未解锁时 68 个工具里隐藏 5 个原语，她看到 63 个。

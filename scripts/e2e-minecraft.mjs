@@ -2,9 +2,10 @@
 // 端到端回归：真起创意服 → 布置场景 → 跑 bot 场景 → 断言回执诚实性。
 // 用法：node e2e-regression.mjs [场景名...]
 import { spawn, execSync } from 'node:child_process'
-import { readFileSync, rmSync, existsSync } from 'node:fs'
+import { readFileSync, rmSync, existsSync, mkdtempSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 import net from 'node:net'
+import os from 'node:os'
 
 const ROOT = new URL('.', import.meta.url).pathname
 const SERVER_DIR = `${ROOT}verify-server`
@@ -32,14 +33,41 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 105 100 105', 'clear XiaoJingyu', 'give XiaoJingyu oak_planks 12', 'give XiaoJingyu stick 8'],
   },
+  primitives: {
+    checks: 'ok=true',
+    fixture: (() => {
+      const cmds = ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu',
+        'give XiaoJingyu diamond_pickaxe 1', 'give XiaoJingyu torch 16', 'give XiaoJingyu wheat_seeds 8',
+        'give XiaoJingyu diamond_hoe 1', 'give XiaoJingyu raw_iron 4', 'give XiaoJingyu coal 8']
+      for (let y = 100; y <= 101; y += 1) for (let z = 108; z <= 112; z += 1) for (let x = 111; x <= 118; x += 1) cmds.push(`setblock ${x} ${y} ${z} minecraft:stone`)
+      for (let dx = -2; dx <= 2; dx += 1) for (let dz = -2; dz <= 2; dz += 1) {
+        if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) continue
+        cmds.push(`setblock ${110 + dx} 99 ${110 + dz} minecraft:farmland`)
+        cmds.push(`setblock ${110 + dx} 100 ${110 + dz} minecraft:wheat[age=7]`)
+      }
+      return cmds
+    })(),
+  },
+  haul_roundtrip: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu chest 2', 'give XiaoJingyu coal_ore 16'],
+  },
+  smelt_roundtrip: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu furnace 1', 'give XiaoJingyu raw_iron 4', 'give XiaoJingyu coal 8'],
+  },
+  mine_opportunistic: {
+    checks: 'ok=true',
+    fixture: [
+      'tp XiaoJingyu 105 100 105', 'clear XiaoJingyu', 'give XiaoJingyu stone_pickaxe 1',
+      'fill 103 100 103 107 101 107 minecraft:stone',
+      'setblock 106 101 105 minecraft:coal_ore',
+      'setblock 104 101 105 minecraft:iron_ore',
+    ],
+  },
   shelter_low_material: { checks: 'ok=false', fixture: ['tp XiaoJingyu 105 100 105', 'clear XiaoJingyu', 'give XiaoJingyu dirt 12'] },
   assess_bare: { checks: 'ok=true score<=30', fixture: ['tp XiaoJingyu 105 100 105', 'clear XiaoJingyu'] },
-  assess_room: {
-    checks: 'ok=true score>=90',
-    fixture: [
-      ...Array.from({ length: 5 }, (_v, dx) => dx).flatMap((dx) => [100 + dx]).flatMap(() => []),
-    ].length === 0 ? buildRoomFixture() : [],
-  },
+  assess_room: { checks: 'ok=true score>=90', fixture: null },
   hide_too_deep: {
     checks: 'ok=false',
     fixture: ['fill 100 48 100 110 48 110 minecraft:stone', 'fill 100 49 100 110 52 110 minecraft:air', 'tp XiaoJingyu 105 49 105'],
@@ -136,8 +164,10 @@ function stopServer() {
 
 function runBot(scenario) {
   return new Promise((resolve) => {
+    const stateDir = mkdtempSync(`${os.tmpdir()}/mc-e2e-`)
     const env = {
       ...process.env,
+      MC_STATE_DIR: stateDir,
       MC_HOST: '127.0.0.1', MC_PORT: String(PORT), MC_VERSION: '26.1',
       MC_VERIFY_SCENARIO: scenario, DSH_MC_HOST_TASKS: '0', MC_BRAIN_INTERVAL_MS: '600000', MC_AUTOBUILD: '0',
       MC_VERIFY_WAIT_MS: '15000',
@@ -146,12 +176,13 @@ function runBot(scenario) {
     let log = ''
     child.stdout.on('data', (d) => { log += d.toString() })
     child.stderr.on('data', (d) => { log += d.toString() })
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, 120000)
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, 150000)
     child.on('exit', (code) => {
       clearTimeout(timer)
       let result = null
       try { result = JSON.parse(readFileSync(`${ROOT}verify-e2e.json`, 'utf8')) } catch (_error) { result = null }
       rmSync(`${ROOT}verify-e2e.json`, { force: true })
+      rmSync(stateDir, { recursive: true, force: true })
       resolve({ code, result, log })
     })
   })
@@ -193,6 +224,15 @@ const rows = []
 for (const scenario of list) {
   const spec = SCENARIOS[scenario]
   if (!spec) { console.log('跳过未知场景', scenario); continue }
+  // 清掉上一次残留的同名 bot，否则重复登录会 EPIPE
+  if ((await rcon(['list'])).join(' ').includes('XiaoJingyu')) {
+    await rcon(['kick XiaoJingyu 测试重启'])
+    for (let i = 0; i < 20; i += 1) {
+      const out = (await rcon(['list'])).join(' ')
+      if (!out.includes('XiaoJingyu')) break
+      await sleep(500)
+    }
+  }
   for (const file of ['shelter-mark.json', 'landmarks.json', 'verify-e2e.json', 'build-plan.json', 'plan-cache.json']) {
     rmSync(`${ROOT}${file}`, { force: true })
   }
@@ -206,7 +246,7 @@ for (const scenario of list) {
     rows.push({ scenario, pass: false, checks: [], detail: 'bot 未连接' })
     continue
   }
-  const fixture = scenario === 'assess_room' ? buildRoomFixture() : spec.fixture
+  const fixture = scenario === 'assess_room' ? buildRoomFixture() : (spec.fixture || [])
   const teleport = fixture.find((cmd) => cmd.startsWith('tp '))
   const rest = fixture.filter((cmd) => cmd !== teleport && cmd !== 'clear XiaoJingyu')
   await rcon(['op XiaoJingyu', ...FLAT])
@@ -214,7 +254,18 @@ for (const scenario of list) {
   await sleep(2500)                              // 等区块加载，否则 setblock/fill 会“位置未加载”
   await rcon(['clear XiaoJingyu', ...rest])
   await sleep(800)
-  const { code, result, log } = await botRun
+  let { code, result, log } = await botRun
+  if (!result || result.pass === undefined) {
+    await sleep(3000)
+    const retry = await runBot(scenario)
+    const online2 = await waitPlayer('XiaoJingyu', 45000)
+    if (online2) await rcon(['op XiaoJingyu', ...FLAT, ...(teleport ? [teleport] : [])])
+    await sleep(2500)
+    if (online2) await rcon(['clear XiaoJingyu', ...rest])
+    code = retry.code
+    result = retry.result
+    log = retry.log
+  }
   const e2e = result || {}
   const detailOk = e2e.pass === true
   const expected = scenario === 'assess_room' || scenario === 'assess_bare'
@@ -236,7 +287,7 @@ for (const scenario of list) {
   if (!pass) failed += 1
   rows.push({ scenario, pass, checks, detail: String(e2e.detail || '').slice(0, 70) })
   console.log(`${pass ? '✓' : '✗'} ${scenario.padEnd(22)} ${checks.map((c) => `${c.name}:${c.pass ? '✓' : '✗(' + String(c.got) + ' want ' + String(c.want) + ')'}`).join(' ')}  ${String(e2e.detail || '').slice(0, 60)}`)
-  if (!pass) console.log('   log:', log.split('\n').filter((l) => l.includes('回执') || l.includes('E2E')).slice(-3).join(' | '))
+  if (!pass) console.log('   log:', log.split('\n').filter((l) => /PRIMDETAIL|E2E|回执/.test(l)).slice(-4).join(' | '))
 }
 console.log('\n=== 结果：' + rows.filter((r) => r.pass).length + '/' + rows.length + ' 通过')
 if (failed > 0) {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **v1.79.0 e2e 状态隔离**：bot 支持 MC_STATE_DIR，回归测试不再污染生产的计数/宏/地标；重置被污染的计数。
 - **v1.78.0 能力建设 v2（补齐全部待办）**：
   - 五个解锁原语（tunnel / farm_loop / haul / smelt_batch / guard）+ 未解锁时从工具列表隐藏；
   - 租约缺料检查点与死亡续做；
