@@ -52,6 +52,30 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
   },
+  gather_lease: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      'fill 104 100 104 104 105 104 minecraft:oak_log',
+      'fill 106 100 104 106 105 104 minecraft:oak_log',
+      'fill 108 100 104 108 105 104 minecraft:oak_log',
+      'fill 104 100 108 104 105 108 minecraft:birch_log',
+      'fill 106 100 108 106 105 108 minecraft:birch_log',
+      'fill 108 100 108 108 105 108 minecraft:oak_log',
+      'give XiaoJingyu iron_axe 1'],
+  },
+  gather_run: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      // 在她四周种一圈树
+      'fill 104 100 104 104 105 104 minecraft:oak_log',
+      'fill 106 100 104 106 105 104 minecraft:oak_log',
+      'fill 108 100 104 108 105 104 minecraft:oak_log',
+      'fill 104 100 108 104 105 108 minecraft:birch_log',
+      'fill 106 100 108 106 105 108 minecraft:birch_log',
+      'give XiaoJingyu iron_axe 1'],
+  },
   blueprint_finish: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
@@ -209,7 +233,7 @@ function runBot(scenario) {
     let log = ''
     child.stdout.on('data', (d) => { log += d.toString() })
     child.stderr.on('data', (d) => { log += d.toString() })
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, ['blueprint_lease_finish','blueprint_finish'].includes(scenario) ? 600000 : 150000)
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, ['blueprint_lease_finish','blueprint_finish','gather_lease'].includes(scenario) ? 600000 : 150000)
     child.on('exit', (code) => {
       clearTimeout(timer)
       let result = null
