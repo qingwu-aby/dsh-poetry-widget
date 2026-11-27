@@ -48,6 +48,10 @@ const SCENARIOS = {
       return cmds
     })(),
   },
+  reflex_threat: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
+  },
   haul_roundtrip: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu chest 2', 'give XiaoJingyu coal_ore 16'],

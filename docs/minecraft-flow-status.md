@@ -1341,3 +1341,32 @@ e2e 全量 14/14 通过
 ```
 
 顺带确认门控有效：未解锁时 68 个工具里隐藏 5 个原语，她看到 63 个。
+
+
+## 反射提前 + 还手（2026-11-27 下午）
+
+问题：她一天被僵尸杀 3 次，反射却 0 次触发——旧阈值是「血 ≤8 且怪在 6 格内」，
+等她掉到 8 血，通常已经挨了 3-4 下。
+
+改法：
+
+```text
+策略抽成纯函数 reflexDecision({hp, food, hostileDistance, inLiquid, hasFood, hasWeapon})：
+
+水里/岩浆            → escape_liquid
+怪 <3 格且有武器      → fight_back（换武器、挥一下、同时后撤）
+怪 <3 格且没武器      → retreat_hit（边退边躲）
+血 ≤14 或怪 <2.5 格   → retreat（拉开 8 格）
+饿 ≤14 且有熟食       → eat
+都没有                → null
+```
+
+触发门槛从「血 ≤8」提前到「血 ≤14，或怪已贴到 2.5 格内（血满也反应）」。
+
+e2e 新增 `reflex_threat` 场景：纯策略自测 6 条断言（不是靠世界实体，稳定可重复）。
+
+```text
+✓ reflex_threat   反射策略 6/6 通过（→ fight_back → retreat_hit → retreat → eat → escape_liquid）
+```
+
+全量回归：**15/15 通过**。
