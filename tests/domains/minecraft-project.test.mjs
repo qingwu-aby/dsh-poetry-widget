@@ -57,3 +57,25 @@ test('project：土坑与小屋的证据分级不同（土坑不算房子）', a
   house.noteEvidence({ milestoneEvidence: 'shelter_built' })
   assert.match(house.promptLines().join('\n'), /通过了验收/)
 })
+
+test('project：里程碑放置太久会提示“可以重写或收尾”', async () => {
+  const { createMinecraftProjectStore } = await import('../../lib/domain/play/minecraft-project.mjs')
+  const clock = { t: 1000 }
+  const store = createMinecraftProjectStore({ file: '', now: () => clock.t })
+  store.handle({ action: 'open', title: '盖房子', milestones: ['回小屋'] })
+  assert.equal(store.milestoneAgeHours(), 0)
+  assert.equal(store.promptLines().some((line) => line.includes('没变过')), false)
+  clock.t += 5 * 3600 * 1000
+  assert.equal(store.milestoneAgeHours(), 5)
+  assert.equal(store.promptLines().some((line) => line.includes('没变过')), true)
+})
+
+test('project：推进里程碑会刷新年龄计时', async () => {
+  const { createMinecraftProjectStore } = await import('../../lib/domain/play/minecraft-project.mjs')
+  const clock = { t: 1000 }
+  const store = createMinecraftProjectStore({ file: '', now: () => clock.t })
+  store.handle({ action: 'open', title: '盖房子', milestones: ['回小屋'] })
+  clock.t += 5 * 3600 * 1000
+  store.handle({ action: 'step', milestones: ['先做一把镐'] })
+  assert.equal(store.milestoneAgeHours(), 0)
+})
