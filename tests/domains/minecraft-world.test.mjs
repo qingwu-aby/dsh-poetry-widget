@@ -347,3 +347,29 @@ test('world：项目操作可以直接用 action=open/step/grow 调用（bot 的
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('World prompt：正在盖的蓝图与材料缺口会作为事实出现', async () => {
+  const { buildWorldPrompt } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const prompt = buildWorldPrompt({
+    position: '1,64,1',
+    health: 20,
+    food: 20,
+    timeOfDay: '白天',
+    buildProgress: {
+      name: 'starter-house',
+      blueprint: 'starter-house',
+      total: 362,
+      nextIndex: 48,
+      done: false,
+      shortages: [{ name: 'oak_planks', need: 30 }, { name: 'stone', need: 12 }],
+    },
+  })
+  assert.match(prompt, /你正在盖《starter-house》：48\/362 块/)
+  assert.match(prompt, /还缺 oak_planks×30、stone×12/)
+})
+
+test('World prompt：完工的蓝图会说“已经完工”', async () => {
+  const { buildWorldPrompt } = await import('../../lib/domain/play/minecraft-world.mjs')
+  const prompt = buildWorldPrompt({ position: '1,64,1', buildProgress: { name: '小木屋', total: 362, nextIndex: 362, done: true } })
+  assert.match(prompt, /《小木屋》已经完工（362 块）/)
+})

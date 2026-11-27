@@ -484,3 +484,46 @@ e2e 实测：
 · 采集后“自动烧炼/合成半成品”（原木→木板、矿石→锭）还没接上
 · 巡航方向是随机的，不会朝“上次见到树的方向”走
 ```
+
+
+## 15. 目标 → 任务拆解的桥（2026-11-27 夜）
+
+要解决的问题：她的目标（“盖一间小屋”）和行动（“去采木头”）之间，
+以前要靠模型每一步自己想；现在把缺口变成**事实**，目标自动带出下一步。
+
+### 观测新增 `buildProgress`
+
+```json
+{"name":"starter-house","blueprint":"starter-house","total":362,"nextIndex":48,
+ "done":false,"remaining":314,"shortages":[{"name":"oak_planks","need":30},{"name":"stone","need":12}]}
+```
+
+计算方式：读施工计划的剩余方块 → 按方块类型汇总需求 → 减去背包现有数量 → 前 4 项缺口。
+
+### prompt 里多一句事实
+
+```text
+位置：…；你正在盖《starter-house》：48/362 块，还缺 oak_planks×30、stone×12；血量…
+位置：…；你盖的《小木屋》已经完工（362 块）；…
+```
+
+### 施工自动记进她自己的项目
+
+`mc_build from=xxx` 推进时，宿主动 `projectStore.handle({action:'step'})`：
+
+```text
+在盖《starter-house》：48/362
+盖完了《starter-house》
+```
+
+于是她的项目本子里自然出现“我正在盖什么、盖到哪了”，不用她手动记。
+
+### 验证
+
+```text
+✓ build_bridge  buildProgress：starter-house 0/362，缺口 4 项
+单测：prompt 含「你正在盖《…》：48/362 块，还缺 oak_planks×30、stone×12」
+单测：完工时含「《小木屋》已经完工（362 块）」
+
+全量 e2e 22/22，单测 1136 通过。
+```

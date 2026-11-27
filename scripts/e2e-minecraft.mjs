@@ -52,6 +52,12 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
   },
+  build_bridge: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64'],
+  },
   gather_cruise: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',

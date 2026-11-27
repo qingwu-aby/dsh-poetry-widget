@@ -52,3 +52,41 @@ test('schematic：方块名里的属性后缀会被去掉', () => {
 test('schematic：缺尺寸信息会明确报错', () => {
   assert.throws(() => schematicToBlueprint({ Version: 2 }, '坏图'), /Width\/Height\/Length/)
 })
+
+test('litematic：解包 long 数组并按区域还原成蓝图', async () => {
+  const { litematicToBlueprint } = await import('../../lib/domain/play/minecraft-schematic.mjs')
+  // 2×1×2 区域，palette [stone, air]，bit 宽 2：值序列 [0,1,0,1]
+  const packed = BigInt(0 | (1 << 2) | (0 << 4) | (1 << 6))
+  const litematic = {
+    Regions: {
+      main: {
+        Position: { x: 100, y: 64, z: 100 },
+        Size: { x: 2, y: 1, z: 2 },
+        BlockStatePalette: [{ Name: 'minecraft:stone' }, { Name: 'minecraft:air' }],
+        BlockStates: [packed],
+      },
+    },
+  }
+  const blueprint = litematicToBlueprint(litematic, '测试机器')
+  assert.equal(blueprint.format, 'litematic')
+  assert.equal(blueprint.blocks.length, 2, '两块石头，两块空气跳过')
+  assert.deepEqual(blueprint.size, { x: 1, y: 1, z: 2 }, '石头落在 x=0 的那一列，归一化后宽 1')
+  assert.deepEqual(blueprint.materials[0], { name: 'stone', count: 2 })
+  const coords = blueprint.blocks.map((b) => `${b.x},${b.y},${b.z}`).sort()
+  assert.deepEqual(coords, ['0,0,0', '0,0,1'], '坐标以最小角归一化到原点')
+})
+
+test('litematic：多区域合并 + 负 Size 方向', async () => {
+  const { litematicToBlueprint } = await import('../../lib/domain/play/minecraft-schematic.mjs')
+  const one = BigInt(0 | (0 << 2) | (1 << 4) | (1 << 6))
+  const litematic = {
+    Regions: {
+      a: { Position: { x: 0, y: 0, z: 0 }, Size: { x: 2, y: 1, z: 2 }, BlockStatePalette: [{ Name: 'minecraft:stone' }, { Name: 'minecraft:air' }], BlockStates: [one] },
+      b: { Position: { x: 0, y: 0, z: 4 }, Size: { x: 2, y: 1, z: -2 }, BlockStatePalette: [{ Name: 'minecraft:oak_planks' }], BlockStates: [BigInt(0)] },
+    },
+  }
+  const blueprint = litematicToBlueprint(litematic, '多区域')
+  assert.ok(blueprint.blocks.length > 0)
+  assert.ok(blueprint.size.z >= 5)
+  assert.ok(blueprint.materials.some((m) => m.name === 'oak_planks'))
+})
