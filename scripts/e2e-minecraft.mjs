@@ -52,6 +52,25 @@ const SCENARIOS = {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'give XiaoJingyu wooden_sword 1', 'gamemode survival XiaoJingyu', 'summon zombie 112 100 110', 'damage XiaoJingyu 8'],
   },
+  blueprint_finish: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      'give XiaoJingyu grass_block 256', 'give XiaoJingyu oak_planks 256', 'give XiaoJingyu stone_brick_stairs 256',
+      'give XiaoJingyu dark_oak_planks 256', 'give XiaoJingyu oak_fence 256', 'give XiaoJingyu spruce_planks 256',
+      'give XiaoJingyu stone 256', 'give XiaoJingyu spruce_log 256', 'give XiaoJingyu oak_stairs 256',
+      'give XiaoJingyu white_stained_glass 256', 'give XiaoJingyu oak_log 256', 'give XiaoJingyu oak_leaves 256',
+      'give XiaoJingyu dirt 256'],
+  },
+  blueprint_lease_finish: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 120 160 minecraft:air',
+      'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64', 'give XiaoJingyu stone_brick_stairs 64',
+      'give XiaoJingyu dark_oak_planks 64', 'give XiaoJingyu oak_fence 64', 'give XiaoJingyu spruce_planks 64',
+      'give XiaoJingyu stone 64', 'give XiaoJingyu spruce_log 64', 'give XiaoJingyu oak_stairs 64',
+      'give XiaoJingyu white_stained_glass 64', 'give XiaoJingyu oak_log 64', 'give XiaoJingyu oak_leaves 64'],
+  },
   blueprint_build: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode creative XiaoJingyu',
@@ -190,7 +209,7 @@ function runBot(scenario) {
     let log = ''
     child.stdout.on('data', (d) => { log += d.toString() })
     child.stderr.on('data', (d) => { log += d.toString() })
-    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, 150000)
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch (_error) { void _error } }, ['blueprint_lease_finish','blueprint_finish'].includes(scenario) ? 600000 : 150000)
     child.on('exit', (code) => {
       clearTimeout(timer)
       let result = null
