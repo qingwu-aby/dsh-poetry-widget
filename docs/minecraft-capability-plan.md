@@ -2,7 +2,7 @@
 
 > 定位：自动化是**过程量**，不是结果量。本计划只建设“能力长出来的条件”，不把自动化写成目标。
 > 决策已定：
-> 1. 宏由她自己保存（不自动、不提醒）；能力解锁按累计次数，阈值 **64 次**；
+> 1. 宏由她自己保存（不自动、不提醒）；能力解锁按累计次数，阈值 **8 次**；
 > 2. 生存反射属于保命层，任务租约只负责“不间断执行”，不替她做选择；
 > 3. 记忆分层：接受“记大概、忘细节”，L4 每晚重写；
 > 4. 反射与租约只进台账，不进情景记忆，夜间汇总成一句；
@@ -11,7 +11,7 @@
 ## 0. 总原则（写进所有任务的前置约束）
 
 1. **自动化不进目标系统**：`game-project.json`、立项 prompt、复盘 prompt 里不出现“自动化/红石/机器”。
-2. **能力靠重复长出来**：同类动作累计 64 次 → 新原语出现在她的工具里；不提醒、不引导。
+2. **能力靠重复长出来**：同类动作累计 8 次 → 新原语出现在她的工具里；不提醒、不引导。
 3. **宏是她自己的**：只有她主动 `mc_macro save` 才存在；系统不问“要不要保存”。
 4. **度量是仪表盘**：自动化率等指标只进 `mc_status`，不进 prompt。
 
@@ -37,12 +37,12 @@
 | B4 | `mc_macro list` / `mc_macro delete` | e2e：列表与删除 | B2 |
 | B5 | 宏持久化到 `~/.dsh/.dsh-poetry/mc-macros.json`，重启存活 | 重启后 `list` 仍在 | B4 |
 
-### 阶段 C：能力按 64 次解锁（过程量）
+### 阶段 C：能力按 8 次解锁（过程量）
 
 | ID | 任务 | 验收标准 | 依赖 |
 |---|---|---|---|
 | C1 | 计数器：按动作类别统计累计次数（挖矿/采集/种植/搬运/烧炼…），落盘 | 单元测试：计数与阈值判定 | — |
-| C2 | 解锁表（64 次）：见 §2 | 单元测试：未达阈值不可见，达到即可见 | C1 |
+| C2 | 解锁表（8 次）：见 §2 | 单元测试：未达阈值不可见，达到即可见 | C1 |
 | C3 | 解锁只影响“工具可见性”，不影响 prompt | 快照测试：prompt 不含解锁提示文案 | C1 |
 | C4 | 新原语实现（按解锁顺序）：`mc_tunnel`（连续矿道）、`mc_farm_loop`（定点种收）、`mc_haul`（箱子间转运） | 各自 e2e 场景 | C2, A1 |
 
@@ -89,7 +89,7 @@
 | F2 | 进 `mc_status` 一行，不进 prompt | 快照测试 | F1 |
 | F3 | e2e + 全量测试纳入 `npm test` / `e2e-regression.mjs` | 全部绿 | 所有 |
 
-## 2. 解锁表（64 次）
+## 2. 解锁表（8 次）
 
 | 累计动作类别 | 阈值 | 解锁原语 |
 |---|---|---|
@@ -166,7 +166,7 @@ A（容器） → D（生存反射） → M（记忆优化） → E（任务租�
 | M 记忆 | ✅ v1 | 四层模块 `minecraft-memory-v2.mjs`（台账/情景/程序/叙事）+ 归属 actor + 去噪 + 300 条淘汰 + 叙事重写 + 台账汇总；已接入 world 的 prompt/receipt/event/status | L4 每晚定时重写、程序记忆与宏打通 |
 | E 租约 | ✅ v1 | `mc_task start/stop/status`，后台 1.2 秒推进、失败/完成回报事件 | 缺料检查点、死亡续做 |
 | B 宏 | ✅ v1 | 动作环缓存、`mc_macro save/run/list/delete`、持久化 `mc-macros.json` | 失败步号回报已有；跨会话验证 |
-| C 解锁 | ✅ v1（计数） | 计数器落盘（mine/farm/haul/smelt/fight），64 次解锁清单进观测 `capability` | 解锁原语实现（tunnel/farm_loop/haul/smelt_batch/guard）、按解锁隐藏工具 |
+| C 解锁 | ✅ v1（计数） | 计数器落盘（mine/farm/haul/smelt/fight），8 次解锁清单进观测 `capability` | 解锁原语实现（tunnel/farm_loop/haul/smelt_batch/guard）、按解锁隐藏工具 |
 | F 仪表盘 | ✅ v1 | `mc_status` 追加记忆统计；观测含 capability/ores | 自动化率、手工占比、无人值守产出 |
 
 ### 记忆噪声清理
@@ -193,7 +193,7 @@ v1 的待办全部补齐：
 | 待办 | 状态 | 实现 |
 |---|---|---|
 | C：解锁原语 | ✅ | `mc_tunnel`（矿道+火把+顺路收矿）、`mc_farm_loop`（收→种）、`mc_haul`（箱子间转运）、`mc_smelt_batch`（批量烧炼）、`mc_guard`（守卫） |
-| C：按解锁隐藏 | ✅ | 未达 64 次的 5 个原语**不出现在她的工具列表里**（prompt 门控，不是命令行拒绝） |
+| C：按解锁隐藏 | ✅ | 未达 8 次的 5 个原语**不出现在她的工具列表里**（prompt 门控，不是命令行拒绝） |
 | E：缺料检查点 | ✅ | 租约步骤失败且原因含“没有/缺/不够/需要” → 标记 `blocked` 并上报“缺材料”，不再无效重试 |
 | E：死亡续做 | ✅ | 租约落盘 `mc-lease.json`；重生时若 10 分钟内有未完成租约 → 自动续做并提示“（续做）” |
 | M：叙事每晚重写 | ✅ | 插件启动 + 每 6 小时 `rewriteNarrative`（合并项目标题、反射与租约台账摘要），**重写不追加** |
@@ -219,3 +219,54 @@ e2e-regression  14 / 14 通过（新增 primitives / haul_roundtrip / smelt_roun
 ✓ haul_roundtrip    搬了 8 个 ore：coal_ore×8
 ✓ smelt_roundtrip   烧出了 2 个 raw_iron 的产物
 ```
+
+
+## 9. 设计来源：.schem 蓝图导入（2026-11-27 傍晚）
+
+用户要求：解开门控 + 让她能“学习并沉淀”网上的建筑（sereyka / minecraft.pl / mineschematic）。
+
+### 门控解开
+
+```text
+UNLOCK_AT：64 → 8
+（同类动作成功 8 次就解锁对应原语；她一小时就能达到）
+```
+
+### 蓝图库（新能力）
+
+```text
+lib/domain/play/minecraft-schematic.mjs   .schem 解析（Sponge v1/v2/v3 + root.Schematic 包装 + Blocks 子复合）
+scripts/import-schematic.mjs              下载/读取 .schem → 蓝图 JSON（含尺寸、材料清单）
+~/.dsh/.dsh-poetry/blueprints/*.json      蓝图库
+mc_build action=list                      她能查“我会盖哪些建筑”
+mc_build from=<名字>                      按蓝图施工（分批、断点续建、地基悬空检查）
+```
+
+已导入的蓝图（来自 minecraft.pl 的真实建筑）：
+
+```text
+starter-house      12× 8×12    362 块   新手小屋
+sredni-dom         12× 9×12    418 块   中型住宅
+kamienny-zamek     19×14×19   1282 块   石堡
+obronna-wieza      12×51×12   1287 块   防御塔（51 格高）
+jiuguan            37×49×33   9007 块   酒馆（复式大建筑）
+zhenshitang        48×33×28   5820 块   市政厅
+yuanshi-nongchang  11×26×12    959 块   刷石机（红石机械）
+```
+
+### 施工健壮性
+
+```text
+· 蓝图 y=0 锚到「脚下第一块实地」，不再悬空
+· 四角地基检查：角上悬空就拒建并说明原因
+· 动工前自动站到图外（避免方块放进自己身体导致 place_failed）
+· 同蓝图未完工时接着上次进度，不重置
+```
+
+e2e 实测（创意服，分批 12 块/次）：
+
+```text
+✓ blueprint_build   蓝图施工进度 12 → 24 → 36
+```
+
+全量回归 **16/16 通过**，单测 **1132 通过**。
