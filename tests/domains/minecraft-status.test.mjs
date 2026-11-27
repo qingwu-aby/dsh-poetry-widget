@@ -69,3 +69,8 @@ test('selfView：优先用 bot 的 self 快照，缺字段回退旧字段', asyn
   assert.equal(fallback.position, '1,2,3')
   assert.equal(fallback.shelter.at, '7,8,9')
 })
+
+test('status：报告附近看到的矿（机会性采集的依据）', () => {
+  const report = buildStatusReport({ observation: { position: '1,64,1', facilities: {}, ores: { 铁: 3, 煤: 8 } } })
+  assert.match(report, /附近 8 格内看到的矿：铁×3、煤×8/)
+})
