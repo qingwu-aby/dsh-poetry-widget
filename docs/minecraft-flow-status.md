@@ -1506,3 +1506,34 @@ mc_collect until=32 item=oak_log
 
 于是 MC 决策现在真正走 `drive` 角色 = **glm-5.3**；
 其他角色（selfTalk/mood/growth…）仍是 deepseek-v4.1-flash。
+
+
+## 她为什么“不用工具、舍近求远”（2026-11-27 深夜排查）
+
+实测背包：`birch_log×4, birch_planks×8, oak_log×6, oak_planks×4, dirt×2, leaf_litter×8`
+——**一把镐/斧/锄都没有**。不是“不想用”，是死了以后丢了、又一直没补。
+
+同时看到她的动作：`mc_craft` 反复合木板，`mc_move_to` 目标 60 格开外还失败。
+
+两侧修复：
+
+### ① 反射补工具（新增）
+
+反射循环里加一条：没有镐或斧、且有木板+木棍时，
+先做工作台（2×2 不用台子）→ 放下 → 做 wooden_pickaxe / wooden_axe。
+
+```text
+✓ reflex_tools  反射补工具：镐=true 斧=true（repair_tools）
+```
+
+### ② 舍近求远提醒
+
+`mc_move_to` 目标超过 40 格时，顺手看一眼附近 16 格内有没有木头/石头：
+
+```text
+（提醒）目标 63 格远，但附近 5 格就有 oak_log。
+```
+
+只是提示，不阻止她。
+
+全量 e2e 25/25。

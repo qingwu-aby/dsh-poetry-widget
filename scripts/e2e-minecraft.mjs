@@ -19,7 +19,7 @@ const SCENARIOS = {
   find_missing: { checks: 'ok=false', fixture: ['tp XiaoJingyu 105 100 105', 'clear XiaoJingyu'] },
   craft_with_far_table: {
     checks: 'ok=true',
-    fixture: ['tp XiaoJingyu 100 100 100', 'clear XiaoJingyu', 'give XiaoJingyu oak_planks 8', 'give XiaoJingyu stick 4', 'setblock 110 100 100 minecraft:crafting_table'],
+    fixture: ['tp XiaoJingyu 100 100 100', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu', 'give XiaoJingyu oak_planks 32', 'give XiaoJingyu stick 12', 'setblock 110 100 100 minecraft:crafting_table'],
   },
   shelter_full: {
     checks: 'ok=true',
@@ -59,6 +59,12 @@ const SCENARIOS = {
       'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64'],
   },
   decide_gate: { checks: 'ok=true', fixture: [] },
+  reflex_tools: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 60 99 60 160 99 160 minecraft:grass_block', 'fill 60 100 60 160 130 160 minecraft:air',
+      'give XiaoJingyu oak_planks 16', 'give XiaoJingyu stick 8'],
+  },
   shelter_blueprint: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
