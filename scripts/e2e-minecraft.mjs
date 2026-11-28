@@ -40,6 +40,7 @@ const SCENARIOS = {
         'give XiaoJingyu diamond_pickaxe 1', 'give XiaoJingyu torch 16', 'give XiaoJingyu wheat_seeds 8',
         'give XiaoJingyu diamond_hoe 1', 'give XiaoJingyu raw_iron 4', 'give XiaoJingyu coal 8']
       for (let y = 100; y <= 101; y += 1) for (let z = 108; z <= 112; z += 1) for (let x = 111; x <= 118; x += 1) cmds.push(`setblock ${x} ${y} ${z} minecraft:stone`)
+      cmds.push('tp XiaoJingyu 110.5 100 110.5')
       for (let dx = -2; dx <= 2; dx += 1) for (let dz = -2; dz <= 2; dz += 1) {
         if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) continue
         cmds.push(`setblock ${110 + dx} 99 ${110 + dz} minecraft:farmland`)
@@ -59,6 +60,13 @@ const SCENARIOS = {
       'give XiaoJingyu grass_block 64', 'give XiaoJingyu oak_planks 64'],
   },
   decide_gate: { checks: 'ok=true', fixture: [] },
+  reflex_water: {
+    checks: 'ok=true',
+    fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
+      'fill 400 119 400 410 119 410 minecraft:stone',
+      'fill 400 120 400 410 140 410 minecraft:water',
+      'tp XiaoJingyu 405 121 405'],
+  },
   reflex_tools_from_logs: {
     checks: 'ok=true',
     fixture: ['tp XiaoJingyu 110 100 110', 'clear XiaoJingyu', 'gamemode survival XiaoJingyu',
@@ -349,6 +357,20 @@ for (const scenario of list) {
   if (teleport) await rcon([teleport])
   await sleep(2500)                              // 等区块加载，否则 setblock/fill 会“位置未加载”
   await rcon(['clear XiaoJingyu', ...rest])
+  // 传送可能因为区块未加载/实体未就绪失效：核对位置，不对就再传一次
+  if (teleport) {
+    const want = teleport.split(/\s+/).slice(2, 5).map(Number)
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await sleep(600)
+      const data = await rcon(['data get entity XiaoJingyu Pos'])
+      const matched = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(data.join(' ') || '')
+      if (!matched) { await rcon([teleport]); continue }
+      const got = [Number(matched[1]), Number(matched[2]), Number(matched[3])]
+      const near = Math.abs(got[0] - want[0]) < 3 && Math.abs(got[2] - want[2]) < 3
+      if (near) break
+      await rcon([teleport.replace(/\s+/g, ' ')])
+    }
+  }
   await sleep(800)
   let { code, result, log } = await botRun
   if (!result || result.pass === undefined) {
